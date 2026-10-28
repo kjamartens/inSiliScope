@@ -5,6 +5,7 @@
 #include "ScopeMovie.h"
 #include "Timing.h"
 #include "WidefieldRender.h"
+#include "scope_setup.h"
 
 #include "insiliscope/insiliscope.h"
 
@@ -164,6 +165,33 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
       return static_cast<int32_t>(need);
    } catch (...) {
       return fail("exception");
+   }
+}
+
+// The resolved setup of a movie of `spec` as JSON (probes::ViewerSetupJson: light path, excitation, labels, the
+// built-in linkages), for the viewer's light-path plot, BFP readout and data layers. Returns the length (without the
+// terminating 0); fills out when cap > that (the JSON is kept from the sizing call to the filling call). -1 on a bad
+// spec or a failure (message in errOut).
+ISC_API int32_t isc_scope_setup(const char* spec, char* out, int32_t cap, char* errOut, int32_t errCap)
+{
+   static std::string lastSpec, last;
+   if (!spec) return Fail(errOut, errCap, "no spec");
+   try {
+      if (lastSpec != spec || last.empty()) {
+         sim::ScopeSpec s;
+         std::string err, json;
+         if (!sim::ParseScopeSpec(spec, s, err) || !probes::ViewerSetupJson(s, json, err)) return Fail(errOut, errCap, err);
+         lastSpec = spec;
+         last = std::move(json);
+      }
+      const int32_t n = static_cast<int32_t>(last.size());
+      if (out && cap > n) {
+         std::memcpy(out, last.data(), last.size());
+         out[n] = 0;
+      }
+      return n;
+   } catch (...) {
+      return Fail(errOut, errCap, "exception");
    }
 }
 

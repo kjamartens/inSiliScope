@@ -1955,10 +1955,9 @@ function params() {
 // targets in structure order: microtubules, nuclear pores, docking strands), the labelled site fraction, the
 // fluorescent fraction of the dye in use and the label linkage (World.setLabels / isc_world_set_label). Dye None: no
 // dyes (density 0).
-// The structures' built-in linkage numbers (dyes.js LEGACY_LINKAGE), for a Built-in attachment with a number overridden;
-// until the module is in, such a label takes the built-in numbers whole.
+// The structures' built-in linkage numbers (the C++ LegacyLinkageNm, from the first setup job: onSetup), for a Built-in
+// attachment with a number overridden; until then such a label takes the built-in numbers whole.
 let legacyLinkage = null;
-import('./prototype/scope/dyes.js').then(D => { legacyLinkage = D.LEGACY_LINKAGE; requestDraw(); }, e => console.warn('dyes.js:', e));
 const LINKAGE_KEYS = [['binder-nm', 'binderNm'], ['binder-flex-nm', 'binderFlexNm'], ['linker-min-nm', 'linkerMinNm'], ['linker-max-nm', 'linkerMaxNm']];
 // A target's linkage as the panel has it (scope_movie.js scopeLinkage, dyes.js normLinkage); null = the structure's
 // built-in numbers (or no linkage model).
@@ -3719,6 +3718,7 @@ function iscEngine(M) {
   const LABEL_MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'], ORIENT_MODES = ['Free', 'Fixed', 'Random'];
   const linkageVector = lk => lk ? [lk.binderNm, lk.binderFlexNm, lk.linkerMinNm, lk.linkerMaxNm] : [NaN, NaN, NaN, NaN];
   function labelVector(l) {
+    if (Array.isArray(l)) return l;
     if (!l.mode) return l.linkage ? [l.density, l.fluorescentFraction, 2, 0.01, 0.05, 1, 1, 0.5, 0, 0, 0, 90, 0, 0, 0, 0, ...linkageVector(l.linkage)]
       : [l.density, l.fluorescentFraction];
     const k = l.kinetics, o = l.orientation;
@@ -3877,7 +3877,7 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'options' || d.type === 'psf' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'options' || d.type === 'setup' || d.type === 'psf' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
         // d (nm) each), on the beads' own world.
@@ -4083,6 +4083,23 @@ function iscEngine(M) {
         M._free(b);
         return [{ type: 'options', id: d.id, names: lines.map(l => l[0]), defaults: lines.map(l => +l[1]) }, []];
       }
+      if (d.type === 'setup') {
+        // A movie spec's resolved setup (isc_scope_setup: JSON of the light path, excitation, labels).
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), err = M._malloc(512);
+        M.stringToUTF8(d.spec, s, n);
+        let res;
+        const need = M._isc_scope_setup ? M._isc_scope_setup(s, 0, 0, err, 512) : -2;
+        if (need === -2) res = { type: 'setup', id: d.id, error: 'this viewer module has no isc_scope_setup (regenerate web/insiliscope_module.js)' };
+        else if (need < 0) res = { type: 'setup', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          const b = M._malloc(need + 1);
+          M._isc_scope_setup(s, b, need + 1, err, 512);
+          res = { type: 'setup', id: d.id, setup: JSON.parse(M.UTF8ToString(b)) };
+          M._free(b);
+        }
+        M._free(s); M._free(err);
+        return [res, []];
+      }
       if (d.type === 'movie') {
         // The adapter's render code (sim::RenderScopeMovie via isc_scope_movie), on a
         // world of its own built from the spec, so it never disturbs `world`.
@@ -4134,6 +4151,40 @@ function genWorkerMain() {
 const genWorkers = { ok: false, pack: null, cells: [], busy: [], dyes: null };
 let genBlobUrl = null, mainEngine = null, mainEngineStarting = false;
 function coreReady() { return genWorkers.ok || !!mainEngine; }
+// A movie spec's resolved setup (the C++ isc_scope_setup: light path, excitation, labels, the built-in linkages) for
+// the light-path plot, the BFP readout and the data layers; on the dyes worker, the last few kept. Before the core is
+// up the jobs wait (flushSetupWaiting).
+const setupJobs = new Map(), setupWaiting = [], setupCache = new Map();
+let setupJobId = 3e9;
+function setupJob(spec) {
+  const hit = setupCache.get(spec);
+  if (hit) return hit;
+  const p = new Promise((res, rej) => {
+    const go = () => {
+      const job = { type: 'setup', id: ++setupJobId, spec }, done = d => (d.error ? rej(new Error(d.error)) : res(onSetup(d.setup)));
+      if (genWorkers.ok) { setupJobs.set(job.id, done); genWorkers.dyes.postMessage(job); }
+      else if (mainEngine) setTimeout(() => { try { done(mainEngine.handle(job)[0]); } catch (e) { rej(e); } }, 0);
+      else setupWaiting.push(go);
+    };
+    go();
+  });
+  setupCache.set(spec, p);
+  p.catch(() => setupCache.delete(spec));
+  if (setupCache.size > 16) setupCache.delete(setupCache.keys().next().value);
+  return p;
+}
+function flushSetupWaiting() { for (const go of setupWaiting.splice(0)) go(); }
+function onSetupResult(d) { const j = setupJobs.get(d.id); setupJobs.delete(d.id); if (j) j(d); }
+// JSON has no NaN: a label vector's null is NaN (a linkage number left to the structure).
+function onSetup(S) {
+  for (const l of S.labels) l.label_vector = l.label_vector.map(v => (v === null ? NaN : v));
+  if (!legacyLinkage) {
+    legacyLinkage = Object.fromEntries(Object.entries(S.legacy_linkage).map(([id, v]) =>
+      [id, { binderNm: v[0], binderFlexNm: v[1], linkerMinNm: v[2], linkerMaxNm: v[3] }]));
+    requestDraw();
+  }
+  return S;
+}
 // The WASM binary (the base64 inside the module text) decoded and compiled ONCE here and handed to
 // every worker as a WebAssembly.Module, instead of a decode + compile per worker. null when the
 // browser cannot (the workers then compile it themselves, as before).
@@ -4190,9 +4241,11 @@ function initGenWorkers() {
       else if (t === 'bf-begin') onBfBegin(e.data);
       else if (t === 'origami') onOrigamiResult(e.data);
       else if (t === 'options') { if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults); }
+      else if (t === 'setup') onSetupResult(e.data);
       else if (t !== 'bf-end') onDyeResult(e);
     };
     genWorkers.ok = true;
+    flushSetupWaiting();
     if (!engineUrl()) genWorkers.dyes.postMessage({ type: 'options', id: 0 });
     schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
@@ -4216,7 +4269,7 @@ function startMainEngine() {
   }
   try { (0, eval)(self.ISC_MODULE_SRC); } // defines createInsiliscope
   catch (e) { showLoadError(e); return; }
-  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); requestDraw(); })
+  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); flushSetupWaiting(); requestDraw(); })
     .catch(showLoadError);
 }
 // The core could not start (no WebAssembly, out of memory, a blocked script): say so where "Loading..." stood, instead
@@ -5883,17 +5936,28 @@ function layerNote(id) {
   return kind === 'dyes' ? DYE_UI.dyeName() : DYE_UI.dyeName() + ', ' + dataMode(kind === 'loc' ? 'sr' : kind);
 }
 const dataStartSec = () => Math.max(0, +document.getElementById('mv_start-sec').value || 0);
-// The world labels and photophysics an SMLM data layer's movie has (scope_movie.js scopeLabels on its spec: mode,
-// kinetics from the dye and light path, detected photons per second while ON), for the localizations' blinks; null
-// until the JS reference's modules are in (a redraw follows).
-let dataScopeSM = null;
-import('./prototype/scope/scope_movie.js').then(SM => { dataScopeSM = SM; requestDraw(); }, e => console.warn('scope_movie.js:', e));
-function dataLabelInfo(ov) {
-  if (!dataScopeSM) return null;
-  const SM = dataScopeSM, spec = SM.parseSpec(movieSpec(ov)), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
-  const L = SM.scopeLabels(spec, lp), l = L[DYE_UI.structure()];
-  return { labels: L.map(x => x.label), detectedPerSec: l.states.main ? l.states.main.detectedPerSec : 0, mode: l.mode, dye: l.dye ? l.dye.name : 'None' };
+// The world labels and photophysics an SMLM data layer's movie has (its spec's setup job: each structure's label
+// vector as the movie sets it, mode, dye, detected photons per second while ON), for the localizations' blinks; null
+// until its setup is in (a redraw follows; dataLabelsReady: the promise of it, null on a failure).
+const dataLabels = new Map();
+function dataLabelEntry(ov) {
+  const spec = movieSpec(ov), s = DYE_UI.structure(), key = s + '|' + spec;
+  let e = dataLabels.get(key);
+  if (e) return e;
+  e = { info: null, p: null };
+  e.p = setupJob(spec).then(S => {
+    const l = S.labels[s];
+    e.info = { labels: S.labels.map(x => x.label_vector), detectedPerSec: l.main ? l.main.detected_per_s : 0, mode: l.mode,
+      dye: l.dye_id ? l.dye_name : 'None' };
+    requestDraw();
+    return e.info;
+  }, err => { dataLabels.delete(key); console.warn('setup:', err); return null; });
+  dataLabels.set(key, e);
+  if (dataLabels.size > 32) dataLabels.delete(dataLabels.keys().next().value);
+  return e;
 }
+function dataLabelInfo(ov) { return dataLabelEntry(ov).info; }
+function dataLabelsReady(ov) { return dataLabelEntry(ov).p; }
 const DATA_MAX_PX = 512, DATA_MEM_BYTES = 300e6;
 // The data settings: the panel's, overridden by an animation's (state.data).
 function dataParams(over) {
@@ -6191,6 +6255,7 @@ async function acquireData(layerIds, key, over, onProgress, signal) {
     const kind = DATA_KIND[id];
     if (!kind) continue;
     for (let i = 0; i < 100 && !cellBounds(key)?.precise; i++) { requestDraw(); await new Promise(r => setTimeout(r, 100)); }   // the cell's outline first
+    if (kind === 'loc') await dataLabelsReady(dataModeOv('sr'));   // the movie's labels (a setup job)
     const plan = kind === 'loc' ? locPlan(key, dp) : stackPlan(kind, key, dp);
     if (plan && !plans.some(p => p.key === plan.key)) plans.push(Object.assign(plan, { kind }));
   }
@@ -6627,26 +6692,25 @@ function showPsfPlane(f) {
 document.getElementById('psfPreview').addEventListener('click', previewPsf);
 
 // ---- light path: spectra plot and detection readout (issue 16) ----
-// From the JS reference's own physics (prototype/scope: scopeLightPath, scopeLabels = what a movie uses): the dye's
-// excitation and emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission
-// and the camera QE; below, the detected fraction, effective wavelength and photons per second while ON.
-let specMods = null, specTimer = 0;
+// From the movie's own setup (the setup job: the C++ light path and labels a movie uses): the dye's excitation and
+// emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission and the camera
+// QE; below, the detected fraction, effective wavelength and photons per second while ON.
+let specTimer = 0;
 
-// ---- the BFP position's readout: regime and depth (the JS reference's excitation, as a movie uses it) ----
+// ---- the BFP position's readout: regime and depth (the setup job's excitation, as a movie uses it) ----
 let bfpTimer = 0;
 function scheduleBfpReadout() { clearTimeout(bfpTimer); bfpTimer = setTimeout(drawBfpReadout, 120); }
 async function drawBfpReadout() {
   const out = document.getElementById('bfpReadout');
   if (!out) return;
   try {
-    specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
-    const [SM] = await specMods;
-    const spec = SM.parseSpec(movieSpec()), ex = SM.scopeExcitation(spec);
+    const ex = (await setupJob(movieSpec())).excitation;
+    if (!ex) { out.textContent = ''; return; }
     const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
-    const nm = lit.length ? lit[lit.length - 1] : 640, d = ex.depthNm(nm);
-    out.textContent = ex.regime + (ex.regime === 'TIRF' ? `: 1/e depth ${d.toFixed(0)} nm at ${nm} nm, field x${ex.F.toFixed(2)}`
+    const nm = lit.length ? lit[lit.length - 1] : 640, d = ex.depth_nm[nm];
+    out.textContent = ex.regime + (ex.regime === 'TIRF' ? `: 1/e depth ${d.toFixed(0)} nm at ${nm} nm, field x${ex.field_factor.toFixed(2)}`
       : ex.regime === 'HILO' ? `: sheet ${(Math.asin(Math.min(1, ex.u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium` + (d > 0 ? `, ${(d / 1000).toFixed(1)} µm thick` : '')
-      : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.uMax.toFixed(3)}), no light` : ': the beam straight up');
+      : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.u_max.toFixed(3)}), no light` : ': the beam straight up');
   } catch (e) { out.textContent = ''; }
 }
 for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
@@ -6683,10 +6747,7 @@ async function drawSpecPlot(big) {
   const k = big ? 2 : Math.min(4, Math.max(1, (cv2.clientWidth || SPEC_W) / SPEC_W * (devicePixelRatio || 1)));
   if (!big && cv2.width !== Math.round(SPEC_W * k)) { cv2.width = Math.round(SPEC_W * k); cv2.height = Math.round(SPEC_H * k); }
   try {
-    specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
-    const [SM, DL] = await specMods;
-    const spec = SM.parseSpec(movieSpec()), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
-    const AL = SM.scopeLabels(spec, lp);
+    const S = await setupJob(movieSpec()), lp = S.light_path, AL = S.labels;
     const shown = DYE_UI.targets.filter(t => t.specimen === DYE_UI.specimen() && !AL[t.structure].off).map(t => [t, AL[t.structure]]);
     const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8 * k, bot = H - 16 * k;
     const X = nm => (nm - x0) / (x1 - x0) * W, Y = v => bot - v * (bot - top);
@@ -6709,49 +6770,52 @@ async function drawSpecPlot(big) {
       if (fill) { g.lineTo(X(x1), Y(0)); g.lineTo(X(x0), Y(0)); g.closePath(); g.fillStyle = fill; g.fill(); return; }
       g.setLineDash((dash || []).map(v => v * k)); g.strokeStyle = style; g.lineWidth = P.lw * k; g.stroke(); g.setLineDash([]);
     };
-    curve(lp.emissionFilter.T, null, null, P.emFill);
-    if (P.emEdge) curve(lp.emissionFilter.T, P.emEdge);
-    legend.push(['emission filter: ' + lp.emissionFilter.name, { fill: P.emFill, stroke: P.emEdge }]);
-    curve(lp.dichroic.T, P.dich, [2, 2]);
-    legend.push(['dichroic: ' + lp.dichroic.name, { stroke: P.dich, dash: [2, 2] }]);
-    if (lp.excitationFilter.T.some(v => v !== 1)) {
-      curve(lp.excitationFilter.T, P.exF, [6, 2, 1, 2]);
-      legend.push(['excitation filter: ' + lp.excitationFilter.name, { stroke: P.exF, dash: [6, 2, 1, 2] }]);
+    curve(lp.emission_T, null, null, P.emFill);
+    if (P.emEdge) curve(lp.emission_T, P.emEdge);
+    legend.push(['emission filter: ' + lp.emission_filter, { fill: P.emFill, stroke: P.emEdge }]);
+    curve(lp.dichroic_T, P.dich, [2, 2]);
+    legend.push(['dichroic: ' + lp.dichroic, { stroke: P.dich, dash: [2, 2] }]);
+    if (lp.excitation_T.some(v => v !== 1)) {
+      curve(lp.excitation_T, P.exF, [6, 2, 1, 2]);
+      legend.push(['excitation filter: ' + lp.excitation_filter, { stroke: P.exF, dash: [6, 2, 1, 2] }]);
     }
     curve(lp.qe, P.qe, [1, 3]);
-    legend.push(['camera QE' + (lp.qeName ? ': ' + lp.qeName : ''), { stroke: P.qe, dash: [1, 3] }]);
+    legend.push(['camera QE' + (lp.qe_name ? ': ' + lp.qe_name : ''), { stroke: P.qe, dash: [1, 3] }]);
     for (const [t, L] of shown) {
       const name = DYE_UI.dyeNameOf(t.prefix);
       for (const [role, dash] of [['main', null], ['pre', [5, 3]]]) {
-        const st = L.dye.states[role];
-        if (!st || st.isDark || (role === 'pre' && L.mode !== 'PALM')) continue;
-        const sp = DL.stateSpectra(st), who = name + (role === 'pre' ? ' (pre state)' : '');
+        const sp = L['dye_' + role];
+        if (!sp.present || sp.is_dark || (role === 'pre' && L.mode !== 'PALM')) continue;
+        const who = name + (role === 'pre' ? ' (pre state)' : '');
         const c = waveColour(sp.em ? centroidNm(sp.em) : sp.ex ? centroidNm(sp.ex) : 600, light);   // its weighted emission wavelength
         if (sp.ex) { curve(sp.ex, c, [3, 3]); legend.push([who + ' excitation', { stroke: c, dash: [3, 3] }]); }
         if (sp.em) { curve(sp.em, c, dash); legend.push([who + ' emission', { stroke: c, dash }]); }
       }
     }
+    let lines = 0;
     for (const l of lp.lasers) {
-      if (!(l.kWPerCm2 > 0)) continue;   // blocked by the excitation filter
+      if (!(l.kw_per_cm2 > 0)) continue;   // blocked by the excitation filter
+      lines++;
       // a laser line: its colour with an edge on both sides (white on the dark looks), so it stands apart from a dye
       // curve of the same hue
       const c = P.laser(l.nm), x = X(l.nm), w = P.laserW * k, e = (light ? 1 : 1.5) * k;
       g.fillStyle = P.laserEdge; g.fillRect(x - w / 2 - e, top, w + 2 * e, bot - top);
       g.fillStyle = c; g.fillRect(x - w / 2, top, w, bot - top);
-      legend.push([`${l.nm} nm laser, ${+l.kWPerCm2.toFixed(3)} kW/cm²`, { stroke: c, width: P.laserW, edge: P.laserEdge }]);
+      legend.push([`${l.nm} nm laser, ${+l.kw_per_cm2.toFixed(3)} kW/cm²`, { stroke: c, width: P.laserW, edge: P.laserEdge }]);
     }
-    const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
+    cv2.dataset.lasers = lines;
+    const fmt = st => st ? `${(100 * st.detected_fraction).toFixed(1)} % detected at ${st.lambda_nm.toFixed(0)} nm, ${Math.round(st.detected_per_s).toLocaleString()} ph/s` : 'dark';
     const parts = [];
     if (!shown.length) parts.push('no labelled target (every dye None, 0 % labelled or no structure)');
     for (const [t, L] of shown) {
       const who = shown.length > 1 ? t.name + ': ' : '';
-      parts.push(`${who}<b>${DYE_UI.dyeNameOf(t.prefix)}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`);
-      if (L.states.pre) parts.push(`pre state: ${fmt(L.states.pre)}`);
-      if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.onSecNow).toPrecision(3)} ms, initial ON ${L.label.kinetics.initialOnSec.toPrecision(3)} s (excitation x${L.excitationScale.toPrecision(3)} of Dempsey 2011's)`);
-      if (L.kActPerSec > 0) parts.push(`activation ${L.kActPerSec.toPrecision(3)} /s per dye`);
-      const bg = L.imagerBackgroundPerPxPerSec(+document.getElementById('mv_pixel-nm').value / 1000);
+      parts.push(`${who}<b>${DYE_UI.dyeNameOf(t.prefix)}</b>, ${L.mode}: ${fmt(L.main)}${L.mode === 'WideField' ? '' : ' while ON'}`);
+      if (L.pre) parts.push(`pre state: ${fmt(L.pre)}`);
+      if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.on_s_now).toPrecision(3)} ms, initial ON ${L.initial_on_s.toPrecision(3)} s (excitation x${L.excitation_scale.toPrecision(3)} of Dempsey 2011's)`);
+      if (L.k_act_per_s > 0) parts.push(`activation ${L.k_act_per_s.toPrecision(3)} /s per dye`);
+      const bg = L.imager_background_per_px_per_s;
       if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
-      if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
+      if (L.generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
     }
     // the legend and the readout (what reaches the camera per label) only under the enlarged plot
     if (big) {
@@ -6763,10 +6827,7 @@ async function drawSpecPlot(big) {
     }
     out.innerHTML = !big ? '' : parts.join('<br>');
   } catch (e) {
-    specMods = null;   // try the import again next time
-    // Browsers do not load ES modules from file:// pages: the plot (the JS reference's physics) needs the page over http.
-    if (location.protocol === 'file:') out.innerHTML = 'The spectra plot needs the viewer served over http (e.g. <code>node web/lab/serve.mjs</code>, then http://localhost:8123/web/), not opened as a file. Movies are not affected.';
-    else out.textContent = 'light path: ' + (e && e.message || e);
+    out.textContent = 'light path: ' + (e && e.message || e);
   }
 }
 // the plot follows the settings and the controls column (where Illumination & light path is)
