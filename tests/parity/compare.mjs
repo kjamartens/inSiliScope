@@ -1,5 +1,5 @@
-// Compares parity outputs against the JS reference and prints the M0 table.
-//   node compare.mjs <ref_js.txt> <name>=<out.txt> [<name>=<out.txt> ...] [--tol 1e-6] [--geomtol 1e-6]
+// Compares parity outputs against the frozen goldens and prints the M0 table.
+//   node compare.mjs <ref.txt> <name>=<out.txt> [<name>=<out.txt> ...] [--tol 1e-6] [--geomtol 1e-6]
 // Exit code 0 = PASS (RNG and math bit-exact, every layout equal or within --tol,
 // cytoplasm mesh / microtubules (the cell, mesh, mtp, mtl lines) equal or within
 // --geomtol, every other structure line within --tol). The mesh uses

@@ -1,8 +1,8 @@
 // Nuclear pore complexes (issue 15; spec/ALGORITHM.md "Nuclear pores"): pores on each cell's nuclear envelope at
 // npcDensity per um^2 of it, uniform by area, each along the local outward normal (the middle plane on the
-// membrane), no two closer than npcMinDistNm. Port of the prototype's nucSurfaceLocal / nucSurfaceMesh /
-// nucSurfaceNormal / buildNpcsForCell / npcAttachmentPoints (web/prototype/index.html), bit for bit (jsm math, the
-// JS operand order).
+// membrane), no two closer than npcMinDistNm. Ported from the retired JS prototype (nucSurfaceLocal /
+// nucSurfaceMesh / nucSurfaceNormal / buildNpcsForCell / npcAttachmentPoints) bit for bit (jsm math, the JS
+// operand order), which keeps the frozen goldens.
 //
 // Area-uniform sampling: a fixed mesh of the surface's parameters (its flat triangles chosen by area, a uniform point
 // on the triangle, mapped back to the parameters and evaluated on the true surface). Pieces: the side, alpha in

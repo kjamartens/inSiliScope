@@ -3,7 +3,7 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   See DyeLibrary.h (twin of web/prototype/scope/dye_library.js).
+// DESCRIPTION:   See DyeLibrary.h.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 

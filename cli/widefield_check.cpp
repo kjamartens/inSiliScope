@@ -1028,7 +1028,7 @@ void RepeatedMovies()
 // Issue 16: a continuous population's mean-field image (the structure's FFT
 // image x the mean photons per dye) equals the per-dye path's (every dye's
 // PSF through the running image) on average: 1 % in total, 4 % per bright
-// pixel at 2 % labelling (as web/lab/check.mjs on the JS). Bright and with no
+// pixel at 2 % labelling. Bright and with no
 // read noise, offset or gain spread, so the ADU are the photon image.
 void MeanFieldVsPerDye()
 {

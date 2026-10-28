@@ -40,12 +40,11 @@ nanorulers (`core/src/origami.*`) are the worked example.
    (`BlockKey`), structure id and draws, so the event, continuous, density and site queries work unchanged. Its
    params in `Params`/`kFields` (`core/src/params.*`), skipped by `PackingFingerprint`; queries of its own for the hosts
    (ABI: `isc_origami_*`); `world_checks` cases (determinism under any query order, tiling, statistics); the golden
-   vectors re-frozen with its lines added. Everything has a bit-exact JS twin in `web/prototype/scope/` first
-   (iteration mode, `web/lab/README.md`).
+   vectors re-frozen with its lines added.
 2. **Registry:** an entry in `data/specimens.json` with its targets (option prefix, core structure id; a new structure
    id raises `ISC_STRUCT_COUNT`) and their `typicalLabels` in `data/dyes/library.json`; `node tools/gen_dye_library.mjs`.
-3. **Engine:** its params as options (`ScopeSpecimenParams` in `Simulation/ScopeMovie.cpp` and its JS twin); the
-   per-target label options come from the registry by themselves. A `scope_parity.mjs` case and a cli ctest.
+3. **Engine:** its params as options (`ScopeSpecimenParams` in `Simulation/ScopeMovie.cpp`); the
+   per-target label options come from the registry by themselves. A cli ctest.
 4. **Viewer and block:** an option group shown for it (`show:` predicates in `web/index.html`), its drawing (a worker
    job and a layer in `web/scene/core.js`), `buildWindow({specimen})` in `tools/make_cellfield_block.mjs`.
 5. **Micro-Manager:** a device for it (`spec/MM_DEVICES.md` "A new specimen"); `SampleHolder` lists it by itself;
@@ -55,11 +54,11 @@ nanorulers (`core/src/origami.*`) are the worked example.
 
 ## Recipe: a new DNA-origami design
 
-A design is data: add it to `data/origami/designs.json` (schema in its `about`), run `node tools/gen_origami_designs.mjs` (validates it and writes the core's, the JS reference's and the
+A design is data: add it to `data/origami/designs.json` (schema in its `about`), run `node tools/gen_origami_designs.mjs` (validates it and writes the core's and the
 viewer's tables; `--check` in CI) and re-freeze the golden vectors if a golden case uses it. Its index is the
 `origamiDesign` param; the viewer, Micro-Manager (`Nanorulers.Design`) and the CLI list it by itself. A body, deformation
 or landing model the code does not implement yet (cuboid, 3D bending, stiffness patches, ...) is validated as "not
-implemented": add it to `origami.js` and `origami.cpp` together.
+implemented": add it to `core/src/origami.cpp` and the generator's validation together.
 
 Positions are in lattice steps of the site spacing (`origamiSpacingNm`, one value for all designs), so a design scales
 with it. Two kinds exist:
@@ -80,7 +79,7 @@ dSTORM/PALM/DNA-PAINT presets are combinations of the labelling fractions, activ
 ## Recipe: a new MM property
 
 Add one row to the property registry (`adapter/inSiliScope/Registry/PropertyTable.cpp`) on the device and tier that
-`spec/MM_DEVICES.md` picks, with a one-line help, and add the same option to `ScopeMovieOptions()` and its JS twin so
+`spec/MM_DEVICES.md` picks, with a one-line help, and add the same option to `ScopeMovieOptions()` so
 the CLI and viewer reach it. Regenerate the property section of `docs/micro-manager.md` (`tools/gen_property_reference.py`) and, if a config
 group sets it, the shipped configurations (`tools/gen_mm_configs.py`).
 
@@ -105,7 +104,7 @@ just that.
 
 ## Performance work
 
-Speed-ups keep every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`, `scope_parity`'s SR 100 %,
+Speed-ups keep every output bit-identical (cli TIFF pixel data, `adapter_pixel_hash`, the golden vectors,
 `world_checks` 8 threads = 1 thread): hoist values computed identically, cache pure functions of (seed, address,
 parameters), vectorise independent lanes, thread work that is consumed in serial order, re-lay data; never reassociate,
 fuse (ctest `world_checks` `NoContraction` guards the build flags, link-time optimisation included), or change a
@@ -115,26 +114,23 @@ path per phase (the release's numbers are on the [Benchmarks](benchmarks.md) pag
 `sr_render_check --bench` the splat, `tools/bench.py` whole movies. A consumer with several worlds (the viewer's
 workers) packs each block once and hands the rows around with ABI 7 `isc_world_pack_block` / `isc_world_set_block`
 (spec/PORT.md 6.5); across runs the same rows live in a small per-user file (ABI 8 `isc_world_set_cache_dir`, spec/PORT.md
-6.6) or, in the viewer, in local storage. Both are keyed on `ISC_WORLD_VERSION`: bump it (and `WORLD_VERSION` in
-`web/prototype/scope/world.js`) with every change that moves a cell, i.e. whenever `spec/golden` is re-frozen.
+6.6) or, in the viewer, in local storage. Both are keyed on `ISC_WORLD_VERSION`: bump it with every change that moves a cell, i.e. whenever `spec/golden` is re-frozen.
 
 ## Bit-exactness and `world_version`
 
-The existing content is bit-exact with the JS prototype and frozen by golden vectors. Content with no JS counterpart
-(anything new) cannot be, so its reference is the C++ itself:
+The content ported from the JS prototype (retired 2026-10-28) is frozen by golden vectors that were made by the JS;
+content added since has the C++ itself as its reference:
 
 - add golden vectors generated from the C++ and commit them; a change to them is a deliberate, reviewed act;
 - changing existing output (a default, a fix that moves cells) is a **breaking change for seeds**: record it in `CHANGELOG.md`;
 - the plan is a `world_version` in the ABI, stamped in every output, so a seed can be reproduced on the version that made it.
 
-Changes to the prototype itself: iterate in the lab (`node web/lab/serve.mjs`, `web/lab/README.md`: the prototype in
-the browser, A/B against main, an imaging preview and shape metrics, no build), list what the C++ needs in
-`PORT_PENDING.md`, then port in the pull request: `bash tools/port_check.sh` re-freezes `spec/golden` and runs every
-build and test; update `spec/` and delete `PORT_PENDING.md` in that commit.
+A deliberate change of existing output re-freezes the goldens from the C++: `node tests/parity/golden.mjs --freeze
+build/msvc/tests/parity/Release/isc_parity.exe`, then `bash tools/core_check.sh`; update `spec/` in that commit.
 
 ## Checklist for a pull request
 
-- no `PORT_PENDING.md` left (CI `port-gate`); `bash tools/port_check.sh` runs everything below but the adapter;
+- `bash tools/core_check.sh` runs the native and WASM builds and tests and the module check;
 - ctest passes natively and under WASM (see `CLAUDE.md`);
 - `node tools/embed_web_module.mjs --check` is clean (regenerate after a core change);
 - adapter output unchanged by a refactor: `tools/adapter_pixel_hash.py` before and after;

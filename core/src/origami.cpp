@@ -1,4 +1,4 @@
-// DNA-origami nanorulers: the port of web/prototype/scope/origami.js (see origami.h). BSD-3-Clause.
+// DNA-origami nanorulers (see origami.h). BSD-3-Clause.
 #include "origami.h"
 
 #include "dyes.h"

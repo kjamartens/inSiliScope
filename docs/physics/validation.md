@@ -4,7 +4,7 @@ What is checked, against what, and where.
 
 | Claim | Check | Where |
 |---|---|---|
-| RNG and geometry equal the JS prototype bit for bit | golden vectors frozen from the prototype (Node 24); native and WASM must match | ctest `golden_vectors`, CI `golden-fresh` |
+| RNG and geometry unchanged, bit for bit | golden vectors frozen from the original JS prototype (Node 24); native and WASM must match | ctest `golden_vectors` |
 | Math functions equal V8's | sampled arguments vs `Math.*` (100 per function) | ctest `golden_vectors` |
 | Determinism under any query history, tiling, threads | `world_checks` (query order, cache size, 8 threads = 1 thread) | ctest `world_checks` |
 | Dye statistics | lattice angles and stagger, ring at 12.5 nm, tip at 24.5 nm, linker range, exponential ON/OFF means, geometric blink count, log-normal brightness | `world_checks` `KineticsStats` |
@@ -32,4 +32,3 @@ What is checked, against what, and where.
 - Drift: the z drift of widefield and brightfield frames is interpolated between foci 10 nm apart; the background map
   does not move with the sample.
 - Not yet verified by eye in every Micro-Manager configuration (headless pymmcore tests cover every property and the render path).
-- Debug-only dye geometry in the JS prototype uses a sequential stream; the C++ hashing is normative and only the *statistics* match.

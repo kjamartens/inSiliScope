@@ -1,5 +1,5 @@
-// Fiducial markers (beads) on any sample: where they are and how big. The port of the field in
-// web/prototype/scope/fiducials.js (its header is the model). The engine owns their light (Simulation/Fiducials.*).
+// Fiducial markers (beads) on any sample: where they are and how big (the model: spec/ALGORITHM.md "Fiducial
+// beads"). The engine owns their light (Simulation/Fiducials.*).
 // BSD-3-Clause.
 //
 // A Poisson field (no hard core) drawn per FID_TILE_UM tile: the tile's count on channel FID_CH_COUNT, candidate i on

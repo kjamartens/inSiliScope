@@ -348,8 +348,7 @@ bool PsfRequestsSameKernel(const PsfGeneratorRequest& a, const PsfGeneratorReque
 // A copy of cache whose splats leave out every camera pixel whose share of the
 // emitter's photons is below threshold (PsfHaloSpans); threshold <= 0 or an
 // invalid cache: the whole square (halo = nullptr), bit for bit the uncut
-// splat. The spans are memoized per (kernel, threshold). JS twin
-// web/prototype/scope/psf.js withHaloCut.
+// splat. The spans are memoized per (kernel, threshold).
 PsfKernelCache WithHaloCut(const PsfKernelCache& cache, double threshold);
 
 // Splats totalPhotons worth of the cached (sum-1) kernel plane at zIndex,

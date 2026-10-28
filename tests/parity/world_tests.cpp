@@ -8,7 +8,7 @@
 //
 // Speed (2026-10-27): the checks run on Cheap() parameters (10 relaxation passes, sparse microtubules) and small
 // windows. What they check -- determinism, tiling, caches, threads, the C ABI, the structures' invariants -- holds for
-// any parameters; the default parameters are the golden vectors' and label_parity's job. A world's packed blocks are
+// any parameters; the default parameters are the golden vectors' job. A world's packed blocks are
 // packed once per process (Fresh()). The thread checks run natively only (WASM has no threads).
 #include "cells.h"
 #include "cytomesh.h"
@@ -1743,8 +1743,7 @@ void NoContraction()
          Fmt("got %.17g", (double)r));
 }
 
-// ABI 15: fiducial beads (fiducials.h; the equality with the JS twin is the golden 'fiducials' lines and scope_parity's
-// bead movies). Determinism under any query order, the Poisson density, the diameter spread, the three heights on a
+// ABI 15: fiducial beads (fiducials.h; the numbers: the golden 'fiducials' lines). Determinism under any query order, the Poisson density, the diameter spread, the three heights on a
 // World's own surface, the cells untouched, the C ABI.
 void Fiducials()
 {
@@ -1888,8 +1887,7 @@ void Fiducials()
 }
 
 
-// ABI 12: the DNA-origami nanorulers (origami.h; the equality with the JS twin is label_parity.mjs and the golden
-// 'origami' lines). The shape's invariants and its worm-like-chain statistics, the field's Matern spacing and density,
+// ABI 12: the DNA-origami nanorulers (origami.h; the numbers: the golden 'origami' lines). The shape's invariants and its worm-like-chain statistics, the field's Matern spacing and density,
 // a nanoruler World: sites independent of the query history, the docking strands only, the strand subset and
 // incorporation, no cells, 8 threads = 1 thread, and the C ABI rows.
 void Origami()
@@ -2115,7 +2113,7 @@ void Origami()
             moved = Fmt("molecule %zu: (%.9g, %.9g) vs (%.9g, %.9g)", i, a[i].x, a[i].y, b[i].x, b[i].y);
       Same(moved, "origami: the spacing leaves the placement alone");
    }
-   // The model reference (tools/origami_reference/origami_bend.py, frozen by freeze_crosscheck.mjs): its bent sites for
+   // The model reference (tools/origami_reference/origami_bend.py, frozen in origami_bend_ref.inc): its bent sites for
    // the bending normals the core draws, at Lp 273.1, 1500 and 100 nm, 3D heights, the molecule's roll fixed.
    {
       struct Ref { uint32_t h1; double lp, roll; int n; double endAngle; double sites[15 * 3]; };
@@ -2264,8 +2262,7 @@ void Origami()
    }
 }
 
-// Nuclear pores (issue 15, npcs.h) and the nuclear lamina (ABI 16). The JS twin's numbers: label_parity, golden (npc
-// and lam lines).
+// Nuclear pores (issue 15, npcs.h) and the nuclear lamina (ABI 16). The numbers: the golden npc and lam lines.
 bool InsideNucleus(const Cell& c, const Pt3& q)
 {
    if (!c.nucShaped) {

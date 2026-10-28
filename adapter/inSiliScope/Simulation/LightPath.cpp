@@ -3,8 +3,7 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   See LightPath.h (twin of makeLightPath / backgroundQe in
-//                web/prototype/scope/dye_library.js).
+// DESCRIPTION:   See LightPath.h.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 

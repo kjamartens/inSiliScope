@@ -6,9 +6,8 @@
 // DESCRIPTION:   Spectra and the light path's physics (issue 16): sampled
 //                spectra on one grid, ideal filters, absorption cross
 //                section, laser photon flux, detected fraction and effective
-//                emission wavelength. The twin of
-//                web/prototype/scope/spectra.js (the JS reference): same
-//                operations in the same order. Pure functions, no state.
+//                emission wavelength. The data tools' tools/spectra.mjs does
+//                the same operations in the same order. Pure functions, no state.
 //
 //                Grid: 300..900 nm in 1 nm steps (data/dyes/
 //                fpbase_spectra.json). Dye excitation/emission are

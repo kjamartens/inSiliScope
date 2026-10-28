@@ -3,9 +3,9 @@
 // nanoruler: a 13 nm 12-helix bundle with three spots of docking strands one
 // lattice spacing apart, bent in-plane as a 2D surface-equilibrated worm-like
 // chain) or a rigid plate (a 2D origami: a hex map of strands, face up). Spot
-// positions and the body's size scale with origamiSpacingNm. The port of the JS
-// reference web/prototype/scope/origami.js, line for line (bit-exact: jsm::
-// math, JS operand order); the model is tools/origami_reference/
+// positions and the body's size scale with origamiSpacingNm. Ported from the
+// retired JS reference line for line (bit-exact: jsm:: math, JS operand order,
+// which keeps the frozen goldens); the model is tools/origami_reference/
 // origami_bend.py with its sequential stream replaced by address-based pcg4d
 // draws. spec/ALGORITHM.md "DNA-origami nanorulers". BSD-3-Clause.
 //

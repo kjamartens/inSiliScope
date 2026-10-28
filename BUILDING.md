@@ -33,10 +33,10 @@ cmake --build --preset msvc-cli        # only insiliscope_cli
 cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm -j 8
 node tools/embed_web_module.mjs                      # web/insiliscope_module.js (regenerate after any core change)
 node tools/make_cellfield_block.mjs                  # dist/cellfield_block.js (the webSMLM block)
-node web/lab/serve.mjs --open                        # the viewer at http://localhost:8123/web/index.html
+python -m http.server 8123                           # then the viewer at http://localhost:8123/web/index.html
 ```
 
-`bash tools/port_check.sh` runs the native and WASM tests, the golden vectors and the JS parity checks in one go.
+`bash tools/core_check.sh` runs the native and WASM tests (the golden vectors included) and the module check in one go.
 
 ## Micro-Manager adapter (Windows)
 

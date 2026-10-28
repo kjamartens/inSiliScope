@@ -1,5 +1,4 @@
-// ctest excitation: the excitation geometry (Simulation/Excitation.h; JS twin web/prototype/scope/excitation.js, its
-// checks web/lab/excitation_check.mjs).
+// ctest excitation: the excitation geometry (Simulation/Excitation.h).
 //   - epi = the in-plane profile; FlatTop's half maximum at FWHM / 2; Flat epi is uniform;
 //   - the field factor continuous at the critical angle (both sides approach (4 + 4 / n^2) / 2 / t(0)^2);
 //   - the decay depth against Axelrod 1981's example (120 nm; axelrod1981);

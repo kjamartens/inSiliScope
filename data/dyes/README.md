@@ -1,7 +1,8 @@
 # Dye library data
 
 The dyes, light-path presets and cameras the imaging code knows (issue 16). Edit the hand-written files, then run
-`node tools/gen_dye_library.mjs`, which writes `web/prototype/scope/dye_library_data.js` (and `docs/references.md`);
+`node tools/gen_dye_library.mjs`, which writes `adapter/inSiliScope/Simulation/DyeLibraryData.inc`, `web/dye_library.js`
+(and `docs/references.md`);
 CI runs it with `--check`.
 
 | File | License | What |

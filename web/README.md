@@ -35,15 +35,8 @@ thresholded WideField surface (smoothing, Otsu, surface nets) and the SMLM local
 (`gif.js`, `mp4.js`, `webm.js`: DOM-free, `tests/web/encode_unit.mjs`; `video.js`: WebCodecs sinks with fallbacks).
 `tests/web/viewer_anim_export.mjs` exports and plays back in a browser (`--channel=chrome` for H.264).
 
-`prototype/` is the original JS prototype (`index.html` generator half + `microtubules.js`): the
-**reference implementation** the core is ported from and tested against (`tests/parity`,
-`spec/golden`), so its generator changes only deliberately (see [spec/PORT.md](../spec/PORT.md)).
-Algorithm notes: [spec/ALGORITHM.md](../spec/ALGORITHM.md).
-
-`prototype/scope/` is the JS imaging reference (the C++ imaging path mirrored; `tests/parity/scope_parity.mjs`).
-`lab/` is the iteration page for prototype changes (A/B against main, imaging preview, metrics; `node
-web/lab/serve.mjs`): try ideas there in JS and port to C++ only at merge, see [lab/README.md](lab/README.md).
+The model code is C++ only (the original JS prototype and its imaging twin were retired on 2026-10-28; the golden
+vectors in `spec/golden` were frozen from it). Algorithm notes: [spec/ALGORITHM.md](../spec/ALGORITHM.md).
 
 Tools (`cd tools && npm install` once, or a global Playwright):
 - `node tools/bench_pan.mjs [page]` -- pan benchmark (300 frames, headless Chromium, software GL).
-- `node tools/check_cellfield_microtubules.mjs` -- the prototype's microtubule regression check.

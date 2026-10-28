@@ -119,11 +119,11 @@ def _drift_nm(seed, frames, frame_sec, sxy, sz):
 
 def _drift_checks(core, cam, xy, x0, y0):
     """Sample drift (the SampleHolder's Drift*): the properties are there (the linear DriftNmPerSec is gone) and wired
-    into both modalities. The physics (exact sub-pixel shift, focus grid, blinks, C++ = JS) is ctest drift / widefield /
-    brightfield and scope_parity. Fluorescence uses the mEGFP WideField label (one continuous image; a huge photon
+    into both modalities. The physics (exact sub-pixel shift, focus grid, blinks) is ctest drift / widefield /
+    brightfield. Fluorescence uses the mEGFP WideField label (one continuous image; a huge photon
     budget, so the illumination history of the repeated stacks does not dim it).
     Only the adapter's own paths (the shifts themselves, BrightField stacks and the directed part are checked exactly
-    in ctest drift / brightfield and scope_parity):
+    in ctest drift / brightfield):
     - Precomputed (Fluorescence): frame 9 of a drifting 10-frame stack is the still stack's frame 9 moved by the
       seed's drift path, the path the cli and viewer take (_drift_nm).
     - Live, each modality: the drift is the sample's (TimeWhileIdle Paused here, so it moves only while frames are

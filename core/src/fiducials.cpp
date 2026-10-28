@@ -1,4 +1,4 @@
-// Fiducial beads: the port of the field in web/prototype/scope/fiducials.js (see fiducials.h). BSD-3-Clause.
+// Fiducial beads: the field (see fiducials.h). BSD-3-Clause.
 #include "fiducials.h"
 
 #include "jsmath.h"

@@ -1,4 +1,4 @@
-// Nuclear pore complexes: see npcs.h. Every expression keeps the prototype's operand order (web/prototype/index.html).
+// Nuclear pore complexes: see npcs.h. Every expression keeps the retired JS prototype's operand order (the goldens).
 #include "npcs.h"
 
 #include "jsmath.h"

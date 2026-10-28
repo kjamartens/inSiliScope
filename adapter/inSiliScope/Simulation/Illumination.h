@@ -46,7 +46,7 @@ private:
 
 // Value 1 everywhere, on a square support of widthUm x heightUm: the
 // mean-field image's weights (every grid cell of the FOV and its margin
-// counts fully, as web/prototype/scope/widefield.js meanFieldImage's ones).
+// counts fully).
 class FlatIllumination : public IlluminationPattern
 {
 public:

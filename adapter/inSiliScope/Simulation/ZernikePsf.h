@@ -40,7 +40,7 @@ namespace sim {
 // gets 160 samples, the viewer's 3 um one 140, at no extra cost; against
 // 768 samples a camera pixel is then off by <= 1.3e-5 of an emitter's
 // photons beyond 2 um (was 1.5e-4) and <= 9e-5 in the core (was 2.9e-3)
-// (spec/ALGORITHM.md). JS twin web/prototype/scope/psf.js pupilSamples.
+// (spec/ALGORITHM.md).
 int ZernikePupilSamples(const PsfGeneratorRequest& req);
 
 // Raw (unnormalized) intensity planes for req (req.model is not read):

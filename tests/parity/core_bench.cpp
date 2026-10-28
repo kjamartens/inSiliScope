@@ -1,4 +1,4 @@
-// Per-phase timing of the core (not a check; tools/port_check.sh does not run
+// Per-phase timing of the core (not a check; tools/core_check.sh does not run
 // it). Prints where the time of a cold window goes: candidate cells, packing
 // relaxation and pruning, the cytoplasm grid and mesh, microtubules, dyes
 // and blink schedules, then the steady-state event query per frame.

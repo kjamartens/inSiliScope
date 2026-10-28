@@ -4,8 +4,7 @@
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   A short cell-field movie without Micro-Manager, for one FOV:
-//                the twin of web/prototype/scope/scope_movie.js +
-//                fluorescence.js (the JS reference, issue 16). Fluorescence
+//                the cli's and the viewer's engine (issue 16). Fluorescence
 //                (modality 0): every structure's label in its mode
 //                (dSTORM, PALM, DNA-PAINT, WideField) through the light path
 //                (DyeLibrary.h, LightPath.h): blinks per (structure, state)

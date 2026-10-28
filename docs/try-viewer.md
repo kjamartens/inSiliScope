@@ -217,6 +217,3 @@ through it step by step.
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.
 - URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).
-- The original JS prototype the core was ported from is at
-  [`prototype/`](https://kjamartens.github.io/inSiliScope/prototype/index.html); it is the reference implementation
-  that the golden vectors are frozen from.

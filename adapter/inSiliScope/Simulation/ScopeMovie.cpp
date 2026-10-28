@@ -3,9 +3,7 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   See ScopeMovie.h. The twin of web/prototype/scope/
-//                scope_movie.js (options, setup) and fluorescence.js (the
-//                fluorescence movie), issue 16.
+// DESCRIPTION:   See ScopeMovie.h (issue 16).
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
