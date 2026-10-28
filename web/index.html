@@ -893,7 +893,7 @@ const UI_GROUPS = [
       check('showNucleus', 'Nucleus', 'Draw the nuclei (colour = depth).', true, { show: CF }),
       check('showMt', 'Microtubules', 'Draw the microtubules.', true, { show: CF }),
       check('showNpcs', 'Nuclear pores', 'Draw the nuclear pores of the detailed cells: the two 8-fold rings of each (cytoplasmic light, nucleoplasmic dark), from 400 px/µm also the four Nup96 sites at each corner.', true, { show: CF }),
-      check('showLamin', 'Nuclear lamina', 'Draw the nuclear lamina of the detailed cells as a surface: the nuclear envelope its points lie on (Nuclear lamina: Density; at 2000 per µm² they are 22 nm apart, too close to draw one by one), labelled or not.', false, { show: CF }),
+      check('showLamin', 'Nuclear lamina', 'Draw the nuclear lamina of the detailed cells as a surface: the nuclear envelope its points lie on (Nuclear lamina: Density; at 2000 per µm² they are 22 nm apart, too close to draw one by one), labelled or not. Its opacity follows the points\' local density (counted within 0.3 µm) relative to the set density: where the lamina is sparser it shows through.', false, { show: CF }),
       check('showRulers', 'Nanorulers', 'Draw the DNA-origami rods: their bent outlines from above.', true, { show: NR }),
       check('showFids', 'Fiducial beads', 'Draw the fiducial beads (Sample: Fiducial beads) as discs of their diameter, over the scene.', true, { show: FID }),
       check('showDyes', 'Dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
@@ -2484,13 +2484,22 @@ function drawCell2D(c, asset, p, F, cf) {
   if (on(kLam)) {   // the lamina's surface: the nuclear envelope's quads back to front, in the Z clip
     ensureOrder(r, entry, t, p.cytoContourStep, cf.detailed);
     const css = slotCss(F, kLam * IV, cf.alpha, null), nl = css ? 1 : LAMIN_LEVELS, stops = css ? null : lineStops(kLam);
-    const a = Z.st[4 * kLam * IV + 3] * cf.alpha, cols = [], { lx, ly, h, qidx } = r;
+    const a = Z.st[4 * kLam * IV + 3] * cf.alpha, cols = new Map(), { lx, ly, h, qidx } = r;
+    const dens = entry.laminDens && entry.laminDens.length === r.nv - r.nvC ? entry.laminDens : null;
     const X = v => t.ox + (lx[v] * t.cr - ly[v] * t.sr) * t.S;
     const Y = v => t.H2 + ((t.oy + lx[v] * t.sr + ly[v] * t.cr) * t.cosT - (h[v] - t.pz) * t.sinT) * t.S;
     for (const q of r.order) {
       if (q < r.nqC || q >= r.nq || r.qavgH[q] < F.zc[0] || r.qavgH[q] > F.zc[1]) continue;
       const lv = laminLevel(r.qavgH[q], c.height, nl), b = 4 * q;
-      ctx.fillStyle = css || cols[lv] || (cols[lv] = depthColor((lv + 0.5) / nl * c.height, 0, c.height, a, stops));
+      const dq = dens ? Math.round(Math.min(1, (dens[qidx[b] - r.nvC] + dens[qidx[b + 1] - r.nvC] + dens[qidx[b + 2] - r.nvC] + dens[qidx[b + 3] - r.nvC]) / 4) * 20) : 20;
+      if (!dq) continue;
+      const ck = lv * 32 + dq;
+      let col = cols.get(ck);
+      if (!col) {
+        col = css ? css.replace(/[\d.]+\)$/, m => (parseFloat(m) * dq / 20) + ')') : depthColor((lv + 0.5) / nl * c.height, 0, c.height, a * dq / 20, stops);
+        cols.set(ck, col);
+      }
+      ctx.fillStyle = col;
       ctx.beginPath();
       ctx.moveTo(X(qidx[b]), Y(qidx[b])); ctx.lineTo(X(qidx[b + 1]), Y(qidx[b + 1]));
       ctx.lineTo(X(qidx[b + 2]), Y(qidx[b + 2])); ctx.lineTo(X(qidx[b + 3]), Y(qidx[b + 3]));
@@ -2667,13 +2676,14 @@ void main() {
   gl_Position = clipOf(s, depthOf(a_pt.xyz, w));
   v_w = vec3(w, a_pt.z);
 }`;
-// A surface in a cell's own frame (the nuclear lamina): a_p cell-local x, y, z.
+// A surface in a cell's own frame (the nuclear lamina): a_p cell-local x, y, z and w = an opacity factor (the lamina's
+// density relative to the set one).
 const GL_SURF_VS = `#version 300 es
-in vec3 a_p; out vec3 v_w;` + GL_COMMON + `
+in vec4 a_p; out vec3 v_w; out float v_d;` + GL_COMMON + `
 void main() {
-  vec2 w = worldOf(a_p), s = screenOf(a_p, w);
-  gl_Position = clipOf(s, depthOf(a_p, w));
-  v_w = vec3(w, a_p.z);
+  vec2 w = worldOf(a_p.xyz), s = screenOf(a_p.xyz, w);
+  gl_Position = clipOf(s, depthOf(a_p.xyz, w));
+  v_w = vec3(w, a_p.z); v_d = a_p.w;
 }`;
 // Data slices: a polygon in world coordinates relative to the stack's texture origin (u_off/u_rot carry that origin's
 // turned offset and the view rotation), sampled from the stack's 3D texture (R16UI: planes, or planes x frames for
@@ -2825,15 +2835,18 @@ void main() {
   vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
   o = fogged(rgb, a, v_w);
 }`;
-// A kind's style, or (no colour) the height scale over u_zr (the lamina's surface).
+// The lamina's surface: a kind's style, or (no colour) the height scale over u_zr; its opacity times v_d (the
+// lamina's density relative to the set one, at most 1: a sparser lamina shows through).
 const glFsDepth = kind => `#version 300 es
 precision highp float;
-in vec3 v_w; out vec4 o;` + GL_CLIP + GL_DEPTH_RGB + `
+in vec3 v_w; in float v_d; out vec4 o;` + GL_CLIP + GL_DEPTH_RGB + `
 void main() {
   vec4 st = zoneStyle(${kind}, v_w);
   if (st.a < 0.0) discard;
+  float a = st.a * u_cellA * clamp(v_d, 0.0, 1.0);
+  if (a < 0.004) discard;
   vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
-  o = fogged(rgb, st.a * u_cellA, v_w);
+  o = fogged(rgb, a, v_w);
 }`;
 const glFsKind = kind => `#version 300 es
 precision highp float;
@@ -3084,11 +3097,15 @@ function ensureNpcGl(entry, npcs, p, arcs) {
 // colours its quads by height in LAMIN_LEVELS steps of the cell's height.
 const LAMIN_LEVELS = 12;
 const laminLevel = (z, height, nl) => nl > 1 && height > 0 ? Math.min(nl - 1, Math.max(0, Math.floor(z / height * nl))) : 0;
-// The lamina's surface of a cell as triangles (x, y, z cell-local), made once per asset.
+// The lamina's surface of a cell as triangles (x, y, z cell-local, and the lamina's density relative to the set one:
+// laminDens, 1 until the worker sends it), made once per asset.
 function ensureLaminGl(entry, c) {
   if (entry.laminGl) return entry.laminGl;
-  const r = getMeshRender(entry, c), nv = r.nv - r.nvC, pos = new Float32Array(3 * nv), idx = new Uint32Array(6 * (r.nq - r.nqC));
-  for (let v = 0; v < nv; v++) { pos[3 * v] = r.lx[r.nvC + v]; pos[3 * v + 1] = r.ly[r.nvC + v]; pos[3 * v + 2] = r.h[r.nvC + v]; }
+  const r = getMeshRender(entry, c), nv = r.nv - r.nvC, pos = new Float32Array(4 * nv), idx = new Uint32Array(6 * (r.nq - r.nqC));
+  const dens = entry.laminDens && entry.laminDens.length === nv ? entry.laminDens : null;
+  for (let v = 0; v < nv; v++) {
+    pos[4 * v] = r.lx[r.nvC + v]; pos[4 * v + 1] = r.ly[r.nvC + v]; pos[4 * v + 2] = r.h[r.nvC + v]; pos[4 * v + 3] = dens ? dens[v] : 1;
+  }
   for (let q = r.nqC, o = 0; q < r.nq; q++) {
     const b = 4 * q, a0 = r.qidx[b] - r.nvC, a1 = r.qidx[b + 1] - r.nvC, a2 = r.qidx[b + 2] - r.nvC, a3 = r.qidx[b + 3] - r.nvC;
     idx[o++] = a0; idx[o++] = a1; idx[o++] = a2; idx[o++] = a0; idx[o++] = a2; idx[o++] = a3;
@@ -3097,7 +3114,7 @@ function ensureLaminGl(entry, c) {
   gl.bindVertexArray(l.vao);
   gl.bindBuffer(gl.ARRAY_BUFFER, l.vbo);
   gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
-  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 12, 0);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0);
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, l.ibo);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
   gl.bindVertexArray(null);
@@ -3789,6 +3806,47 @@ function iscEngine(M) {
     }
     return buf;
   }
+  // The nuclear lamina's density at each nucleus ring vertex (nuc: x, y, z per vertex, cell-local), relative to the
+  // set density perUm2 (1 = as set): the lamina points (isc_cell_lamin, ABI 16) within LAMIN_DENS_R_UM of the vertex
+  // over pi R^2 -- on a smooth surface the part inside a ball of radius R has the area pi R^2 to second order, whatever
+  // its curvature. The points are read in place (some 250 000 per nucleus at 2000 per um^2), the vertices found
+  // through a grid of cell R over their bounding box (each cell's vertices listed in one array).
+  const LAMIN_DENS_R_UM = 0.3;
+  function laminDensity(w, cx, cy, nuc, perUm2) {
+    const nv = nuc.length / 3, R = LAMIN_DENS_R_UM, R2 = R * R, dens = new Float32Array(nv);
+    let n = M._isc_cell_lamin(w, cx, cy, 0, 0), ptr = 0;
+    if (n > 0) { ptr = scratch(n * 6 * 8); n = Math.min(n, M._isc_cell_lamin(w, cx, cy, ptr, n)); }
+    if (!nv) return dens;
+    const lo = [Infinity, Infinity, Infinity];
+    for (let v = 0; v < nv; v++) for (let a = 0; a < 3; a++) lo[a] = Math.min(lo[a], nuc[3 * v + a]);
+    const g = [0, 0, 0], cellOf = new Int32Array(nv);
+    for (let v = 0; v < nv; v++) for (let a = 0; a < 3; a++) g[a] = Math.max(g[a], Math.floor((nuc[3 * v + a] - lo[a]) / R) + 1);
+    const [gx, gy, gz] = g, start = new Int32Array(gx * gy * gz + 1), list = new Int32Array(nv);
+    for (let v = 0; v < nv; v++) {
+      const i = Math.floor((nuc[3 * v] - lo[0]) / R), j = Math.floor((nuc[3 * v + 1] - lo[1]) / R), k = Math.floor((nuc[3 * v + 2] - lo[2]) / R);
+      cellOf[v] = (i * gy + j) * gz + k; start[cellOf[v] + 1]++;
+    }
+    for (let q = 0; q < gx * gy * gz; q++) start[q + 1] += start[q];
+    const fill = start.slice(0, -1);
+    for (let v = 0; v < nv; v++) list[fill[cellOf[v]]++] = v;
+    const H = M.HEAPF64, b = ptr / 8;
+    for (let p = 0; p < n; p++) {
+      const x = H[b + 6 * p], y = H[b + 6 * p + 1], z = H[b + 6 * p + 2];
+      const i0 = Math.floor((x - lo[0]) / R), j0 = Math.floor((y - lo[1]) / R), k0 = Math.floor((z - lo[2]) / R);
+      for (let i = Math.max(0, i0 - 1); i <= Math.min(gx - 1, i0 + 1); i++)
+        for (let j = Math.max(0, j0 - 1); j <= Math.min(gy - 1, j0 + 1); j++)
+          for (let k = Math.max(0, k0 - 1); k <= Math.min(gz - 1, k0 + 1); k++) {
+            const q = (i * gy + j) * gz + k;
+            for (let s = start[q]; s < start[q + 1]; s++) {
+              const v = list[s], ex = nuc[3 * v] - x, ey = nuc[3 * v + 1] - y, ez = nuc[3 * v + 2] - z;
+              if (ex * ex + ey * ey + ez * ez < R2) dens[v]++;
+            }
+          }
+    }
+    const s = perUm2 > 0 ? 1 / (Math.PI * R2 * perUm2) : 0;
+    for (let v = 0; v < nv; v++) dens[v] *= s;
+    return dens;
+  }
   // Calls fn(ptr, cap) (the ABI's cap/total convention) until the buffer is big
   // enough; returns a copy of the n*stride doubles written.
   function query(fn, stride, cap0) {
@@ -3949,7 +4007,13 @@ function iscEngine(M) {
         const nuc = query((ptr, cap) => M._isc_cell_nucleus_rings(w, d.cx, d.cy, ISC_NUC_SLICES, ISC_NUC_PTS, ptr, cap), 3,
                           ISC_NUC_SLICES * ISC_NUC_PTS);
         const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null, nuc, nucPts: ISC_NUC_PTS };
+        // the lamina's density on the nucleus rings, when the view draws the lamina
+        if (d.lamin) {
+          out.withLamin = true;
+          if (d.p.laminDensity > 0) out.laminDens = laminDensity(w, d.cx, d.cy, nuc, d.p.laminDensity);
+        }
         const transfer = [mesh.buffer, nuc.buffer];
+        if (out.laminDens) transfer.push(out.laminDens.buffer);
         if (d.mt) {
           const nMt = M._isc_cell_microtubules(w, d.cx, d.cy, 0, 0, 0, 0, ints);
           const total = M.HEAP32[ints / 4];
@@ -4554,11 +4618,12 @@ function unpackAsset(d) {
   // The worker's typed arrays as they are: the mesh interleaved (x, y, h per vertex k*n + i; its outer
   // ring is the footprint outline), the microtubules as xyz + lens, the nucleus rings as xyz. No per-vertex or
   // per-point objects.
-  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh }, nuc: d.nuc || null, nucPts: d.nucPts || 0 },
+  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, hasLamin: !!d.withLamin,
+    entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh }, nuc: d.nuc || null, nucPts: d.nucPts || 0, laminDens: d.laminDens || null },
     mts: d.mts || null, npcs: d.npcs || null, nuc: d.nuc || null, nucPts: d.nucPts || 0 };
 }
-// An asset holds what the view wants of it: the microtubules (and pores) for mt.
-const assetHas = (a, mt) => a.hasMt || !mt;
+// An asset holds what the view wants of it: the microtubules (and pores) for mt, the lamina's density for lamin.
+const assetHas = (a, mt, lamin) => (a.hasMt || !mt) && (a.hasLamin || !lamin);
 function onCellResult(wi, d) {
   genWorkers.busy[wi] = null;
   if (assetInflight.get(d.key) === d.sig) assetInflight.delete(d.key);
@@ -4574,7 +4639,7 @@ function onCellResult(wi, d) {
 // Sends the most wanted missing assets to whichever cell workers are idle: the detailed cells first (with their
 // microtubules), then the other visible cells (cytoplasm only: no microtubules there), then a prefetch ring; each
 // nearest the view centre first. v.mtKeys: the cells whose asset should carry microtubules (the detailed ones and
-// the next few, so a cell entering the budget has them already).
+// the next few, so a cell entering the budget has them already); v.lamin: those also carry the lamina's density.
 function pumpAssets() {
   if (!genWorkers.ok || !lastView) return;
   const v = lastView;
@@ -4583,9 +4648,9 @@ function pumpAssets() {
   const px = Math.ceil(w * PREFETCH_VIEWS), py = Math.ceil(h * PREFETCH_VIEWS);
   const mx = (v.cx0 + v.cx1) / 2, my = (v.cy0 + v.cy1) / 2, cand = [];
   const want = (key, cell, inView) => {
-    const a = assets.get(key), mt = v.mtKeys.has(key);
-    if ((a && a.sig === v.sig && assetHas(a, mt)) || assetInflight.get(key) === v.sig) return;
-    cand.push({ key, cell, mt, rank: (v.detail.has(key) ? 0 : inView ? 1e6 : 2e6) + Math.hypot(cell.cx - mx, cell.cy - my) });
+    const a = assets.get(key), mt = v.mtKeys.has(key), lamin = mt && v.lamin;
+    if ((a && a.sig === v.sig && assetHas(a, mt, lamin)) || assetInflight.get(key) === v.sig) return;
+    cand.push({ key, cell, mt, lamin, rank: (v.detail.has(key) ? 0 : inView ? 1e6 : 2e6) + Math.hypot(cell.cx - mx, cell.cy - my) });
   };
   for (let cx = v.cx0 - px; cx <= v.cx1 + px; cx++) for (let cy = v.cy0 - py; cy <= v.cy1 + py; cy++) {
     const key = cx + ',' + cy, cell = v.map.get(key);
@@ -4598,21 +4663,21 @@ function pumpAssets() {
   let ci = 0;
   for (let wi = 0; wi < genWorkers.busy.length && ci < cand.length; wi++) {
     if (genWorkers.busy[wi]) continue;
-    const { key, cell, mt } = cand[ci++];
+    const { key, cell, mt, lamin } = cand[ci++];
     genWorkers.busy[wi] = key;
     assetInflight.set(key, v.sig);
-    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt,
+    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt, lamin,
       blocks: blocksForCell(cell) });
   }
 }
 // The asset to draw for `cell` right now, or null if none exists yet (the worker will
 // deliver it and request a redraw). Without workers the core runs here, synchronously.
-function getAsset(cell, key, seed, p, sig, mt) {
+function getAsset(cell, key, seed, p, sig, mt, lamin) {
   const a = assets.get(key);
-  if (a && a.sig === sig && assetHas(a, mt)) return a;
+  if (a && a.sig === sig && assetHas(a, mt, lamin)) return a;
   if (!genWorkers.ok) {
     if (!mainEngine) return null;
-    const [d] = mainEngine.handle({ type: 'cell', key, sig, seed, p, cx: cell.cx, cy: cell.cy, mt: true });
+    const [d] = mainEngine.handle({ type: 'cell', key, sig, seed, p, cx: cell.cx, cy: cell.cy, mt: true, lamin });
     if (d.missing) return null;
     disposeAsset(a);
     const fresh = unpackAsset(d);
@@ -4816,8 +4881,8 @@ function renderFrame(st, target) {
   detailPrev = det.set;
   const target0 = scope === 'all' ? null : (st.target || det.order[0] || null);
   F.target = st.target || det.order[0] || null;   // the cell the data layers are made for
-  const sig = assetSig(seed, p), mtKeys = new Set();
-  if (st.layers['mt.lines'] || st.layers['npc.lines']) {   // the detailed cells' own assets
+  const sig = assetSig(seed, p), mtKeys = new Set(), wantLamin = !!st.layers['lamin.surface'];
+  if (st.layers['mt.lines'] || st.layers['npc.lines'] || wantLamin) {   // the detailed cells' own assets
     for (const k of det.set) mtKeys.add(k);
     if (scope === 'all' && N > 0) for (const k of det.order.slice(N, N + 3)) mtKeys.add(k);
   }
@@ -4826,14 +4891,14 @@ function renderFrame(st, target) {
   for (const cell of visCells) {
     const key = cell.cx + ',' + cell.cy, detailed = det.set.has(key);
     if (scope === 'target' && key !== target0) continue;
-    const asset = getAsset(cell, key, seed, p, sig, mtKeys.has(key));
+    const asset = getAsset(cell, key, seed, p, sig, mtKeys.has(key), wantLamin && mtKeys.has(key));
     if (!asset) { nLoading++; continue; }
     vis.push(detailed ? { cx: cell.cx, cy: cell.cy, cell, asset, hide: 0, alpha: 1, detailed: true }
       : { cx: cell.cx, cy: cell.cy, cell, asset, hide: scope === 'ghosts' ? HIDE_GHOST : HIDE_PLAIN,
           alpha: scope === 'ghosts' ? ghostA : 1, detailed: false });
-    if (mtKeys.has(key) && detailed && !asset.hasMt) nLoading++;
+    if (mtKeys.has(key) && detailed && (!asset.hasMt || (wantLamin && !asset.hasLamin))) nLoading++;
   }
-  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mtKeys, detail: det.set, vis: visCells };
+  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mtKeys, lamin: wantLamin, detail: det.set, vis: visCells };
   evictAssets();
   pumpAssets();
   if (st.xz) drawXZ(vis, p, F); // before the dyes, which add their x-z points to it

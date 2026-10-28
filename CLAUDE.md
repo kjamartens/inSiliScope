@@ -591,7 +591,8 @@ network later: replace that one function. ABI 16: `ISC_STRUCT_LAMIN` 2 (the dock
 `CellField.NuclearLaminaDensityPerUm2` (Advanced; 100..10000) to 2000 (*estimate*; was 50), `CellField.NuclearLaminaPoreExclusionNm` (Expert).
 `PackingFingerprint` and the pack keys skip `lamin*`. Viewer: View toggle `showLamin` (off; layer `lamin.surface`, GL kind 9,
 2026-10-28: drawn as a surface, the nuclear envelope's mesh of `getMeshRender` (the points, ~250 000 per nucleus, took the
-view to ~13 fps and are no longer fetched); colours `laminMap` (height scale, default greens; each
+view to ~13 fps, are not sent to the page): its opacity = the points' density within 0.3 um of each vertex / the set
+density (`laminDensity` in the cell worker, ~85 ms per nucleus after the core's ~0.4 s; `entry.laminDens`); colours `laminMap` (height scale, default greens; each
 colour select shows only while its structure is drawn); `#hud` `data-lamina`; `tests/web/viewer_scene.mjs`). Checks:
 ctest `world_checks.lamin`, golden `lamin` cases (`lam`/`lmd` lines); every default output unchanged
 (cli TIFFs, nanorulers included).

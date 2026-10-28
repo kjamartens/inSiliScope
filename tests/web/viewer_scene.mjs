@@ -91,6 +91,32 @@ await runViewer('viewer scene', { watchdogSec: 150 }, async ({ page, check }) =>
     `nuclear lamina: ${lamina.on} px lit by its layer alone, ${lamina.off} without; View toggle ${lamina.toggle ? 'on' : 'off'}, ` +
     `a surface; height scale spread ${lamina.scale} vs ${lamina.flat} flat; Lamina colours hidden while off (${lamina.mapHidden})`);
 
+  // the lamina's density on the surface (the cell workers count its points near each vertex): about the set density
+  // everywhere (the points are uniform: counting noise only), and a sparser lamina shows through (opacity x density)
+  const dens = await page.evaluate(async () => {
+    const b = iscScene.cellBounds(__key), cam = { pivot: [b.center[0], b.center[1], 0], azimuthDeg: 0, tiltDeg: 30, fovUm: 20 };
+    const st = __st({ camera: cam, layers: { 'lamin.surface': { style: { color: '#ffffff', opacity: 1 } } } });
+    const t0 = performance.now();
+    let a = null;
+    while (!(a = assets.get(__key)) || !a.entry.laminDens) {
+      if (performance.now() - t0 > 30000) return null;
+      await __cap(st); await new Promise(r => setTimeout(r, 100));
+    }
+    const d = [...a.entry.laminDens].sort((x, y) => x - y), mean = d.reduce((s, x) => s + x, 0) / d.length;
+    const sum = img => { let s = 0; for (let i = 0; i < img.length; i += 4) s += img[i]; return s; };
+    const full = sum((await __cap(st)).data);
+    // every vertex at half the density: the surface at half its opacity (the back of the envelope then shows through
+    // the front: 0.5 + 0.5 x 0.5 = 75 % as bright where they overlap, 50 % where one layer is seen)
+    const keep = a.entry.laminDens;
+    a.entry.laminDens = keep.map(() => 0.5); freeMeshGl(a.entry);
+    const half = sum((await __cap(st)).data);
+    a.entry.laminDens = keep; freeMeshGl(a.entry);
+    return { ms: performance.now() - t0, mean, p5: d[Math.floor(d.length * 0.05)], p95: d[Math.floor(d.length * 0.95)], ratio: half / full };
+  });
+  check(dens && Math.abs(dens.mean - 1) < 0.03 && dens.p5 > 0.85 && dens.p95 < 1.15 && dens.ratio > 0.45 && dens.ratio < 0.8,
+    dens ? `nuclear lamina density: mean ${dens.mean.toFixed(3)} of the set density, 5-95 % ${dens.p5.toFixed(2)}-${dens.p95.toFixed(2)} ` +
+      `(after ${(dens.ms / 1000).toFixed(1)} s); at half the density the surface is ${(dens.ratio * 100).toFixed(0)} % as bright` : 'nuclear lamina density: never arrived');
+
   // 6. the detail budget
   const det = await page.evaluate(async () => {
     els.detailCells.value = 3; els.detailCells.dispatchEvent(new Event('input', { bubbles: true }));

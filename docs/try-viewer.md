@@ -203,7 +203,10 @@ through it step by step.
 - **Nuclear lamina** (View, off by default): the lamina of each detailed cell as a surface, labelled or not (also in
   the x-z view, filled): the nuclear envelope its points lie on, coloured by height (Lamina colours; the Look's = one
   colour). The points themselves are not drawn: at the default 2000 per µm² they are 22 nm apart, a few hundred
-  thousand per nucleus.
+  thousand per nucleus. The surface's opacity follows their local density instead (the points within 0.3 µm of each
+  vertex, relative to the set density, at most fully opaque): today's lamina is uniform, so the surface is evenly
+  opaque; where a lamina is sparser it shows through. The density arrives a moment after the surface (the cell workers
+  generate the points, about half a second per nucleus).
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
   horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows
