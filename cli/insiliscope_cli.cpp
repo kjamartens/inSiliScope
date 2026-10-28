@@ -12,12 +12,15 @@
 // outputs (--setup-json, --photons-out, --psf-out, ...: scope_probes.h) are
 // read-only views of the same movie for the docs' physics figures. --serve
 // runs many commands in one process (one per stdin line).
+#include "LiveScope.h"
 #include "ScopeMovie.h"
 #include "scope_probes.h"
+#include "settings_file.h"
 #include "tiff_writer.h"
 #include "insiliscope/version.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -39,6 +42,10 @@ void Usage()
       std::printf("  --%-20s %-8g %s\n", o.name, o.value, o.help);
    std::printf("  --spec <file>          options from a file (name=value per line; Micro-Manager's Renderer\n"
                "                         WriteScopeSpecTo writes one), later options override\n"
+               "  --settings <f.isc.json>[:part,...]  the parts of a settings file (the viewer's Save settings:\n"
+               "                         instrument, settings, sample, measurement; all but view by default), later\n"
+               "                         files and options override; a measurement with a light history renders the\n"
+               "                         live sample's next frames after that history (docs/dev/SAVE_SETTINGS.md)\n"
                "  --p.<name> <value>     any core world parameter (the prototype's names)\n"
                "  --zern.<j> <waves>     Zernike coefficient j (0-27), replacing the preset's\n"
                "  --mt-dye.<field> <v>   override a field of the microtubules' dye (fluorescent-pct, qy, ext-coeff,\n"
@@ -96,6 +103,7 @@ int RunCli(int argc, char** argv)
    bool haveDyesRect = false;
    std::string historyBefore;
    sim::ScopeSpec spec;
+   settings::Loaded loaded;   // --settings: the files' light history
    for (int i = 1; i < argc; i++) {
       const std::string a = argv[i];
       if (a == "--help" || a == "-h") { Usage(); return 0; }
@@ -142,6 +150,21 @@ int RunCli(int argc, char** argv)
             std::fprintf(stderr, "--spec %s: %s\n", argv[i], f ? err.c_str() : "cannot read");
             return 2;
          }
+         continue;
+      }
+      if (a == "--settings" && i + 1 < argc) {
+         // A settings file's parts at this point (settings_file.h), later ones override.
+         std::string path, err;
+         std::vector<std::string> parts;
+         settings::ParseArg(argv[++i], path, parts);
+         loaded.spec = spec;
+         loaded.warnings.clear();
+         if (!settings::Read(path, parts, loaded, err)) {
+            std::fprintf(stderr, "--settings %s: %s\n", argv[i], err.c_str());
+            return 2;
+         }
+         for (const std::string& w : loaded.warnings) std::fprintf(stderr, "--settings %s: %s\n", path.c_str(), w.c_str());
+         spec = loaded.spec;
          continue;
       }
       double v = 0.0;
@@ -240,6 +263,34 @@ int RunCli(int argc, char** argv)
 
    TiffWriter tif(out);
    if (!tif.ok()) { std::fprintf(stderr, "cannot write %s\n", out.c_str()); return 1; }
+   if (!loaded.history.empty()) {
+      // A measurement with a light history (--settings): the live sample after it (its light replayed, LiveScope),
+      // then the movie's frames as the live session's next ones (= the viewer's Record "continue the live sample").
+      sim::LiveScope live;
+      std::string err;
+      loaded.spec = spec;   // (the options after the files on top)
+      unsigned W, H;
+      long n;
+      sim::ScopeMovieDims(spec, W, H, n);
+      std::vector<uint16_t> adu;
+      sim::LiveFrameInfo li;
+      const auto t0 = std::chrono::steady_clock::now();
+      if (!settings::Replay(loaded, live, err)) { std::fprintf(stderr, "--settings history: %s\n", err.c_str()); return 1; }
+      const double replaySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+      if (!live.Frames(spec, n, true, adu, li, err)) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
+      const size_t px = static_cast<size_t>(li.width) * li.height;
+      char desc[200];
+      std::snprintf(desc, sizeof desc, "insiliscope live sample after its light history (%zu runs), t0=%.6g s version=" ISC_VERSION,
+                    loaded.history.size(), li.tSec);
+      for (long f = 0; f < n; f++) {
+         const std::vector<uint16_t> page(adu.begin() + static_cast<std::ptrdiff_t>(px * f), adu.begin() + static_cast<std::ptrdiff_t>(px * (f + 1)));
+         if (!tif.Page(page, li.width, li.height, f == 0 ? desc : "")) { std::fprintf(stderr, "write error\n"); return 1; }
+      }
+      std::printf("%s: %ld frames %ux%u of the live sample at t = %.3f s after %zu runs of light (replay %.3f s), total %.3f s\n",
+                  out.c_str(), n, li.width, li.height, li.tSec, loaded.history.size(), replaySec,
+                  std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+      return 0;
+   }
    sim::ScopeMovieInfo info;
    std::string err;
    bool writeOk = true;

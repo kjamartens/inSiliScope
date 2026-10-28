@@ -110,6 +110,47 @@ std::vector<std::string> OrigamiDesignIds()
    return ids;
 }
 
+// The part of a settings file a named option belongs to (ScopeOptionPart; docs/dev/SAVE_SETTINGS.md has the table).
+// By name, so a new option without a rule here stops Options() at its first use.
+const char* PartOf(const std::string& n)
+{
+   auto starts = [&](const char* p) { return n.compare(0, std::strlen(p), p) == 0; };
+   auto in = [&](std::initializer_list<const char*> list) {
+      for (const char* k : list)
+         if (n == k)
+            return true;
+      return false;
+   };
+   if (in({ "disk-cache", "prepare", "illum-geometry" }))
+      return "host";
+   if (in({ "x", "y", "z", "focus-um", "frames", "exposure-ms", "start-sec" }) || starts("drift-"))
+      return "measurement";
+   for (int s = 0; s < TargetCount(); ++s)
+      if (starts((std::string(TargetAt(s).prefix) + "-").c_str()))
+         return "sample";
+   // the hardware: objective and its PSF, camera, beam shape, the parts given by their numbers (a custom line or filter)
+   if (in({ "na", "immersion-index", "pixel-nm", "psf-model", "psf-zernike-preset", "psf-mask", "psf-mask-modes",
+            "psf-mask-waist", "psf-working-distance-um", "camera-preset", "qe-curve", "qe", "camera-type", "dark-per-sec",
+            "gain", "offset", "offset-std", "read-noise", "gain-std-pct", "read-noise-std-pct", "cic", "bit-depth",
+            "illum-profile", "illum-fwhm", "laser-custom-nm", "ex-lo-nm", "ex-hi-nm", "dichroic-edge-nm", "em-lo-nm",
+            "em-hi-nm", "bf-condenser-na", "bf-wavelength-nm", "bf-aberrations", "fid-blocking-od" }))
+      return "instrument";
+   // the sample: the specimen and its world, labels and dyes, beads, the medium and the chamber
+   if (in({ "seed", "world-seed", "specimen", "mode", "chunk-um", "occupancy", "cell-diam-min-um", "cell-diam-max-um",
+            "packing", "chamber-height-um", "background-per-sec", "bf-absorption-per-um", "psf-sample-index",
+            "psf-sample-depth-nm", "dye1.source", "dye2.source", "dye3.source" }) ||
+       starts("origami-") || starts("fid-") || starts("bf-n-") || (starts("dye") && n.find('.') != std::string::npos) ||
+       (n.size() > 8 && n.compare(n.size() - 8, 8, "-density") == 0))
+      return "sample";
+   // how the instrument is driven: the light, the filters in place, the camera's settings, the render quality
+   if (starts("laser-") || starts("wf-") || starts("mean-field-") || starts("blink-") || starts("bf-") ||
+       (starts("psf-") && !starts("psf-sample-")) ||
+       in({ "light-preset", "ex-filter", "dichroic", "em-filter", "illum-bfp", "modality", "light-epi", "light-trans",
+            "size", "em-gain", "z-range-um" }))
+      return "settings";
+   return nullptr;
+}
+
 struct OptionTable
 {
    std::vector<ScopeOption> opts;
@@ -338,6 +379,9 @@ const OptionTable& Options()
          { "blink-min-photons", 50, "Renderer.BlinkMinPhotons: a blink with fewer detected photons than this in a frame is not splatted in that frame (Quality Fast 100, Realistic 50, Exhaustive 0); binned and mean-field frames and continuous dyes keep every one" },
       };
       v.insert(v.end(), rest.begin(), rest.end());
+      for (const ScopeOption& x : v)
+         if (!PartOf(x.name))
+            throw std::runtime_error(std::string("ScopeMovie.cpp: option '") + x.name + "' has no part (PartOf)");
       return o;
    }();
    return t;
@@ -455,6 +499,24 @@ bool IsNamedOption(const std::string& name)
 const std::vector<ScopeOption>& ScopeMovieOptions()
 {
    return Options().opts;
+}
+
+const std::vector<std::string>* ScopeOptionNames(const std::string& name)
+{
+   return OptionNames(name);
+}
+
+const char* ScopeOptionPart(const std::string& name)
+{
+   if (name.compare(0, 2, "p.") == 0 && name.size() > 2)
+      return "sample";
+   if (ZernikeKeyIndex(name) >= 0)
+      return "instrument";
+   OverrideKey ok;
+   if (!IsNamedOption(name) && ParseOverrideKey(name, ok) && (ok.slot >= 0 || ok.structure >= 0) &&
+       IndexOf(DyeFieldNames(), ok.field) >= 0)
+      return "sample";
+   return IsNamedOption(name) ? PartOf(name) : nullptr;
 }
 
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value)

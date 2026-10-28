@@ -67,12 +67,23 @@ public:
    // blinks and dyes summed, the whole call's renderMs.
    bool Frames(const ScopeSpec& spec, long n, bool countLight, std::vector<uint16_t>& adu, LiveFrameInfo& info,
                std::string& err);
+   // What Frames(spec, n, countLight) does to the sample (its light history, drift, time and noise counter), without
+   // rendering: a saved session's light replayed (docs/dev/SAVE_SETTINGS.md), so the next frame is the one the session
+   // would have rendered, bit for bit.
+   bool Advance(const ScopeSpec& spec, long n, bool countLight, std::string& err);
    // A fresh sample: no light so far, no drift, time 0.
    void Reset();
    double TimeSec() const { return tSec_; }
    const LightHistory& History() const { return history_; }
 
 private:
+   struct Step;
+   // The frames' spec, pose and light (the world reset on a new world); 0 = take them one frame at a time (n > 1 with
+   // drift or with frames that do not light the sample), -1 = an error.
+   int Begin(const ScopeSpec& specIn, long n, bool countLight, Step& st, std::string& err);
+   // Their light into the history, the time and the drift on, the noise counter on (after the frames are rendered).
+   void Finish(const Step& st, long n);
+
    LightHistory history_;
    DriftWalker drift_;
    SampleSettings world_;

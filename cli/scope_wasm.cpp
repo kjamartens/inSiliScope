@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -103,17 +104,26 @@ int32_t Bits(float f)
 
 extern "C" {
 
-// Named options, one per line: name \t default \t help. Returns the length
-// (without the terminating 0); writes at most cap bytes.
 // Phase timing (Simulation/Timing.h) on or off: the WASM has no ISC_TIMING
 // environment; lines go to stderr (the console in a browser, Node's stderr).
 ISC_API void isc_timing(int32_t on) { sim::TimingForced() = on != 0; }
 
+// Named options, one per line: name \t default (%.17g) \t help \t part (ScopeOptionPart: instrument, settings, sample,
+// measurement, host) \t the names its value may be given by, separated by '|' (empty: a number). Returns the length
+// (without the terminating 0); writes at most cap bytes.
 ISC_API int32_t isc_scope_options(char* out, int32_t cap)
 {
    std::string s;
    for (const sim::ScopeOption& o : sim::ScopeMovieOptions())
-      s += std::string(o.name) + "\t" + std::to_string(o.value) + "\t" + o.help + "\n";
+   {
+      char v[32];
+      std::snprintf(v, sizeof v, "%.17g", o.value);
+      std::string names;
+      if (const std::vector<std::string>* list = sim::ScopeOptionNames(o.name))
+         for (size_t i = 0; i < list->size(); ++i)
+            names += (i ? "|" : "") + (*list)[i];
+      s += std::string(o.name) + "\t" + v + "\t" + o.help + "\t" + sim::ScopeOptionPart(o.name) + "\t" + names + "\n";
+   }
    if (out && cap > 0) {
       const size_t n = std::min(s.size(), static_cast<size_t>(cap - 1));
       std::memcpy(out, s.data(), n);
@@ -578,6 +588,17 @@ ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* inf
 ISC_API const uint16_t* isc_live_image() { return g_liveImage.data(); }
 ISC_API const char* isc_live_paths() { return g_livePaths.c_str(); }
 ISC_API void isc_live_reset() { g_live.Reset(); }
+// A saved session's light replayed (LiveScope::Advance: what isc_live_frames(spec, n, countLight) does to the sample,
+// without rendering). 0, or -1 (message in errOut). isc_live_time(): the sample's time (s since the world was made).
+ISC_API int32_t isc_live_advance(const char* spec, int32_t n, int32_t countLight, char* errOut, int32_t errCap)
+{
+   std::string err;
+   sim::ScopeSpec s;
+   if (!sim::ParseScopeSpec(spec ? spec : "", s, err) || !g_live.Advance(s, n, countLight != 0, err))
+      return Fail(errOut, errCap, err);
+   return 0;
+}
+ISC_API double isc_live_time() { return g_live.TimeSec(); }
 ISC_API void isc_live_profile(int32_t on)
 {
    sim::TimingCollect() = on != 0;

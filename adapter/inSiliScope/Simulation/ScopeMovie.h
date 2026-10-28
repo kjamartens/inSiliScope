@@ -78,6 +78,13 @@ double ScopeDefaultZ(const ScopeSpec& spec);
 // dichroic, em-filter, light-preset, camera-preset, qe-curve, camera-type:
 // their data/dyes ids). False if neither.
 bool ScopeOptionValue(const std::string& name, const char* text, double& value);
+// The names an option's value may be given by (ScopeOptionValue: name i = value i), or nullptr for a numeric option.
+const std::vector<std::string>* ScopeOptionNames(const std::string& name);
+// The part of a settings file (docs/dev/SAVE_SETTINGS.md) an option belongs to: "instrument" (the hardware),
+// "settings" (how it is driven, and the render quality), "sample", "measurement" (where and how long it is imaged), or
+// "host" (how this run works, not what it shows: disk-cache, prepare; never saved); nullptr for a name that is not an
+// option. Named options, p.* (sample), zern.* (instrument) and the dye field overrides (sample).
+const char* ScopeOptionPart(const std::string& name);
 // "k=v k=v ..." (spaces, commas or semicolons); false (with err) on a bad token.
 bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err);
 

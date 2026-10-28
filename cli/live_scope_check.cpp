@@ -5,7 +5,8 @@
 //   - another world (world-seed) is a fresh sample: time and clocks back to 0;
 //   - two sessions with the same requests give the same frames, bit for bit; the noise differs frame to frame;
 //   - dSTORM's initial ON fades where the light has been and not elsewhere;
-//   - a recording (Frames: n frames at once) = the same frames one by one (within one electron in a few pixels).
+//   - a recording (Frames: n frames at once) = the same frames one by one (within one electron in a few pixels);
+//   - a session replayed without rendering (Advance) gives the session's next frame, bit for bit.
 //
 //   live_scope_check     exit code 0 = all checks passed
 #include "LiveScope.h"
@@ -180,6 +181,30 @@ int main()
       Check(rok && rec.size() == seq.size() && same >= 0.995 * seq.size() && maxDiff <= 4 && nextOne.adu == nextBatch.adu &&
             std::fabs(ri.tSec - 0.3) < 1e-9 && std::fabs(nextBatch.info.tSec - (0.3 + 0.1 * nRec)) < 1e-9, msg);
       if (!rok) std::printf("      (%s)\n", err.c_str());
+   }
+
+   // A saved session replayed (Advance: the frames' light, drift, time and noise counter without rendering; the
+   // viewer's Load settings, insiliscope_cli --settings): the next frame is the session's, bit for bit. The session's
+   // frames as the viewer logs them: runs of the same spec as one call of n.
+   for (const char* mode : { "", "mt-mode=DNA-PAINT", "drift-xy-nm-per-sqrt-sec=20" })
+   {
+      const std::vector<std::pair<ScopeSpec, int>> runs = {
+         { Spec(mode), 3 }, { Spec(std::string(mode) + " x=8"), 2 }, { Spec(std::string(mode) + " laser-561=0 laser-640=0 light-preset=-1"), 1 },
+         { Spec(std::string(mode) + " laser-640=3"), 2 }, { Spec(mode), 2 } };
+      LiveScope session, replay;
+      bool aok = true;
+      std::string err;
+      for (const auto& r : runs)
+         for (int k = 0; k < r.second; k++)
+            Take(session, r.first);
+      for (const auto& r : runs)
+         aok = aok && replay.Advance(r.first, r.second, true, err);
+      const Shot a = Take(session, Spec(mode)), b = Take(replay, Spec(mode));
+      std::snprintf(msg, sizeof msg, "replay %s: the session's light without rendering, then the next frame = the session's "
+                    "(t %.1f s, lit here %.4f s vs %.4f s)", *mode ? mode : "dSTORM", b.info.tSec, a.info.litSec, b.info.litSec);
+      Check(aok && a.ok && b.ok && a.adu == b.adu && a.info.tSec == b.info.tSec && a.info.litSec == b.info.litSec &&
+            a.info.drift.x == b.info.drift.x, msg);
+      if (!aok) std::printf("      (%s)\n", err.c_str());
    }
 
    std::printf("live_scope: %d failure(s), %.1f s\n", g_failures,

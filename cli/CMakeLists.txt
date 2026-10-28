@@ -63,7 +63,7 @@ if(EMSCRIPTEN)
     # copying the heap) from 16 MB in several steps.
     -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=96MB
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_psf_preview,_isc_scope_setup,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_frames,_isc_live_image,_isc_live_paths,_isc_live_reset,_isc_live_profile,_isc_live_profile_json]"
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_psf_preview,_isc_scope_setup,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_frames,_isc_live_image,_isc_live_paths,_isc_live_reset,_isc_live_advance,_isc_live_time,_isc_live_profile,_isc_live_profile_json]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_scope_web PROPERTIES OUTPUT_NAME insiliscope_scope_single SUFFIX ".js")
@@ -106,7 +106,7 @@ else()
   target_link_libraries(insiliscope_sim PUBLIC Threads::Threads)
 endif()
 
-add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp scope_setup.cpp)
+add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp scope_setup.cpp settings_file.cpp)
 target_link_libraries(insiliscope_cli PRIVATE insiliscope_sim)
 
 if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
@@ -141,6 +141,12 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(live_scope_check live_scope_check.cpp)
   target_link_libraries(live_scope_check PRIVATE insiliscope_sim)
   add_test(NAME live_scope COMMAND live_scope_check)
+
+  # Settings files (settings_file.h: the viewer's Save settings, insiliscope_cli --settings): parts, names, mixing,
+  # warnings, the light history replayed = the live session's next frame.
+  add_executable(settings_check settings_check.cpp settings_file.cpp)
+  target_link_libraries(settings_check PRIVATE insiliscope_sim)
+  add_test(NAME cli_settings COMMAND settings_check)
 
   # The cli's diagnostic outputs (scope_probes.h: the docs' physics figures) show what a movie renders.
   add_executable(probes_check probes_check.cpp scope_probes.cpp scope_setup.cpp)
