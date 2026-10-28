@@ -122,6 +122,8 @@ try {
       `${kind}: the header: ImageJ frames, unit, frame interval and the full engine spec`);
     check(Math.abs(d0.xres - 1000 / r.info.px) < 1e-4, `${kind}: the pixel size: ${(1000 / d0.xres).toFixed(2)} nm (viewer ${r.info.px.toFixed(2)} nm)`);
     check(frameOf(r, 0).some((v, i) => v !== frameOf(r, 19)[i]), `${kind}: the frames differ (blinks, noise)`);
+    // ImageJ / Fiji read an "ImageJ=" file's frames as one block from the first page's data, not page by page
+    check(r.pages.every((p, k) => p.data === d0.data + k * 128 * 128 * 2), `${kind}: the frames lie back to back from the first page's data (as Fiji reads them)`);
     check(r.info.btn === '● Record' && /saved insiliscope_live_128x128x20\.tif/.test(r.info.text), `${kind}: the button is back, the info line names the saved file`);
     return d0;
   };

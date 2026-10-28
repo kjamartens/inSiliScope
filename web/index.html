@@ -5860,22 +5860,24 @@ function toggleMoviePlay() {
   movieRaf = requestAnimationFrame(tick);
 }
 // Little-endian baseline TIFF: one uncompressed 16-bit grey page per frame,
-// the spec in the first page's ImageDescription (the cli writes the same layout).
+// the spec in the first page's ImageDescription.
 // pxUm (optional): the pixel size, as ImageJ writes it (XResolution/YResolution = pixels per unit, ResolutionUnit
 // none, "unit=micron" in the description), on every page.
+// Every page's tags come first, then the frames back to back: a description starting "ImageJ=" (the Record TIFF) makes
+// ImageJ / Fiji read the frames as one contiguous block from the first page's data, without reading the other pages'
+// tags (tags between the frames shifted every frame after the first, 2026-10-28).
 function writeTiff16(frames, w, h, n, desc, pxUm) {
   const enc = new TextEncoder().encode(desc + '\0'), px = w * h, res = pxUm > 0;
   const entries = p => (p === 0 ? 10 : 9) + (res ? 3 : 0), ifdBytes = p => 2 + 12 * entries(p) + 4 + (res ? 16 : 0);
   const ppu = res ? Math.round(1e6 / pxUm) : 0;   // pixels per micron x 1e6 (a RATIONAL ppu / 1e6)
-  let size = 8;
-  for (let p = 0; p < n; p++) size += px * 2 + (p === 0 ? enc.length + (enc.length & 1) : 0) + ifdBytes(p);
-  const buf = new ArrayBuffer(size), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let head = 8 + enc.length + (enc.length & 1);
+  for (let p = 0; p < n; p++) head += ifdBytes(p);
+  const buf = new ArrayBuffer(head + n * px * 2), dv = new DataView(buf), u8 = new Uint8Array(buf);
   dv.setUint16(0, 0x4949, true); dv.setUint16(2, 42, true);
+  new Uint16Array(buf, head, n * px).set(frames.subarray ? frames.subarray(0, n * px) : frames.slice(0, n * px));
   let pos = 8, link = 4;
   for (let p = 0; p < n; p++) {
-    const data = pos;
-    for (let i = 0; i < px; i++) dv.setUint16(pos + 2 * i, frames[p * px + i], true);
-    pos += px * 2;
+    const data = head + p * px * 2;
     let descOff = 0;
     if (p === 0) { descOff = pos; u8.set(enc, pos); pos += enc.length + (enc.length & 1); }
     let resOff = 0;
