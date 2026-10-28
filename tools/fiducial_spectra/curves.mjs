@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { GRID_N, gridNm, sampleAt, idealTransmission, detection } from '../../web/prototype/scope/spectra.js';
+import { GRID_N, gridNm, sampleAt, idealTransmission, detection } from '../spectra.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const PAPER_FILE = path.join(ROOT, 'data', 'fiducials', 'paper_spectra.json');

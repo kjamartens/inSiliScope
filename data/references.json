@@ -158,7 +158,7 @@
       "year": 1964,
       "title": "Handbook of Mathematical Functions with Formulas, Graphs, and Mathematical Tables",
       "journal": "National Bureau of Standards, Applied Mathematics Series", "volume": "55", "pages": "eq. 7.1.26, p. 299",
-      "use": "the rational approximation of erf (|error| <= 1.5e-7) behind the drift swings (DriftSwing in Simulation/Drift.*, driftSwing in web/prototype/scope/drift.js)",
+      "use": "the rational approximation of erf (|error| <= 1.5e-7) behind the drift swings (DriftSwing in Simulation/Drift.*)",
       "checked": "the coefficients and error bound as commonly reproduced from eq. 7.1.26, not re-read from the scan; the bound checked numerically against erf in ctest drift"
     },
     "jarzynski2020": {

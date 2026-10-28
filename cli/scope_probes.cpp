@@ -1,5 +1,6 @@
 // scope_probes -- see scope_probes.h. LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 #include "scope_probes.h"
+#include "scope_setup.h"
 
 #include "tiff_writer.h"
 
@@ -26,77 +27,6 @@
 
 namespace probes {
 namespace {
-
-// ---- a small JSON writer (numbers %.9g; NaN and infinities as null) ----
-struct Json
-{
-   std::string s;
-   bool first = true;
-   void Sep()
-   {
-      if (!first)
-         s += ',';
-      first = false;
-   }
-   void Key(const char* k)
-   {
-      Sep();
-      s += '"';
-      s += k;
-      s += "\":";
-      first = true;
-   }
-   void Num(double v)
-   {
-      Sep();
-      if (!std::isfinite(v))
-      {
-         s += "null";
-         return;
-      }
-      char b[32];
-      std::snprintf(b, sizeof b, "%.9g", v);
-      s += b;
-   }
-   void Str(const std::string& v)
-   {
-      Sep();
-      s += '"';
-      for (char c : v)
-      {
-         if (c == '"' || c == '\\')
-            s += '\\';
-         s += c;
-      }
-      s += '"';
-   }
-   void Bool(bool v)
-   {
-      Sep();
-      s += v ? "true" : "false";
-   }
-   void Open(char c)
-   {
-      Sep();
-      s += c;
-      first = true;
-   }
-   void Close(char c)
-   {
-      s += c;
-      first = false;
-   }
-   template <class T> void Array(const T* v, size_t n)
-   {
-      Open('[');
-      for (size_t i = 0; i < n; ++i)
-         Num(static_cast<double>(v[i]));
-      Close(']');
-   }
-   void KNum(const char* k, double v) { Key(k); Num(v); }
-   void KStr(const char* k, const std::string& v) { Key(k); Str(v); }
-   void KBool(const char* k, bool v) { Key(k); Bool(v); }
-};
 
 bool WriteText(const std::string& path, const std::string& text, std::string& err)
 {
@@ -153,44 +83,6 @@ bool KernelLambda(const sim::ScopeSpec& spec, double& lambdaNm, std::string& err
       return false;
    lambdaNm = sim::KernelWavelengthNm(st.emits ? st.lambdaNm : 670.0);
    return true;
-}
-
-void SpectrumKey(Json& j, const char* key, const sim::Spectrum& v)
-{
-   j.Key(key);
-   j.Array(v.data(), v.size());
-}
-
-void StateJson(Json& j, const sim::StateData& sd, const sim::StatePhysics& st, const sim::LightPath& lp)
-{
-   j.Open('{');
-   j.KBool("emits", st.emits);
-   if (st.emits)
-   {
-      j.KNum("excitation_per_s", st.excitationPerSec);
-      j.KNum("emission_per_s", st.emissionPerSec);
-      j.KNum("detected_fraction", st.detectedFraction);
-      j.KNum("lambda_nm", st.lambdaNm);
-      j.KNum("kernel_lambda_nm", sim::KernelWavelengthNm(st.lambdaNm));
-      j.KNum("detected_per_s", st.detectedPerSec);
-      j.KNum("ext_coeff", sd.extCoeff);
-      j.KNum("qy", sd.qy);
-      j.KStr("color", st.color ? st.color : "");
-      sim::Spectrum ex, em;
-      std::string e;
-      if (sim::StateSpectra(sd, ex, em, e))
-      {
-         // The detected spectrum: emission x dichroic x emission filter x QE
-         // (Spectra.h Detect's integrand; detected_fraction = its sum / em's).
-         sim::Spectrum det(em.size());
-         for (size_t i = 0; i < em.size(); ++i)
-            det[i] = em[i] * lp.dichroicT[i] * lp.emissionT[i] * lp.qe[i];
-         SpectrumKey(j, "ex", ex);
-         SpectrumKey(j, "em", em);
-         SpectrumKey(j, "detected", det);
-      }
-   }
-   j.Close('}');
 }
 
 int StructureMask()

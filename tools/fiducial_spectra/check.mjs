@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ROOT, PAPER_FILE, readPaper, curveValues, quotedEfficiency } from './curves.mjs';
-import { sampleAt, idealTransmission, detection } from '../../web/prototype/scope/spectra.js';
+import { sampleAt, idealTransmission, detection } from '../spectra.mjs';
 
 const t0 = performance.now();
 let bad = 0;

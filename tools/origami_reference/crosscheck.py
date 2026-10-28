@@ -3,8 +3,8 @@
 Reads JSON from stdin: {"cases": [{"normals": [...], "roll": rad, "lengthNm", "diameterNm", "lpNm", "segmentNm",
 "positionsNm": [...], "nAround": int}]} and writes, per case, the bent sites of binding_sites(roll) through
 BentShape.transform3d (x, y, height above the surface) and the end angle, with BentShape's random draws replaced by
-the given normals (its sequential numpy stream is not ported; the JS draws its normals from pcg4d). Used by
-freeze_crosscheck.mjs (tests/parity/origami_bend_ref.inc); run with python -I. BSD-3-Clause.
+the given normals (its sequential numpy stream is not ported; the core draws its normals from pcg4d). Its
+output is frozen in tests/parity/origami_bend_ref.inc; run with python -I. BSD-3-Clause.
 """
 import json
 import os

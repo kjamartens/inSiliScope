@@ -71,6 +71,13 @@ try {
     return { w: v.width, h: v.height, pw: p.width, ctlBottom: c.bottom, H: innerHeight, vbH: vb.height, lbH: lb.height, illum: !!document.querySelector('#liveCtl details[data-group=illum]') }; });
   check(Math.abs(sq.w - sq.h) < 1 && Math.abs(sq.pw - sq.w) < 2 && Math.abs(sq.ctlBottom - sq.H) < 2 && Math.abs(sq.vbH - sq.lbH) < 1 && sq.illum,
     `layout: the image square (${sq.w.toFixed(0)} px), the settings as wide (${sq.pw.toFixed(0)} px), the controls column to the bottom, the bars level (${sq.vbH.toFixed(0)}/${sq.lbH.toFixed(0)} px), illumination in the column ${JSON.stringify(sq)}`);
+  // the light-path readouts, from the movie spec's C++ setup (the setup job): the BFP line names a regime, the spectra
+  // plot drew the lit lasers
+  const ro = await page.waitForFunction(() => {
+    const b = document.getElementById('bfpReadout'), p = document.getElementById('specPlot');
+    return b && p && /^(Epi|HILO|TIRF|Clipped)\b/.test(b.textContent) && +p.dataset.lasers > 0 && { bfp: b.textContent, lasers: +p.dataset.lasers };
+  }, null, { timeout: 30000 }).then(h => h.jsonValue(), () => null);
+  check(!!ro, `the BFP readout and the spectra plot from the setup job: ${ro ? `"${ro.bfp}", ${ro.lasers} laser line(s)` : 'nothing drawn in 30 s'}`);
   await page.evaluate(() => document.getElementById('lv_live').click());
   const names = seen.map(s => s.split('#')[0]), vals = seen.map(s => s.split('#')[1].split('|'));
   check(names.every(n => n === names[0]) && /blink events \(core\)/.test(names[0]) && /BrightField image/.test(names[0]),

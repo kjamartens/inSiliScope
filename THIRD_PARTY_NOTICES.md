@@ -79,7 +79,7 @@ inSiliScope's own source is BSD-3-Clause (see `LICENSE`); the distributed Micro-
   (https://creativecommons.org/licenses/by-sa/4.0/). Dye and fluorescent-protein spectra and scalars (peaks,
   extinction coefficients, quantum yields, lifetimes), filter transmission curves and camera QE curves, fetched by
   `tools/fetch_fpbase.mjs` into `data/dyes/fpbase_spectra.json` (resampled to 1 nm) and carried into
-  `web/prototype/scope/dye_library_data.js` and the builds that embed it. These data, and adaptations of them, stay
+  `web/dye_library.js`, `adapter/inSiliScope/Simulation/DyeLibraryData.inc` and the builds that embed them. These data, and adaptations of them, stay
   under CC BY-SA 4.0 with this attribution; they are a separate component next to the BSD-3-Clause code.
 
 ## Methods and data credited

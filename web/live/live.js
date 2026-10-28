@@ -6,8 +6,7 @@
 //
 // Loaded after the viewer's main script (web/index.html) and uses its globals: movieSpec, spawnGenWorker,
 // genWorkers, view, requestDraw, resizeCanvas, makeMovie, uiKit. A live frame is a `live` job (cli/scope_wasm.cpp
-// isc_live_frame: sim::LiveScope, the adapter's live mode, with the sample's light history); an engine
-// without it (the lab's JS reference) gets single-frame `movie` jobs at an advancing start time instead.
+// isc_live_frame: sim::LiveScope, the adapter's live mode, with the sample's light history).
 'use strict';
 (function () {
 const $ = id => document.getElementById(id);
@@ -417,7 +416,6 @@ function showPerfNote() {
   if (how) lines.push('render: ' + how);
   lines.push(`sample time ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : ''));
   if (L.drift && L.drift.some(v => Math.abs(v) >= 0.5)) lines.push(`drift ${L.drift.map(v => v.toFixed(0)).join(', ')} nm`);
-  if (L.engine === 'movie') lines.push('(no sample history in this engine)');
   el.innerHTML = lines.map(s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('<br>');
 }
 // How the frame was drawn (LiveScope's render paths, spec/ALGORITHM.md "Blink render regimes"): blinks splatted one by

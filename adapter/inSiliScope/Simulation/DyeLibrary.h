@@ -3,8 +3,8 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   Dyes and their photophysics in a light path (issue 16): the
-//                twin of web/prototype/scope/dye_library.js. From a dye
+// DESCRIPTION:   Dyes and their photophysics in a light path (issue 16).
+//                From a dye
 //                (library entry or one of three slots, with overrides), a
 //                mode and the light path (LightPath.h) it gives, per
 //                emitting state (main, pre): the excitation rate per dye

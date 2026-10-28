@@ -35,9 +35,6 @@
 //                scatters each laser line (a Mie table) through the emission
 //                path, floored at 10^-blockingOD.
 //
-//                JS twin: web/prototype/scope/fiducials.js (the bead, the light)
-//                and fluorescence.js (fiducialBeads, renderFiducials).
-//
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
 #pragma once

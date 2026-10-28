@@ -161,8 +161,7 @@ rows exist in a session; a row above it is never created and its setting keeps i
 
 ## 8. The engine contract
 
-- Every physical setting is an engine option of `ScopeSpec` (`Simulation/ScopeMovie`; JS twin
-  `web/prototype/scope/scope_movie.js`; the viewer), so the cli, the viewer and webSMLM can render the same frame.
+- Every physical setting is an engine option of `ScopeSpec` (`Simulation/ScopeMovie`; the viewer), so the cli, the viewer and webSMLM can render the same frame.
   `Registry/SceneSettings.cpp` turns the settings into the spec; `Renderer.WriteScopeSpecTo` writes it to a file.
 - MM-only plumbing (shutters, turret positions, Test rows, caches) stays in the adapter.
 - Specimens and targets go through the registry (`data/specimens.json`), never through adapter code.
@@ -177,7 +176,7 @@ rows exist in a session; a row above it is never created and its setting keeps i
 `tools/test_mm_configs.py`); docs; a gallery entry if it changes the image (not for caches or preparation switches).
 
 **A new target in a specimen:** the core geometry; its entry in `data/specimens.json` (name, option prefix, core
-structure) and its `typicalLabels` per mode (with references); its engine options (`<prefix>-*`, C++ and JS twin);
+structure) and its `typicalLabels` per mode (with references); its engine options (`<prefix>-*`);
 its label rows (`TargetLabel(device, s)` in the specimen's block of the registry).
 
 **A new specimen:** the core generator and ABI; its entry in `data/specimens.json` (the `SampleHolder` position and

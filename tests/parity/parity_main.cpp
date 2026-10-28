@@ -1,7 +1,8 @@
 // Parity harness: reads tests/parity cases (see make_cases.mjs), runs them
-// through core, prints results in the same line format js_reference.mjs
-// prints for the JS prototype. Built natively and with Emscripten (run under
-// Node with NODERAWFS), so the same file checks native, WASM and JS.
+// through core and prints one line per result (the format of
+// spec/golden/ref.txt, frozen from the retired JS prototype). Built natively
+// and with Emscripten (run under Node with NODERAWFS), so the same file
+// checks native and WASM against the goldens.
 //
 //   isc_parity <cases.txt> <out.txt>
 #include "cells.h"
@@ -122,7 +123,7 @@ void CellsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p,
    }
 }
 
-// Nuclear pores of the first `maxCells` present candidates (js_reference.mjs 'npcs').
+// Nuclear pores of the first `maxCells` present candidates ('npcs').
 void NpcsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p, int cx0, int cy0, int cx1, int cy1,
               int maxCells)
 {
@@ -179,7 +180,7 @@ void NpcsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p, in
    }
 }
 
-// The nuclear lamina of the first `maxCells` present candidates (js_reference.mjs 'lamin').
+// The nuclear lamina of the first `maxCells` present candidates ('lamin').
 void LaminCase(FILE* f, const std::string& id, uint32_t seed, const Params& p, int cx0, int cy0, int cx1, int cy1,
                int maxCells)
 {
@@ -230,7 +231,7 @@ void LaminCase(FILE* f, const std::string& id, uint32_t seed, const Params& p, i
    }
 }
 
-// The molecules of a window of a nanoruler field (js_reference.mjs 'origami').
+// The molecules of a window of a nanoruler field ('origami').
 void OrigamiCase(FILE* f, const std::string& id, uint32_t seed, double x0, double y0, double x1, double y1, Params p)
 {
    p.specimen = SPECIMEN_NANORULERS;
@@ -262,7 +263,7 @@ void OrigamiCase(FILE* f, const std::string& id, uint32_t seed, double x0, doubl
    }
 }
 
-// The beads of a window of a fiducial field on the step surface (js_reference.mjs 'fiducials').
+// The beads of a window of a fiducial field on the step surface ('fiducials').
 void FiducialsCase(FILE* f, const std::string& id, uint32_t seed, double x0, double y0, double x1, double y1,
                    const Params& p)
 {

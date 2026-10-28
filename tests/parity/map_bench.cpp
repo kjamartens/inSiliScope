@@ -1,4 +1,4 @@
-// The clock map's speed check (ABI 14, spec/ALGORITHM.md "Exact light history"; not a test: tools/port_check.sh does
+// The clock map's speed check (ABI 14, spec/ALGORITHM.md "Exact light history"; not a test: tools/core_check.sh does
 // not run it, the checks it prints are its own). One 25.6 um field of microtubules under a sheared (HILO-like) flat-top
 // beam that moved, with two kinetics epochs (a 405-ratio step), read
 //   (b) as one uniform EventsInWindow (today's cost with no shaped light),

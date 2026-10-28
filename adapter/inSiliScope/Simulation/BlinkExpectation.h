@@ -22,7 +22,6 @@
 //                Not modelled: the 1000-blink cap and the normal approximation
 //                of a bin's count above 30 (their means are the same to
 //                ~1e-3 and below).
-//                JS twin: web/prototype/scope/blink_expectation.js.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 

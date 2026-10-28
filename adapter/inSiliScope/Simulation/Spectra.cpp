@@ -3,7 +3,7 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   See Spectra.h (twin of web/prototype/scope/spectra.js).
+// DESCRIPTION:   See Spectra.h.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 

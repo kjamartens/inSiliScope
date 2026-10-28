@@ -33,7 +33,7 @@ if(EMSCRIPTEN)
   target_link_options(isc_map_bench PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
 endif()
 
-# Golden vectors (spec/golden): bit-identical to the frozen JS reference.
+# Golden vectors (spec/golden): bit-identical to the frozen reference (ref.txt).
 find_program(ISC_NODE node NAMES node nodejs)
 if(EMSCRIPTEN AND NOT ISC_NODE)
   set(ISC_NODE ${NODE_JS_EXECUTABLE})
@@ -41,7 +41,7 @@ endif()
 # world_checks: one test per section of world_tests.cpp (its Sections() list), so
 # `ctest -j` runs them side by side; isc_world_tests without an argument runs all.
 set(ISC_WORLD_SECTIONS basics determinism dye_statistics events caches label_model kinetics_history
-  c_api block_injection density3d optical_volume edge_and_height clock_map origami npcs lamin fiducials)
+  c_api block_injection density3d optical_volume edge_and_height microtubules clock_map origami npcs lamin fiducials)
 # (the thread checks compare 8 threads with 1: natively only, WASM has no threads)
 if(NOT EMSCRIPTEN)
   list(APPEND ISC_WORLD_SECTIONS threads)

@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, PAPER_FILE, readPaper, curveValues, quotedEfficiency, formatJson } from './curves.mjs';
-import { sampleAt, idealTransmission, detection } from '../../web/prototype/scope/spectra.js';
+import { sampleAt, idealTransmission, detection } from '../spectra.mjs';
 
 const paper = readPaper();
 const err = (curve, q, decay) => quotedEfficiency(q, curveValues(curve, decay))

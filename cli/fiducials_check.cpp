@@ -1,4 +1,4 @@
-// ctest fiducials: the fiducial beads' light and image (Simulation/Fiducials.h; JS twin web/prototype/scope/fiducials.js).
+// ctest fiducials: the fiducial beads' light and image (Simulation/Fiducials.h).
 // Where the beads are is world_checks.fiducials.
 //   - the light: the bleach half-time at the reference intensity = the option; a dark-red bead at 561 nm bleaches
 //     ~100x slower (~1 % excitation); gold's laser scatter is blocked by the filters (OD 6) and bright without them;

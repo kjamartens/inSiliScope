@@ -123,6 +123,7 @@
     <ClCompile Include="InSiliScopeXYStage.cpp" />
     <ClCompile Include="Simulation\SampleSource.cpp" />
     <ClCompile Include="Simulation\Drift.cpp" />
+    <ClCompile Include="Simulation\DriftShift.cpp" />
     <ClCompile Include="Simulation\DyeLibrary.cpp" />
     <ClCompile Include="Simulation\LightPath.cpp" />
     <ClCompile Include="Simulation\Excitation.cpp" />

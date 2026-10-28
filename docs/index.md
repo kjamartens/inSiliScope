@@ -50,8 +50,8 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
 - **Address-based determinism.** Every cell, microtubule and dye is a pure function of `(seed, address)`. Any window
   of the infinite field can be generated alone, in any order, on any platform, with identical results. See
   [World model](samples/cell-field/world-model.md).
-- **Bit-exact across targets.** The RNG and the geometry match the original JS prototype bit for bit (native, WASM, JS),
-  guarded by golden vectors in CI.
+- **Bit-exact across targets.** The RNG and the geometry are the same bit for bit natively and in WASM, guarded by
+  golden vectors in CI.
 - **Dyes and a light path.** Each structure has its own label: a dye of the library (FPbase spectra; AF647, mEos3.2, ATTO 655,
   mEGFP, ...) in a mode: *dSTORM*, *PALM* (with the pre-converted state), *DNA-PAINT* (with the free imager's background)
   or *WideField* (every dye at once, bleaching by its photon budget). Lasers, dichroic, emission filter and the camera's
