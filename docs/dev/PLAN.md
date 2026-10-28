@@ -49,6 +49,12 @@ Upcoming ideas:
   default (registry `defaultDye: "None"`), [x] JS + core ABI 16 (lamina structure 2, docking strands 3,
   `isc_cell_lamin`), [x] engine/cli `lamin-*`, viewer, block, MM `NuclearLamina_*`, [x] docs, gallery (`lamin-paint`).
   Next: [ ] a non-random lamin network (meshwork / filaments) in place of `buildLaminForCell`, [ ] a drawn lamina layer.
+- Save and load settings (2026-10-28, branch `lamin_network`, [docs/dev/SAVE_SETTINGS.md](SAVE_SETTINGS.md)): `.isc.json`
+  in mixable parts (instrument, settings, sample, measurement with the light history, view): [x] each option's part
+  (`ScopeOptionPart`), names (`ScopeOptionNames`), `LiveScope::Advance`, [x] viewer Save / Load, the Setup box, quiet
+  apply, the history replayed (`tests/web/viewer_settings_file.mjs`), [x] `insiliscope_cli --settings` (ctest
+  `cli_settings`). Next: [ ] ground-truth export, [ ] MM `Hub.SaveSettingsTo` / `LoadSettingsFrom`, [ ] an
+  instrument's installed hardware.
 - Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
   spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,

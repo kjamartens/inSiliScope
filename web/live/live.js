@@ -119,7 +119,7 @@ function worker() {
   L.worker = spawnGenWorker();
   L.worker.onmessage = e => onResult(e.data);
   // a failure here stops live only (the shared handler would move every worker to the main thread)
-  L.worker.onerror = e => { e.preventDefault(); L.err = e.message || 'the live worker failed'; L.pending = null; L.worker.terminate(); L.worker = null; setLive(false); };
+  L.worker.onerror = e => { e.preventDefault(); L.err = e.message || 'the live worker failed'; L.pending = null; L.worker.terminate(); L.worker = null; L.worldKey = null; setLive(false); };
   return L.worker;
 }
 // The live session follows the sample: a new world (seed, cell or specimen parameters) is a fresh sample, as the
@@ -133,7 +133,7 @@ function request(n) {
   const spec = movieSpec({ frames: 1 });
   const wk = worldKey(spec);
   const reset = wk !== L.worldKey;
-  if (reset) { L.worldKey = wk; L.t = 0; }
+  if (reset) { L.worldKey = wk; L.t = 0; L.log = []; }
   const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && expert() };
   if (n) { job.n = n; job.rec = true; }
   L.pending = job;
@@ -145,8 +145,10 @@ function onResult(d) {
   if (!job || d.id !== job.id) return;
   if (d.type === 'movie-progress') { if (job.fresh) onRecProgress(d); return; }
   L.pending = null;
+  if (job.type === 'live-replay') { onReplay(d, job); return; }
   if (d.error) { L.err = d.error; L.on = false; if (REC.on) finishRec(); syncButtons(); showInfo(); return; }
   if (job.fresh) { onRecMovie(d, job); return; }
+  logFrames(job.spec, job.n || 1);
   if (job.rec) { onRecChunk(d, job); return; }
   L.err = '';
   L.ms = performance.now() - job.t0;
@@ -171,6 +173,42 @@ function onResult(d) {
   if (L.on && now < due) setTimeout(show, due - now); else show();
 }
 const exposureSec = () => Math.max(0.001, (+$('mv_exposure-ms').value || 50) / 1000);
+
+// ---- the sample's light history: what has been done to it, saved with the measurement (web/live/settings_file.js) ----
+// Every frame the live sample took, as runs of one spec (L.log: {spec, n, lit}; a new world or a fresh sample starts it
+// afresh). A load replays a saved one (a live-replay job: isc_live_advance per run, no rendering), so the next frame is
+// the one the saved session would have rendered.
+L.log = [];
+function logFrames(spec, n) {
+  const last = L.log[L.log.length - 1];
+  if (last && last.spec === spec) last.n += n; else L.log.push({ spec, n, lit: true });
+}
+// records: [{spec, n, lit}] (full specs). Live pauses while it runs; resolves with the sample's time after it.
+L.replay = records => new Promise((resolve, reject) => {
+  const wasOn = L.on;
+  if (L.on) { L.on = false; syncButtons(); }
+  const go = () => {
+    const w = worker();
+    if (!w) { reject(new Error('the workers are not up yet')); return; }
+    if (L.pending) { setTimeout(go, 20); return; }
+    L.pending = { type: 'live-replay', id: ++L.id, records, resolve, reject, wasOn };
+    w.postMessage({ type: 'live-replay', id: L.id, records });
+  };
+  go();
+});
+function onReplay(d, job) {
+  if (d.error) { L.worldKey = null; job.reject(new Error(d.error)); }
+  else {
+    L.t = d.t;
+    L.worldKey = worldKey(movieSpec({ frames: 1 }));
+    L.log = job.records.map(r => ({ ...r }));
+    job.resolve(d.t);
+  }
+  if (job.wasOn) setLive(true);
+}
+// A fresh sample at the next frame (a measurement without history).
+L.freshSample = () => { L.worldKey = null; L.t = 0; L.log = []; };
+L.setLive = on => setLive(on);
 
 // ---- display: grey LUT, the range from the frame (auto) or the boxes ----
 const cv = $('lv_cv'), g = cv.getContext('2d');

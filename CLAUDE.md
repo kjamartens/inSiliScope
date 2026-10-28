@@ -55,6 +55,16 @@ that finishes them.
   `showFids` (layer `fid.beads`, drawn in the x-z view too, `#hud` `data-beads-xz`; a `fiducials` job on a cell worker
   on a world of its own); cli `--setup-json` `fiducials`; figures `fid-spectra`, `fid-heights`. Checks: ctest `fiducials`
   (`cli/fiducials_check.cpp`: the light, the bead kernel, bleaching movies) and `world_checks.fiducials` (the field).
+- **Save and load settings (2026-10-28, [docs/dev/SAVE_SETTINGS.md](docs/dev/SAVE_SETTINGS.md)):** `<name>.isc.json` in
+  mixable parts -- instrument, settings, sample, measurement (with the sample's light history), view (viewer only).
+  Every engine option has a part (`PartOf` in `ScopeMovie.cpp`, `ScopeOptionPart`; `Options()` throws on a new option
+  without one: place it), enumerations are saved by name (`ScopeOptionNames`); the module's `isc_scope_options` lists
+  `name\tdefault\thelp\tpart\tnames|...`. Viewer `web/live/settings_file.js` (the Setup box atop `#liveCtl`, ☰ Save /
+  Load, a dropped file; values from the parsed `movieSpec()`; quiet apply under `self.ISC_QUIET`, which the schema's
+  apply handlers and the specimen switch honour); the history is `L.log` in live.js (runs `{spec, n, lit}`), replayed by
+  a `live-replay` job (`isc_live_advance` = `LiveScope::Advance`, the state step `Frames` shares). cli `--settings
+  file[:parts]` (`cli/settings_file.*`). Checks: ctest `cli_settings`, `live_scope`, `tests/web/viewer_settings_file.mjs`
+  (~10 s: load = the same spec and next frame bit for bit, mixing, warnings, viewer -> cli).
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider

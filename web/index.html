@@ -1252,7 +1252,7 @@ const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus
 const dyeNameOf = P => isNone(choiceOf(P)) ? 'None' : USER_DYES.isUser(choiceOf(P)) ? USER_DYES.name(USER_DYES.slot(choiceOf(P))) : choiceDye(choiceOf(P)).name;
 const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, autoLightPreset, brightField: BF, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
   structure: () => mounted().targets[0].structure, specimen: () => mounted().id, isNone, noneValue: DYE_NONE_V, dyeNameOf,
-  dyeName: () => dyeNameOf(curPrefix()) };
+  dyeName: () => dyeNameOf(curPrefix()), refreshUserDyes };
 return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
 })();
 </script>
@@ -1560,7 +1560,8 @@ for (const r of entries) {
       const vals = r.presets[el.value];
       if (vals) for (const k in vals) setValue(k, vals[k]);
     });
-    if (r.apply) el.addEventListener('input', () => { const vals = r.apply(el.value); for (const k in vals) if (+$(k).value !== vals[k]) setValue(k, vals[k]); });
+    // (while a settings file is applied, self.ISC_QUIET: the file's values, not what a pick would load with them)
+    if (r.apply) el.addEventListener('input', () => { const vals = r.apply(el.value); if (self.ISC_QUIET) return; for (const k in vals) if (+$(k).value !== vals[k]) setValue(k, vals[k]); });
     // A preset select fires input before change: syncing on that input would match its unchanged kids and put the
     // old preset back before change applies the new one, so a preset syncs only after applying (on change).
     if (r.kind !== 'preset') el.addEventListener('input', sync);
@@ -3869,7 +3870,7 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'options' || d.type === 'setup' || d.type === 'psf' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'options' || d.type === 'setup' || d.type === 'psf' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
         // d (nm) each), on the beads' own world.
@@ -4068,12 +4069,29 @@ function iscEngine(M) {
       }
       if (d.type === 'live') return liveFrame(d, post);
       if (d.type === 'options') {
-        // the movie options the module knows (isc_scope_options: name \t default \t help per line)
+        // the movie options the module knows (isc_scope_options: name \t default \t help \t part \t value names per line)
         const n = M._isc_scope_options(0, 0) + 1, b = M._malloc(n);
         M._isc_scope_options(b, n);
         const lines = M.UTF8ToString(b).split('\n').filter(Boolean).map(l => l.split('\t'));
         M._free(b);
-        return [{ type: 'options', id: d.id, names: lines.map(l => l[0]), defaults: lines.map(l => +l[1]) }, []];
+        return [{ type: 'options', id: d.id, names: lines.map(l => l[0]), defaults: lines.map(l => +l[1]),
+          parts: lines.map(l => l[3] || ''), valueNames: lines.map(l => (l[4] ? l[4].split('|') : null)) }, []];
+      }
+      if (d.type === 'live-replay') {
+        // A saved session's light (web/live/settings_file.js): a fresh sample, then each run of frames without rendering
+        // (isc_live_advance = LiveScope::Advance), so the next live frame is the one the session would have rendered.
+        M._isc_live_reset();
+        const err = M._malloc(512);
+        let error = null;
+        for (const r of d.records) {
+          const n = M.lengthBytesUTF8(r.spec) + 1, s = M._malloc(n);
+          M.stringToUTF8(r.spec, s, n);
+          const rc = M._isc_live_advance(s, Math.max(1, r.n | 0), r.lit === false ? 0 : 1, err, 512);
+          M._free(s);
+          if (rc < 0) { error = M.UTF8ToString(err); break; }
+        }
+        M._free(err);
+        return [{ type: 'live-replay', id: d.id, t: M._isc_live_time(), error }, []];
       }
       if (d.type === 'setup') {
         // A movie spec's resolved setup (isc_scope_setup: JSON of the light path, excitation, labels).
@@ -4227,7 +4245,11 @@ function initGenWorkers() {
       else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
       else if (t === 'bf-begin') onBfBegin(e.data);
       else if (t === 'origami') onOrigamiResult(e.data);
-      else if (t === 'options') { if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults); }
+      else if (t === 'options') {
+        // the engine's options by name: default, settings-file part, value names (web/live/settings_file.js)
+        self.ISC_ENGINE_OPTIONS = new Map(e.data.names.map((n, i) => [n, { def: e.data.defaults[i], part: e.data.parts[i], names: e.data.valueNames[i] }]));
+        if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults);
+      }
       else if (t === 'setup') onSetupResult(e.data);
       else if (t !== 'bf-end') onDyeResult(e);
     };
@@ -6594,7 +6616,7 @@ function syncSpecimen() {
 }
 els.mv_specimen.addEventListener('input', () => {
   const nr = DYE_UI.nanorulers();
-  if (!DYE_UI.brightField()) {
+  if (!DYE_UI.brightField() && !self.ISC_QUIET) {   // (a settings file brings its own)
     const b = document.getElementById('mv_illum-bfp');
     b.value = DYE_UI.lightPresetValues(DYE_UI.autoLightPreset())['mv_illum-bfp'];
     b.dispatchEvent(new Event('input', { bubbles: true }));
@@ -6890,6 +6912,7 @@ resizeCanvas();
 </script>
 <script src="live/live.js"></script>
 <script src="live/mm_config_ui.js"></script>
+<script src="live/settings_file.js"></script>
 <script src="anim/editor.js"></script>
 <script src="live/persist.js"></script>
 </body>

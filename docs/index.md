@@ -35,7 +35,7 @@ One C++ world model, three consumers:
 
 | Consumer | What it is | Where |
 |---|---|---|
-| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, a live microscope (bleaching where you look, the Micro-Manager config presets) that records TIFF stacks (WASM); cell animations exported as MP4/WebM/GIF | [Open the viewer](../){ target="_blank" }, [how to use it](quickstart.md) |
+| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, a live microscope (bleaching where you look, the Micro-Manager config presets) that records TIFF stacks (WASM); setups saved and loaded as files in mixable parts (instrument, settings, sample, measurement); cell animations exported as MP4/WebM/GIF | [Open the viewer](../){ target="_blank" }, [how to use it](quickstart.md) |
 | **Micro-Manager adapter** | A hub (`mmgr_dal_inSiliScope.dll`) with one device per part of the microscope (camera, stages, objective, filters, lasers, lamp, sample): move the stage, change focus, run live acquisitions, sequences and z stacks against a sample that never changes | [Micro-Manager](micro-manager.md) |
 | **webSMLM block** | The same core as a single generated JS file for [webSMLM](https://github.com/HohlbeinLab/webSMLM) | [Quickstart](quickstart.md) |
 

@@ -104,6 +104,21 @@ through it step by step.
   hidden settings differ from their defaults. The ☰ menu switches between three looks (Compact, Focus, the default,
   and Light); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all to defaults** puts every setting back, those beside the image too. Every setting, the level and the
   look are remembered in your browser across reloads (Reset all forgets them, and puts the panel and x-z view sizes back).
+- **Save and load settings.** The **Setup** box at the top of the controls column (and **Save settings…** / **Load
+  settings…** in the ☰ menu) keeps a setup as a file, `<name>.isc.json`, in parts that can be mixed: the
+  **Instrument** (objective, PSF and aberrations, camera and its noise, pixel size, the beam's shape, custom laser
+  lines and filter edges), the **Settings** (laser powers, the filters in place, the BFP position, the light paths,
+  camera size, render quality), the **Sample** (specimen, seed, cells or nanorulers, every target's label and dye,
+  custom dyes, beads, the medium), the **Measurement** (stage position, focus, exposure, drift, and the sample's light
+  history: every live frame that lit it) and, unticked by default, the **View** (the world view's camera, layers and
+  colours, the settings level and look). Each row shows where the part came from, a short id of its values (the same
+  values, the same id; "edited" once they moved) and a one-line summary. **Save…** asks for a name and the parts;
+  **Load…** (or a `.isc.json` dropped on the page) lists the file's parts and replaces only the ticked ones: another
+  lab's instrument with your sample, or your instrument with someone's sample. Loading a sample leaves the lasers as
+  they are; a loaded measurement replays its light history, so the next live frame is the one the saved session would
+  have taken (bleached and blinking as it was). A file from another release loads with a note that the image may
+  differ, and what the viewer could not take is listed. Every value is stored (defaults too) by name, and
+  `insiliscope_cli --settings <file>` renders the same frames on the command line.
   The viewer counts anonymous usage (which specimen, mode and Look are picked, Live, Record, saved TIFFs), without
   cookies: [Privacy](privacy.md) lists what is counted and how to turn it off.
   A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the

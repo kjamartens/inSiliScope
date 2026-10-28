@@ -37,6 +37,9 @@ A first tour, about five minutes:
 6. **Record a movie.** **● Record** asks for a number of frames, renders them and plays them back. **Save .tif**
    writes a 16-bit TIFF stack that opens in ImageJ/Fiji with its pixel size and frame interval, ready for your SMLM
    or tracking software. The file's header holds every setting, so `insiliscope_cli --spec` reproduces it exactly.
+7. **Save your setup.** **Save…** in the Setup box (top of the controls column) writes a `.isc.json` file in parts
+   (instrument, settings, sample, measurement with the sample's light history, view); **Load…** takes all of a file
+   or only some parts, so the same sample can be seen on another microscope.
 
 Everything on the screen, setting by setting: the [viewer reference](try-viewer.md). What the simulation can show, with
 side-by-side movies: the [Gallery](gallery/index.md).
@@ -128,7 +131,13 @@ build/native/cli/insiliscope_cli --out movie.tif --frames 200 --size 128 --seed 
 build/native/cli/insiliscope_cli --specimen Nanorulers --out rulers.tif --frames 1000 --size 64 --exposure-ms 100
 build/native/cli/insiliscope_cli --help          # every option and its default
 build/native/cli/insiliscope_cli --prepare 1 --disk-cache 2   # warm the caches (world, cells, PSF kernel), no movie
+build/native/cli/insiliscope_cli --settings setup.isc.json --out next.tif --frames 100   # the viewer's saved setup
+build/native/cli/insiliscope_cli --settings lab.isc.json:instrument --settings mine.isc.json:sample,settings,measurement --out mix.tif
 ```
+
+`--settings` reads a file from the viewer's **Save…** (all its parts but the view, or those named after a colon;
+later files and options override). When its measurement holds a light history, the CLI replays it and writes the live
+sample's next frames, the ones the viewer would take next.
 
 With `--drift-xy-speed-nm-per-sec` / `--drift-z-speed-nm-per-sec` the sample drifts (mean speeds; see `--help` for
 the direction, its wander and the random-walk jitter `--drift-xy-nm-per-sqrt-sec`) and the CLI writes the true drift per
