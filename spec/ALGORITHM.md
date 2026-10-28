@@ -317,8 +317,8 @@ points, and bounding purely by that would mask a genuine height change rather th
 spread it out) via a few back-and-forth smoothing passes, the same "relax toward
 neighbours" idiom `mtNudgeRoundGrid()`'s own collision resolution already uses elsewhere
 in this file — catches whatever the three fixes above don't, rather than relying on them
-being exhaustive. `tools/check_cellfield_microtubules.mjs`'s own step-slope check (see
-below) exists specifically to catch a regression in this; its own ratio metric additionally
+being exhaustive. The (retired) `check_cellfield_microtubules.mjs`'s step-slope check (see
+below) existed specifically to catch a regression in this; its own ratio metric additionally
 needs an absolute `|dz|` floor (`STEEP_MIN_DZ`) before flagging a step, since the RATIO
 alone spikes on plenty of genuinely tiny, invisible height wiggles whenever the walk's
 own realized lateral step happens to land near zero — an expected occurrence, not a
@@ -424,7 +424,7 @@ Path smoothing and Min turn radius are two DIFFERENT, complementary constraints,
 same knob under two names: smoothing shapes the TYPICAL, everyday wiggliness (how far the
 walk wanders per µm, all cases, including the ones far under the turn-radius cap), while
 minimum turn radius is a hard FLOOR only the rare tail ever hits (the worst-case single
-step/segment). Verified together (`tools/check_cellfield_microtubules.mjs`'s own scenarios
+step/segment). Verified together (the retired `check_cellfield_microtubules.mjs`'s scenarios
 and a direct single-cell, low-density Playwright screenshot comparison): off (both 0) shows
 visibly sharp kinks and zigzags; defaults (0.3 µm / 0.35 µm) already read as gently curving
 strands with no visible sharp turns; pushed further (1.5 µm / 0.6 µm) reads as long, sweeping
@@ -453,8 +453,8 @@ across a real run) dropped from 0.18 (Path smoothing off) to 0.009 at the slider
 over/under-nucleus crossing transitions) stayed a comparable, expected magnitude, i.e. this
 smooths the everyday wiggle without flattening genuine large crossings.
 
-**Verification**: `tools/check_cellfield_microtubules.mjs` (Playwright) checks three
-things independently after generation, across several parameter scenarios including one
+**Verification** (until 2026-10-28): `web/tools/check_cellfield_microtubules.mjs` (Playwright, on the JS prototype)
+checked three things independently after generation, across several parameter scenarios including one
 with widened End direction jitter/Wobble turn strength specifically to exercise the
 over/under-nucleus crossing rule: every point against the same containment bounds the
 clamp is supposed to enforce (footprint, nucleus, and `sampleCytoMeshHeight`); a coarse
@@ -463,9 +463,9 @@ density in the middle third rather than being bimodal (pinned near 0 and 1) — 
 signature of the hard-snap artifact above; and, for every consecutive pair of points on a
 path, the ratio of |dz| to the lateral distance moved, which should only rarely exceed a
 generous multiple — the signature of the "sudden, fully vertical drop" artifact above.
-Run it after touching microtubule or cytoplasm-height-field code (`cd web/tools && node
-check_cellfield_microtubules.mjs`; needs `web/tools/node_modules` — `cd web/tools && npm
-install` once).
+It went with the JS prototype (2026-10-28) and has no C++ counterpart yet: the golden `cells` lines freeze the
+current paths, but a change of microtubule or cytoplasm-height code is not checked for these three properties until
+they are ported into `world_checks`.
 
 **Scale bar**: bottom-right, fixed in screen space (untouched by pan/tilt), picks a
 round 1-2-5 length that renders near a target on-screen size at the current zoom
