@@ -14,7 +14,6 @@
 (function () {
 const $ = id => document.getElementById(id);
 const L = self.liveState, store = uiKit.store, DD = self.ISC_DYE_DATA;
-const FORMAT = 'insiliscope-settings', VERSION = 1;
 const PARTS = ['instrument', 'settings', 'sample', 'measurement', 'view'];
 const TITLE = { instrument: 'Instrument', settings: 'Settings', sample: 'Sample', measurement: 'Measurement', view: 'View' };
 const HELP = {
@@ -28,53 +27,9 @@ const ENG = () => self.ISC_ENGINE_OPTIONS || new Map();
 const fire = el => { el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); };
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
-// ---- keys, parts, names ----
-// "k=v k=v" -> Map (the viewer writes numbers)
-const parseSpec = text => {
-  const m = new Map();
-  for (const t of text.split(/[\s,;]+/)) { const i = t.indexOf('='); if (i > 0) m.set(t.slice(0, i), +t.slice(i + 1)); }
-  return m;
-};
-// The part of a key (= ScopeOptionPart, ScopeMovie.cpp): the engine's table for its named options, p.* sample, zern.*
-// instrument, the dye field overrides (<prefix>-dye.<field>, dye<N>.<field>) sample; null: none.
-function partOf(k) {
-  const o = ENG().get(k);
-  if (o) return o.part;
-  if (/^p\./.test(k)) return 'sample';
-  if (/^zern\.\d+$/.test(k)) return 'instrument';
-  if (/^([a-z]+-dye|dye\d)\./.test(k)) return 'sample';
-  return null;
-}
-// An option's value by name where it has names (isc_scope_options), else the number.
-function toName(k, v) {
-  const o = ENG().get(k);
-  return o && o.names && Number.isInteger(v) && v >= 0 && v < o.names.length ? o.names[v] : v;
-}
-// A file's value as the option's number (= ScopeOptionValue: a number, a name, Typical / DyeDefault / Global); NaN.
-function fromName(k, v) {
-  if (typeof v === 'number') return v;
-  if (typeof v === 'boolean') return v ? 1 : 0;
-  if (typeof v !== 'string') return NaN;
-  if (/-dye$/.test(k) && v === 'Typical') return -1;
-  if (/-mode$/.test(k) && v === 'DyeDefault') return -1;
-  if (/-mode$/.test(k) && v === 'Global') return -2;
-  if (k === 'mode' && v === 'None') return -1;
-  const o = ENG().get(k), i = o && o.names ? o.names.indexOf(v) : -1;
-  if (i >= 0) return i;
-  return v.trim() !== '' && Number.isFinite(+v) ? +v : NaN;
-}
-// A short id of a part's values (53-bit cyrb53 of the canonical JSON, base 32): the same values, the same id.
-function idOf(values) {
-  const text = JSON.stringify(Object.keys(values).sort().map(k => [k, values[k]]));
-  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
-  for (let i = 0; i < text.length; i++) {
-    const c = text.charCodeAt(i);
-    h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(32).padStart(11, '0').slice(-6);
-}
+// ---- keys, parts, names, the history (web/live/settings_core.js) ----
+const C = self.iscSettingsCore, { FORMAT, VERSION, parseSpec, idOf } = C;
+const partOf = k => C.partOf(ENG(), k), toName = (k, v) => C.toName(ENG(), k, v), fromName = (k, v) => C.fromName(ENG(), k, v);
 
 // ---- what the viewer has now ----
 // The view part: the View box's controls, the world view's zoom, the settings level and style, the live display.
@@ -106,33 +61,8 @@ function current() {
   };
   return { values, viewer };
 }
-// The light history as saved: each run's changes from the run before (null: a key it no longer has), without the
-// sample's keys (the loaded sample's go in on replay) and enumerations by name.
-function historyOut() {
-  const records = [];
-  let prev = new Map();
-  const keep = k => partOf(k) !== 'sample' && partOf(k) !== 'host';
-  for (const r of L.log) {
-    const m = new Map([...parseSpec(r.spec)].filter(([k]) => keep(k))), set = {};
-    for (const [k, v] of m) if (prev.get(k) !== v) set[k] = toName(k, v);
-    for (const k of prev.keys()) if (!m.has(k)) set[k] = null;
-    records.push({ n: r.n, lit: r.lit !== false, set });
-    prev = m;
-  }
-  return { tSec: L.t || 0, records };
-}
-// The runs as the live worker replays them: full specs, the current sample's keys in each (settings_file.cpp Replay).
-function replaySpecs(records) {
-  const sample = [...parseSpec(movieSpec({ frames: 1 }))].filter(([k]) => partOf(k) === 'sample');
-  const out = [], m = new Map();
-  for (const r of records) {
-    for (const [k, raw] of Object.entries(r.set || {})) { if (raw === null) m.delete(k); else m.set(k, fromName(k, raw)); }
-    const s = new Map(m);
-    for (const [k, v] of sample) s.set(k, v);
-    out.push({ spec: [...s].map(([k, v]) => k + '=' + v).join(' '), n: Math.max(1, r.n | 0), lit: r.lit !== false });
-  }
-  return out;
-}
+const historyOut = () => C.historyOut(ENG(), L.log, L.t);
+const replaySpecs = records => C.replaySpecs(ENG(), records, movieSpec({ frames: 1 }));
 
 // ---- one line per part ----
 const f = (v, d = 2) => { const t = (+v).toFixed(d); return t.includes('.') ? t.replace(/\.?0+$/, '') : t; };
@@ -180,22 +110,7 @@ function makeFile(parts, name) {
   }
   return out;
 }
-// A file read: checked, migrated to this version (no renames yet), and what it means here.
-const RENAMED = {};   // old key -> new key, when an option is renamed
-function readFile(text) {
-  let file;
-  try { file = JSON.parse(text); } catch (e) { throw new Error('not a settings file (not JSON)'); }
-  if (!file || file.format !== FORMAT || typeof file.parts !== 'object') throw new Error('not an inSiliScope settings file');
-  const warnings = [];
-  if (+file.version > VERSION) warnings.push(`a newer file format (version ${file.version}): what this viewer knows of it is read`);
-  const made = file.made || {};
-  if (made.release && made.release !== self.ISC_VERSION)
-    warnings.push(`made with inSiliScope ${made.release}, this viewer is ${self.ISC_VERSION}: the same settings, the image may differ`);
-  else if (made.worldVersion && made.worldVersion !== self.ISC_WORLD_VERSION)
-    warnings.push(`made with world version ${made.worldVersion}, this viewer has ${self.ISC_WORLD_VERSION}: the cells may differ`);
-  for (const p of Object.values(file.parts)) if (p && p.values) for (const [o, n] of Object.entries(RENAMED)) if (o in p.values) { p.values[n] = p.values[o]; delete p.values[o]; }
-  return { file, warnings };
-}
+const readFile = text => C.readFile(text, { release: self.ISC_VERSION, worldVersion: self.ISC_WORLD_VERSION });
 
 // ---- applying a file ----
 const CUSTOM_CAMERA = () => DD.cameras.findIndex(c => c.id === 'Custom');
@@ -227,7 +142,9 @@ function setKey(k, raw, note) {
   if (k === 'x') { view.cx = v; return; }
   if (k === 'y') { view.cy = v; return; }
   if (k === 'seed') { setControl($('seed'), v, note); return; }
-  if (k === 'world-seed' || k === 'psf-kernel-half-width-nm') return;   // (the seed's; the viewer's own 3 um: checked after)
+  if (k === 'world-seed' || k === 'psf-kernel-half-width-nm') return;
+  const zj = /^zern\.(\d+)$/.exec(k);
+  if (zj && self.ISC_ZERN) { self.ISC_ZERN.set(+zj[1], v); return; }   // (the seed's; the viewer's own 3 um: checked after)
   if (k === 'qe-curve') {
     const flat = v === CUSTOM_CAMERA();
     setControl($('qeFlat'), flat, note);
@@ -271,6 +188,7 @@ async function applyFile(file, parts) {
       }
       DYE_UI.refreshUserDyes();
     }
+    if (want.includes('instrument') && self.ISC_ZERN) self.ISC_ZERN.clear();   // (the file's zern.<j>, if any, follow)
     const iv = want.includes('instrument') && file.parts.instrument.viewer;
     if (iv && self.mmConfig && iv.objectiveMag) self.mmConfig.setObjectiveMag(+iv.objectiveMag);
     if (iv && iv.emissionMag) setControl($('emissionMag'), +iv.emissionMag, note);

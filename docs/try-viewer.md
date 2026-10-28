@@ -161,7 +161,11 @@ through it step by step.
 - Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - The live image uses the same PSF as the Micro-Manager adapter: a scalar Gibson-Lanni model with Zernike aberration
-  modes by default (the "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The
+  modes by default (the "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option).
+  From Advanced the box also has the objective's **NA** (the Objective preset in the Configuration sets it; a value typed
+  there makes the preset show "—", as Micro-Manager's turret goes to Custom), and in Expert the **Zernike modes**: the
+  Aberrations preset's 28 coefficients in waves (OSA order 0-27), which you can type over (28 values, or 15 with the rest
+  0); picking a preset replaces them again, as `Objective.ZernikeCoefficients` does in Micro-Manager. The
   kernel of the current PSF settings is computed in the background as soon as the page is ready and whenever those
   settings change. In Advanced, **Preview PSF** shows that kernel in a player over the view: the oversampled kernel
   beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from the

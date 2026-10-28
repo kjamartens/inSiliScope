@@ -141,6 +141,8 @@
   #liveCtl select,#liveCtl input[type=number],#liveCtl input[type=text],#panel select,#panel input[type=number],#panel input[type=text]{height:24px;box-sizing:border-box}
   #liveCtl .opt,#panel .opt{gap:6px;margin:3px 0;min-height:24px}
   #liveCtl .opt .ctl select{max-width:none;width:100%}
+  .opt.text:has(#zernCoeffs){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val{display:none}
+  #zernCoeffs{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}   /* (the 28 Zernike modes under their name) */
   #liveCtl .sub{font-size:10px;line-height:1.35}
   #liveCtl .opt .unit,#liveCtl .opt .u{font-size:10px}
   #liveCtl .lc{border:1px solid var(--border);border-radius:var(--radius);padding:5px 7px;flex:none}
@@ -1149,9 +1151,11 @@ const UI_GROUPS = [
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
   ] },
   { id: 'objective', host: 'lv_objHost', title: 'Objective & PSF', open: true, items: [
+    num('mv_na', 'NA', 'NA', 'Numerical aperture of the objective (the Objective preset sets it; a value typed here makes the preset Custom). <code>Objective.NA</code>', 0.1, 1.7, 0.01, 1.4, { adv: true }),
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3'),
     select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
+    text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. <code>Objective.ZernikeCoefficients</code>', undefined, { maxlength: 400 }),
     button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
   ] },
   // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
@@ -1350,7 +1354,7 @@ function renderEntry(e, host, g, parent) {
   } else if (e.kind === 'text') {
     row = h('div', { class: 'opt text' });
     const ctl = h('div', { class: 'ctl' });
-    ctl.append(h('input', { type: 'text', id: e.id, value: e.value, maxlength: 40 }));
+    ctl.append(h('input', { type: 'text', id: e.id, value: e.value === undefined ? '' : e.value, maxlength: e.maxlength || 40 }));
     row.append(labelCell(e, e.id), ctl, h('div', { class: 'val' }));
   } else {
     row = h('div', { class: 'opt ' + e.kind });
@@ -5647,6 +5651,8 @@ function movieSpec(ov) {
   // The live panel's Configuration (web/live/mm_config_ui.js): a preset's options the panel has no control for.
   const mmExtra = self.ISC_MM_EXTRA || {};
   for (const k in mmExtra) if (!has(k) && !MOVIE_KEYS.includes(k)) o.push(k + '=' + mmExtra[k]);
+  // Zernike modes typed over the preset's (ZERN, below): all 28
+  if (self.ISC_ZERN && ISC_ZERN.user) ISC_ZERN.user.forEach((v, j) => { if (!has('zern.' + j)) o.push('zern.' + j + '=' + v); });
   if (!has('seed')) o.push('seed=' + noiseSeed());
   o.push('world-seed=' + (worldSeed() >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
@@ -6604,6 +6610,41 @@ updateEmGainReadout();
 const syncQeFlat = () => { document.getElementById('mv_qe').disabled = !document.getElementById('qeFlat').checked; };
 document.getElementById('qeFlat').addEventListener('input', () => { syncQeFlat(); schedulePrepare(); });
 syncQeFlat();
+// The Zernike modes (Expert, Objective & PSF; = Objective.ZernikeCoefficients): the preset's 28 coefficients from the
+// C++ setup readout (isc_scope_setup's "zernike"), unless typed over (ZERN.user: then every zern.<j> is in the spec,
+// movieSpec). Picking a preset replaces them, as in Micro-Manager; so does Reset all. A settings file's zern.<j> go
+// through ZERN.set (web/live/settings_file.js).
+const zernEl = document.getElementById('zernCoeffs'), ZERN = self.ISC_ZERN = { user: null, preset: null };
+const zernText = z => z.map(v => +(+v).toFixed(5)).join(' ');
+const forgetZern = () => { try { localStorage.removeItem('isc.set.zernCoeffs'); } catch (e) { /* private window */ } };
+async function showZern() {
+  zernEl.style.outline = '';
+  if (ZERN.user) { if (document.activeElement !== zernEl) zernEl.value = zernText(ZERN.user); return; }
+  try {
+    const S = await setupJob(movieSpec());
+    if (S.zernike) ZERN.preset = S.zernike;
+    if (!ZERN.user && S.zernike && document.activeElement !== zernEl) zernEl.value = zernText(S.zernike);
+  } catch (e) { /* the readout follows with the next change */ }
+}
+ZERN.clear = () => { ZERN.user = null; forgetZern(); showZern(); };
+ZERN.set = (j, v) => {   // one coefficient, over the others as they are now
+  ZERN.user = (ZERN.user || ZERN.preset || new Array(28).fill(0)).slice();
+  ZERN.user[j] = v;
+  showZern();
+};
+zernEl.addEventListener('input', () => {   // (typing arrives settled, settle.js)
+  const v = zernEl.value.trim().split(/[\s,;]+/).filter(Boolean).map(Number);
+  const ok = (v.length === 28 || v.length === 15) && v.every(Number.isFinite);
+  zernEl.style.outline = ok ? '' : '1px solid #e0a64a';
+  if (!ok) return;
+  while (v.length < 28) v.push(0);
+  ZERN.user = v;
+  schedulePrepare();
+});
+zernEl.addEventListener('blur', showZern);
+document.getElementById('mv_psf-zernike-preset').addEventListener('change', () => { ZERN.user = null; forgetZern(); showZern(); });
+window.addEventListener('isc-reset', () => ZERN.clear());
+setTimeout(showZern, 0);
 // The dyes' colour, density and fluorescent fraction redraw the dye overlay.
 for (const k of [...DYE_UI.targets.flatMap(t => [t.prefix + '-dye', t.prefix + '-label-pct', t.prefix + '-dye.fluorescent-pct']),
   'dye1.source', 'dye2.source', 'dye3.source', 'dye1.fluorescent-pct', 'dye2.fluorescent-pct', 'dye3.fluorescent-pct'])
@@ -6912,6 +6953,7 @@ resizeCanvas();
 </script>
 <script src="live/live.js"></script>
 <script src="live/mm_config_ui.js"></script>
+<script src="live/settings_core.js"></script>
 <script src="live/settings_file.js"></script>
 <script src="anim/editor.js"></script>
 <script src="live/persist.js"></script>

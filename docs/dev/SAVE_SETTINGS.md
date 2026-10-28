@@ -12,8 +12,12 @@ and its replay), `cli/settings_file.*` (the reader, the native replay), `ScopeOp
 `ScopeOptionNames` (`adapter/inSiliScope/Simulation/ScopeMovie.*`: the part of every option, the names of its values),
 `LiveScope::Advance` (`Simulation/LiveScope.*`: the live sample's state after n frames, without rendering), the
 module's `isc_scope_options` (now `name \t default \t help \t part \t names|...`), `isc_live_advance`, `isc_live_time`.
+The file logic needing no page is `web/live/settings_core.js` (Node loads it too).
 Checks: ctest `cli_settings` (`cli/settings_check.cpp`, 0.3 s), ctest `live_scope` (replay = taken frames, dSTORM,
-DNA-PAINT, drift), `tests/web/viewer_settings_file.mjs` (~10 s).
+DNA-PAINT, drift), `tests/web/settings_unit.mjs` (0.2 s, CI job `viewer-js`: parts and names, ids, a live session's
+history saved and replayed on the viewer module = its next frame bit for bit, reading files, the setup's Zernike modes)
+and, for the page (dialogs, applying a file to the controls), `tests/web/viewer_settings_file.mjs` (~11 s: Chromium and
+the workers alone take ~5 s).
 
 ## The file
 

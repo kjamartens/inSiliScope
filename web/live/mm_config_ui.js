@@ -204,8 +204,10 @@ render();
 if (optics) { const cp = $('mv_camera-preset'); if (cp) takeCameraMag(cameraOptics(+cp.value)); setPixelSize(opticsNow()); }   // from the start
 new MutationObserver(render).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
 let markTimer = 0;
-$('panel').addEventListener('change', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 50); });
-$('panel').addEventListener('input', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 200); });
+// (#side: the settings under the image and the controls column beside it, whose boxes hold the objective's NA, ...)
+const sideEl = $('side') || $('panel');
+sideEl.addEventListener('change', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 50); });
+sideEl.addEventListener('input', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 200); });
 // A camera picked in the settings changes the pixel size too (its sensor pixel and magnification, the objective as
 // picked); so does the Magnification row.
 if ($('mv_camera-preset')) $('mv_camera-preset').addEventListener('change', () => {

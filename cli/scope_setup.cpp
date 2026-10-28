@@ -140,6 +140,13 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
       j.Close('}');
    }
 
+   std::vector<double> zern;
+   if (sim::ScopeZernike(spec, zern, ee))
+   {
+      j.Key("zernike");   // the pupil's coefficients, OSA 0-27, waves: the preset's with any zern.<j>
+      j.Array(zern.data(), zern.size());
+   }
+
    const double pixelUm = R.p.pixelSizeNm / 1000.0;
    j.Key("labels");
    j.Open('[');

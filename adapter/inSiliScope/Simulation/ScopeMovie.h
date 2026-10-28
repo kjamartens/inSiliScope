@@ -106,6 +106,9 @@ struct PsfKernelCache;
 // BuildPsfGeneratorRequest would build it from the same PSFParam_ values.
 // False for psf-model 0 (Gaussian; err empty) or a bad value (err set).
 bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorRequest& req, std::string& err);
+// The pupil's 28 Zernike coefficients (OSA 0-27, waves): the psf-zernike-preset's, each zern.<j> in the spec replacing
+// its own (= Objective.ZernikeCoefficients after a preset and edits).
+bool ScopeZernike(const ScopeSpec& spec, std::vector<double>& z, std::string& err);
 // Its kernel (memoized, ComputePsfKernelCache); cache.valid = false and true
 // returned for the Gaussian.
 bool ScopePsfKernel(const ScopeSpec& spec, double wavelengthNm, PsfKernelCache& cache, std::string& err);

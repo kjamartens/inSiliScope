@@ -63,8 +63,12 @@ that finishes them.
   part, Save / Load; the icons `#setIcons` between `#levelSeg` and ☰, hidden on a phone; a dropped file; values from the parsed `movieSpec()`; quiet apply under `self.ISC_QUIET`, which the schema's
   apply handlers and the specimen switch honour); the history is `L.log` in live.js (runs `{spec, n, lit}`), replayed by
   a `live-replay` job (`isc_live_advance` = `LiveScope::Advance`, the state step `Frames` shares). cli `--settings
-  file[:parts]` (`cli/settings_file.*`). Checks: ctest `cli_settings`, `live_scope`, `tests/web/viewer_settings_file.mjs`
-  (~10 s: load = the same spec and next frame bit for bit, mixing, warnings, viewer -> cli).
+  file[:parts]` (`cli/settings_file.*`). The page-free part (parts, names, ids, the history saved and replayed, reading a
+  file) is `web/live/settings_core.js`. Checks: ctest `cli_settings` (0.3 s), `live_scope`, `tests/web/settings_unit.mjs`
+  (0.2 s, CI `viewer-js`: the module's history replay = the next frame bit for bit), `tests/web/viewer_settings_file.mjs`
+  (~11 s, browser: dialogs, load = the same spec and next frame, mixing, warnings). The objective's NA (`mv_na`,
+  Advanced) and the Zernike modes (`zernCoeffs`, Expert: the preset's from the setup readout's `zernike` =
+  `ScopeZernike`, typed values go into the spec as all 28 `zern.<j>`, `self.ISC_ZERN`) sit in Objective & PSF.
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider
@@ -129,7 +133,7 @@ that finishes them.
   the viewer camera, clip tables, detail budget, layer registry of `web/scene/core.js`), `scene_compute_check.mjs` (the thresholded
   surface and the localizations of `web/scene/compute.js`), `anim_unit.mjs` and `encode_unit.mjs` (the animation sequences
   and export encoders), `mm_config_check.mjs` (every Configuration preset maps onto a viewer control or module option),
-  `analytics_unit.mjs` (the usage counts' helper; CI job `viewer-js` runs these six), `viewer_analytics.mjs` (browser,
+  `analytics_unit.mjs` (the usage counts' helper), `settings_unit.mjs` (settings files; CI job `viewer-js` runs these seven), `viewer_analytics.mjs` (browser,
   Umami stubbed: nothing on localhost, restored settings uncounted, a person's picks, Live, Snap and the summary counted,
   ~35 s), `viewer_live_record.mjs` (browser: the one-line info, the square
   image, the fixed performance rows at Expert, ● Record played in the live view and its saved TIFF stack: pages, header,

@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: BSD-3-Clause
-// Save and load settings (web/live/settings_file.js, docs/dev/SAVE_SETTINGS.md) in headless Chromium:
+// Save and load settings (web/live/settings_file.js, docs/dev/SAVE_SETTINGS.md) in headless Chromium, the page's part
+// (dialogs, applying a file to the controls); the file logic and the history replay are tests/web/settings_unit.mjs
+// (< 1 s), the native reader ctest cli_settings. This one takes ~10 s (Chromium and the workers alone ~5 s):
 //   - page A: a value changed in each part, live frames with a laser step and a stage move, Save settings (the dialog,
 //     a download): every engine option of each part in the file, enumerations by name, the light history's runs;
 //   - page B (a browser context of its own: nothing restored from A): Load -> the same movieSpec(), the light history
 //     replayed, and the next live frame (a Snap) = page A's next one, bit for bit;
-//   - another file's instrument over it: its camera values, the lasers and the sample stay;
-//   - a file from another release is warned about, a key the viewer does not know listed;
-//   - the saved file rendered by insiliscope_cli --settings (when built): the same next frame.
-//   node tests/web/viewer_settings_file.mjs [--cli=<insiliscope_cli>] [--swiftshader]
+//   - another file's instrument over it: its camera values and a Zernike mode (the Expert field), the lasers and the
+//     sample stay;
+//   - a file from another release is warned about, a key the viewer does not know listed.
+//   node tests/web/viewer_settings_file.mjs [--swiftshader]
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
@@ -139,6 +140,7 @@ try {
   other.parts.instrument.name = 'other';
   other.parts.instrument.values['read-noise'] = 2.9;
   other.parts.instrument.values.gain = 0.5;
+  other.parts.instrument.values['zern.5'] = 0.2;
   other.parts.settings.values['laser-640'] = 9;
   other.parts.sample.values['bf-n-medium'] = 1.36;
   const laserBefore = await B.evaluate(() => +document.getElementById('mv_laser-640').value);
@@ -148,9 +150,11 @@ try {
   await B.waitForFunction(() => window.iscLastLoad, null, { timeout: 60000 });
   const mix = await B.evaluate(() => ({ rn: +document.getElementById('mv_read-noise').value, gain: +document.getElementById('mv_gain').value,
     laser: +document.getElementById('mv_laser-640').value, med: +document.getElementById('mv_bf-n-medium').value,
-    rows: [...document.querySelectorAll('#lv_setupRows .n')].map(e => e.textContent) }));
-  check(mix.rn === 2.9 && mix.gain === 0.5 && mix.laser === laserBefore && mix.med === 1.34 && mix.rows[0] === 'other' && mix.rows[2] === 'session A',
-    `another file's instrument: its read noise and gain, the lasers and the sample kept ${JSON.stringify(mix)}`);
+    rows: [...document.querySelectorAll('#lv_setupRows .n')].map(e => e.textContent),
+    z5: document.getElementById('zernCoeffs').value.split(' ')[5], spec5: (/(?:^| )zern\.5=([^ ]+)/.exec(movieSpec()) || [])[1] }));
+  check(mix.rn === 2.9 && mix.gain === 0.5 && mix.z5 === '0.2' && mix.spec5 === '0.2' && mix.laser === laserBefore && mix.med === 1.34 &&
+    mix.rows[0] === 'other' && mix.rows[2] === 'session A',
+    `another file's instrument: its read noise, gain and Zernike mode 5, the lasers and the sample kept ${JSON.stringify(mix)}`);
 
   // ---- another release, an unknown key ----
   const old = JSON.parse(text);
@@ -164,18 +168,6 @@ try {
   const out = await B.evaluate(() => document.getElementById('setOut').textContent);
   check(/0\.0\.1-old/.test(warn) && /no-such-option/.test(out), `another release warned ("${warn}"), the unknown key listed ("${out.split('\n').find(l => /no-such/.test(l))}")`);
 
-  // ---- the back-end: insiliscope_cli --settings ----
-  const cli = arg('cli') || path.join(ROOT, 'build/msvc/cli/Release/insiliscope_cli.exe');
-  if (fs.existsSync(cli)) {
-    const tif = path.join(tmp, 'next.tif'), tc = Date.now();
-    execFileSync(cli, ['--settings', fileA, '--frames', '1', '--out', tif], { stdio: 'pipe' });
-    const buf = fs.readFileSync(tif), dv = new DataView(buf.buffer, buf.byteOffset), ifd = dv.getUint32(4, true), tags = {};
-    for (let i = 0, n = dv.getUint16(ifd, true); i < n; i++) { const o = ifd + 2 + 12 * i; tags[dv.getUint16(o, true)] = dv.getUint32(o + 8, true); }
-    const px = new Uint16Array(buf.buffer.slice(buf.byteOffset + tags[273], buf.byteOffset + tags[273] + nextA.n * 2));
-    let h = 2166136261, sum = 0;
-    for (let i = 0; i < px.length; i++) { h = Math.imul(h ^ px[i], 16777619) >>> 0; sum += px[i]; }
-    check(h === nextA.h, `insiliscope_cli --settings: the same next frame as the viewer's (sum ${sum} / ${nextA.sum}; ${((Date.now() - tc) / 1000).toFixed(1)} s)`);
-  } else console.log(`skip  insiliscope_cli --settings (no ${cli})`);
   fs.rmSync(tmp, { recursive: true, force: true });
 } catch (e) {
   fail++;

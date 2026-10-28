@@ -1551,6 +1551,27 @@ bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateR
    return true;
 }
 
+bool ScopeZernike(const ScopeSpec& spec, std::vector<double>& z, std::string& err)
+{
+   const std::vector<std::string>& presets = ZernikePresetNames();
+   const int preset = static_cast<int>(ScopeSpecGet(spec, "psf-zernike-preset"));
+   if (preset < 0 || preset >= static_cast<int>(presets.size()))
+   {
+      err = "psf-zernike-preset " + std::to_string(preset) + " out of range (0-" +
+            std::to_string(presets.size() - 1) + ")";
+      return false;
+   }
+   const ZernikeCoefficients p = ZernikePresetCoefficients(presets[static_cast<size_t>(preset)]);
+   z.assign(p.begin(), p.end());
+   for (const auto& kv : spec)
+   {
+      const int j = ZernikeKeyIndex(kv.first);
+      if (j >= 0)
+         z[static_cast<size_t>(j)] = kv.second;
+   }
+   return true;
+}
+
 bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorRequest& req, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
@@ -1596,21 +1617,11 @@ bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorReq
    req.workingDistanceUm = O("psf-working-distance-um");
    req.sampleDepthNm = O("psf-sample-depth-nm");
    req.pupilSamples = static_cast<int>(std::max(0.0, O("psf-pupil-samples")));
-   const std::vector<std::string>& presets = ZernikePresetNames();
-   const int preset = static_cast<int>(O("psf-zernike-preset"));
-   if (preset < 0 || preset >= static_cast<int>(presets.size()))
-   {
-      err = "psf-zernike-preset " + std::to_string(preset) + " out of range (0-" +
-            std::to_string(presets.size() - 1) + ")";
+   std::vector<double> zv;
+   if (!ScopeZernike(spec, zv, err))
       return false;
-   }
-   ZernikeCoefficients z = ZernikePresetCoefficients(presets[static_cast<size_t>(preset)]);
-   for (const auto& kv : spec)
-   {
-      const int j = ZernikeKeyIndex(kv.first);
-      if (j >= 0)
-         z[static_cast<size_t>(j)] = kv.second;
-   }
+   ZernikeCoefficients z{};
+   std::copy(zv.begin(), zv.end(), z.begin());
    req.zernikeCoefficients = FormatZernikeCoefficients(z, ',');
    req.maskType = O("psf-mask") == 1 ? PsfMaskType::DoubleHelix : PsfMaskType::None;
    req.maskModes = static_cast<int>(std::min(8.0, std::max(2.0, O("psf-mask-modes"))));
