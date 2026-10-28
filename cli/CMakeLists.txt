@@ -10,6 +10,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/BrightfieldRender.cpp
   ${ISC_SIM}/SampleSource.cpp
   ${ISC_SIM}/Drift.cpp
+  ${ISC_SIM}/DriftShift.cpp
   ${ISC_SIM}/DyeLibrary.cpp
   ${ISC_SIM}/LightPath.cpp
   ${ISC_SIM}/Excitation.cpp
@@ -66,6 +67,27 @@ if(EMSCRIPTEN)
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_scope_web PROPERTIES OUTPUT_NAME insiliscope_scope_single SUFFIX ".js")
+
+  # The webSMLM block's module (M4): the core's C ABI plus the engine's sample drift (block_entry.cpp:
+  # isc_drift_trajectory, Simulation/Drift.cpp), self-contained, compiled and instantiated synchronously
+  # (WASM_ASYNC_COMPILATION=0: the factory not a Promise; plain script, MODULARIZE=0: the Emscripten 6 factory is
+  # always async), because webSMLM builds structures synchronously on the main thread. ~100 KB, far under the
+  # browsers' sync compile limit. tools/make_cellfield_block.mjs wraps it into dist/cellfield_block.js.
+  add_executable(insiliscope_block ${PROJECT_SOURCE_DIR}/core/src/wasm_entry.cpp block_entry.cpp ${ISC_SIM}/Drift.cpp)
+  target_include_directories(insiliscope_block PRIVATE ${ISC_SIM})
+  target_link_libraries(insiliscope_block PRIVATE insiliscope_core)
+  target_link_options(insiliscope_block PRIVATE
+    -O3
+    -sMODULARIZE=0
+    -sENVIRONMENT=web,worker
+    -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
+    -sWASM_ASYNC_COMPILATION=0
+    -sALLOW_MEMORY_GROWTH=1
+    -sFILESYSTEM=0
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_drift_trajectory]"
+    "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAP32,stringToUTF8,lengthBytesUTF8]"
+  )
+  set_target_properties(insiliscope_block PROPERTIES OUTPUT_NAME insiliscope_block SUFFIX ".js")
   return()
 endif()
 

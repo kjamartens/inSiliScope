@@ -82,25 +82,5 @@ if(EMSCRIPTEN)
   )
   set_target_properties(insiliscope_web PROPERTIES OUTPUT_NAME insiliscope_single SUFFIX ".js")
 
-  # The webSMLM block's module (M4): the same C ABI, self-contained, compiled
-  # and instantiated synchronously (WASM_ASYNC_COMPILATION=0: the factory
-  # not a Promise; plain script, MODULARIZE=0: the Emscripten 6 factory is
-  # always async), because webSMLM builds structures
-  # synchronously on the main thread. ~100 KB, far under the browsers' sync
-  # compile limit.
-  # tools/make_cellfield_block.mjs wraps it into dist/cellfield_block.js.
-  add_executable(insiliscope_block src/wasm_entry.cpp)
-  target_link_libraries(insiliscope_block PRIVATE insiliscope_core)
-  target_link_options(insiliscope_block PRIVATE
-    -O3
-    -sMODULARIZE=0
-    -sENVIRONMENT=web,worker
-    -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
-    -sWASM_ASYNC_COMPILATION=0
-    -sALLOW_MEMORY_GROWTH=1
-    -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS}]"
-    "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAP32,stringToUTF8,lengthBytesUTF8]"
-  )
-  set_target_properties(insiliscope_block PROPERTIES OUTPUT_NAME insiliscope_block SUFFIX ".js")
+  # (the webSMLM block's module, insiliscope_block, is in cli/CMakeLists.txt: it links the engine's drift)
 endif()
