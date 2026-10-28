@@ -565,8 +565,7 @@
 // viewer's own Advanced for a setting MM does not have); show() hides rows that do not apply (e.g. WideField rows unless that modality is
 // chosen). A preset (or an entry with kids) draws its kids indented under it; picking a preset writes their values,
 // editing one by hand makes it "Custom". Styles are CSS only (body[data-ui-style], UI_STYLES).
-// This script is data only (no DOM access until a show()/fmt() runs): web/lab/engine_check.mjs reads the defaults
-// from it (tests/parity/load_prototype.mjs schemaDefaults). The renderer is the uiPanel script below.
+// This script is data only (no DOM access until a show()/fmt() runs). The renderer is the uiPanel script below.
 const { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI } = (() => {
 const $ = id => document.getElementById(id);
 const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
@@ -664,7 +663,7 @@ const DYE_FIELD_ROWS = [
 // strands 80 %); the same mode keeps them.
 const lastMode = {};   // per target prefix: the mode the panel had (the initial one: the default dye's)
 // It also re-applies the camera preset's gain when that depends on the imaging (data/dyes/cameras.json
-// gainElectronsPerAduWideField, the EMCCD: single-molecule vs WideField/BrightField; prototype cameraPresetGain).
+// gainElectronsPerAduWideField, the EMCCD: single-molecule vs WideField/BrightField).
 const presetGain = c => (c.gainElectronsPerAduWideField !== undefined && (BF() || mtMode() === 'WideField')
   ? c.gainElectronsPerAduWideField : c.gainElectronsPerAdu);
 // The sensor in use is an EMCCD: the Sensor select, or the camera preset's type when that says "the preset's".
@@ -946,7 +945,7 @@ const UI_GROUPS = [
     range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, 0.8, { adv, show: CF, fmt: fx(2) }),
     num('chunkSize', 'Chunk size', 'µm', 'Side of the square chunk grid. One candidate cell per chunk, so this sets the mean cell spacing. <code>CellField.ChunkSizeUm</code>', 4, 200, 1, 26, { adv, show: CF }),
   ] },
-  // The DNA-origami nanorulers (core params origami*, web/prototype/scope/origami.js; Micro-Manager: Nanorulers).
+  // The DNA-origami nanorulers (core params origami*, core/src/origami.*; Micro-Manager: Nanorulers).
   { id: 'origami', title: 'Nanorulers', open: true, show: NR, items: [
     select('origamiDesign', 'Design', 'The DNA-origami design (data/origami/designs.json): the 1D nanoruler is a 13 nm rod with three spots of docking strands one site spacing apart and 20 nm beyond the outer ones (at 80 nm: a 200 nm rod, spots at 20, 100 and 180 nm); the 2D origami is a rigid plate lying face up with one strand on each of the 37 hexagons of the TU Delft logo. <code>Nanorulers.Design</code>',
       DESIGNS.map((d, i) => [String(i), d.name]), '0'),
@@ -1037,7 +1036,7 @@ const UI_GROUPS = [
     range('mtMaxZSlope', 'Max z slope', '× xy', 'Largest height change per unit of lateral path.', 1, 20, 0.5, 5, { adv, fmt: fx(1) }),
     range('mtLineWidth', 'Drawn thickness', 'µm', 'Stroke width of the drawn microtubules. Display only.', 0.02, 0.5, 0.01, 0.02, { adv, fmt: fx(2) }),
   ] },
-  // The nuclear pore complexes (issue 15; core params npc*, web/prototype/scope npcs): Nup96 rings on the envelope.
+  // The nuclear pore complexes (issue 15; core params npc*, core/src/npcs.*): Nup96 rings on the envelope.
   { id: 'npc', title: 'Nuclear pores', show: CF, items: [
     range('mv_npc-density', 'Density', '/µm²', 'Nuclear pore complexes per µm² of nuclear envelope, over the whole envelope (8; measured 5-8.6 /µm² in HeLa and U2OS interphase nuclei: Maeshima et al. 2006, Dultz & Ellenberg 2010). Placed uniformly by area, each along the envelope\'s normal (cytoplasmic ring outside, nucleoplasmic inside), no two closer than Min distance; above the jamming limit fewer fit. 0 = no pores, the target is off. <code>CellField.NuclearPoreDensityPerUm2</code>', 0, 30, 0.1, 8, { fmt: fx(1) }),
     num('npcMinDistNm', 'Min distance', 'nm', 'Smallest centre distance of two pores (180 nm; a pore is about 120 nm across, Maeshima et al. 2006). <code>CellField.NuclearPoreMinDistNm</code>', 0, 500, 5, 180, { adv }),
@@ -3845,34 +3844,27 @@ function iscEngine(M) {
     return [res, res.frames ? [res.frames.buffer] : []];
   }
   // A live frame (web/live/live.js): one frame of the sample at d.t, or d.n frames at once (a recording chunk:
-  // isc_live_frames, one movie on the sample's clock). Without the module's live session: a movie of d.n frames at
-  // start-sec = d.t (no sample history), then t advances by the exposure per frame.
+  // isc_live_frames, one movie on the sample's clock).
   function liveFrame(d, post) {
     const nF = Math.max(1, d.n | 0);
-    if (M._isc_live_frame && (nF === 1 || M._isc_live_frames)) {
-      if (d.reset) M._isc_live_reset();
-      if (M._isc_live_profile && !!d.profile !== !!self.iscLiveProfile) { self.iscLiveProfile = !!d.profile; M._isc_live_profile(d.profile ? 1 : 0); }
-      const tw = performance.now();
-      const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(13 * 8), err = M._malloc(512);
-      M.stringToUTF8(d.spec, s, n);
-      const px = nF > 1 ? M._isc_live_frames(s, nF, d.lit === false ? 0 : 1, info, err, 512) : M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
-      let res;
-      if (px < 0) res = { type: 'live', id: d.id, error: M.UTF8ToString(err) };
-      else {
-        const v = M.HEAPF64.slice(info / 8, info / 8 + 13), p = M._isc_live_image();
-        res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
-          n: nF, t: v[2] + nF * (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), tStart: v[2], clock: v[3], lit: !!v[4],
-          epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
-          paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null, workerMs: performance.now() - tw };
-        if (d.profile && M._isc_live_profile_json) res.profile = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
-      }
-      for (const ptr of [s, info, err]) M._free(ptr);
-      return [res, res.frames ? [res.frames.buffer] : []];
+    if (d.reset) M._isc_live_reset();
+    if (M._isc_live_profile && !!d.profile !== !!self.iscLiveProfile) { self.iscLiveProfile = !!d.profile; M._isc_live_profile(d.profile ? 1 : 0); }
+    const tw = performance.now();
+    const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(13 * 8), err = M._malloc(512);
+    M.stringToUTF8(d.spec, s, n);
+    const px = nF > 1 ? M._isc_live_frames(s, nF, d.lit === false ? 0 : 1, info, err, 512) : M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
+    let res;
+    if (px < 0) res = { type: 'live', id: d.id, error: M.UTF8ToString(err) };
+    else {
+      const v = M.HEAPF64.slice(info / 8, info / 8 + 13), p = M._isc_live_image();
+      res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
+        n: nF, t: v[2] + nF * (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), tStart: v[2], clock: v[3], lit: !!v[4],
+        epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
+        paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null, workerMs: performance.now() - tw };
+      if (d.profile && M._isc_live_profile_json) res.profile = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
     }
-    const exp = +((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000;
-    const r = handle({ type: 'movie', id: d.id, spec: d.spec.replace(/(^| )(start-sec|frames)=\S+/g, '') + ' frames=' + nF + ' start-sec=' + d.t, noGpu: true });
-    const [m, tr] = r;
-    return [{ ...m, type: 'live', n: nF, tStart: d.t, t: d.t + nF * exp, engine: 'movie' }, tr];
+    for (const ptr of [s, info, err]) M._free(ptr);
+    return [res, res.frames ? [res.frames.buffer] : []];
   }
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
@@ -4200,11 +4192,8 @@ const wasmModulePromise = (() => {
 function wasmModuleOptions(mod) {
   return mod ? { instantiateWasm(info, done) { WebAssembly.instantiate(mod, info).then(inst => done(inst, mod)); return {}; } } : {};
 }
-// self.ISC_ENGINE_URL (set only by web/lab.html, see web/lab/serve.mjs): an ES module with the same
-// handle() protocol (web/lab/engine.js, the JS reference) replaces the WASM engine.
-const engineUrl = () => self.ISC_ENGINE_URL && new URL(self.ISC_ENGINE_URL, location.href).href;
 function spawnGenWorker() {
-  const w = engineUrl() ? new Worker(engineUrl(), { type: 'module' }) : new Worker(genBlobUrl);
+  const w = new Worker(genBlobUrl);
   w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
   // The shared compiled module (a structured clone); a browser that cannot clone it gets null.
   wasmModulePromise.then(mod => {
@@ -4214,12 +4203,10 @@ function spawnGenWorker() {
 }
 function initGenWorkers() {
   try {
-    if (!engineUrl()) {
-      const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
-        (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
-        iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
-      genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-    }
+    const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
+      (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
+      iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
+    genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
     // (a touch screen: at most 2 cell workers, as each one holds its own WASM heap of >= 96 MB and a phone's tab is
     // stopped well below what a desktop's may use)
     const K = Math.max(1, Math.min(matchMedia('(pointer:coarse)').matches ? 2 : 6, (navigator.hardwareConcurrency || 4) - 2));
@@ -4246,7 +4233,7 @@ function initGenWorkers() {
     };
     genWorkers.ok = true;
     flushSetupWaiting();
-    if (!engineUrl()) genWorkers.dyes.postMessage({ type: 'options', id: 0 });
+    genWorkers.dyes.postMessage({ type: 'options', id: 0 });
     schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
 }
@@ -4259,14 +4246,10 @@ function disableGenWorkers() {
   startMainEngine();
 }
 // The same engine on the main thread (?nw, or no workers): draw() then calls it
-// synchronously, as the prototype did with its JS generator.
+// synchronously.
 function startMainEngine() {
   if (mainEngine || mainEngineStarting) return;
   mainEngineStarting = true;
-  if (engineUrl()) {
-    import(engineUrl()).then(m => m.createEngine()).then(e => { mainEngine = e; requestDraw(); }).catch(showLoadError);
-    return;
-  }
   try { (0, eval)(self.ISC_MODULE_SRC); } // defines createInsiliscope
   catch (e) { showLoadError(e); return; }
   wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); flushSetupWaiting(); requestDraw(); })
@@ -5679,7 +5662,7 @@ function bfSplitWanted() {
   const drifting = ['drift-xy-nm-per-sqrt-sec', 'drift-z-nm-per-sqrt-sec', 'drift-xy-speed-nm-per-sec', 'drift-z-speed-nm-per-sec']
     .some(k => +document.getElementById('mv_' + k).value !== 0);
   return document.getElementById('mv_modality').value === '1' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough && !drifting &&
-    !self.ISC_ENGINE_URL && !/[?&]bfsplit=0/.test(location.search);
+    !/[?&]bfsplit=0/.test(location.search);
 }
 function cancelBfSplit() {
   if (!bfSplit) return;
@@ -6624,8 +6607,7 @@ els.mv_specimen.addEventListener('input', () => {
 syncSpecimen();
 
 // ---- PSF preview (Objective & PSF, advanced) ----
-// The kernel a movie uses and its splat (isc_scope_psf_preview = sim::MakeScopePsfPreview; in lab.html the JS
-// reference's scopePsfPreview): each z plane oversampled (sum 1) beside the camera image of one emitter at a pixel
+// The kernel a movie uses and its splat (isc_scope_psf_preview = sim::MakeScopePsfPreview): each z plane oversampled (sum 1) beside the camera image of one emitter at a pixel
 // centre, shown in the movie player; the slider is the emitter's defocus. A job for the movie worker (it shares the
 // kernel memo with the movies and works from file:// pages), or the main-thread engine with ?nw.
 let psfJob = null, psfJobId = 0;

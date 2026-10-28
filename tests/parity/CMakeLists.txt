@@ -33,7 +33,7 @@ if(EMSCRIPTEN)
   target_link_options(isc_map_bench PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
 endif()
 
-# Golden vectors (spec/golden): bit-identical to the frozen JS reference.
+# Golden vectors (spec/golden): bit-identical to the frozen reference (ref.txt).
 find_program(ISC_NODE node NAMES node nodejs)
 if(EMSCRIPTEN AND NOT ISC_NODE)
   set(ISC_NODE ${NODE_JS_EXECUTABLE})

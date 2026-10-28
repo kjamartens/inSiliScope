@@ -284,7 +284,7 @@ function changed(structural, commit = true) {
 const findCycle = id => seq.cycles.find(c => c.id === id);
 function move(arr, i, d) { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; }
 
-// small field builders (no element ids: web/lab/lab_html.js restores inputs by id)
+// small field builders (no element ids)
 function row(label, tip, ...ctl) {
   const r = h('div', { class: 'an-row' });
   r.append(UI.labelCell({ label, tip }, null), h('div', { class: 'ctl' }));

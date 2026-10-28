@@ -1,6 +1,7 @@
-// Spectra and the light path's physics (issue 16): sampled spectra on one grid, ideal filters, absorption cross
-// section, laser photon flux, detected fraction and effective emission wavelength. The JS reference for
-// adapter/inSiliScope/Simulation/Spectra.* (port: issue 16 phase 3). Pure functions, no state.
+// Spectra and the light path's physics (issue 16) for the data generators (tools/gen_dye_library.mjs: the dSTORM
+// rates it derives; tools/fiducial_spectra/): sampled spectra on one grid, ideal filters, absorption cross section,
+// laser photon flux, detected fraction and effective emission wavelength. The imaging's own copy is the C++
+// adapter/inSiliScope/Simulation/Spectra.* (keep the two in step). Pure functions, no state.
 //
 // Grid: 300..900 nm in 1 nm steps (data/dyes/fpbase_spectra.json). Spectra are sampled values on it (dye
 // excitation/emission normalised to peak 1 by FPbase; filter transmission and camera QE as fractions).

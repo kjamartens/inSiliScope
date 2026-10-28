@@ -489,6 +489,10 @@ void CApi()
    const int32_t nc = isc_cells_in_window(w, x0, y0, x1, y1, nullptr, 0);
    Check(n > 0 && nc > 0, "C ABI: the window holds sites and cells", Fmt("%d sites, %d cells", n, nc));
    Check(n2 == n && n3 == n, "C ABI: sites and density agree on the count", Fmt("count %d, filled %d, density %d", n, n2, n3));
+   // (a buffer too small for every row gets the total: the caller grows it and asks again)
+   std::vector<double> one(ISC_EVENT_STRIDE);
+   const int32_t n1 = isc_sites_in_window(w, x0, y0, x1, y1, -INF, INF, one.data(), 1);
+   Check(n1 == n, "C ABI: a 1-row buffer returns the total (sites)", Fmt("%d of %d", n1, n));
    int32_t badStruct = -1;
    for (int32_t i = 0; i < n2 && badStruct < 0; i++)
       if (buf[(size_t)i * ISC_SITE_STRIDE + 4] != ISC_STRUCT_MICROTUBULE) badStruct = i;
@@ -521,6 +525,8 @@ void CApi()
    std::vector<double> ev((size_t)std::max(0, ne) * ISC_EVENT_STRIDE);
    const int32_t ne2 = isc_events_in_window(w, x0, y0, x1, y1, -INF, INF, 1.0, 1.1, ev.data(), ne);
    Check(ne > 0 && ne2 == ne, "C ABI: events counted and filled", Fmt("count %d, filled %d", ne, ne2));
+   const int32_t ne1 = isc_events_in_window(w, x0, y0, x1, y1, -INF, INF, 1.0, 1.1, one.data(), 1);
+   Check(ne1 == ne, "C ABI: a 1-row buffer returns the total (events)", Fmt("%d of %d", ne1, ne));
    std::string evBad;
    for (int32_t i = 0; evBad.empty() && i < ne2; i++) {
       const double* e = &ev[(size_t)i * ISC_EVENT_STRIDE];
@@ -537,6 +543,8 @@ void CApi()
    std::vector<double> cw((size_t)std::max(0, nw) * ISC_EVENT_STRIDE);
    const int32_t nw2 = isc_continuous_in_window(w, x0, y0, x1, y1, -INF, INF, 0, cw.data(), nw);
    Check(nw == n && nw2 == nw, "C ABI: WideField = one window per dye", Fmt("%d windows (%d filled) for %d dyes", nw, nw2, n));
+   const int32_t nw1 = isc_continuous_in_window(w, x0, y0, x1, y1, -INF, INF, 0, one.data(), 1);
+   Check(nw1 == nw, "C ABI: a 1-row buffer returns the total (continuous windows)", Fmt("%d of %d", nw1, nw));
    std::string cwBad;
    for (int32_t i = 0; cwBad.empty() && i < nw2; i++) {
       const double* e = &cw[(size_t)i * ISC_EVENT_STRIDE];
