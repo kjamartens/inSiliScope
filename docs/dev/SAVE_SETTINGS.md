@@ -7,7 +7,7 @@ viewer's own looks). The same sample on another microscope; a known microscope w
 twin); a session handed to a colleague or to the back-end, which renders it (`insiliscope_cli --settings`) and later
 its ground truth.
 
-Code: `web/live/settings_file.js` (the viewer: save, load, the Setup box), `web/live/live.js` (the light history log
+Code: `web/live/settings_file.js` (the viewer: save, load, the ☰ menu's section and the two icons beside the settings level), `web/live/live.js` (the light history log
 and its replay), `cli/settings_file.*` (the reader, the native replay), `ScopeOptionPart` /
 `ScopeOptionNames` (`adapter/inSiliScope/Simulation/ScopeMovie.*`: the part of every option, the names of its values),
 `LiveScope::Advance` (`Simulation/LiveScope.*`: the live sample's state after n frames, without rendering), the
@@ -42,8 +42,8 @@ DNA-PAINT, drift), `tests/web/viewer_settings_file.mjs` (~10 s).
   `DyeDefault`, `Global`, `None` (= `ScopeOptionValue`).
 - `viewer`: what only the viewer keeps (the objective's magnification the pixel size comes from, the custom dye slots,
   Record's N); back-ends ignore it.
-- `id`: 6 base-32 characters of a 53-bit hash (cyrb53) of the part's values: the same values, the same id. The Setup
-  box shows it, and "edited" when the values moved since the part was loaded or saved.
+- `id`: 6 base-32 characters of a 53-bit hash (cyrb53) of the part's values: the same values, the same id. The ☰ menu
+  shows it, and "edited" when the values moved since the part was loaded or saved.
 - Any subset of parts. `version` is the format's; a newer one is read as far as it is known, with a warning. Renamed
   options go in `RENAMED` (`settings_file.js`, none yet). `made.release` / `made.worldVersion` differing from the
   reader's: a warning ("the same settings, the image may differ"), never a refusal.

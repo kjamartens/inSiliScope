@@ -85,7 +85,11 @@ try {
   await idle(A);
   const logA = await A.evaluate(() => ({ runs: liveState.log.length, frames: liveState.log.reduce((a, r) => a + r.n, 0), t: liveState.t }));
   // Save through the dialog
-  await A.evaluate(() => document.getElementById('lv_setSave').click());
+  const bar = await A.evaluate(() => { const ids = [...document.getElementById('liveBar').children].map(e => e.id), i = ids.indexOf('setIcons');
+    return { order: ids[i - 1] + ',' + ids[i + 1], icons: document.querySelectorAll('#setIcons button svg').length, first: document.getElementById('menu').firstElementChild.id }; });
+  check(bar.order === 'levelSeg,menuBtn' && bar.icons === 2 && bar.first === 'menuSetup',
+    `two icons between the settings level and ☰ (${bar.order}, ${bar.icons} icons), save / load the first section of ☰ (${bar.first})`);
+  await A.evaluate(() => document.getElementById('setIcoSave').click());
   await A.evaluate(() => { document.getElementById('setName').value = 'session A'; });
   const [dl] = await Promise.all([A.waitForEvent('download'), A.evaluate(() => document.getElementById('setGo').click())]);
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'isc-settings-'));
@@ -121,8 +125,11 @@ try {
   const specA = (await A.evaluate(() => movieSpec({ frames: 1 })));
   check(specB === specA, specB === specA ? 'loaded: the same movieSpec() as page A' : `loaded: movieSpec() differs:\n  A ${specA}\n  B ${specB}`);
   check(!load.differ.length && !load.notes.length && /replayed/.test(load.replay), `nothing left out (${load.differ.join('; ') || 'no differences'}${load.notes.length ? '; ' + load.notes.join('; ') : ''}); ${load.replay}`);
-  const rows = await B.evaluate(() => [...document.querySelectorAll('#lv_setupRows .n')].map(e => e.textContent));
-  check(rows.slice(0, 4).every(r => r === 'session A'), `the Setup box names the file for the four parts: ${rows.join(', ')}`);
+  await B.evaluate(() => document.getElementById('menuBtn').click());
+  const rows = await B.waitForFunction(() => document.getElementById('menu').classList.contains('open') &&
+    document.querySelectorAll('#lv_setupRows .n').length === 5 && [...document.querySelectorAll('#lv_setupRows .n')].map(e => e.textContent)).then(h => h.jsonValue());
+  await B.evaluate(() => document.body.click());
+  check(rows.slice(0, 4).every(r => r === 'session A'), `☰ names the file for the four parts: ${rows.join(', ')}`);
   const nextB = await snap(B);
   check(nextB.h === nextA.h && nextB.n === nextA.n && Math.abs(nextB.t - nextA.t) < 1e-9,
     `the next frame after the replayed history = page A's, bit for bit (${nextA.n} px, sum ${nextA.sum} / ${nextB.sum}, t ${nextA.t.toFixed(3)} / ${nextB.t.toFixed(3)} s)`);

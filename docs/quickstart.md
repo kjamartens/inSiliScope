@@ -37,8 +37,8 @@ A first tour, about five minutes:
 6. **Record a movie.** **● Record** asks for a number of frames, renders them and plays them back. **Save .tif**
    writes a 16-bit TIFF stack that opens in ImageJ/Fiji with its pixel size and frame interval, ready for your SMLM
    or tracking software. The file's header holds every setting, so `insiliscope_cli --spec` reproduces it exactly.
-7. **Save your setup.** **Save…** in the Setup box (top of the controls column) writes a `.isc.json` file in parts
-   (instrument, settings, sample, measurement with the sample's light history, view); **Load…** takes all of a file
+7. **Save your setup.** The disk icon beside Basic / Advanced / Expert (or **Save…** in the ☰ menu) writes a `.isc.json` file in parts
+   (instrument, settings, sample, measurement with the sample's light history, view); the folder icon (**Load…**) takes all of a file
    or only some parts, so the same sample can be seen on another microscope.
 
 Everything on the screen, setting by setting: the [viewer reference](try-viewer.md). What the simulation can show, with

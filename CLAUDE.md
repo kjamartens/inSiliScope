@@ -59,8 +59,8 @@ that finishes them.
   mixable parts -- instrument, settings, sample, measurement (with the sample's light history), view (viewer only).
   Every engine option has a part (`PartOf` in `ScopeMovie.cpp`, `ScopeOptionPart`; `Options()` throws on a new option
   without one: place it), enumerations are saved by name (`ScopeOptionNames`); the module's `isc_scope_options` lists
-  `name\tdefault\thelp\tpart\tnames|...`. Viewer `web/live/settings_file.js` (the Setup box atop `#liveCtl`, ☰ Save /
-  Load, a dropped file; values from the parsed `movieSpec()`; quiet apply under `self.ISC_QUIET`, which the schema's
+  `name\tdefault\thelp\tpart\tnames|...`. Viewer `web/live/settings_file.js` (the first section of ☰ `#menuSetup`: a row per
+  part, Save / Load; the icons `#setIcons` between `#levelSeg` and ☰, hidden on a phone; a dropped file; values from the parsed `movieSpec()`; quiet apply under `self.ISC_QUIET`, which the schema's
   apply handlers and the specimen switch honour); the history is `L.log` in live.js (runs `{spec, n, lit}`), replayed by
   a `live-replay` job (`isc_live_advance` = `LiveScope::Advance`, the state step `Frames` shares). cli `--settings
   file[:parts]` (`cli/settings_file.*`). Checks: ctest `cli_settings`, `live_scope`, `tests/web/viewer_settings_file.mjs`

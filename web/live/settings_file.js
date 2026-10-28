@@ -7,9 +7,9 @@
 // --settings renders the same; which part an option is in is the engine's (ScopeOptionPart, isc_scope_options).
 // Loading applies the parts with the panel's couplings held (self.ISC_QUIET: a loaded sample does not load its dye's
 // light preset over the settings), replays the light history on the live worker, then compares what the viewer has
-// with the file and lists what it could not take. The Setup box (top of the controls column) names each part's
-// source, a short id of its values and a one-line summary; ☰ has Save settings... and Load settings..., and a
-// .isc.json dropped on the page loads too. Loaded after web/live/live.js and mm_config_ui.js.
+// with the file and lists what it could not take. The ☰ menu's first section names each part's source, a short id of
+// its values and a one-line summary, with Save... / Load...; two icons beside the settings level open the same dialogs,
+// and a .isc.json dropped on the page loads too. Loaded after web/live/live.js and mm_config_ui.js.
 'use strict';
 (function () {
 const $ = id => document.getElementById(id);
@@ -313,24 +313,37 @@ async function applyFile(file, parts) {
   return { notes, differ, replay };
 }
 
-// ---- the Setup box: each part's source, id and summary ----
+// ---- the menu's section: each part's source, id and summary ----
 const source = (() => { try { return JSON.parse(store.get('setup', '{}')) || {}; } catch (e) { return {}; } })();
 function setSource(p, name, id) { source[p] = { name, id }; store.set('setup', JSON.stringify(source)); }
-const box = document.createElement('div');
-box.className = 'lc';
-box.id = 'lv_setup';
-box.innerHTML = '<h5 title="The four parts of a setup, each saved and loaded on its own (☰ Save settings..., Load settings...; a .isc.json dropped on the page loads too)">Setup</h5>' +
-  '<div id="lv_setupRows"></div><div class="setbtns"><button id="lv_setSave" title="Save the setup (or some of its parts) as a .isc.json file">Save…</button>' +
+// The ☰ menu's first section: a row per part, Save... / Load...; two icons beside the settings level do the same.
+const menu = $('menu'), menuBtn = $('menuBtn');
+const sec = document.createElement('div');
+sec.id = 'menuSetup';
+sec.innerHTML = '<h4 title="A setup in five parts, each saved and loaded on its own; a .isc.json dropped on the page loads too">Save / load settings</h4>' +
+  '<div id="lv_setupRows"></div><div class="btns"><button id="lv_setSave" title="Save the setup (or some of its parts) as a .isc.json file">Save…</button>' +
   '<button id="lv_setLoad" title="Load a .isc.json file: all of it, or some of its parts over what is here">Load…</button></div>';
-$('liveCtl').prepend(box);
-box.querySelector('h5').addEventListener('click', () => box.classList.toggle('shut'));
+menu.prepend(sec);
+// standard icons: a floppy disk (save) and an open folder (load)
+const ICON = {
+  save: '<path d="M3 2.5h8.2L13.5 4.8V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"/><path d="M5 2.5v3.5h5V2.5M4.8 13.5V9.3h6.4v4.2"/>',
+  load: '<path d="M1.8 12.8V3.5a.5.5 0 0 1 .5-.5h3.6l1.4 1.5h5.2a.5.5 0 0 1 .5.5v1.6"/><path d="M1.8 12.8 3.8 7a.6.6 0 0 1 .6-.4h10a.4.4 0 0 1 .4.5l-1.9 5.7Z"/>',
+};
+const icons = document.createElement('div');
+icons.id = 'setIcons';
+icons.innerHTML = ['save', 'load'].map(k => `<button id="setIco${k === 'save' ? 'Save' : 'Load'}" title="${k === 'save' ? 'Save settings… (a .isc.json file of the setup or some of its parts)' : 'Load settings… (a .isc.json file, all of it or some of its parts)'}" ` +
+  `aria-label="${k === 'save' ? 'Save settings' : 'Load settings'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">${ICON[k]}</svg></button>`).join('');
+menuBtn.before(icons);
+const closeMenu = () => { menu.classList.remove('open'); menuBtn.setAttribute('aria-expanded', 'false'); };
 const css = document.createElement('style');
 css.textContent = `
+  #menuSetup{width:300px;max-width:100%} #menuSetup h4{margin-top:0}
+  #setIcons{display:flex;gap:2px;flex:none} #setIcons button{padding:3px 5px;line-height:0}
+  body.mobile #setIcons{display:none}   /* (no room in the phone's bar: ☰ has Save / Load) */
   #lv_setupRows{display:grid;grid-template-columns:auto 1fr auto;gap:1px 6px;font-size:11px;align-items:baseline}
   #lv_setupRows .p{color:var(--muted)} #lv_setupRows .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #lv_setupRows .i{font-family:ui-monospace,Consolas,monospace;color:var(--muted)} #lv_setupRows .i.ed::after{content:' edited';color:var(--accent)}
   #lv_setupRows .s{grid-column:1/-1;color:var(--muted);font-size:10px;margin:-1px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #lv_setup .setbtns{display:flex;gap:6px;margin-top:4px} #lv_setup .setbtns button{flex:1;padding:2px 6px}
   #setDlg{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
   #setDlg[hidden]{display:none}
   #setDlg .box{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px 14px;width:min(560px,calc(100vw - 32px));
@@ -355,12 +368,13 @@ function showSetup() {
   }
   $('lv_setupRows').innerHTML = rows.join('');
 }
-const showSetupSoon = () => { clearTimeout(setupTimer); setupTimer = setTimeout(showSetup, 300); };
+const menuOpen = () => menu.classList.contains('open');
+const showSetupSoon = () => { clearTimeout(setupTimer); if (menuOpen()) setupTimer = setTimeout(showSetup, 300); };
+menuBtn.addEventListener('click', () => setTimeout(() => { if (menuOpen()) showSetup(); }));
 document.addEventListener('change', showSetupSoon);
 document.addEventListener('input', showSetupSoon);
 window.addEventListener('isc-reset', () => { for (const p of PARTS) delete source[p]; store.set('setup', '{}'); showSetupSoon(); });
-const waitEngine = setInterval(() => { if (ENG().size) { clearInterval(waitEngine); showSetup(); } }, 200);
-setInterval(() => { if (!document.hidden && $('lv_setupRows')) showSetup(); }, 5000);   // (the history grows while live runs)
+setInterval(() => { if (menuOpen()) showSetup(); }, 2000);   // (the history grows while live runs)
 
 // ---- the dialog ----
 const dlg = document.createElement('div');
@@ -445,21 +459,8 @@ function pickFile() {
   inp.onchange = () => { const fl = inp.files[0]; if (fl) fl.text().then(t => openLoad(t, fl.name)); };
   inp.click();
 }
-$('lv_setSave').addEventListener('click', openSave);
-$('lv_setLoad').addEventListener('click', pickFile);
-// ☰: Save settings... / Load settings...
-{
-  const menu = $('menu'), sec = document.createElement('div');
-  sec.innerHTML = '<h4>Setup</h4><div class="btns"><button data-set="save" title="Save the setup (or some of its parts) as a .isc.json file">Save settings…</button>' +
-    '<button data-set="load" title="Load a .isc.json file, all of it or some of its parts">Load settings…</button></div>';
-  menu.insertBefore(sec, menu.querySelector('.btns'));
-  sec.addEventListener('click', ev => {
-    const act = ev.target.dataset && ev.target.dataset.set;
-    if (!act) return;
-    menu.classList.remove('open');
-    if (act === 'save') openSave(); else pickFile();
-  });
-}
+for (const [id, go] of [['lv_setSave', openSave], ['lv_setLoad', pickFile], ['setIcoSave', openSave], ['setIcoLoad', pickFile]])
+  $(id).addEventListener('click', ev => { ev.stopPropagation(); closeMenu(); go(); });
 // a .isc.json dropped on the page loads it
 document.addEventListener('dragover', ev => { if ([...(ev.dataTransfer.items || [])].some(i => i.kind === 'file')) ev.preventDefault(); });
 document.addEventListener('drop', ev => {

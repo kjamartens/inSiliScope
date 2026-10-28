@@ -51,7 +51,7 @@ Upcoming ideas:
   Next: [ ] a non-random lamin network (meshwork / filaments) in place of `buildLaminForCell`, [ ] a drawn lamina layer.
 - Save and load settings (2026-10-28, branch `lamin_network`, [docs/dev/SAVE_SETTINGS.md](SAVE_SETTINGS.md)): `.isc.json`
   in mixable parts (instrument, settings, sample, measurement with the light history, view): [x] each option's part
-  (`ScopeOptionPart`), names (`ScopeOptionNames`), `LiveScope::Advance`, [x] viewer Save / Load, the Setup box, quiet
+  (`ScopeOptionPart`), names (`ScopeOptionNames`), `LiveScope::Advance`, [x] viewer Save / Load (☰ and two icons), quiet
   apply, the history replayed (`tests/web/viewer_settings_file.mjs`), [x] `insiliscope_cli --settings` (ctest
   `cli_settings`). Next: [ ] ground-truth export, [ ] MM `Hub.SaveSettingsTo` / `LoadSettingsFrom`, [ ] an
   instrument's installed hardware.
