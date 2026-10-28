@@ -138,8 +138,9 @@ that finishes them.
   (2026-10-27: the sections share their worlds through a world bank, so the native ctest runs in ~35 s; every test
   directory sets `ISC_THREADS=2` per test process, `isc_cap_test_threads()`; the thread checks run natively only):
   determinism under any query history, tiling, packing off, dye lattice statistics, the ABI 5 density3d
-  query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, and `EdgeAndHeight`: fractal edge spectrum, nucleus
-  coverage and no folds in the relaxed cytoplasm height); `cli/widefield_check.cpp` (ctest `widefield`);
+  query, ABI 6 optical volume, `Threads`: 8 threads = 1 thread, `EdgeAndHeight`: fractal edge spectrum, nucleus
+  coverage and no folds in the relaxed cytoplasm height, and `microtubules` (2026-10-28, the JS prototype's
+  `check_cellfield_microtubules.mjs` ported: containment, z following the ceiling, step slope, turn radius; 0.6 s)); `cli/widefield_check.cpp` (ctest `widefield`);
   `cli/brightfield_check.cpp` (ctest `brightfield`);
   `cli/sr_render_check.cpp` (ctest `sr_render`: splat/Fft vs verbatim copies of the pre-2026-09-28 code,
   parallel frame paths = serial); `tools/` -- `gen_jsmath.py`,

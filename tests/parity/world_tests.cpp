@@ -2720,6 +2720,108 @@ void Lamin()
 // ABI 14: the clock map (clockmap.h). A uniform map is the ABI 11 queries bit for bit and in order; a shaped map is
 // every dye on its own clock (a brute force per dye); the answers do not depend on the caches, the query history or
 // the threads; a pose change rebuilds no schedule; the C ABI reads the flat buffer and refuses bad ones.
+// The microtubules' geometry (spec/ALGORITHM.md "Microtubules"; the C++ port, 2026-10-28, of the JS prototype's
+// web/tools/check_cellfield_microtubules.mjs, same scenarios and bounds). On the first present cell near the origin:
+//  - containment: every point inside the cell's outline, outside the nucleus, between the coverslip and the drawn
+//    cytoplasm surface (SampleCytoMeshHeight, the function the clamp uses: a path that skips the clamp fails);
+//  - slope following: z as a fraction of the local ceiling has real weight in its middle third (a hard snap to
+//    the floor or the nucleus top leaves it near empty);
+//  - step slope: few consecutive steps rise more than 6x their lateral length by more than 0.3 um (the "sudden,
+//    fully vertical drop" of an earlier over/under-nucleus rule);
+//  - turn radius: few interior turns tighter than 0.9 x mtMinTurnRadius (the bridge drift had no bound of its own).
+// A few steep steps and tight turns are expected (a start on a near-polar nucleus point; the containment clamp runs
+// after the turn-radius pass), so those two bound a share, not each step.
+void MicrotubuleGeometry()
+{
+   const double CONTAIN_TOL = 1e-3, MID_BAND_MIN_SHARE = 0.12, STEEP_RATIO = 6, STEEP_MIN_DZ = 0.3,
+                STEEP_MAX_SHARE = 0.01, TURN_SLACK = 0.9, TIGHT_MAX_SHARE = 0.02;
+   struct Scenario { const char* name; std::vector<std::pair<const char*, double>> set; };
+   const Scenario scenarios[] = {
+      { "defaults", { { "mtDensity", Params().mtDensity } } },
+      // the report that started the containment checks: a dense field from a wide start shell
+      { "wide start shell", { { "mtDensity", 0.825 }, { "mtStartDecayPct", 6.5 }, { "mtEndDecayPct", 13 }, { "mtMinSeparation", 0.5 } } },
+      // any end direction and a strong wobble: the paths that cross over / under the nucleus (mtObstacleEnvelope)
+      { "nucleus crossing", { { "mtDensity", 0.3 }, { "mtDirKappa", 0 }, { "mtWobbleTurn", 0.6 }, { "mtStartDecayPct", 1 }, { "mtEndDecayPct", 13 } } },
+   };
+   for (const Scenario& sc : scenarios) {
+      Params p = Cheap();
+      for (const auto& e : sc.set) SetParam(p, e.first, e.second);
+      World w = Fresh(1234, p);
+      std::vector<Cell> cells;
+      w.CellsInRect(-5, -5, 5, 5, cells);
+      long nCells = 0, nPts = 0, nMt = 0, containBad = 0, frac[3] = {}, steps = 0, steep = 0, turns = 0, tight = 0;
+      double worstContain = 0, worstSlope = 0, worstRadius = INF;
+      std::string containEx, steepEx, tightEx;
+      for (const Cell& c : cells) {
+         if (!c.present || nCells == 1) continue;   // one cell: ~10^5 points, the statistics hold
+         nCells++;
+         CellAssets& A = w.Assets(c);
+         for (const Microtubule& m : A.mts) {
+            nMt++;
+            const std::vector<Pt3>& pts = m.pts;
+            for (const Pt3& q : pts) {
+               nPts++;
+               const double radial = jsm::hypot(q.x, q.y) - CellRadiusAt(c, jsm::atan2(q.y, q.x));
+               double below = 0, above = 0, nuc = -INF;
+               if (NucleusColumnLocal(c, q.x, q.y, below, above)) nuc = std::min(q.z - (c.nucZ - below), c.nucZ + above - q.z);
+               const double ceil = std::max(0.0, SampleCytoMeshHeight(c, A.geom.mesh, q.x, q.y));
+               const double v = std::max({ radial, nuc, q.z - ceil, -q.z });
+               if (v > CONTAIN_TOL) {
+                  containBad++;
+                  if (v > worstContain) {
+                     worstContain = v;
+                     containEx = Fmt("cell (%d, %d) point (%.3f, %.3f, %.3f) um: outside the outline by %.4f, inside the "
+                                     "nucleus by %.4f, above the surface (%.3f) by %.4f, below 0 by %.4f um",
+                                     c.cx, c.cy, q.x, q.y, q.z, radial, nuc, ceil, q.z - ceil, -q.z);
+                  }
+               }
+               if (ceil > 1e-6) frac[std::min(2, (int)(3 * std::min(1.0, std::max(0.0, q.z / ceil))))]++;
+            }
+            for (size_t k = 1; k < pts.size(); k++) {
+               const double lat = std::hypot(pts[k].x - pts[k - 1].x, pts[k].y - pts[k - 1].y), dz = std::fabs(pts[k].z - pts[k - 1].z);
+               const double slope = dz / std::max(lat, 1e-6);
+               steps++;
+               worstSlope = std::max(worstSlope, slope);
+               if (slope > STEEP_RATIO && dz > STEEP_MIN_DZ && steep++ == 0)
+                  steepEx = Fmt("e.g. cell (%d, %d): dz %.3f um over %.3f um", c.cx, c.cy, dz, lat);
+            }
+            if (p.mtMinTurnRadius > 0)
+               for (size_t i = 1; i + 1 < pts.size(); i++) {
+                  const double ux = pts[i].x - pts[i - 1].x, uy = pts[i].y - pts[i - 1].y;
+                  const double vx = pts[i + 1].x - pts[i].x, vy = pts[i + 1].y - pts[i].y;
+                  const double u = std::hypot(ux, uy), vl = std::hypot(vx, vy);
+                  if (u < 1e-9 || vl < 1e-9) continue;
+                  const double ang = std::acos(std::min(1.0, std::max(-1.0, (ux * vx + uy * vy) / (u * vl))));
+                  const double r = ang > 1e-6 ? (u + vl) / 2 / ang : INF;
+                  turns++;
+                  if (r < worstRadius) worstRadius = r;
+                  if (r < p.mtMinTurnRadius * TURN_SLACK && tight++ == 0)
+                     tightEx = Fmt("e.g. cell (%d, %d): radius %.4f um, turn %.1f deg", c.cx, c.cy, r, ang * 180 / jsm::PI);
+               }
+         }
+      }
+      const std::string tag = Fmt("microtubules, %s (%ld microtubules, %ld points)", sc.name, nMt, nPts);
+      Check(nMt > 50, tag + ": microtubules to check", Fmt("%ld microtubules in %ld cell(s) of %zu near the origin", nMt, nCells, cells.size()));
+      Check(containBad == 0, tag + ": every point inside the outline, outside the nucleus, under the surface",
+            Fmt("%ld points out by more than %g um; worst: %s", containBad, CONTAIN_TOL, containEx.c_str()));
+      const long nf = frac[0] + frac[1] + frac[2];
+      const double mid = nf ? (double)frac[1] / nf : 0;
+      Check(mid >= MID_BAND_MIN_SHARE, tag + Fmt(": z follows the ceiling (%.0f %% in its middle third)", 100 * mid),
+            Fmt("z / ceiling in [0, 1/3) %ld, [1/3, 2/3) %ld, [2/3, 1] %ld: middle share %.1f %% < %.0f %% (a hard snap)",
+                frac[0], frac[1], frac[2], 100 * mid, 100 * MID_BAND_MIN_SHARE));
+      const double steepShare = steps ? (double)steep / steps : 0;
+      Check(steepShare <= STEEP_MAX_SHARE, tag + Fmt(": few near-vertical steps (%.2f %%)", 100 * steepShare),
+            Fmt("%ld of %ld steps rise > %gx their lateral length and > %g um (%.2f %% > %.0f %%), worst ratio %.1f; %s",
+                steep, steps, STEEP_RATIO, STEEP_MIN_DZ, 100 * steepShare, 100 * STEEP_MAX_SHARE, worstSlope, steepEx.c_str()));
+      if (p.mtMinTurnRadius > 0) {
+         const double tightShare = turns ? (double)tight / turns : 0;
+         Check(tightShare <= TIGHT_MAX_SHARE, tag + Fmt(": few turns tighter than the minimum radius (%.2f %%)", 100 * tightShare),
+               Fmt("%ld of %ld turns under %.3f um (%.2f %% > %.0f %%), tightest %.4f um; %s", tight, turns,
+                   p.mtMinTurnRadius * TURN_SLACK, 100 * tightShare, 100 * TIGHT_MAX_SHARE, worstRadius, tightEx.c_str()));
+      }
+   }
+}
+
 namespace clockmap_checks {
 
 ClockMap MapWith(const StructClock& mt, const Kinetics& other)
@@ -3363,6 +3465,7 @@ static const std::vector<Section>& Sections()
       { "density3d", Density3d },
       { "optical_volume", OpticalVolume },
       { "edge_and_height", EdgeAndHeight },
+      { "microtubules", MicrotubuleGeometry },
       { "clock_map", ClockMapChecks },
       { "origami", Origami },
       { "npcs", Npcs },

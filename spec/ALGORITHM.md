@@ -317,8 +317,8 @@ points, and bounding purely by that would mask a genuine height change rather th
 spread it out) via a few back-and-forth smoothing passes, the same "relax toward
 neighbours" idiom `mtNudgeRoundGrid()`'s own collision resolution already uses elsewhere
 in this file — catches whatever the three fixes above don't, rather than relying on them
-being exhaustive. The (retired) `check_cellfield_microtubules.mjs`'s step-slope check (see
-below) existed specifically to catch a regression in this; its own ratio metric additionally
+being exhaustive. The step-slope check (`world_checks.microtubules`, see
+below) exists specifically to catch a regression in this; its own ratio metric additionally
 needs an absolute `|dz|` floor (`STEEP_MIN_DZ`) before flagging a step, since the RATIO
 alone spikes on plenty of genuinely tiny, invisible height wiggles whenever the walk's
 own realized lateral step happens to land near zero — an expected occurrence, not a
@@ -453,8 +453,9 @@ across a real run) dropped from 0.18 (Path smoothing off) to 0.009 at the slider
 over/under-nucleus crossing transitions) stayed a comparable, expected magnitude, i.e. this
 smooths the everyday wiggle without flattening genuine large crossings.
 
-**Verification** (until 2026-10-28): `web/tools/check_cellfield_microtubules.mjs` (Playwright, on the JS prototype)
-checked three things independently after generation, across several parameter scenarios including one
+**Verification**: ctest `world_checks.microtubules` (`MicrotubuleGeometry` in `tests/parity/world_tests.cpp`, ~0.6 s;
+until 2026-10-28 `web/tools/check_cellfield_microtubules.mjs` on the JS prototype, ported with its scenarios and
+bounds) checks four things independently after generation, on one cell, across three parameter scenarios including one
 with widened End direction jitter/Wobble turn strength specifically to exercise the
 over/under-nucleus crossing rule: every point against the same containment bounds the
 clamp is supposed to enforce (footprint, nucleus, and `sampleCytoMeshHeight`); a coarse
@@ -462,10 +463,13 @@ histogram of z-as-fraction-of-local-ceiling across every point, which should hav
 density in the middle third rather than being bimodal (pinned near 0 and 1) — the
 signature of the hard-snap artifact above; and, for every consecutive pair of points on a
 path, the ratio of |dz| to the lateral distance moved, which should only rarely exceed a
-generous multiple — the signature of the "sudden, fully vertical drop" artifact above.
-It went with the JS prototype (2026-10-28) and has no C++ counterpart yet: the golden `cells` lines freeze the
-current paths, but a change of microtubule or cytoplasm-height code is not checked for these three properties until
-they are ported into `world_checks`.
+generous multiple — the signature of the "sudden, fully vertical drop" artifact above; and the implied turn radius at
+every interior point against `mtMinTurnRadius` (at most 2 % of turns under 0.9 x it). Run it after touching
+microtubule or cytoplasm-height-field code. Its power, measured on 2026-10-28 by breaking the generator: a skipped
+containment clamp, a floor-or-ceiling snap, sudden z drops and an xy zigzag in the final paths each fail it; removing
+`MtEnforceMinTurnRadius` alone does not (tight turns 0.00 -> 0.92 %, under the 2 % bound: today's walk rarely turns
+that tightly by itself), nor do removing `MtLimitZSlopeRealized` and `MtTrimSteepEnds` (no steep step either way at
+these scenarios: the box smoothing already prevents them).
 
 **Scale bar**: bottom-right, fixed in screen space (untouched by pan/tilt), picks a
 round 1-2-5 length that renders near a target on-screen size at the current zoom

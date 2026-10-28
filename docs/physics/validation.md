@@ -7,6 +7,7 @@ What is checked, against what, and where.
 | RNG and geometry unchanged, bit for bit | golden vectors frozen from the original JS prototype (Node 24); native and WASM must match | ctest `golden_vectors` |
 | Math functions equal V8's | sampled arguments vs `Math.*` (100 per function) | ctest `golden_vectors` |
 | Determinism under any query history, tiling, threads | `world_checks` (query order, cache size, 8 threads = 1 thread) | ctest `world_checks` |
+| Microtubule paths | every point inside the cell, outside the nucleus, under the cytoplasm surface; z follows the local ceiling (middle third of it populated); few near-vertical steps; few turns tighter than the minimum radius; three scenarios | ctest `world_checks.microtubules` |
 | Dye statistics | lattice angles and stagger, ring at 12.5 nm, tip at 24.5 nm, linker range, exponential ON/OFF means, geometric blink count, log-normal brightness | `world_checks` `KineticsStats` |
 | Persistent sites | constant rate over 0-100 s and 10000 s, ON mean, window slicing | `world_checks` |
 | Splat and FFT placement | against verbatim copies of the previous implementation; parallel = serial | ctest `sr_render` |

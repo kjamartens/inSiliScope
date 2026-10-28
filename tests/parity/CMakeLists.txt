@@ -41,7 +41,7 @@ endif()
 # world_checks: one test per section of world_tests.cpp (its Sections() list), so
 # `ctest -j` runs them side by side; isc_world_tests without an argument runs all.
 set(ISC_WORLD_SECTIONS basics determinism dye_statistics events caches label_model kinetics_history
-  c_api block_injection density3d optical_volume edge_and_height clock_map origami npcs lamin fiducials)
+  c_api block_injection density3d optical_volume edge_and_height microtubules clock_map origami npcs lamin fiducials)
 # (the thread checks compare 8 threads with 1: natively only, WASM has no threads)
 if(NOT EMSCRIPTEN)
   list(APPEND ISC_WORLD_SECTIONS threads)
