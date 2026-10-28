@@ -68,21 +68,20 @@ await runViewer('viewer scene', { watchdogSec: 150 }, async ({ page, check }) =>
   check(pores.on > 200 && pores.off === 0 && pores.hues >= 6,
     `nuclear pores: ${pores.on} px lit by their layer alone, ${pores.off} without; the depth look: ${pores.hues} colour bins`);
 
-  // 5. the nuclear lamina (View > Nuclear lamina, off by default): its layer alone lights the nucleus' lamina points (at
-  // 300 per um^2: the speed), nothing without it; the View toggle is off on a fresh page
+  // 5. the nuclear lamina (View > Nuclear lamina, off by default): its layer alone lights the nuclear envelope (drawn as
+  // a surface, 2026-10-28: the default 2000 points per um^2 one by one took the view to a few frames per second), nothing
+  // without it; the View toggle is off on a fresh page
   const lamina = await page.evaluate(async () => {
     const toggle = els.showLamin.checked;
-    els['mv_lamin-density'].value = 300;
-    for (const t of ['input', 'change']) els['mv_lamin-density'].dispatchEvent(new Event(t, { bubbles: true }));
     const b = iscScene.cellBounds(__key), cam = { pivot: [b.center[0], b.center[1], 0], azimuthDeg: 0, tiltDeg: 30, fovUm: 20 };
     const lit = d => { let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 60) n++; return n; };
-    const on = (await __cap(__st({ camera: cam, layers: { 'lamin.points': { style: { color: '#ffffff', opacity: 1 } } } }))).data;
+    const on = (await __cap(__st({ camera: cam, layers: { 'lamin.surface': { style: { color: '#ffffff', opacity: 1 } } } }))).data;
     const off = (await __cap(__st({ camera: cam, layers: {} }))).data;
     // the height scale (Lamina colours, no style colour): the dots' red channel spreads with their height; flat: one colour
     const spread = d => { const rs = []; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 150) rs.push(d[i]);
       rs.sort((a, b) => a - b); return rs.length ? rs[Math.floor(rs.length * 0.9)] - rs[Math.floor(rs.length * 0.1)] : 0; };
-    const scale = spread((await __cap(__st({ camera: cam, layers: { 'lamin.points': { style: { color: null } } } }))).data);
-    const flat = spread((await __cap(__st({ camera: cam, layers: { 'lamin.points': {} } }))).data);
+    const scale = spread((await __cap(__st({ camera: cam, layers: { 'lamin.surface': { style: { color: null } } } }))).data);
+    const flat = spread((await __cap(__st({ camera: cam, layers: { 'lamin.surface': {} } }))).data);
     const row = els.laminMap.closest('.opt');
     return { on: lit(on), off: lit(off), toggle, scale, flat,
       mapHidden: row ? row.style.display === 'none' : null };
@@ -90,7 +89,7 @@ await runViewer('viewer scene', { watchdogSec: 150 }, async ({ page, check }) =>
   check(lamina.on > 300 && lamina.off === 0 && !lamina.toggle && lamina.scale > 30 &&
     lamina.flat < lamina.scale / 2 && lamina.mapHidden !== false,
     `nuclear lamina: ${lamina.on} px lit by its layer alone, ${lamina.off} without; View toggle ${lamina.toggle ? 'on' : 'off'}, ` +
-    `300 per um^2; height scale spread ${lamina.scale} vs ${lamina.flat} flat; Lamina colours hidden while off (${lamina.mapHidden})`);
+    `a surface; height scale spread ${lamina.scale} vs ${lamina.flat} flat; Lamina colours hidden while off (${lamina.mapHidden})`);
 
   // 6. the detail budget
   const det = await page.evaluate(async () => {

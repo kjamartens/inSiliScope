@@ -153,7 +153,8 @@ a random stand-in for the lamin network under the nuclear envelope: points, not 
   every pore, whether the pores are labelled or not.
 - **How many.** `lamin-density` (MM `CellField.NuclearLaminaDensityPerUm2`, Advanced; 100 to 10 000 in the viewer and
   Micro-Manager) per µm² of envelope, default 2000 (*estimate*): the count is that times the envelope's area, rounded
-  (some 250 000 on a nucleus of ~125 µm²). The viewer draws the points with View > Nuclear lamina.
+  (some 250 000 on a nucleus of ~125 µm²). The viewer's View > Nuclear lamina draws the envelope they lie on as a
+  surface, not the points one by one.
 - **Label.** One docking site per point, labelled through the same path as the other targets (`lamin-dye`,
   `lamin-mode`, `lamin-label-pct`, `lamin-imager-nm`, the linkage `lamin-binder*`; MM `NuclearLamina_*`). The linkage
   starts at the point in a random direction (every direction equally likely, no side of the envelope preferred); default

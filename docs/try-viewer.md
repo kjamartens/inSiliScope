@@ -200,8 +200,10 @@ through it step by step.
 - **Nuclear pores** (View, on by default): each pore of a detailed cell as its two 8-fold rings on the nuclear envelope
   (cytoplasmic and nucleoplasmic, 50 nm apart, radius 53.5 nm), seen through their own tilt on the flanks of the
   nucleus; a pore is a dot when zoomed out, and from 400 px/µm each corner shows its four Nup96 sites.
-- **Nuclear lamina** (View, off by default): the lamina points of each detailed cell as dots, labelled or not (also in
-  the x-z view), coloured by their height (Lamina colours; the Look's = one colour). At the default 2000 per µm² that is a few hundred thousand points per nucleus.
+- **Nuclear lamina** (View, off by default): the lamina of each detailed cell as a surface, labelled or not (also in
+  the x-z view, filled): the nuclear envelope its points lie on, coloured by height (Lamina colours; the Look's = one
+  colour). The points themselves are not drawn: at the default 2000 per µm² they are 22 nm apart, a few hundred
+  thousand per nucleus.
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
   horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows
