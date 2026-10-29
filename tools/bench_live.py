@@ -3,15 +3,20 @@ exposures. Per case: the achieved frame rate of a continuous sequence acquisitio
 shows) against the exposure's 1000/exposure, and the producer's render time per frame (Test_LiveRenderMs). Then the
 latency of everyday actions (snap, Channel switch, Objective switch, stage move: call -> image).
 
+The rate is the steady one: each case warms up for 0.5 s after its first frame (a new acquisition's first frame may
+rebuild scenes), and a Channel preset with a dSTORM label first runs --settle-sec (30) s of acquisition, past the
+initial-ON dyes' switching off, whose mean field rebuilds its bleach basis every few seconds (2026-10-29: measured
+in the first 1.5 s of each case, AF647 dSTORM showed 0 fps since rc9; it runs at ~56 fps at 10 ms after it).
+
 --profile also records where the time goes: the adapter's phase profile (Simulation/Timing.h, collected in memory with
 ISC_PROFILE=1 and written by the Camera's Test_ProfileWriteTo) for the configuration's load and first image, every
 live case and every action. --history adds the result to a benchmarks.json entry (the release workflow's; rendered on
 the project site's Benchmarks page by tools/benchmarks_page.py).
 
   ADAPTER_DIR=<dll dir> python tools/bench_live.py [--config Basic] [--fov 256] [--exposures 5,10,20,50]
-                                                   [--seconds 1.5] [--profile] [--json out.json]
+                                                   [--seconds 1.5] [--settle-sec 30] [--profile] [--json out.json]
                                                    [--history benchmarks.json --version v0.2.0]
-(about 2-3 min with the defaults; only the inSiliScope DLL is needed for the Basic configuration)
+(about 3-4 min with the defaults; only the inSiliScope DLL is needed for the Basic configuration)
 """
 
 import argparse
@@ -45,14 +50,19 @@ class Profiler:
         return json.loads(self.path.read_text(encoding="utf-8"))
 
 
-def fps_run(core, seconds, prof):
-    """Frames per second of a continuous acquisition, after a 0.5 s warm-up; the render time at its end and the phase
-    profile of the measured part."""
+def fps_run(core, seconds, prof, warm_cap=60.0):
+    """Frames per second of a continuous acquisition, after a warm-up of 0.5 s from its first frame (at most warm_cap
+    s); the render time at its end and the phase profile of the measured part."""
     core.startContinuousSequenceAcquisition(0)
-    t_end_warm = time.perf_counter() + 0.5
+    t0 = time.perf_counter()
+    t_end_warm = t0 + warm_cap
+    first = False
     while time.perf_counter() < t_end_warm:
         while core.getRemainingImageCount():
             core.popNextImage()
+            if not first:
+                first = True
+                t_end_warm = min(t_end_warm, time.perf_counter() + 0.5)
         time.sleep(0.0005)
     prof.take()
     stamps = []
@@ -71,6 +81,28 @@ def fps_run(core, seconds, prof):
     fps = (len(stamps) - 1) / (stamps[-1] - stamps[0]) if len(stamps) >= 2 else 0.0
     return {"fps": fps, "renderMs": render, "frames": len(stamps), "prefetchMs": prefetch, "worstGapMs": worst,
             "profile": profile}
+
+
+def has_dstorm(core):
+    """Whether a label of the mounted sample's targets is in dSTORM mode."""
+    for dev in ("CellField", "Nanorulers"):
+        if dev not in core.getLoadedDevices():
+            continue
+        for p in core.getDevicePropertyNames(dev):
+            if p.endswith("_Mode") and core.getProperty(dev, p) == "dSTORM":
+                return True
+    return False
+
+
+def settle(core, seconds):
+    """An acquisition of `seconds` (frames dropped): the sample past its first light."""
+    core.startContinuousSequenceAcquisition(0)
+    t_end = time.perf_counter() + seconds
+    while time.perf_counter() < t_end:
+        while core.getRemainingImageCount():
+            core.popNextImage()
+        time.sleep(0.002)
+    core.stopSequenceAcquisition()
 
 
 def timed(fn):
@@ -96,6 +128,8 @@ def main():
     ap.add_argument("--exposures", default="5,10,20,50")
     ap.add_argument("--seconds", type=float, default=1.5)
     ap.add_argument("--channels", default="", help="comma-separated Channel presets (default: all)")
+    ap.add_argument("--settle-sec", type=float, default=30.0,
+                    help="acquisition before measuring a Channel preset with a dSTORM label (its initial-ON dyes)")
     ap.add_argument("--profile", action="store_true", help="record the adapter's phase profile per case")
     ap.add_argument("--json", default="")
     ap.add_argument("--history", default="", help="benchmarks.json to add this run to (entry of --version)")
@@ -131,6 +165,9 @@ def main():
         prof.take()
         switch = timed(lambda: (core.setConfig("Channel", ch), core.waitForSystem(), core.snapImage()))
         switch_profiles[ch] = prof.take()
+        if a.settle_sec > 0 and has_dstorm(core):
+            settle(core, a.settle_sec)
+            prof.take()
         cells = []
         for e in exposures:
             core.setExposure(e)

@@ -130,7 +130,9 @@ def mm_section(hist):
     print("## Micro-Manager live (MMCore)\n")
     print(f"The adapter as Micro-Manager drives it: the shipped `inSiliScope_{latest['config']}.cfg` at "
           f"{latest['fov']} x {latest['fov']} px, every Channel preset, a continuous sequence acquisition (Micro-"
-          "Manager's live view) per exposure, measured through pymmcore-plus by `tools/bench_live.py --profile` on "
+          "Manager's live view) per exposure, its steady rate (0.5 s after its first frame; a dSTORM preset after "
+          "30 s of acquisition, once its initial-ON dyes have switched off), "
+          "measured through pymmcore-plus by `tools/bench_live.py --profile` on "
           f"the release workflow's Windows runner ({m.get('cpus', '?')} CPUs; renderer: "
           f"{html.escape(latest.get('gpu') or 'unknown')}). "
           + ("" if "GPU:" in (latest.get("gpu") or "") else
