@@ -2348,6 +2348,43 @@ void Npcs()
    Same(frame, "pores: (n, e1, e2) orthonormal and right-handed (e1 x e2 = n)");
    Same(order, "pores: in candidate order");
    Same(CapShare(onCaps, pores, capExpected), "pores: uniform by area (cap share)");
+   // The drawing rings (isc_cell_nucleus_rings; the viewer's nucleus and lamina surfaces) close the envelope: a
+   // point at each end (a widened base or top drawn as its cap's rings, 2026-10-29: the base was left open), and
+   // their quads' area = the pores' surface mesh's.
+   {
+      std::string ends, area;
+      int capped = 0;
+      for (const Cell& c : cells) {
+         const int S = 17, P = 48;
+         const std::vector<Pt3> r = NucleusRingsLocal(c, S, P);
+         const int nr = (int)r.size() / P;
+         capped += nr > S;
+         auto point = [&](int k) {
+            for (int i = 1; i < P; i++)
+               if (std::hypot(r[(size_t)(k * P + i)].x - r[(size_t)(k * P)].x, r[(size_t)(k * P + i)].y - r[(size_t)(k * P)].y) > 1e-9) return false;
+            return true;
+         };
+         if (ends.empty() && (nr != S + NUC_CAP_RINGS * ((c.nucFBot > 0) + (c.nucFTop > 0)) || !point(0) || !point(nr - 1)))
+            ends = Fmt("cell (%d, %d): %d rings, fBot %.3f, fTop %.3f", c.cx, c.cy, nr, c.nucFBot, c.nucFTop);
+         double A = 0;
+         auto tri = [&](const Pt3& a, const Pt3& b, const Pt3& d) {
+            const double ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z, vx = d.x - a.x, vy = d.y - a.y, vz = d.z - a.z;
+            A += 0.5 * std::sqrt(std::pow(uy * vz - uz * vy, 2) + std::pow(uz * vx - ux * vz, 2) + std::pow(ux * vy - uy * vx, 2));
+         };
+         for (int k = 0; k + 1 < nr; k++)
+            for (int i = 0; i < P; i++) {
+               const Pt3 &a = r[(size_t)(k * P + i)], &b = r[(size_t)(k * P + (i + 1) % P)];
+               const Pt3 &d = r[(size_t)((k + 1) * P + (i + 1) % P)], &e = r[(size_t)((k + 1) * P + i)];
+               tri(a, b, d);
+               tri(a, d, e);
+            }
+         const double want = BuildNucSurfaceMesh(c).area;
+         if (area.empty() && std::fabs(A / want - 1) > 0.03) area = Fmt("cell (%d, %d): %.2f um^2 vs %.2f", c.cx, c.cy, A, want);
+      }
+      Same(ends, "nucleus drawing rings: one point at each end, a widened half's cap rings included");
+      Check(capped > 0, "nucleus drawing rings: a cell with a widened half (the default nucAsym)", Fmt("%d of %zu", capped, cells.size()));
+      Same(area, "nucleus drawing rings: their surface's area = the pores' surface mesh's, within 3 %");
+   }
    // Attachment points: 64, rings at -/+ sep/2, mean radius = the mean of |(R + r cos phi, r sin phi)| over the arc.
    {
       double S[NPC_SITES * 3];

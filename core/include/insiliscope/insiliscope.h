@@ -407,6 +407,12 @@ ISC_API int32_t isc_cell_npcs(IscWorld* w, int32_t cx, int32_t cy, double* out, 
  * count (0 with laminDensity 0), or -1 if the chunk holds no cell. */
 #define ISC_LAMIN_STRIDE 6
 ISC_API int32_t isc_cell_lamin(IscWorld* w, int32_t cx, int32_t cy, double* out, int32_t cap);
+/* The nucleus surface for drawing (ABI 9): rings of pts points, bottom to top,
+ * cell-local xyz: slices horizontal sections (zeta = -cos(pi i / (slices - 1)))
+ * and, for a widened half (a flat base or top), its cap as 4 more rings from
+ * the cap's centre outward, so the rings close the surface at both ends (a
+ * point at each end). Up to capPts points; returns the point count (a multiple
+ * of pts: slices, slices + 4 or slices + 8 rings), or -1. */
 ISC_API int32_t isc_cell_nucleus_rings(IscWorld* w, int32_t cx, int32_t cy, int32_t slices, int32_t pts,
                                        double* out, int32_t capPts);
 

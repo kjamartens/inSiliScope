@@ -102,6 +102,11 @@ await runViewer('viewer scene', { watchdogSec: 150 }, async ({ page, check }) =>
       if (performance.now() - t0 > 30000) return null;
       await __cap(st); await new Promise(r => setTimeout(r, 100));
     }
+    // the envelope the surface is drawn on is closed: its first and last rings are one point each (a widened base
+    // used to end at its cap's rim, 2026-10-29: a hole in the bottom)
+    const nu = a.entry.nuc, np = a.entry.nucPts, nr = nu.length / (3 * np);
+    const isPoint = k => { for (let i = 1; i < np; i++) if (Math.hypot(nu[3 * (k * np + i)] - nu[3 * k * np], nu[3 * (k * np + i) + 1] - nu[3 * k * np + 1]) > 1e-9) return false; return true; };
+    const closed = isPoint(0) && isPoint(nr - 1);
     const d = [...a.entry.laminDens].sort((x, y) => x - y), mean = d.reduce((s, x) => s + x, 0) / d.length;
     const sum = img => { let s = 0; for (let i = 0; i < img.length; i += 4) s += img[i]; return s; };
     const full = sum((await __cap(st)).data);
@@ -111,8 +116,9 @@ await runViewer('viewer scene', { watchdogSec: 150 }, async ({ page, check }) =>
     a.entry.laminDens = keep.map(() => 0.5); freeMeshGl(a.entry);
     const half = sum((await __cap(st)).data);
     a.entry.laminDens = keep; freeMeshGl(a.entry);
-    return { ms: performance.now() - t0, mean, p5: d[Math.floor(d.length * 0.05)], p95: d[Math.floor(d.length * 0.95)], ratio: half / full };
+    return { ms: performance.now() - t0, closed, nr, mean, p5: d[Math.floor(d.length * 0.05)], p95: d[Math.floor(d.length * 0.95)], ratio: half / full };
   });
+  check(dens && dens.closed, dens ? `nuclear envelope closed: ${dens.nr} rings, a point at each end` : 'nuclear envelope: no asset');
   check(dens && Math.abs(dens.mean - 1) < 0.03 && dens.p5 > 0.85 && dens.p95 < 1.15 && dens.ratio > 0.45 && dens.ratio < 0.8,
     dens ? `nuclear lamina density: mean ${dens.mean.toFixed(3)} of the set density, 5-95 % ${dens.p5.toFixed(2)}-${dens.p95.toFixed(2)} ` +
       `(after ${(dens.ms / 1000).toFixed(1)} s); at half the density the surface is ${(dens.ratio * 100).toFixed(0)} % as bright` : 'nuclear lamina density: never arrived');

@@ -706,7 +706,8 @@ bool NucleusJson(const sim::ScopeSpec& spec, double sizeUm, const std::string& p
       return false;
    }
    const int32_t slices = 17, pts = 64;
-   std::vector<double> ring(static_cast<size_t>(slices) * pts * 3);
+   const int32_t capRings = slices + 8;   // the sections and up to two caps of 4 rings (isc_cell_nucleus_rings)
+   std::vector<double> ring(static_cast<size_t>(capRings) * pts * 3);
    Json j;
    j.Open('{');
    j.KNum("slices", slices);
@@ -718,13 +719,14 @@ bool NucleusJson(const sim::ScopeSpec& spec, double sizeUm, const std::string& p
       const double* c = cells.data() + static_cast<size_t>(i) * ISC_CELL_STRIDE;
       const double px = c[2], py = c[3], rot = c[4], cr = std::cos(rot), sr = std::sin(rot);
       const int32_t got = isc_cell_nucleus_rings(w, static_cast<int32_t>(c[0]), static_cast<int32_t>(c[1]), slices, pts,
-                                                 ring.data(), slices * pts);
+                                                 ring.data(), capRings * pts);
       j.Open('{');
       j.KNum("x", px);
       j.KNum("y", py);
+      j.KNum("rings_n", std::max(0, std::min(got, capRings * pts)) / pts);
       j.Key("rings");
       j.Open('[');
-      for (int32_t k = 0; k < std::max(0, got); ++k)
+      for (int32_t k = 0; k < std::max(0, std::min(got, capRings * pts)); ++k)
       {
          const double lx = ring[3 * k], ly = ring[3 * k + 1];
          j.Num(px + lx * cr - ly * sr);

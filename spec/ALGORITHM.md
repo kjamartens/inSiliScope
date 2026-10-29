@@ -524,7 +524,10 @@ does not change it); the signed distance for the cytoplasm profile is the neares
 node so the bilinear surface between nodes clears a steep rim (a wide top); the optical volume (BrightField) takes the
 asymmetric chord `[nucZ - below, nucZ + above]`; the microtubule push-out works radially in (s, zeta): the boundary scale
 by bisection (24 steps), divided by the containment margin. Drawing uses horizontal sections at `s = W(zeta)`,
-`zeta = -cos(pi i / (n - 1))`, both poles included (ABI 9 `isc_cell_nucleus_rings`).
+`zeta = -cos(pi i / (n - 1))` (ABI 9 `isc_cell_nucleus_rings`). A widened half (`f` > 0, the base by default) ends at
+`zeta = -1` in a flat cap of width `f`, not a pole, so its cap follows as 4 more rings at `s = f k / 4` (k = 0..3, the
+centre a single point): the rings close the surface at both ends (2026-10-29; before, the drawn nucleus and lamina had a
+hole in the base).
 
 ## Microtubule starts, ends and the obstacle envelope (2026-10-05)
 

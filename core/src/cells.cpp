@@ -454,8 +454,21 @@ std::vector<Pt2> NucFootprintPolygon(const Cell& c)
 std::vector<Pt3> NucleusRingsLocal(const Cell& c, int slices, int pts)
 {
    std::vector<Pt3> out;
-   out.reserve((size_t)slices * pts);
+   out.reserve((size_t)(slices + 2 * NUC_CAP_RINGS) * pts);
    const double cr = jsm::cos(c.nucRot), sr = jsm::sin(c.nucRot);
+   // A widened half (f > 0) ends in a flat cap of width f at zeta = -1 / +1, not a pole: its rings run from the
+   // centre (s = 0, one point) out to s = f (k / NUC_CAP_RINGS), so the drawn surface is closed (2026-10-29).
+   auto cap = [&](double f, double zeta, bool outward) {
+      if (!c.nucShaped || !(f > 0)) return;
+      for (int k = 0; k < NUC_CAP_RINGS; k++) {
+         const double sg = f * ((double)(outward ? k : NUC_CAP_RINGS - 1 - k) / NUC_CAP_RINGS);
+         for (int i = 0; i < pts; i++) {
+            const double th = ((double)i / pts) * jsm::PI * 2;
+            out.push_back(NucMapLocal(c, sg, jsm::cos(th), jsm::sin(th), zeta));
+         }
+      }
+   };
+   cap(c.nucFBot, -1, true);
    for (int sl = 0; sl < slices; sl++) {
       const double zeta = -jsm::cos(jsm::PI * sl / (slices - 1));
       const double s = c.nucShaped ? NucSectionW(zeta, zeta < 0 ? c.nucFBot : c.nucFTop)
@@ -470,6 +483,7 @@ std::vector<Pt3> NucleusRingsLocal(const Cell& c, int slices, int pts)
          }
       }
    }
+   cap(c.nucFTop, 1, false);
    return out;
 }
 

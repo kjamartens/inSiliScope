@@ -2289,7 +2289,9 @@ let frameExact = false, sortDeadline = Infinity, orderStale = false;
 let animPlaying = false;   // an animation preview is playing (the camera moves every frame)
 
 // The nucleus surface rings in the cell's local frame (x, y, z per point, np points per ring, bottom pole to top
-// pole): the engine's rings (asset.nuc) when it sends them, else the plain ellipsoid of the pack record.
+// pole): the engine's rings (asset.nuc) when it sends them, else the plain ellipsoid of the pack record. The engine's
+// close a widened base or top with its cap's rings (2026-10-29: they ended at the cap's rim, so the flat base was
+// missing from the nucleus and lamina surfaces).
 function nucRingsLocal(c, entry) {
   if (entry.nuc) return { xyz: entry.nuc, np: entry.nucPts };
   const xyz = new Float64Array(NUC_RINGS * NUC_PTS * 3), ct = Math.cos(c.nucRot), st = Math.sin(c.nucRot), rz = c.nucHeight / 2;
@@ -3415,7 +3417,7 @@ function getMtPathXZ(mts, t, yl, yh, zc, tag) {
 }
 // The nucleus as horizontal sections bottom to top, each ring cut to turned y in [y0, y1] (relative to the pivot)
 // and reduced to its leftmost and rightmost point along the turned x: { xl, zl, xr, zr } (turned x relative to the
-// pivot). From nucRingsLocal (both poles included, so they reach the true top and bottom of a shaped nucleus).
+// pivot). From nucRingsLocal (closed at both ends, so they reach the true top and bottom of a shaped nucleus).
 function nucXZSections(c, entry, t, y0, y1) {
   // cached per cell for its pose in the view and the y range (a live frame redraws the view without moving it)
   const key = [t.ou, t.oy, t.cr, t.sr, y0, y1].join('|'), hit = entry.nucXZ;
@@ -4005,7 +4007,7 @@ function iscEngine(M) {
         const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1];
         // The nucleus surface rings (ABI 9; cell-local x, y, z, both poles included).
         const nuc = query((ptr, cap) => M._isc_cell_nucleus_rings(w, d.cx, d.cy, ISC_NUC_SLICES, ISC_NUC_PTS, ptr, cap), 3,
-                          ISC_NUC_SLICES * ISC_NUC_PTS);
+                          (ISC_NUC_SLICES + 8) * ISC_NUC_PTS);   // (+ a widened half's cap rings)
         const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null, nuc, nucPts: ISC_NUC_PTS };
         // the lamina's density on the nucleus rings, when the view draws the lamina
         if (d.lamin) {

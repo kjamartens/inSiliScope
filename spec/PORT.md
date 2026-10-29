@@ -560,7 +560,8 @@ key, a packing parameter changes it, a damaged file is ignored and rewritten.
 ### 6.7 Nucleus surface (ABI 9, 2026-10-05)
 The nucleus is a shaped ellipsoid (spec/ALGORITHM.md "Nucleus shape"; `core/src/cells.cpp` `NucShapeInit` and the
 `Nuc*` functions, bit-exact with the prototype's `nucShapeInit`/`nucMapLocal`/...). `isc_cell_nucleus_rings(w, cx, cy,
-slices, pts, out, cap)` returns its drawing rings (horizontal sections, both poles included, cell-local xyz) for the
+slices, pts, out, cap)` returns its drawing rings (horizontal sections, then a widened base's or top's cap as 4 more
+rings, so the surface closes in a point at both ends (2026-10-29); cell-local xyz) for the
 viewer's `cell` job, which draws them instead of its ellipsoid (the pack record keeps the plain ellipsoid's numbers for
 the fallback). `isc_optical_volume_in_window` takes the asymmetric nucleus chord. `ISC_WORLD_VERSION` 2026-10-05.
 MM properties (one indexed handler, `g_CellFieldCoreParam` names the core parameter each sets):
