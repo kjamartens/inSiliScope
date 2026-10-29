@@ -102,9 +102,16 @@ try {
   const s1 = await page.evaluate(() => view.scale);
   check(s1 > s0 * 2 && Math.abs(t1d - t0d) > 10, `two fingers on the world view: a pinch zooms ${s0.toFixed(2)} -> ${s1.toFixed(2)}, both up tilt ${t0d} -> ${t1d}°`);
 
+  // the position in the sample (moved here) and the zoom (the pinch's) are kept over a reload, like the settings
+  const pos0 = await page.evaluate(async () => { view.cx += 37.25; view.cy -= 12.5; requestDraw(); await new Promise(r => setTimeout(r, 300));
+    return [view.cx, view.cy, view.scale]; });
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 120000 });
   await ready();
   check(await page.evaluate(() => document.getElementById('mStage').classList.contains('worldBig')), 'the world view stays big over a reload');
+  await page.waitForFunction(() => viewPosReady, null, { timeout: 30000 });   // (after the controls are restored)
+  const pos1 = await page.evaluate(() => [view.cx, view.cy, view.scale]);
+  check(pos1.every((v, i) => Math.abs(v - pos0[i]) < 1e-3 * Math.max(1, Math.abs(pos0[i]))),
+    `the position and zoom are kept over a reload: (${pos0.map(v => v.toFixed(2))}) -> (${pos1.map(v => v.toFixed(2))})`);
 
   // a wide window: the side-by-side layout again, every node in its place
   await page.setViewportSize({ width: 1200, height: 800 });

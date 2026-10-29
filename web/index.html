@@ -1833,6 +1833,28 @@ const host = document.getElementById('canvasHost');
 // nucleus in one corner of the camera's field, microtubules out to the cell edge, a strip of empty coverslip.
 const START = { cx: 14.8, cy: -6.0 };
 const view = { cx: START.cx, cy: START.cy, scale: 9, tiltRad: 0, azRad: 0, pz: 0 };
+// The position in the sample (the view's centre = the stage) and the zoom survive a reload (2026-10-29), as the
+// controls do (live/persist.js, its key prefix, so Reset all forgets them with the rest): saved after each frame
+// that moved them, set at start (so the packing starts there) and again once the controls are restored (the
+// Sample's handler sets the zoom).
+const VIEW_POS_KEY = 'isc.set.view.pos';
+let viewPosSaved = '', viewPosReady = false;
+function loadViewPos() {
+  try {
+    const v = (localStorage.getItem(VIEW_POS_KEY) || '').split(',').map(Number);
+    if (v.length === 3 && v.every(Number.isFinite) && v[2] > 0) { view.cx = v[0]; view.cy = v[1]; view.scale = v[2]; return true; }
+  } catch (e) { /* storage blocked */ }
+  return false;
+}
+function saveViewPos() {
+  if (!viewPosReady) return;
+  const s = [view.cx, view.cy, view.scale].map(v => +v.toFixed(4)).join(',');
+  if (s === viewPosSaved) return;
+  viewPosSaved = s;
+  try { localStorage.setItem(VIEW_POS_KEY, s); } catch (e) { /* private window */ }
+}
+loadViewPos();
+window.addEventListener('isc-restored', () => { if (loadViewPos()) requestDraw(); viewPosReady = true; });
 
 const els = {};
 // The one Seed (the Sample group): the world is drawn from seed ^ 'CELL' (as Micro-Manager's hub and the cli derive it),
@@ -4740,7 +4762,7 @@ let drawQueued = false;
 function requestDraw() {
   if (drawQueued) return;
   drawQueued = true;
-  requestAnimationFrame(() => { drawQueued = false; draw(); });
+  requestAnimationFrame(() => { drawQueued = false; draw(); saveViewPos(); });
 }
 
 // A frame drawn from a scene state: stateFromUI() for the main view, an animation's own for its preview and

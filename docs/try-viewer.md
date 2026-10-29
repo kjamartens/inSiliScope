@@ -103,7 +103,8 @@ through it step by step.
   configurations are made; a setting Micro-Manager does not have keeps the viewer's own level; Basic at first). A note says how many
   hidden settings differ from their defaults. The ☰ menu switches between three looks (Compact, Focus, the default,
   and Light); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all to defaults** puts every setting back, those beside the image too. Every setting, the level and the
-  look are remembered in your browser across reloads (Reset all forgets them, and puts the panel and x-z view sizes back).
+  look are remembered in your browser across reloads, and so are the position in the sample and the zoom of the world
+  view (Reset all forgets them, and puts the panel and x-z view sizes back).
 - **Save and load settings.** The first section of the ☰ menu (and the two small icons beside Basic / Advanced /
   Expert, a disk to save and a folder to load; not on a phone) keeps a setup as a file, `<name>.isc.json`, in parts that can be mixed: the
   **Instrument** (objective, PSF and aberrations, camera and its noise, pixel size, the beam's shape, custom laser
