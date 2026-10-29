@@ -60,6 +60,9 @@ DESCRIBE = {
     "fl.events-query": "blink events of the frame from the core",
     "fl.events-sort": "group and bucket the events",
     "fl.dye-counts": "count the dyes of continuous populations",
+    "fl.dye-index": "the dye index of the counts made now (the FOV and 2 um around, every height)",
+    "fl.dye-index-ahead": "the dye index made ahead, 4 um around the FOV (a thread and world of its own)",
+    "fl.dye-index-wait": "waiting for the dye index being made ahead",
     "fl.windows": "per-dye emission windows",
     "fl.windows-query": "the windows still open, from the core (each dye on its own clock)",
     "fl.mean-field-scene": "mean-field scene update",
@@ -70,6 +73,12 @@ DESCRIBE = {
     "fl.mean-field-rate-frame": "a later frame of a movie: each cell bleached at its own light",
     "wf.basis": "bleach basis rebuilt (every basis image)",
     "wf.basis-single": "a new pose's first bleach basis: the frame's weights alone (one image)",
+    "wf.kernels": "WideField: the PSF planes' kernel spectra a new focus needs (CPU)",
+    "wf.plane-spectra": "WideField: the dye planes' spectra (CPU FFTs)",
+    "wf.accel-images": "WideField: the channel images on the GPU host (new plane spectra uploaded and transformed there)",
+    "wf.basis-async-start": "live: the next bleach basis started on its own thread (a copy of the scene)",
+    "wf.basis-async-take": "live: a bleach basis made ahead taken (its spectra and images)",
+    "wf.plane-spectra-async": "live: the dye planes' spectra of a basis made ahead (its own thread, not the frame's)",
     "fl.frame.blinks (batches)": "splat the blinks, or bin them (binned FFT) in dense frames (CPU)",
     "fl.frame.continuous": "add the continuous populations",
     "gpu.populations": "GPU path: the frame's continuous populations (CPU)",
@@ -124,7 +133,9 @@ def mm_section(hist):
     print("## Micro-Manager live (MMCore)\n")
     print(f"The adapter as Micro-Manager drives it: the shipped `inSiliScope_{latest['config']}.cfg` at "
           f"{latest['fov']} x {latest['fov']} px, every Channel preset, a continuous sequence acquisition (Micro-"
-          "Manager's live view) per exposure, measured through pymmcore-plus by `tools/bench_live.py --profile` on "
+          "Manager's live view) per exposure, its steady rate (0.5 s after its first frame; a dSTORM preset after "
+          "30 s of acquisition, once its initial-ON dyes have switched off), "
+          "measured through pymmcore-plus by `tools/bench_live.py --profile` on "
           f"the release workflow's Windows runner ({m.get('cpus', '?')} CPUs; renderer: "
           f"{html.escape(latest.get('gpu') or 'unknown')}). "
           + ("" if "GPU:" in (latest.get("gpu") or "") else

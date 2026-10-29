@@ -30,6 +30,7 @@
 #include "Illumination.h"
 #include "PsfGeneratorBridge.h"
 
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -42,6 +43,11 @@
 namespace sim {
 
 class SampleSource;
+class ParallelPool;
+
+// Stops and joins every scene's basis thread (WidefieldScene::SetAsyncBasis) and its workers; a host that unloads
+// this code (the Micro-Manager DLL; its movie cache is static) calls it first, as ParallelPoolShutdown.
+void WidefieldAsyncBasisShutdown();
 
 struct WidefieldPhotophysics
 {
@@ -339,6 +345,15 @@ public:
    // are then left out of the job.
    virtual bool HasPlane(unsigned long long geometry, unsigned long long key) const = 0;
    virtual bool Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err) = 0;
+   // Whether the planes (plane spectra) a scene of geometry on an NX x NY grid needs fit beside those of the scenes
+   // the host served last; false: the scene renders on the CPU (2026-10-29: two dSTORM initial-ON scenes, 1380 and
+   // 990 planes on a pool of 1020, evicted each other's at every job and re-made them at every refocus: a z step
+   // 1-1.5 s; on the CPU, its spectra cached, 0.3-0.5 s). A true answer counts the scene as served.
+   virtual bool Fits(unsigned long long geometry, unsigned NX, unsigned NY, size_t planes)
+   {
+      (void)geometry, (void)NX, (void)NY, (void)planes;
+      return true;
+   }
 };
 
 // The WideField renderer for one grid rect (a stage pose), any focus.
@@ -490,6 +505,17 @@ public:
    // (RenderShiftedImages; needs SetKeepSpectra, else unshifted).
    void RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells, std::vector<float>& cam);
    bool LastFrameFast() const { return lastFast_; }
+   // Live (2026-10-29): a frame past kPrebuildAt of a Chebyshev basis' span (the decay it was made to hold) starts
+   // the next basis, anchored at that frame, on a thread of its own (a copy of the scene, half the cores); the
+   // frames go on from the basis in use, and the first one after the new basis is made takes it, unless what it was
+   // made from has changed (its images made again if the scene refocused or moved). A frame the basis in use no
+   // longer holds waits for the one being made. So a steady view no longer stalls for a rebuild (dSTORM: ~0.6 s per
+   // scene every few seconds; drift ~0.3 s). A new pose's or weights' basis is still made at once. Off (default):
+   // every basis made at once, so a movie's frames do not depend on timing. Native only.
+   void SetAsyncBasis(bool on);
+   static constexpr double kPrebuildAt = 0.4;
+   // Takes a basis made on that thread (wait: waits for one being made); true if one was taken.
+   bool TakeAsyncBasis(bool wait = false);
    // A rate population's frames without a pass over its weights (2026-10-15): frame k of weights wb0 is
    // wb0 x exp(-rate k) (the scene's rates, SetWeightRates). AnchorDecay holds wb0 in a Chebyshev basis (as
    // BleachCoefficients does) and gives its decay from the basis' anchor, its largest deviation from that and the
@@ -530,6 +556,8 @@ public:
    // on the CPU and GpuError() says why.
    void SetAccelerator(WidefieldAccelerator* acc) { accel_ = acc; }
    bool UsingAccelerator() const { return accel_ != nullptr; }
+   // The accelerator could not keep this scene's planes (WidefieldAccelerator::Fits): it rendered on the CPU.
+   bool AccelTooBig() const { return accelTooBig_; }
    const std::string& GpuError() const { return gpuError_; }
    // The GPU job of the current focus (false if it cannot run on the GPU:
    // not GPU mode, or an FFT beyond kMaxGpuFft); the images it yields go to
@@ -673,7 +701,40 @@ private:
    bool gpuMode_ = false, defer_ = false, keepSpectra_ = false;
    WidefieldAccelerator* accel_ = nullptr;
    std::string gpuError_;
+   bool accelTooBig_ = false;
    unsigned long long geometry_ = 0;
+   // SetAsyncBasis: the basis being made (a copy of the scene and its thread; a copy of a scene has none).
+   struct AsyncBasis;
+   struct AsyncSlot
+   {
+      std::unique_ptr<AsyncBasis> p;
+      AsyncSlot();
+      ~AsyncSlot();
+      AsyncSlot(const AsyncSlot&);
+      AsyncSlot& operator=(const AsyncSlot&);
+      AsyncSlot(AsyncSlot&&) noexcept;
+      AsyncSlot& operator=(AsyncSlot&&) noexcept;
+   };
+   bool asyncOn_ = false;
+   AsyncSlot async_;
+   // Bumped when the bleach channels' inputs change (weights, map, rates, bands, grid: a basis made before is stale),
+   // and when the focus plan or the pose does (its images are).
+   unsigned long long basisInputs_ = 0, focusSerial_ = 0;
+   // A copy making an async basis: its stop flag and its threads (nullptr: the shared ones).
+   const std::atomic<bool>* cancel_ = nullptr;
+   ParallelPool* pool_ = nullptr;
+   void InvalidateBleach();
+   // A frame's weights wb that the basis does not hold: a new basis.
+   void NewBasis(const std::vector<float>& wb);
+   // BleachCoefficients with the async basis (taken when made; waited for when wb is beyond the basis in use; the
+   // next one started late in its span).
+   bool FitBasis(const std::vector<float>& wb, std::vector<double>& a);
+   // A Chebyshev basis with host rates: the decay (rate x time, at the largest rate) it was made to hold; else 0.
+   double spanTau_ = 0.0;
+   void StartAsyncBasis(const std::vector<float>& wb);
+   void TrimCache(unsigned long long keepStamp);
+   // The bleach channels' images at the plan (the accelerator's, else the CPU's).
+   void MakeBleachImages();
    bool JobFor(const FocusPlan& plan, const std::vector<const Channel*>& chans, WidefieldGpuJob& job) const;
    // Images of the plan's channels on the accelerator; false (accelerator
    // dropped, gpuError_ set) on a failure.

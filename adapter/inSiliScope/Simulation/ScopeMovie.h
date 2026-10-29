@@ -283,6 +283,13 @@ constexpr double kBackgroundFocusStepUm = 0.25;
 constexpr double kMeanFieldAnchorUm = 1.0;
 void SetBackgroundMapPrefetch(bool on);
 void BackgroundMapPrefetchShutdown();
+// Live mean-field scenes make their next bleach basis ahead on a thread of their own (WidefieldScene::SetAsyncBasis;
+// the MM adapter's live mode, 2026-10-29). Off by default: the viewer's and the cli's live frames (LiveScope) stay a
+// function of their requests (a session replayed = the same next frame). Hosts that unload call
+// WidefieldAsyncBasisShutdown (WidefieldRender.h).
+void SetLiveAsyncBasis(bool on);
+// Live dye counts: the dye index made ahead on a thread of its own (native builds); hosts that unload join it here.
+void DyeIndexPrefetchShutdown();
 
 // One blink group of a FluorescenceSimplePlan (a blinking label's main state):
 // its kernel, photons per blink and events, and the frames whose blinks the

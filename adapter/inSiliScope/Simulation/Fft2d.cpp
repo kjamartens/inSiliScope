@@ -310,6 +310,25 @@ RealFft2d::RealFft2d(unsigned nx, unsigned ny)
       const double a = -2.0 * kPi * k / nx;
       w_[k] = cfloat(static_cast<float>(std::cos(a)), static_cast<float>(std::sin(a)));
    }
+   // The spectrum row of an all-zero input row, as the row pass makes it (zeros whose signs follow the twiddles':
+   // skipZeroRows copies it, so a skipped row is the transformed one bit for bit). The lanes of a block are
+   // independent, so lane 0 of a zero block is any zero row's.
+   if (m_ > 0)
+   {
+      const unsigned B = kBlock, M = m_;
+      std::vector<cfloat> a(static_cast<size_t>(M) * B, cfloat(0.0f, 0.0f)), t(a.size());
+      const cfloat* Z = rows_.Forward(a.data(), t.data(), B);
+      zeroRow_.resize(SpecW());
+      for (unsigned k = 0; k <= M; ++k)
+      {
+         const unsigned kk = k % M, km = (M - k) % M;
+         const cfloat w = w_[k];
+         const cfloat zk = Z[static_cast<size_t>(kk) * B], zm = Z[static_cast<size_t>(km) * B];
+         const float er = 0.5f * (zk.real() + zm.real()), ei = 0.5f * (zk.imag() - zm.imag());
+         const float orr = 0.5f * (zk.imag() + zm.imag()), oi = -0.5f * (zk.real() - zm.real());
+         zeroRow_[k] = cfloat(er + (w.real() * orr - w.imag() * oi), ei + (w.real() * oi + w.imag() * orr));
+      }
+   }
 }
 
 // The 2D passes' line buffers: per thread, kept (a heap allocation per block
@@ -352,7 +371,8 @@ void RealFft2d::Forward(const float* in, unsigned inW, unsigned inH, size_t inSt
          }
          if (zero)
          {
-            std::fill(spec + static_cast<size_t>(r0) * W, spec + static_cast<size_t>(r0 + rb) * W, cfloat(0.0f, 0.0f));
+            for (unsigned b = 0; b < rb; ++b)
+               std::copy(zeroRow_.begin(), zeroRow_.end(), spec + static_cast<size_t>(r0 + b) * W);
             return;
          }
       }

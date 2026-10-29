@@ -109,6 +109,34 @@ const r = await page.evaluate(async () => {
   catch (e) { out.cases.push({ spec: 'size=32 frames=2 psf-kernel-half-width-nm=3000 x=-3 y=4 z=0.5 mt-dye=mEGFP light-preset=auto', error: `${e.message} in ${stage}` }); return out; }   // (an abort ends the module)
   try { out.cases.push(await run('size=32 frames=2 psf-kernel-half-width-nm=3000 x=7.37 y=-2.11 z=1.2 wf-upscale=2 mt-dye=mEos3.2 light-preset=auto laser-488=0.05 mt-label-pct=3 start-sec=12')); }
   catch (e) { out.cases.push({ spec: 'size=32 frames=2 psf-kernel-half-width-nm=3000 x=7.37 y=-2.11 z=1.2 wf-upscale=2 mt-dye=mEos3.2 light-preset=auto laser-488=0.05 mt-label-pct=3 start-sec=12', error: `${e.message} in ${stage}` }); return out; }   // (an abort ends the module)
+  // Two scenes in turn (one per labelled target, 2026-10-29): A, B, A again keeps A's spectra (resident, identical).
+  const two = 'size=32 frames=2 psf-kernel-half-width-nm=3000 x=10 y=-8 z=1.5 mt-dye=mEGFP npc-dye=mEGFP npc-mode=WideField light-preset=auto mean-field-density-per-um2=0 mean-field-max-emitters=0';
+  try {
+    stage = 'isc_wf_begin (two scenes)';
+    const err = M._malloc(512), s = M._malloc(two.length + 1);
+    M.stringToUTF8(two, s, two.length + 1);
+    const h = M._isc_wf_begin(s, err, 512);
+    if (h < 0) out.turns = { spec: two, error: M.UTF8ToString(err) };
+    else {
+      const jobs = [];
+      for (let k = 0; k < Math.min(2, M._isc_wf_scenes(h)); k++) { M._isc_wf_select(h, k); jobs.push(IscWfGpu.jobFromModule(M, h)); }
+      if (jobs.length < 2) out.turns = { spec: two, error: `${jobs.length} mean-field scene(s), not 2` };
+      else {
+        stage = 'the GPU images (two scenes)';
+        const a = await gpu.images(jobs[0]);
+        await gpu.images(jobs[1]);
+        const t = performance.now();
+        const a2 = await gpu.images(jobs[0]);
+        const tA2 = performance.now() - t;
+        let same = true;
+        a.forEach((g, c) => { for (let i = 0; i < g.length; i++) same = same && a2[c][i] === g[i]; });
+        out.turns = { spec: two, same, tA2, resident: gpu.resident.size, shape: jobs.map(j => `${j.NX}x${j.NY}`).join(' / '),
+          distinct: jobs[0].geometry !== jobs[1].geometry, planes: jobs.map(j => j.planes.length).join(' / ') };
+      }
+      M._isc_wf_end(h);
+    }
+    M._free(err); M._free(s);
+  } catch (e) { out.turns = { spec: two, error: `${e.message} in ${stage}` }; }
   return out;
 });
 clearTimeout(dog);
@@ -131,6 +159,16 @@ for (const c of r.cases) {
     `GPU vs CPU images rms ${c.rms.toExponential(1)}, max ${c.max.toExponential(1)} of peak; resident re-run identical ${c.resident}; ` +
     `job ${c.tJob.toFixed(0)} ms, GPU ${c.tGpu.toFixed(0)} ms (resident ${c.tGpu2.toFixed(0)} ms), CPU ${c.tCpu.toFixed(0)} ms; ` +
     `movie from GPU images: ${(100 * c.movieDiffPx).toFixed(2)}% of pixels differ (max ${c.movieMaxAdu} ADU), signal ${c.meanRel.toExponential(1)} apart`);
+}
+{
+  const t = r.turns;
+  if (!t || t.error) { console.log('FAIL', t ? t.spec : 'two scenes', t ? t.error : 'not run'); fail++; }
+  else {
+    const ok = t.same && t.distinct && t.resident >= 2;
+    if (!ok) fail++;
+    console.log(`${ok ? 'ok  ' : 'FAIL'}  ${t.spec}\n      two scenes in turn (${t.shape} FFT, ${t.planes} planes): A after B identical ${t.same}, ` +
+      `${t.tA2.toFixed(0)} ms; ${t.resident} geometries resident`);
+  }
 }
 console.log(fail ? `${fail} case(s) FAILED` : 'all WideField GPU checks passed');
 process.exit(fail ? 1 : 0);

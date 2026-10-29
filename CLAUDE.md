@@ -330,6 +330,23 @@ Live BrightField without drift (2026-10-07): `Simulation/BrightfieldLive.*` hold
 a prefetch thread (half the cores, `ParallelPool` of its own) for the next foci (z sequence positions, else along the
 last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touching the scene (cancellable per source).
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
+Live WideField speed (2026-10-29): the WideField GPU hosts (`WidefieldGpuD3D11.cpp`, `web/wf_gpu.js`) keep resident
+spectra per scene geometry (the 4 used last; one per labelled target take turns), reset only on a new FFT shape; dye
+counts (`MovieCache::CountSlab` / `SlabQuantiles`) come natively from a `DyeIndex` (the viewer's WASM keeps the heights-only slab columns per exact rect: an index is
+24 bytes per dye and took the viewer past its 2 GB heap, rc16's gallery job; 1 um bins, heights sorted, counts exact =
+`Density3d`), in live also made ahead 4 um around the FOV by `DyeIndexPrefetch` (native: a thread and a world of its
+own, no packed-block store, joined by `DyeIndexPrefetchShutdown` in the camera's `Shutdown`); a scene that shifts
+(drift, anchor) takes the CPU's FFT sizes (= GPU off); a scene whose planes do not fit the D3D11 pool beside the
+scenes served in the last 8 jobs (`WidefieldAccelerator::Fits`, dSTORM's initial-ON scenes: 1380 + 990 planes on 1020
+slots at 512 px) renders on the CPU (`AccelTooBig`, sticky per population in `MeanFieldSlot`), and a job that cannot fit
+evicts nothing. Drift stays on the CPU (measured: a GPU path is not faster). MM live (`SetLiveAsyncBasis`, off for
+LiveScope: the viewer's and cli's frames stay a function of their requests) makes the next bleach basis ahead
+(`WidefieldScene::SetAsyncBasis`): past `kPrebuildAt` (0.4) of a Chebyshev basis' span, a copy of the scene builds it
+on a thread and half the cores below normal priority, the first frame after takes it (a frame beyond the basis in use
+waits for it); a new pose's or new weights' basis is still made at once (the next frame needs it; its plane spectra skip empty rows, `RealFft2d::Forward` `skipZeroRows`, bit for bit since 2026-10-29). Spectra a live scene drops and a taken copy are
+freed on a thread too (`Trash`: 1480 spectra took 0.23 s); `WidefieldAsyncBasisShutdown` joins both in the camera's
+`Shutdown`. Phases `wf.basis-async-start`, `wf.basis-async-take`, `wf.plane-spectra-async`.
+Phases `fl.dye-index`, `fl.dye-index-ahead`, `fl.dye-index-wait`, `wf.kernels`, `wf.plane-spectra`, `wf.accel-images`.
 `adapter_pixel_hash` reference: `tools/adapter_pixel_hash_ref.txt` (stored 2026-10-27 on `lamin_network`: TOTAL
 5a29ae84..., "TOTAL before pores" bf29b371...; the earlier references, TOTAL bf98d1ae... since the Gaussian beam default
 of 2026-10-20 and before, are in this file's git history; which commit since then moved bf98d1ae is not known). Hash

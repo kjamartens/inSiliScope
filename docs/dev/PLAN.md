@@ -55,6 +55,19 @@ Upcoming ideas:
   apply, the history replayed (`tests/web/viewer_settings_file.mjs`), [x] `insiliscope_cli --settings` (ctest
   `cli_settings`). Next: [ ] ground-truth export, [ ] MM `Hub.SaveSettingsTo` / `LoadSettingsFrom`, [ ] an
   instrument's installed hardware.
+- Live WideField speed (2026-10-29, branch `lamin_network`): [x] the Direct3D 11 and WebGPU hosts keep the spectra of
+  the 4 scene geometries used last (two scenes in turn re-made ~500 plane spectra per job: a z step 0.5 s, 0.8 fps),
+  [x] dye counts from a dye index (native only: the viewer's WASM keeps its slab columns, 2 GB heap; 1 um bins sorted by
+  height, exact; drift 70-90 ms per frame -> 7 ms), made ahead
+  4 um around the FOV on a thread and world of its own in live, [x] a drifting scene on the CPU's FFT sizes (GPU on:
+  28 -> 48 fps), [x] drift on the GPU paths measured and dropped (a basis rebuild costs the GPU as much as the CPU, the
+  shifted frame is ~3 ms), [x] dSTORM z move: scenes too big for the GPU's plane pool beside the others render on the
+  CPU (two initial-ON scenes evicted each other's planes: a fresh-site z step 1.4-1.6 s -> 0.2-0.3 s; bench `zMove1um`
+  8-10 s -> 2.5 s), [x] a steady view's bleach-basis rebuilds off the live thread (MM live: the next basis made ahead
+  on a thread, the dropped spectra freed on another; takes 2-60 ms). A new pose's first full basis (a stage move, drift
+  re-anchoring, a channel or objective switch: 0.3-0.7 s per scene) stays on the live thread: the next frame needs it
+  and no idle time precedes it; [x] its plane spectra cheaper, bit for bit (a buffer per thread, empty rows skipped:
+  990 planes 0.41-0.46 -> 0.30-0.35 s, 1380 planes about the same).
 - Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
   spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,
@@ -139,8 +152,8 @@ Upcoming ideas:
   [x] phase 3: WF / SR / BF slices from z-stacks (main view and animations); [x] phase 4: thresholded WF isosurface,
   SMLM localizations (multi-plane acquisition, precision noise).
 - 2026-10-06: [x] sample drift as a random walk, xy and z separately (`Simulation/Drift.*`, `drift.js`; MM, cli, viewer,
-  webSMLM block's `driftTrajectory`; SR, WideField and BrightField, stacks and live; spec/PORT.md 17). Next: [ ] drift on
-  the WideField GPU paths, [ ] webSMLM's simulator on the block's `driftTrajectory` (fork branch).
+  webSMLM block's `driftTrajectory`; SR, WideField and BrightField, stacks and live; spec/PORT.md 17). Next: [x] drift on
+  the WideField GPU paths (2026-10-29: measured, not faster; dropped), [ ] webSMLM's simulator on the block's `driftTrajectory` (fork branch).
 - 2026-10-07: [x] drift presets (`SampleHolder.DriftPreset` Off ... Extreme, Basic; the viewer's Drift select; the
   configs' Drift group in every tier), the z drift as a magnitude with a direction, bounded direction/z swings.
 - 2026-10-08: [x] the sample's history in MM: rate history per tile (epochs, core ABI 11

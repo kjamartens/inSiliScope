@@ -36,6 +36,7 @@
 #include "insiliscope/insiliscope.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -1649,6 +1650,209 @@ namespace {
 // the same as with fresh objects (every answer of the core is a pure
 // function of seed, params, labels and window; the caches are for speed
 // only); a mutex keeps concurrent callers serial.
+struct MapEntries;
+// SetLiveAsyncBasis.
+static std::atomic<bool> g_liveAsyncBasis{false};
+
+struct MeanFieldSlot
+{
+   WidefieldScene scene;
+   std::unique_ptr<WidefieldPsf> psf;
+   PsfKernelCache psfCache;
+   int upscale = 0;
+   double gauss[4] = { 0, 0, 0, 0 };
+   bool gpuMode = false, has = false;
+   // The accelerator could not keep the scene's planes (WidefieldScene::AccelTooBig): the population's scenes are the
+   // CPU's from then on (a new scene on the GPU's grid would first fail there and be made again).
+   bool accelTooBig = false;
+   long psfVersion = 0;
+   // AnchorMeanField: the pose (FOV origin, world um) the scene is kept at.
+   bool anchored = false;
+   double anchorX = 0, anchorY = 0;
+   // A host's map (MapEntriesFor): the grid (geometry) and lattice its entries were made for, each grid cell's place
+   // between them (the scene's weight map), and the population's weight entries by (map, grid, population).
+   std::vector<double> tileGeom;
+   std::shared_ptr<const WidefieldWeightMap> cellMap;
+   std::vector<double> entKey;
+   std::shared_ptr<const MapEntries> ent;
+};
+
+#if !defined(__EMSCRIPTEN__)
+// Dye counts (the mean-field switch's nZ, nSlab, nZLit; Survey's heights) from a dye index (2026-10-29): every dye of a
+// rect -- height, x, y by structure in 1 um world bins, each bin sorted by height -- counts any rect inside it at any
+// heights exactly as the core's ForEachDye filters (x0 <= x < x1, y0 <= y < y1, zLo <= z < zHi), so a count =
+// Density3d's with one bin: a bin inside the rect by its sorted heights, a bin the rect's edge cuts dye by dye. Until
+// 2026-10-29: a column of heights per exact rect, the core for any other rect -- 70-90 ms of every live WideField frame
+// under drift, and two columns (0.8 s) at a pose's first z step.
+struct DyeIndex
+{
+   double rect[4] = { 0, 0, 0, 0 };   // whole um: x in [rect[0], rect[2]), y in [rect[1], rect[3])
+   uint64_t version = 0;              // MovieCache::dyeVersion
+   long bx0 = 0, by0 = 0, nbx = 0, nby = 0;
+   struct Dye
+   {
+      double z, x, y;
+   };
+   struct Dyes
+   {
+      std::vector<uint32_t> start;   // per bin (column-major: (bx - bx0) nby + by - by0), then the end
+      std::vector<Dye> v;            // by bin, in each by height
+   };
+   std::vector<Dyes> s;   // per structure
+   static bool Below(const Dye& d, double z) { return d.z < z; }
+   static bool Above(double z, const Dye& d) { return z < d.z; }
+   bool Covers(double x0, double y0, double x1, double y1) const
+   {
+      return x0 >= rect[0] && y0 >= rect[1] && x1 <= rect[2] && y1 <= rect[3];
+   }
+   // The distance from the rect to the index's edge (negative: not covered).
+   double Margin(double x0, double y0, double x1, double y1) const
+   {
+      return std::min(std::min(x0 - rect[0], y0 - rect[1]), std::min(rect[2] - x1, rect[3] - y1));
+   }
+   // Calls fn(begin, end, full) with the dyes of structure st in [zLo, zHi) per bin the rect meets: full when the bin
+   // lies inside it (every dye passes the x and y filter).
+   template <class Fn>
+   void Bins(int st, double x0, double y0, double x1, double y1, double zLo, double zHi, Fn fn) const
+   {
+      if (st < 0 || static_cast<size_t>(st) >= s.size() || !(x1 > x0) || !(y1 > y0))
+         return;
+      const Dyes& d = s[static_cast<size_t>(st)];
+      const long ax = static_cast<long>(std::floor(x0)), bx = static_cast<long>(std::ceil(x1));
+      const long ay = static_cast<long>(std::floor(y0)), by = static_cast<long>(std::ceil(y1));
+      for (long ix = ax; ix < bx; ++ix)
+      {
+         const bool fx = static_cast<double>(ix) >= x0 && static_cast<double>(ix + 1) <= x1;
+         for (long iy = ay; iy < by; ++iy)
+         {
+            const bool fy = static_cast<double>(iy) >= y0 && static_cast<double>(iy + 1) <= y1;
+            const size_t b = static_cast<size_t>((ix - bx0) * nby + (iy - by0));
+            const Dye* lo = std::lower_bound(d.v.data() + d.start[b], d.v.data() + d.start[b + 1], zLo, Below);
+            const Dye* hi = std::lower_bound(lo, d.v.data() + d.start[b + 1], zHi, Below);
+            if (hi > lo)
+               fn(lo, hi, fx && fy);
+         }
+      }
+   }
+   static bool In(const Dye& p, double x0, double y0, double x1, double y1)
+   {
+      return p.x >= x0 && p.x < x1 && p.y >= y0 && p.y < y1;
+   }
+   long Count(int st, double x0, double y0, double x1, double y1, double zLo, double zHi) const
+   {
+      long n = 0;
+      Bins(st, x0, y0, x1, y1, zLo, zHi, [&](const Dye* b, const Dye* e, bool full) {
+         if (full)
+            n += static_cast<long>(e - b);
+         else
+            for (const Dye* p = b; p < e; ++p)
+               n += In(*p, x0, y0, x1, y1) ? 1 : 0;
+      });
+      return n;
+   }
+};
+
+// The index over the whole-um bins [bx0, bx0 + nbx) x [by0, by0 + nby) of source's world. In strips of 4 bin columns
+// (half-open in x as the core's filter, so each dye is in one strip, and a strip's bins are consecutive), one strip's
+// sites at a time: a whole rect's at once (5 doubles per dye, and the core's own copy) took > 1 GB for the ~7 M dyes of
+// a 48 um WideField field, past the viewer's 2 GB WASM heap (2026-10-16). parallel: the bins sorted on the pool. False
+// on a core failure or when cancel is set.
+bool BuildDyeIndex(SampleSource& source, long bx0, long by0, long nbx, long nby, bool parallel,
+                   const std::atomic<bool>* cancel, DyeIndex& ix, const char* phase)
+{
+   constexpr long kStripBins = 4;
+   const double inf = std::numeric_limits<double>::infinity();
+   const auto t0 = TimingClock::now();
+   ix = DyeIndex();
+   ix.bx0 = bx0;
+   ix.by0 = by0;
+   ix.nbx = nbx;
+   ix.nby = nby;
+   ix.rect[0] = static_cast<double>(bx0);
+   ix.rect[1] = static_cast<double>(by0);
+   ix.rect[2] = static_cast<double>(bx0 + nbx);
+   ix.rect[3] = static_cast<double>(by0 + nby);
+   std::vector<double> rows;
+   std::vector<uint32_t> key, at, pos;
+   std::vector<size_t> base;   // per structure: its first slot in this strip, less at[] of its first bin
+   size_t dyes = 0;
+   double sitesSec = 0;
+   for (long c0 = 0; c0 < nbx; c0 += kStripBins)
+   {
+      if (cancel && cancel->load())
+         return false;
+      const long c1 = std::min(nbx, c0 + kStripBins);
+      const auto tS = TimingClock::now();
+      if (!source.Sites(static_cast<double>(bx0 + c0), ix.rect[1], static_cast<double>(bx0 + c1), ix.rect[3], -inf, inf,
+                        rows))
+         return false;
+      sitesSec += TimingSince(tS);
+      const size_t n = rows.size() / ISC_SITE_STRIDE, nb = static_cast<size_t>((c1 - c0) * nby);
+      size_t nst = ix.s.size();
+      for (size_t i = 0; i < n; ++i)
+         nst = std::max(nst, static_cast<size_t>(rows[i * ISC_SITE_STRIDE + 4]) + 1);
+      // A structure first seen in this strip: the bins before are empty.
+      while (ix.s.size() < nst)
+      {
+         ix.s.emplace_back();
+         ix.s.back().start.assign(static_cast<size_t>(c0 * nby) + 1, 0);
+      }
+      // By (structure, bin) (counting sort), then each bin by height.
+      key.resize(n);
+      at.assign(nst * nb + 1, 0);
+      for (size_t i = 0; i < n; ++i)
+      {
+         const double* r = &rows[i * ISC_SITE_STRIDE];
+         const long bx = static_cast<long>(std::floor(r[0])) - bx0 - c0;
+         const long by = static_cast<long>(std::floor(r[1])) - by0;
+         if (bx < 0 || bx >= c1 - c0 || by < 0 || by >= nby)
+            return false;   // (the core's filter says it cannot be)
+         key[i] = static_cast<uint32_t>(static_cast<size_t>(r[4]) * nb + static_cast<size_t>(bx * nby + by));
+         at[key[i] + 1]++;
+      }
+      for (size_t k = 0; k < nst * nb; ++k)
+         at[k + 1] += at[k];
+      base.resize(nst);
+      for (size_t st = 0; st < nst; ++st)
+      {
+         DyeIndex::Dyes& d = ix.s[st];
+         base[st] = d.v.size();   // + at[k] - at[st nb] = bin k's first slot
+         d.v.resize(d.v.size() + (at[(st + 1) * nb] - at[st * nb]));
+      }
+      pos.assign(at.begin(), at.end() - 1);
+      for (size_t i = 0; i < n; ++i)
+      {
+         const double* r = &rows[i * ISC_SITE_STRIDE];
+         const size_t st = key[i] / nb;
+         ix.s[st].v[base[st] + pos[key[i]]++ - at[st * nb]] = { r[2], r[0], r[1] };
+      }
+      auto sortBins = [&](size_t k0, size_t k1) {
+         for (size_t k = k0; k < k1; ++k)
+         {
+            const size_t st = k / nb, f = at[st * nb];
+            DyeIndex::Dye* p = ix.s[st].v.data() + base[st];
+            std::sort(p + (at[k] - f), p + (at[k + 1] - f), [](const DyeIndex::Dye& a, const DyeIndex::Dye& b) { return a.z < b.z; });
+         }
+      };
+      if (parallel)
+         ParallelFor(static_cast<unsigned>((nst * nb + 63) / 64),
+                     [&](unsigned j) { sortBins(64 * size_t(j), std::min(nst * nb, 64 * (size_t(j) + 1))); });
+      else
+         sortBins(0, nst * nb);
+      for (size_t st = 0; st < nst; ++st)
+         for (size_t b = 0; b < nb; ++b)
+            ix.s[st].start.push_back(static_cast<uint32_t>(base[st] + at[st * nb + b + 1] - at[st * nb]));
+      dyes += n;
+   }
+   char b[96];
+   std::snprintf(b, sizeof b, "%zu dyes, sites %.3f s", dyes, sitesSec);
+   TimingLog(phase, TimingSince(t0), b);
+   return true;
+}
+#else
+// The viewer (WASM) keeps the slab columns of before the dye index (heights only, per exact rect; MovieCache): an index
+// is 24 bytes per dye over a padded rect, and beside a new cell's survey it took the viewer past its 2 GB heap
+// (2026-10-29: rc16's gallery job aborted; the same counts and heights either way).
 // v sorted ascending, the same vector as std::sort's: bucketed by height (a bucket's index never falls as z grows), the
 // buckets sorted on all cores. The ~7 M heights of a 48 um WideField column took 0.65 s in one std::sort.
 void SortHeights(std::vector<double>& v)
@@ -1681,27 +1885,143 @@ void SortHeights(std::vector<double>& v)
    });
    v.swap(out);
 }
+#endif
 
-struct MapEntries;
-struct MeanFieldSlot
+#if !defined(__EMSCRIPTEN__)
+// Live (2026-10-29): a dye index made ahead, on a thread and a world of their own (a world is not thread-safe; the same
+// settings give the same dyes, every dye a function of its address), so neither a focus step nor a drift waits for
+// one. The world has no packed-block store (two worlds would write one file) and a small dye cache; the latest request
+// replaces one not begun. Hosts that unload call DyeIndexPrefetchShutdown (it joins the thread, frees the world).
+class DyeIndexPrefetch
 {
-   WidefieldScene scene;
-   std::unique_ptr<WidefieldPsf> psf;
-   PsfKernelCache psfCache;
-   int upscale = 0;
-   double gauss[4] = { 0, 0, 0, 0 };
-   bool gpuMode = false, has = false;
-   long psfVersion = 0;
-   // AnchorMeanField: the pose (FOV origin, world um) the scene is kept at.
-   bool anchored = false;
-   double anchorX = 0, anchorY = 0;
-   // A host's map (MapEntriesFor): the grid (geometry) and lattice its entries were made for, each grid cell's place
-   // between them (the scene's weight map), and the population's weight entries by (map, grid, population).
-   std::vector<double> tileGeom;
-   std::shared_ptr<const WidefieldWeightMap> cellMap;
-   std::vector<double> entKey;
-   std::shared_ptr<const MapEntries> ent;
+public:
+   static DyeIndexPrefetch& Get()
+   {
+      static DyeIndexPrefetch p;
+      return p;
+   }
+   ~DyeIndexPrefetch() { Shutdown(); }
+
+   // The index over the bins box (bx0, by0, nbx, nby) of world cf.
+   void Request(const SampleSettings& cf, const long box[4])
+   {
+      {
+         std::lock_guard<std::mutex> lk(m_);
+         queued_.cf = cf;
+         queued_.cf.cacheDir.clear();
+         std::copy(box, box + 4, queued_.box);
+         haveQueued_ = true;
+         if (!worker_.joinable())
+         {
+            stop_ = false;
+            cancel_ = false;
+            worker_ = std::thread([this] { Work(); });
+         }
+      }
+      cv_.notify_all();
+   }
+   // Whether an index of world cf over the rect is made, being made or asked for.
+   bool Ahead(const SampleSettings& cf, double x0, double y0, double x1, double y1)
+   {
+      std::lock_guard<std::mutex> lk(m_);
+      return (done_ && Same(doneCf_, cf) && done_->Covers(x0, y0, x1, y1)) ||
+             (busy_ && Same(busyJob_.cf, cf) && JobCovers(busyJob_, x0, y0, x1, y1)) ||
+             (haveQueued_ && Same(queued_.cf, cf) && JobCovers(queued_, x0, y0, x1, y1));
+   }
+   // An index of world cf over the rect: the one made (moved into out), else, with wait, the one being made once made.
+   bool Take(const SampleSettings& cf, double x0, double y0, double x1, double y1, bool wait, DyeIndex& out)
+   {
+      std::unique_lock<std::mutex> lk(m_);
+      if (wait && busy_ && Same(busyJob_.cf, cf) && JobCovers(busyJob_, x0, y0, x1, y1))
+      {
+         const auto t = TimingClock::now();
+         const uint64_t job = started_;   // (not a later one the thread may begin before this one wakes)
+         cv_.wait(lk, [&] { return finished_ >= job; });
+         TimingLog("fl.dye-index-wait", TimingSince(t));
+      }
+      if (!done_ || !Same(doneCf_, cf) || !done_->Covers(x0, y0, x1, y1))
+         return false;
+      out = std::move(*done_);
+      done_.reset();
+      return true;
+   }
+   void Shutdown()
+   {
+      {
+         std::lock_guard<std::mutex> lk(m_);
+         stop_ = true;
+         cancel_ = true;
+         haveQueued_ = false;
+      }
+      cv_.notify_all();
+      if (worker_.joinable())
+         worker_.join();
+      std::lock_guard<std::mutex> lk(m_);
+      source_.reset();   // the world's thread pool goes with the last world (the DLL may unload)
+      done_.reset();
+   }
+
+private:
+   struct Job
+   {
+      SampleSettings cf;
+      long box[4] = { 0, 0, 0, 0 };
+   };
+   static bool Same(const SampleSettings& a, const SampleSettings& b) { return a.SameWorld(b) && a.SameLabels(b); }
+   static bool JobCovers(const Job& j, double x0, double y0, double x1, double y1)
+   {
+      return x0 >= j.box[0] && y0 >= j.box[1] && x1 <= j.box[0] + j.box[2] && y1 <= j.box[1] + j.box[3];
+   }
+   void Work()
+   {
+      std::unique_lock<std::mutex> lk(m_);
+      for (;;)
+      {
+         cv_.wait(lk, [&] { return stop_ || haveQueued_; });
+         if (stop_)
+            return;
+         busyJob_ = std::move(queued_);
+         haveQueued_ = false;
+         busy_ = true;
+         ++started_;
+         lk.unlock();
+         auto ix = std::make_unique<DyeIndex>();
+         std::string err;
+         if (!source_)
+            source_ = std::make_unique<SampleSource>();
+         bool ok = source_->Configure(busyJob_.cf, err);
+         if (ok && source_->World() != dyeCacheSet_)
+         {
+            isc_world_set_dye_cache(source_->World(), 2e6);
+            dyeCacheSet_ = source_->World();
+         }
+         ok = ok && BuildDyeIndex(*source_, busyJob_.box[0], busyJob_.box[1], busyJob_.box[2], busyJob_.box[3], false,
+                                  &cancel_, *ix, "fl.dye-index-ahead");
+         lk.lock();
+         busy_ = false;
+         finished_ = started_;
+         if (ok)
+         {
+            done_ = std::move(ix);
+            doneCf_ = busyJob_.cf;
+         }
+         cv_.notify_all();
+      }
+   }
+
+   std::mutex m_;
+   std::condition_variable cv_;
+   std::thread worker_;
+   std::atomic<bool> cancel_{ false };
+   bool stop_ = false, busy_ = false, haveQueued_ = false;
+   uint64_t started_ = 0, finished_ = 0;   // jobs begun, done
+   Job queued_, busyJob_;
+   std::unique_ptr<SampleSource> source_;   // (used by the thread only)
+   const IscWorld* dyeCacheSet_ = nullptr;
+   std::unique_ptr<DyeIndex> done_;
+   SampleSettings doneCf_;
 };
+#endif
 
 struct MovieCache
 {
@@ -1714,6 +2034,216 @@ struct MovieCache
    BrightfieldScene brightfield;
    // Mean-field scenes by population (structure x 4 + state).
    std::map<int, std::unique_ptr<MeanFieldSlot>> meanField;
+   bool live = false;   // the movie is a live frame (CarryRunningImages)
+#if !defined(__EMSCRIPTEN__)
+   // Dye counts from dye indexes (DyeIndex): each spans the rect asked grown by kDyeIndexPadUm, so the FOV's slab, a
+   // live FOV that drifts (a new rect every frame) and a focus scrub share one. Live (native) keeps one made ahead
+   // kDyeIndexAheadUm around the query rect (DyeIndexPrefetch), asked for when the rect comes within kDyeIndexLowUm of
+   // the edge of every index made or asked for. -1 on a core failure.
+   std::vector<DyeIndex> dyeIndexes;   // the most recently made last
+   static constexpr size_t kDyeIndexes = 2;
+   static constexpr double kDyeIndexPadUm = 2.0;
+   static constexpr double kDyeIndexNearUm = 1.0;   // live: a rect this close to one counted before is a moving FOV
+#if !defined(__EMSCRIPTEN__)
+   static constexpr double kDyeIndexAheadUm = 4.0, kDyeIndexLowUm = 2.5;
+#endif
+   const DyeIndex& KeepIndex(DyeIndex&& ix)
+   {
+      ix.version = dyeVersion;
+      if (dyeIndexes.size() >= kDyeIndexes)
+         dyeIndexes.erase(dyeIndexes.begin());
+      dyeIndexes.push_back(std::move(ix));
+      return dyeIndexes.back();
+   }
+   // Whether an index ahead is made, being made or asked for over the rect (live, native).
+   bool IndexAhead(double x0, double y0, double x1, double y1)
+   {
+#if !defined(__EMSCRIPTEN__)
+      return live && DyeIndexPrefetch::Get().Ahead(world, x0, y0, x1, y1);
+#else
+      (void)x0, (void)y0, (void)x1, (void)y1;
+      return false;
+#endif
+   }
+   void PrefetchAround(double x0, double y0, double x1, double y1)
+   {
+#if !defined(__EMSCRIPTEN__)
+      if (!live)
+         return;
+      for (const DyeIndex& ix : dyeIndexes)
+         if (ix.version == dyeVersion && ix.Margin(x0, y0, x1, y1) >= kDyeIndexLowUm)
+            return;
+      const double l = kDyeIndexLowUm, a = kDyeIndexAheadUm;
+      if (DyeIndexPrefetch::Get().Ahead(world, x0 - l, y0 - l, x1 + l, y1 + l))
+         return;
+      long box[4] = { static_cast<long>(std::floor(x0 - a)), static_cast<long>(std::floor(y0 - a)), 0, 0 };
+      box[2] = static_cast<long>(std::ceil(x1 + a)) - box[0];
+      box[3] = static_cast<long>(std::ceil(y1 + a)) - box[1];
+      DyeIndexPrefetch::Get().Request(world, box);
+#else
+      (void)x0, (void)y0, (void)x1, (void)y1;
+#endif
+   }
+   // An index over the rect: one kept, else (live) the one made ahead (with make, waited for while being made), else
+   // with make one made now.
+   const DyeIndex* IndexOver(double x0, double y0, double x1, double y1, bool make)
+   {
+      PrefetchAround(x0, y0, x1, y1);
+      for (const DyeIndex& ix : dyeIndexes)
+         if (ix.version == dyeVersion && ix.Covers(x0, y0, x1, y1))
+            return &ix;
+#if !defined(__EMSCRIPTEN__)
+      if (live)
+      {
+         DyeIndex ix;
+         if (DyeIndexPrefetch::Get().Take(world, x0, y0, x1, y1, make, ix))
+         {
+            const DyeIndex& kept = KeepIndex(std::move(ix));
+            PrefetchAround(x0, y0, x1, y1);
+            return &kept;
+         }
+      }
+#endif
+      if (!make)
+         return nullptr;
+      DyeIndex ix;
+      const double p = kDyeIndexPadUm;
+      const long bx0 = static_cast<long>(std::floor(x0 - p)), by0 = static_cast<long>(std::floor(y0 - p));
+      if (!BuildDyeIndex(source, bx0, by0, static_cast<long>(std::ceil(x1 + p)) - bx0,
+                         static_cast<long>(std::ceil(y1 + p)) - by0, true, nullptr, ix, "fl.dye-index"))
+         return nullptr;
+      const DyeIndex& kept = KeepIndex(std::move(ix));
+      PrefetchAround(x0, y0, x1, y1);
+      return &kept;
+   }
+   // A rect no index spans is counted by the core (Density3d, one bin: the same count), the box's count kept; asked
+   // again at other heights (a focus scrub), or in live close to one counted before (a drifting FOV), it gets an index
+   // (live: the core still while one is made ahead). So a single movie builds none for a count it reads once (the FOV's
+   // nSlab: 0.4 s of a 48 um WideField field in the viewer's WASM).
+   struct SlabCount
+   {
+      double box[6];
+      int mask;
+      uint64_t version;
+      long n;
+   };
+   std::vector<SlabCount> slabCounts;
+   static constexpr size_t kSlabCounts = 16;
+   long CountSlab(double x0, double y0, double x1, double y1, double zLo, double zHi, int mask)
+   {
+      const double rect[4] = { x0, y0, x1, y1 }, box[6] = { x0, y0, x1, y1, zLo, zHi };
+      const DyeIndex* ix = IndexOver(x0, y0, x1, y1, false);
+      if (!ix)
+      {
+         bool seen = false;
+         for (const SlabCount& c : slabCounts)
+         {
+            if (c.version != dyeVersion)
+               continue;
+            if (std::equal(rect, rect + 4, c.box))
+            {
+               if (c.box[4] == zLo && c.box[5] == zHi)
+               {
+                  if (c.mask == mask)
+                     return c.n;
+               }
+               else
+                  seen = true;
+            }
+            else if (live)
+            {
+               bool near = true;
+               for (int i = 0; i < 4; ++i)
+                  near = near && std::fabs(c.box[i] - rect[i]) <= kDyeIndexNearUm;
+               seen = seen || near;
+            }
+         }
+         if (!seen || IndexAhead(x0, y0, x1, y1))
+         {
+            float one = 0;
+            const long n = source.Density3d(x0, y0, x1, y1, zLo, zHi, 1, 1, 1, mask, &one);
+            if (n >= 0)
+            {
+               if (slabCounts.size() >= kSlabCounts)
+                  slabCounts.erase(slabCounts.begin());
+               SlabCount c;
+               std::copy(box, box + 6, c.box);
+               c.mask = mask;
+               c.version = dyeVersion;
+               c.n = n;
+               slabCounts.push_back(c);
+            }
+            return n;
+         }
+         ix = IndexOver(x0, y0, x1, y1, true);
+         if (!ix)
+            return -1;
+      }
+      long n = 0;
+      for (size_t s = 0; s < ix->s.size(); ++s)
+         if ((mask >> s) & 1)
+            n += ix->Count(static_cast<int>(s), x0, y0, x1, y1, zLo, zHi);
+      return n;
+   }
+   // The heights of structure s's dyes in the rect and [zLo, zHi) at K quantiles ((k + 1/2) / K: the m-th smallest,
+   // m = floor((k + 1/2) / K n); none without dyes): the smallest height h with more than m of them at or below it, by
+   // bisection over the doubles in order (their bits, sign folded), counting the bins' sorted heights.
+   bool SlabQuantiles(double x0, double y0, double x1, double y1, double zLo, double zHi, int s, int K,
+                      std::vector<double>& out)
+   {
+      out.clear();
+      const DyeIndex* ix = IndexOver(x0, y0, x1, y1, true);
+      if (!ix)
+         return false;
+      // The rect's heights in [zLo, zHi): whole bins as runs, the cut bins' dyes in the rect sorted in one.
+      std::vector<std::pair<const DyeIndex::Dye*, const DyeIndex::Dye*>> runs;
+      std::vector<double> cut;
+      size_t n = 0;
+      ix->Bins(s, x0, y0, x1, y1, zLo, zHi, [&](const DyeIndex::Dye* b, const DyeIndex::Dye* e, bool full) {
+         if (full)
+         {
+            runs.push_back({ b, e });
+            n += static_cast<size_t>(e - b);
+            return;
+         }
+         for (const DyeIndex::Dye* p = b; p < e; ++p)
+            if (DyeIndex::In(*p, x0, y0, x1, y1))
+               cut.push_back(p->z);
+      });
+      std::sort(cut.begin(), cut.end());
+      n += cut.size();
+      auto key = [](double v) {
+         uint64_t b;
+         std::memcpy(&b, &v, sizeof b);
+         return (b >> 63) ? ~b : b | (uint64_t(1) << 63);
+      };
+      auto value = [](uint64_t k) {
+         const uint64_t b = (k >> 63) ? k & ~(uint64_t(1) << 63) : ~k;
+         double v;
+         std::memcpy(&v, &b, sizeof v);
+         return v;
+      };
+      auto atOrBelow = [&](double t) {
+         size_t c = static_cast<size_t>(std::upper_bound(cut.begin(), cut.end(), t) - cut.begin());
+         for (const auto& r : runs)
+            c += static_cast<size_t>(std::upper_bound(r.first, r.second, t, DyeIndex::Above) - r.first);
+         return c;
+      };
+      for (int k = 0; n > 0 && k < K; ++k)
+      {
+         const size_t m = static_cast<size_t>((k + 0.5) / K * static_cast<double>(n));
+         // atOrBelow(value(lo)) <= m < atOrBelow(value(hi)).
+         uint64_t lo = key(zLo) - 1, hi = key(zHi);
+         while (hi - lo > 1)
+         {
+            const uint64_t mid = lo + (hi - lo) / 2;
+            (atOrBelow(value(mid)) > m ? hi : lo) = mid;
+         }
+         out.push_back(value(hi));
+      }
+      return true;
+   }
+#else
    // Dye counts (the mean-field switch's nZ, nSlab, nZLit) from a column's dye heights, sorted per structure (one
    // sites query per column rect and dyeVersion): z in [zLo, zHi) and the rect as the core's ForEachDye filters, so a
    // count = Density3d's with one bin. The boxes' heights follow the focus, so a count per box (as until 2026-10-14)
@@ -1839,6 +2369,7 @@ struct MovieCache
          out.push_back(v[lo + static_cast<size_t>((k + 0.5) / K * static_cast<double>(hi - lo))]);
       return true;
    }
+#endif
    // Live: the per-dye populations' running images by population (structure x
    // 4 + state), carried from one movie to the next at the same geometry
    // (FluorescenceMovie::CarryRunningImages): the image, its geometry key and
@@ -3035,9 +3566,16 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       ++slot.psfVersion;
    }
    ws.psfVersion = slot.psfVersion;
+   // Drift (and the anchor) keep the spectra (focus work on the CPU: the accelerator returns images only).
+   const bool shifts = S.driftOn || anchor;
    // The scene's FFT sizes depend on the mode (GPU: powers of two): a mode
-   // change starts from a fresh scene.
-   const bool sceneGpu = gpuMode || accel != nullptr;
+   // change starts from a fresh scene. An accelerator the scene does not use (shifts) is the CPU's (2026-10-29: a
+   // drifting live WideField frame rebuilt its bleach basis on power-of-two grids, ~1.5x the CPU's work; now the
+   // frames are those of the GPU off).
+   if (slot.has && slot.scene.AccelTooBig())
+      slot.accelTooBig = true;
+   const bool cpuScene = shifts || slot.accelTooBig;   // (an accelerator the scene does not use)
+   const bool sceneGpu = gpuMode || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {
       slot.scene = WidefieldScene();
@@ -3066,10 +3604,10 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       nd.shiftY = (slot.anchorY - oy) / pitchUm;
       nd.shifted = nd.shiftX != 0.0 || nd.shiftY != 0.0;
    }
-   // Drift (and the anchor) keep the spectra (focus work on the CPU: the accelerator returns images only).
-   const bool shifts = S.driftOn || anchor;
    slot.scene.SetKeepSpectra(shifts);
-   slot.scene.SetAccelerator(shifts ? nullptr : accel);
+   slot.scene.SetAccelerator(cpuScene ? nullptr : accel);
+   // Live (the MM adapter's, SetLiveAsyncBasis): the next bleach basis made ahead on a thread of its own.
+   slot.scene.SetAsyncBasis(cache.live && g_liveAsyncBasis.load());
    // GPU mode: the images wait for the GPU host (SetMeanFieldImages), a weighted scene's those of its basis (below; not
    // a blink population's: its weights change every frame).
    nd.deferred = gpuMode && !shifts && !(p.weighted && p.state == ISC_STATE_BLINK);
@@ -3157,8 +3695,12 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          p.anchored = false;
          if (S.N > 1 || nd.deferred)
          {
+            slot.scene.TakeAsyncBasis(false);   // (one made: taken)
             p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
             std::vector<double> a;
+            // (One being made: waited for, not made again.)
+            if (!p.anchored && !slot.scene.BleachCoefficients(p.wb0, a) && slot.scene.TakeAsyncBasis(true))
+               p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
             if (!p.anchored && !slot.scene.BleachCoefficients(p.wb0, a))
             {
                slot.scene.SetBleachWeights(p.wb0, false);
@@ -3676,6 +4218,11 @@ private:
 };
 } // namespace
 
+void SetLiveAsyncBasis(bool on)
+{
+   g_liveAsyncBasis = on;
+}
+
 void SetBackgroundMapPrefetch(bool on)
 {
    BgMapCache::Get().SetPrefetch(on);
@@ -3684,6 +4231,13 @@ void SetBackgroundMapPrefetch(bool on)
 void BackgroundMapPrefetchShutdown()
 {
    BgMapCache::Get().Shutdown();
+}
+
+void DyeIndexPrefetchShutdown()
+{
+#if !defined(__EMSCRIPTEN__)
+   DyeIndexPrefetch::Get().Shutdown();
+#endif
 }
 
 bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& err, WidefieldAccelerator* accel,
@@ -3716,6 +4270,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    if (!ConfigureShared(m.cache, S.cf, err))
       return false;
    SampleSource& source = m.cache.source;
+   m.cache.live = m.carry;
    TimingLog("fl.configure", TimingSince(tPhase));
 
    // ---- groups: (structure, state) with their PSF and detected photons per frame ----

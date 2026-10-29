@@ -224,6 +224,8 @@ int CInSiliScopeCamera::Initialize()
    StartPsfPreload();
    // Focus moves: the shaped background maps of the neighbouring grid foci are made ahead (ScopeMovie.h).
    sim::SetBackgroundMapPrefetch(true);
+   // Live: the next bleach basis of a steady view made ahead (WidefieldRender.h SetAsyncBasis).
+   sim::SetLiveAsyncBasis(true);
    if (acqMode_ == SMLM_MODE_LIVE)
       StartLiveProducer();
 
@@ -292,6 +294,8 @@ int CInSiliScopeCamera::Shutdown()
    // The render threads are done: join the ParallelFor pool's workers (the
    // DLL may be unloaded next).
    sim::BackgroundMapPrefetchShutdown();
+   sim::DyeIndexPrefetchShutdown();
+   sim::WidefieldAsyncBasisShutdown();
    sim::ParallelPoolShutdown();
    sim::SetScopePsfRequestHook(nullptr);
    if (Hub())

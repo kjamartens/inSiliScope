@@ -156,7 +156,8 @@ Implementation points that matter for accuracy and speed:
 - kernel and per-dye-plane spectra are cached, so a focus change is a re-pairing of cached spectra (about 10 ms at 256 px);
 - a sub-cell stage move is a Fourier phase ramp, exact for band-limited images (pixel pitch \(\le \lambda/4\mathrm{NA}\));
 - frames are weighted sums of precomputed images; bleaching uses a small basis of dose maps (or 12 Chebyshev maps) instead of
-  per-frame spectra;
+  per-frame spectra; in Micro-Manager's live mode the next basis of a steady view is made ahead on a background thread, so
+  the frames do not stall when the bleaching outruns the basis in use (every frame is still exactly its own weights' image);
 - coarser-grid "focus bands" exist but are gated at 0.1% rms error, which no sharp-pupil PSF currently meets.
 
 How fine the grid and the z planes need to be:
