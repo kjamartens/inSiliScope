@@ -94,8 +94,11 @@ public:
          std::lock_guard<std::mutex> g(m_);
          if (shutdown_)
             return false;
+         // (A new worker starts from the generation before this job's, so it takes this one: it reads gen_ only
+         // after the increment below. 2026-10-29: it started from gen_ itself, so a fresh pool's first job ran on
+         // the caller alone.)
          while (threads_.size() < helpers)
-            threads_.emplace_back(&ParallelPool::Worker, this);
+            threads_.emplace_back(&ParallelPool::Worker, this, gen_);
          job_ = &fn;
          jobN_ = n;
          next_ = &next;
@@ -134,12 +137,11 @@ public:
    }
 
 private:
-   void Worker()
+   void Worker(uint64_t seen)
    {
       if (onStart_)
          onStart_();
       std::unique_lock<std::mutex> g(m_);
-      uint64_t seen = gen_;
       for (;;)
       {
          cv_.wait(g, [&] { return shutdown_ || (job_ && gen_ != seen); });

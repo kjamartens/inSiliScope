@@ -62,8 +62,9 @@ Upcoming ideas:
   28 -> 48 fps), [x] drift on the GPU paths measured and dropped (a basis rebuild costs the GPU as much as the CPU, the
   shifted frame is ~3 ms), [x] dSTORM z move: scenes too big for the GPU's plane pool beside the others render on the
   CPU (two initial-ON scenes evicted each other's planes: a fresh-site z step 1.4-1.6 s -> 0.2-0.3 s; bench `zMove1um`
-  8-10 s -> 2.5 s). Next: [ ] the bleach-basis rebuilds (drift ~0.3 s every few seconds; dSTORM at a fresh site ~1 s
-  each, the rest of the bench's z-move latency) off the live thread.
+  8-10 s -> 2.5 s), [x] a steady view's bleach-basis rebuilds off the live thread (MM live: the next basis made ahead
+  on a thread, the dropped spectra freed on another; takes 2-60 ms). Next: [ ] a new pose's first full basis (a stage
+  move, drift re-anchoring, a channel or objective switch: 0.2-0.6 s per scene) is still made on the live thread.
 - Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
   spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,

@@ -22,6 +22,21 @@
 #include <cmath>
 #include <atomic>
 #include <limits>
+#include <deque>
+#include <set>
+#if !defined(__EMSCRIPTEN__)
+#include <condition_variable>
+#include <thread>
+#endif
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace sim {
 
@@ -562,6 +577,309 @@ WidefieldScene::WidefieldScene() : tiles_(std::make_shared<WidefieldDyeTiles>())
 {
 }
 
+// ---- Async basis (SetAsyncBasis) -------------------------------------------
+
+namespace {
+struct AsyncStoppable
+{
+   virtual ~AsyncStoppable() = default;
+   virtual void Stop() = 0;
+};
+// The background threads (a basis made ahead, the trash) below the live ones.
+void BackgroundPriority()
+{
+#if defined(_WIN32)
+   SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
+}
+
+// Every basis being made, for WidefieldAsyncBasisShutdown (never destroyed: used from static destructors).
+std::mutex& AsyncRegistryMutex()
+{
+   static std::mutex* m = new std::mutex;
+   return *m;
+}
+std::set<AsyncStoppable*>& AsyncRegistry()
+{
+   static std::set<AsyncStoppable*>* s = new std::set<AsyncStoppable*>;
+   return *s;
+}
+
+// Frees on a thread of its own what the live scenes (SetAsyncBasis) drop: a basis' plane spectra (releasing them took
+// the live thread 0.23 s, 2026-10-29: 1480 of ~1.6 MB) and a basis made ahead once taken (its copy of the scene, 40-50
+// ms). WidefieldAsyncBasisShutdown stops it, and it frees on the caller from then on (a static destructor at unload must
+// start no thread) until a live scene enables it again.
+class Trash
+{
+public:
+   static Trash& Get()
+   {
+      static Trash* t = new Trash;   // (never destroyed: its thread is joined by the shutdown)
+      return *t;
+   }
+   void Put(std::shared_ptr<void> v)
+   {
+#if !defined(__EMSCRIPTEN__)
+      std::lock_guard<std::mutex> g(m_);
+      if (!stop_)
+      {
+         if (!thread_.joinable())
+            thread_ = std::thread([this] {
+               BackgroundPriority();
+               Run();
+            });
+         q_.push_back(std::move(v));
+         cv_.notify_one();
+         return;
+      }
+#endif
+      v.reset();
+   }
+   void Enable()
+   {
+#if !defined(__EMSCRIPTEN__)
+      std::lock_guard<std::mutex> g(m_);
+      stop_ = false;
+#endif
+   }
+   void Stop()
+   {
+#if !defined(__EMSCRIPTEN__)
+      {
+         std::lock_guard<std::mutex> g(m_);
+         stop_ = true;
+      }
+      cv_.notify_all();
+      if (thread_.joinable())
+         thread_.join();
+#endif
+   }
+
+private:
+#if !defined(__EMSCRIPTEN__)
+   void Run()
+   {
+      std::unique_lock<std::mutex> g(m_);
+      for (;;)
+      {
+         cv_.wait(g, [&] { return stop_ || !q_.empty(); });
+         if (q_.empty())
+            return;   // (stopped, and nothing left)
+         std::shared_ptr<void> v = std::move(q_.front());
+         q_.pop_front();
+         g.unlock();
+         v.reset();
+         g.lock();
+      }
+   }
+   std::mutex m_;
+   std::condition_variable cv_;
+   std::deque<std::shared_ptr<void>> q_;
+   std::thread thread_;
+   bool stop_ = true;   // (until a live scene enables it)
+#endif
+};
+
+void TrashSpectra(std::vector<std::vector<cfloat>>&& dead)
+{
+   if (!dead.empty())
+      Trash::Get().Put(std::make_shared<std::vector<std::vector<cfloat>>>(std::move(dead)));
+}
+} // namespace
+
+// The copy of the scene the basis is made on, its thread and its workers (half the cores: the live frames go on).
+struct WidefieldScene::AsyncBasis : AsyncStoppable
+{
+   std::unique_ptr<WidefieldScene> scene;
+   std::atomic<bool> cancel{false}, done{false};
+   unsigned long long inputs = 0, focus = 0;
+   bool keepSpectra = false;
+   double seconds = 0.0;
+#if !defined(__EMSCRIPTEN__)
+   ParallelPool pool{BackgroundPriority, std::max(1u, HardwareThreads() / 2)};
+   std::thread thread;
+#endif
+   AsyncBasis()
+   {
+      std::lock_guard<std::mutex> g(AsyncRegistryMutex());
+      AsyncRegistry().insert(this);
+   }
+   ~AsyncBasis() override
+   {
+      {
+         std::lock_guard<std::mutex> g(AsyncRegistryMutex());
+         AsyncRegistry().erase(this);
+      }
+      Stop();
+   }
+   void Join()
+   {
+#if !defined(__EMSCRIPTEN__)
+      if (thread.joinable())
+         thread.join();
+#endif
+   }
+   void Stop() override
+   {
+      cancel = true;
+      Join();
+#if !defined(__EMSCRIPTEN__)
+      pool.Shutdown();
+#endif
+   }
+};
+
+void WidefieldAsyncBasisShutdown()
+{
+   Trash::Get().Stop();   // (first, and not under the registry's lock: the bases it holds leave the registry)
+   std::lock_guard<std::mutex> g(AsyncRegistryMutex());
+   for (AsyncStoppable* a : AsyncRegistry())
+      a->Stop();
+}
+
+WidefieldScene::AsyncSlot::AsyncSlot() = default;
+WidefieldScene::AsyncSlot::~AsyncSlot() = default;
+WidefieldScene::AsyncSlot::AsyncSlot(const AsyncSlot&) {}
+WidefieldScene::AsyncSlot& WidefieldScene::AsyncSlot::operator=(const AsyncSlot&)
+{
+   p.reset();
+   return *this;
+}
+WidefieldScene::AsyncSlot::AsyncSlot(AsyncSlot&&) noexcept = default;
+WidefieldScene::AsyncSlot& WidefieldScene::AsyncSlot::operator=(AsyncSlot&&) noexcept = default;
+
+void WidefieldScene::SetAsyncBasis(bool on)
+{
+#if defined(__EMSCRIPTEN__)
+   on = false;
+#endif
+   asyncOn_ = on;
+   if (!on)
+      async_.p.reset();
+   else
+      Trash::Get().Enable();
+}
+
+void WidefieldScene::InvalidateBleach()
+{
+   bleachValid_ = false;
+   ++basisInputs_;
+   if (async_.p)
+      async_.p->cancel = true;   // (stale: stopped, and dropped at the next take or start)
+}
+
+void WidefieldScene::StartAsyncBasis(const std::vector<float>& wb)
+{
+#if defined(__EMSCRIPTEN__)
+   (void)wb;
+#else
+   if (async_.p)
+      Trash::Get().Put(std::shared_ptr<AsyncBasis>(std::move(async_.p)));
+   const auto t0 = TimingClock::now();
+   std::unique_ptr<AsyncBasis> ab(new AsyncBasis);
+   // The copy: without the plane spectra, the bleach channels and the images (its own are new) and the host's parts
+   // (accelerator, deferral).
+   decltype(cache_) cache;
+   std::vector<Channel> bleach;
+   WidefieldImages images;
+   cache.swap(cache_);
+   bleach.swap(bleach_);
+   std::swap(images, images_);
+   ab->scene.reset(new WidefieldScene(*this));
+   cache_.swap(cache);
+   bleach_.swap(bleach);
+   std::swap(images_, images);
+   WidefieldScene& s = *ab->scene;
+   s.cacheBytes_ = 0;
+   s.accel_ = nullptr;
+   s.defer_ = false;
+   s.asyncOn_ = false;
+   s.cancel_ = &ab->cancel;
+   s.pool_ = &ab->pool;
+   ab->inputs = basisInputs_;
+   ab->focus = focusSerial_;
+   ab->keepSpectra = keepSpectra_;
+   AsyncBasis* a = ab.get();
+   a->thread = std::thread([a, wb] {
+      BackgroundPriority();
+      const auto t = TimingClock::now();
+      a->scene->SetBleachWeights(wb, false);
+      a->scene->kernels_.clear();   // (the take reads the basis, its spectra and images only)
+      a->scene->dyes_ = WidefieldDyePlanes();
+      a->seconds = TimingSince(t);
+      a->done.store(true, std::memory_order_release);
+   });
+   async_.p = std::move(ab);
+   TimingLog("wf.basis-async-start", TimingSince(t0));
+#endif
+}
+
+bool WidefieldScene::TakeAsyncBasis(bool wait)
+{
+   AsyncBasis* ab = async_.p.get();
+   if (!ab)
+      return false;
+   if (ab->inputs != basisInputs_ || ab->cancel)
+   {
+      Trash::Get().Put(std::shared_ptr<AsyncBasis>(std::move(async_.p)));
+      return false;
+   }
+   if (!wait && !ab->done.load(std::memory_order_acquire))
+      return false;
+   const auto t0 = TimingClock::now();
+   ab->Join();
+   WidefieldScene& s = *ab->scene;
+   if (!s.bleachValid_)
+   {
+      async_.p.reset();
+      return false;
+   }
+   ++imagesVersion_;
+   for (Channel& c : bleach_)
+      DropChannel(c);
+   bleach_ = std::move(s.bleach_);
+   groupDose_ = std::move(s.groupDose_);
+   cellChannel_ = std::move(s.cellChannel_);
+   channelMax_ = std::move(s.channelMax_);
+   cheb_ = s.cheb_;
+   doseMax_ = s.doseMax_;
+   wbRef_ = std::move(s.wbRef_);
+   lwRef_ = std::move(s.lwRef_);
+   chebRef_ = s.chebRef_;
+   wbRefMax_ = s.wbRefMax_;
+   spanTau_ = s.spanTau_;
+   rateBinMax_ = std::move(s.rateBinMax_);
+   basisRates_ = std::move(s.basisRates_);
+   ++basisSerial_;   // (a DecayAnchor of the basis used meanwhile is stale)
+   bleachValid_ = true;
+   // Its plane spectra (keyed by its channels' versions, new), and its images unless the scene refocused or moved since.
+   const unsigned long long stamp = ++cacheClock_;
+   for (auto& kv : s.cache_)
+   {
+      CacheEntry& e = cache_[kv.first];
+      cacheBytes_ += kv.second.spec.size() * sizeof(cfloat);
+      e.spec.swap(kv.second.spec);
+      e.used = stamp;
+   }
+   s.cache_.clear();
+   const bool sameImages =
+      ab->focus == focusSerial_ && ab->keepSpectra == keepSpectra_ && s.images_.bleach.size() == bleach_.size();
+   if (sameImages)
+   {
+      images_.bleach = std::move(s.images_.bleach);
+      images_.specBleach = std::move(s.images_.specBleach);
+   }
+   else if (haveSpec_ && psf_ && !defer_)
+      MakeBleachImages();
+   TrimCache(stamp);
+   const std::string what = std::to_string(bleach_.size()) + (cheb_ ? " cheb" : " groups") + ", made in " +
+                            std::to_string(static_cast<int>(ab->seconds * 1000.0)) + " ms" +
+                            (sameImages ? "" : ", images made again");
+   Trash::Get().Put(std::shared_ptr<AsyncBasis>(std::move(async_.p)));   // (its copy of the scene)
+   TimingLog("wf.basis-async-take", TimingSince(t0), what.c_str());
+   return true;
+}
+
 WidefieldGridSpec WidefieldScene::GridSpecFor(const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
                                              unsigned* fovCellX, unsigned* fovCellY, double* fracX, double* fracY)
 {
@@ -633,7 +951,7 @@ void WidefieldScene::SetWeightMap(std::shared_ptr<const WidefieldWeightMap> map)
    const bool same = map && weightMap_ && *map == *weightMap_;
    weightMap_ = std::move(map);
    if (!same)
-      bleachValid_ = false;
+      InvalidateBleach();
 }
 
 void WidefieldScene::SetWeightRates(std::shared_ptr<const std::vector<float>> rates, double tauPerRate)
@@ -646,7 +964,7 @@ void WidefieldScene::SetWeightRates(std::shared_ptr<const std::vector<float>> ra
    const bool same = rates && weightRates_ && *rates == *weightRates_;
    weightRates_ = std::move(rates);
    if (!same)
-      bleachValid_ = false;
+      InvalidateBleach();
 }
 
 void WidefieldScene::SetWeightBands(const std::vector<double>& edgesUm)
@@ -654,7 +972,7 @@ void WidefieldScene::SetWeightBands(const std::vector<double>& edgesUm)
    if (edgesUm == weightBands_)
       return;
    weightBands_ = edgesUm;
-   bleachValid_ = false;   // the anchored basis was per cell or per other bands
+   InvalidateBleach();   // the anchored basis was per cell or per other bands
 }
 
 void WidefieldScene::UsedWeights(std::vector<uint8_t>& used) const
@@ -900,7 +1218,7 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
       for (Channel& c : bleach_)
          DropChannel(c);
       bleach_.clear();
-      bleachValid_ = false;
+      InvalidateBleach();
    }
    haveSpec_ = true;
    if (weightsChanged || moved || psfChanged)
@@ -916,16 +1234,17 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
 
 void WidefieldScene::DropChannel(const Channel& c)
 {
-   for (auto it = cache_.begin(); it != cache_.end();)
+   // (The keys sort by version first: the channel's entries are one range.)
+   const auto lo = std::make_tuple(c.version, std::numeric_limits<long>::min(), std::numeric_limits<int>::min());
+   std::vector<std::vector<cfloat>> dead;
+   for (auto it = cache_.lower_bound(lo); it != cache_.end() && std::get<0>(it->first) == c.version;)
    {
-      if (std::get<0>(it->first) == c.version)
-      {
-         cacheBytes_ -= it->second.spec.size() * sizeof(cfloat);
-         it = cache_.erase(it);
-      }
-      else
-         ++it;
+      cacheBytes_ -= it->second.spec.size() * sizeof(cfloat);
+      if (asyncOn_)
+         dead.push_back(std::move(it->second.spec));
+      it = cache_.erase(it);
    }
+   TrashSpectra(std::move(dead));
 }
 
 void WidefieldScene::SetupFft(const WidefieldPsf& psf, double kernelCapUm, bool keepRadius)
@@ -1224,10 +1543,13 @@ void WidefieldScene::FillSpectra(const std::vector<const Channel*>& chans, const
       return;
    const auto tS = TimingClock::now();
    std::vector<std::vector<cfloat>> made(jobs.size());
-   ParallelFor(static_cast<unsigned>(jobs.size()), [&](unsigned i) {
+   ParallelForOn(pool_, static_cast<unsigned>(jobs.size()), [&](unsigned i) {
+      if (cancel_ && cancel_->load(std::memory_order_relaxed))
+         return;   // (a stale async basis: never taken)
       PlaneSpectrum(*jobs[i].c, jobs[i].k, dyes_.planes.at(jobs[i].k), jobs[i].level, made[i]);
    });
-   TimingLog("wf.plane-spectra", TimingSince(tS), std::to_string(jobs.size()).c_str());
+   TimingLog(cancel_ ? "wf.plane-spectra-async" : "wf.plane-spectra", TimingSince(tS),
+             std::to_string(jobs.size()).c_str());
    for (size_t i = 0; i < jobs.size(); ++i)
    {
       CacheEntry& e = cache_[std::make_tuple(jobs[i].c->version, jobs[i].k, jobs[i].level)];
@@ -1235,18 +1557,31 @@ void WidefieldScene::FillSpectra(const std::vector<const Channel*>& chans, const
       e.spec.swap(made[i]);
       e.used = stamp;
    }
-   // Least recently used first, never what these plans use.
-   while (cacheBytes_ > cacheBudget_)
+   TrimCache(stamp);
+}
+
+void WidefieldScene::TrimCache(unsigned long long keepStamp)
+{
+   // Least recently used first (ties in key order), never what these plans use (used == keepStamp). (One sort: the
+   // scan per victim took ~0.2 s when a basis's 1480 spectra pushed out as many.)
+   if (cacheBytes_ <= cacheBudget_)
+      return;
+   std::vector<std::pair<unsigned long long, decltype(cache_)::iterator>> old;
+   for (auto it = cache_.begin(); it != cache_.end(); ++it)
+      if (it->second.used < keepStamp)
+         old.emplace_back(it->second.used, it);
+   std::stable_sort(old.begin(), old.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+   std::vector<std::vector<cfloat>> dead;
+   for (const auto& o : old)
    {
-      auto victim = cache_.end();
-      for (auto it = cache_.begin(); it != cache_.end(); ++it)
-         if (it->second.used < stamp && (victim == cache_.end() || it->second.used < victim->second.used))
-            victim = it;
-      if (victim == cache_.end())
+      if (cacheBytes_ <= cacheBudget_)
          break;
-      cacheBytes_ -= victim->second.spec.size() * sizeof(cfloat);
-      cache_.erase(victim);
+      cacheBytes_ -= o.second->second.spec.size() * sizeof(cfloat);
+      if (asyncOn_)
+         dead.push_back(std::move(o.second->second.spec));
+      cache_.erase(o.second);
    }
+   TrashSpectra(std::move(dead));
 }
 
 void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img,
@@ -1281,7 +1616,7 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
       S[L].assign(fft.SpecSize(), cfloat(0.0f, 0.0f));
       // Rows of the spectrum in parallel; planes in plan order per bin.
       const unsigned B = 8;
-      ParallelFor((rows + B - 1) / B, [&](unsigned blk) {
+      ParallelForOn(pool_, (rows + B - 1) / B, [&](unsigned blk) {
          const unsigned r0 = blk * B, r1 = std::min(rows, r0 + B);
          const size_t b0 = static_cast<size_t>(r0) * W, b1 = static_cast<size_t>(r1) * W;
          float* s = reinterpret_cast<float*>(S[L].data());
@@ -1380,6 +1715,7 @@ std::vector<const WidefieldScene::Channel*> WidefieldScene::ActiveChannels() con
 void WidefieldScene::Refocus(const WidefieldPsf& psf)
 {
    plan_ = PlanFocus(psf, spec_.focusWorldUm);
+   ++focusSerial_;
    clamped_ = plan_.clamped;
    for (int L = 0; L < kLevels; ++L)
       planesPerLevel_[L] = plan_.perLevel[L];
@@ -1639,6 +1975,7 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb, bool sing
    ++basisSerial_;
    chebRef_ = 0;
    wbRefMax_ = 0.0;
+   spanTau_ = 0.0;
    rateBinMax_.clear();
    wbRef_ = wb;
    const size_t n = wb.size();
@@ -1709,6 +2046,7 @@ void WidefieldScene::BuildBleachChannels(const std::vector<float>& wb, bool sing
    // (Rates: the terms the host's decay span needs at the largest rate; few for a slow bleach, and every term is an
    // image to make at each refocus.)
    const unsigned terms = hostRates ? ChebTermsFor(rateTau_ * doseMax_) : kChebTerms;
+   spanTau_ = hostRates ? rateTau_ * doseMax_ : 0.0;
    for (unsigned j = 0; j < terms; ++j)
    {
       Channel c;
@@ -1772,11 +2110,16 @@ void WidefieldScene::SetBleachWeights(const std::vector<float>& wb, bool single)
    ++imagesVersion_;
    BuildBleachChannels(wb, single);
    bleachValid_ = true;
+   if (!haveSpec_ || !psf_ || defer_)
+      return;
+   MakeBleachImages();
+}
+
+void WidefieldScene::MakeBleachImages()
+{
    std::vector<const Channel*> chans;
    for (const Channel& c : bleach_)
       chans.push_back(&c);
-   if (!haveSpec_ || !psf_ || defer_)
-      return;
    if (accel_ && !keepSpectra_)
    {
       std::vector<std::vector<float>> imgs;
@@ -1880,21 +2223,40 @@ std::vector<double> WidefieldScene::AnchorCoefficients() const
    return a;
 }
 
+void WidefieldScene::NewBasis(const std::vector<float>& wb)
+{
+   // Not a combination of the basis: a new one (every channel's image; with host rates a new pose's first: wb alone).
+   const auto t0 = TimingClock::now();
+   const bool single = weightRates_ && !bleachValid_;
+   SetBleachWeights(wb, single);
+   lastFast_ = false;
+   TimingLog(single ? "wf.basis-single" : "wf.basis", TimingSince(t0),
+             (std::to_string(bleach_.size()) + (cheb_ ? " cheb" : " groups")).c_str());
+}
+
+bool WidefieldScene::FitBasis(const std::vector<float>& wb, std::vector<double>& a)
+{
+   TakeAsyncBasis(false);   // (one made: its anchor is before this frame)
+   if (!BleachCoefficients(wb, a))
+      return TakeAsyncBasis(true) && BleachCoefficients(wb, a);
+   // Late in a Chebyshev basis' span: the next one, anchored here, made meanwhile.
+   if (asyncOn_ && cheb_ && spanTau_ > 0.0 && !async_.p && chebRef_ < wb.size() && !defer_)
+   {
+      const double r = static_cast<double>(wb[chebRef_]) / wbRef_[chebRef_];
+      if (r > 0.0 && -std::log(r) * doseMax_ / RateOf(chebRef_) > kPrebuildAt * spanTau_)
+         StartAsyncBasis(wb);
+   }
+   return true;
+}
+
 void WidefieldScene::RenderFrame(const std::vector<float>& wb, std::vector<float>& cam)
 {
    std::vector<double> a;
    lastFast_ = true;
-   if (!BleachCoefficients(wb, a))
+   if (!FitBasis(wb, a))
    {
-      // Not a combination of the basis: a new one (every channel's image; with host rates a new pose's first:
-      // wb alone).
-      const auto t0 = TimingClock::now();
-      const bool single = weightRates_ && !bleachValid_;
-      SetBleachWeights(wb, single);
-      lastFast_ = false;
+      NewBasis(wb);
       a = AnchorCoefficients();
-      TimingLog(single ? "wf.basis-single" : "wf.basis", TimingSince(t0),
-                (std::to_string(bleach_.size()) + (cheb_ ? " cheb" : " groups")).c_str());
    }
    images_.Render(a, cam);
 }
@@ -1904,15 +2266,10 @@ void WidefieldScene::RenderFrameShifted(const std::vector<float>& wb, double dxC
 {
    std::vector<double> a;
    lastFast_ = true;
-   if (!BleachCoefficients(wb, a))
+   if (!FitBasis(wb, a))
    {
-      const auto t0 = TimingClock::now();
-      const bool single = weightRates_ && !bleachValid_;
-      SetBleachWeights(wb, single);
-      lastFast_ = false;
+      NewBasis(wb);
       a = AnchorCoefficients();
-      TimingLog(single ? "wf.basis-single" : "wf.basis", TimingSince(t0),
-                (std::to_string(bleach_.size()) + (cheb_ ? " cheb" : " groups")).c_str());
    }
    RenderBasisShifted(a, dxCells, dyCells, cam);
 }
@@ -1992,6 +2349,7 @@ bool WidefieldScene::AdoptFocus(double focusWorldUm, const WidefieldImages& imag
    }
    spec_.focusWorldUm = focusWorldUm;
    plan_ = PlanFocus(*psf_, focusWorldUm);
+   ++focusSerial_;
    clamped_ = plan_.clamped;
    for (int L = 0; L < kLevels; ++L)
       planesPerLevel_[L] = plan_.perLevel[L];

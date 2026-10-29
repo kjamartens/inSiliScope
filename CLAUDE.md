@@ -338,7 +338,13 @@ own, no packed-block store, joined by `DyeIndexPrefetchShutdown` in the camera's
 (drift, anchor) takes the CPU's FFT sizes (= GPU off); a scene whose planes do not fit the D3D11 pool beside the
 scenes served in the last 8 jobs (`WidefieldAccelerator::Fits`, dSTORM's initial-ON scenes: 1380 + 990 planes on 1020
 slots at 512 px) renders on the CPU (`AccelTooBig`, sticky per population in `MeanFieldSlot`), and a job that cannot fit
-evicts nothing. Drift stays on the CPU (measured: a GPU path is not faster).
+evicts nothing. Drift stays on the CPU (measured: a GPU path is not faster). MM live (`SetLiveAsyncBasis`, off for
+LiveScope: the viewer's and cli's frames stay a function of their requests) makes the next bleach basis ahead
+(`WidefieldScene::SetAsyncBasis`): past `kPrebuildAt` (0.4) of a Chebyshev basis' span, a copy of the scene builds it
+on a thread and half the cores below normal priority, the first frame after takes it (a frame beyond the basis in use
+waits for it); a new pose's or new weights' basis is still made at once. Spectra a live scene drops and a taken copy are
+freed on a thread too (`Trash`: 1480 spectra took 0.23 s); `WidefieldAsyncBasisShutdown` joins both in the camera's
+`Shutdown`. Phases `wf.basis-async-start`, `wf.basis-async-take`, `wf.plane-spectra-async`.
 Phases `fl.dye-index`, `fl.dye-index-ahead`, `fl.dye-index-wait`, `wf.kernels`, `wf.plane-spectra`, `wf.accel-images`.
 `adapter_pixel_hash` reference: `tools/adapter_pixel_hash_ref.txt` (stored 2026-10-27 on `lamin_network`: TOTAL
 5a29ae84..., "TOTAL before pores" bf29b371...; the earlier references, TOTAL bf98d1ae... since the Gaussian beam default

@@ -1651,6 +1651,9 @@ namespace {
 // function of seed, params, labels and window; the caches are for speed
 // only); a mutex keeps concurrent callers serial.
 struct MapEntries;
+// SetLiveAsyncBasis.
+static std::atomic<bool> g_liveAsyncBasis{false};
+
 struct MeanFieldSlot
 {
    WidefieldScene scene;
@@ -3437,6 +3440,8 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    }
    slot.scene.SetKeepSpectra(shifts);
    slot.scene.SetAccelerator(cpuScene ? nullptr : accel);
+   // Live (the MM adapter's, SetLiveAsyncBasis): the next bleach basis made ahead on a thread of its own.
+   slot.scene.SetAsyncBasis(cache.live && g_liveAsyncBasis.load());
    // GPU mode: the images wait for the GPU host (SetMeanFieldImages), a weighted scene's those of its basis (below; not
    // a blink population's: its weights change every frame).
    nd.deferred = gpuMode && !shifts && !(p.weighted && p.state == ISC_STATE_BLINK);
@@ -3524,8 +3529,12 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          p.anchored = false;
          if (S.N > 1 || nd.deferred)
          {
+            slot.scene.TakeAsyncBasis(false);   // (one made: taken)
             p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
             std::vector<double> a;
+            // (One being made: waited for, not made again.)
+            if (!p.anchored && !slot.scene.BleachCoefficients(p.wb0, a) && slot.scene.TakeAsyncBasis(true))
+               p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
             if (!p.anchored && !slot.scene.BleachCoefficients(p.wb0, a))
             {
                slot.scene.SetBleachWeights(p.wb0, false);
@@ -4042,6 +4051,11 @@ private:
    bool prefetch_ = false, stop_ = false;
 };
 } // namespace
+
+void SetLiveAsyncBasis(bool on)
+{
+   g_liveAsyncBasis = on;
+}
 
 void SetBackgroundMapPrefetch(bool on)
 {
