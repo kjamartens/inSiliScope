@@ -276,6 +276,7 @@ void Directed()
 
 int main()
 {
+   std::setvbuf(stdout, nullptr, _IONBF, 0);   // progress shows as it runs (ctest, pipes)
    Directed();
    Statistics(0.01);
    Statistics(0.1);

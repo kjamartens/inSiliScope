@@ -1730,6 +1730,70 @@ self.ISC_MM_TIERS = {
 "tier": "Advanced",
 "prop": "Objective.ImmersionIndex"
 },
+"lamin-binder": {
+"tier": "Advanced",
+"prop": "CellField.NuclearLamina_Binder"
+},
+"lamin-binder-flex-nm": {
+"tier": "Expert",
+"prop": "CellField.NuclearLamina_BinderFlexNm"
+},
+"lamin-binder-nm": {
+"tier": "Expert",
+"prop": "CellField.NuclearLamina_BinderNm"
+},
+"lamin-density": {
+"tier": "Advanced",
+"prop": "CellField.NuclearLaminaDensityPerUm2"
+},
+"lamin-dye": {
+"tier": "Advanced",
+"prop": "CellField.NuclearLamina_Label"
+},
+"lamin-imager-nm": {
+"tier": "Advanced",
+"prop": "CellField.NuclearLamina_ImagerNanoMol"
+},
+"lamin-label-pct": {
+"tier": "Advanced",
+"prop": "CellField.NuclearLamina_LabelingPct"
+},
+"lamin-linker-max-nm": {
+"tier": "Expert",
+"prop": "CellField.NuclearLamina_LinkerMaxNm"
+},
+"lamin-linker-min-nm": {
+"tier": "Expert",
+"prop": "CellField.NuclearLamina_LinkerMinNm"
+},
+"lamin-mode": {
+"tier": "Advanced",
+"prop": "CellField.NuclearLamina_Mode"
+},
+"lamin-orient": {
+"tier": "Expert",
+"prop": "CellField.NuclearLamina_Orientation"
+},
+"lamin-orient-azimuth-deg": {
+"tier": "Expert",
+"prop": "CellField.NuclearLamina_OrientAzimuthDeg"
+},
+"lamin-orient-polar-deg": {
+"tier": "Expert",
+"prop": "CellField.NuclearLamina_OrientPolarDeg"
+},
+"lamin-paint-kon": {
+"tier": "Advanced",
+"prop": "CellField.NuclearLamina_KonPerMolarPerSec"
+},
+"lamin-paint-on-sec": {
+"tier": "Advanced",
+"prop": "CellField.NuclearLamina_BoundTimeSec"
+},
+"lamin-wobble-deg": {
+"tier": "Expert",
+"prop": "CellField.NuclearLamina_WobbleConeDeg"
+},
 "laser-405": {
 "tier": "Basic",
 "prop": "Lasers.Laser405KWcm2"
@@ -1961,6 +2025,10 @@ self.ISC_MM_TIERS = {
 "origami-strands-per-spot": {
 "tier": "Basic",
 "prop": "Nanorulers.StrandsPerSpot"
+},
+"p.laminNpcExclNm": {
+"tier": "Expert",
+"prop": "CellField.NuclearLaminaPoreExclusionNm"
 },
 "p.mtDirKappa": {
 "tier": "Expert",
@@ -2231,6 +2299,24 @@ self.ISC_MM_TIERS = {
 "CellField.NucThickIrreg": "Expert",
 "CellField.NucWidestMax": "Expert",
 "CellField.NucWidestMin": "Expert",
+"CellField.NuclearLaminaDensityPerUm2": "Advanced",
+"CellField.NuclearLaminaPoreExclusionNm": "Expert",
+"CellField.NuclearLamina_Binder": "Advanced",
+"CellField.NuclearLamina_BinderFlexNm": "Expert",
+"CellField.NuclearLamina_BinderNm": "Expert",
+"CellField.NuclearLamina_BoundTimeSec": "Advanced",
+"CellField.NuclearLamina_ImagerNanoMol": "Advanced",
+"CellField.NuclearLamina_KonPerMolarPerSec": "Advanced",
+"CellField.NuclearLamina_Label": "Advanced",
+"CellField.NuclearLamina_LabelingPct": "Advanced",
+"CellField.NuclearLamina_LinkerMaxNm": "Expert",
+"CellField.NuclearLamina_LinkerMinNm": "Expert",
+"CellField.NuclearLamina_Mode": "Advanced",
+"CellField.NuclearLamina_Motion": "Expert",
+"CellField.NuclearLamina_OrientAzimuthDeg": "Expert",
+"CellField.NuclearLamina_OrientPolarDeg": "Expert",
+"CellField.NuclearLamina_Orientation": "Expert",
+"CellField.NuclearLamina_WobbleConeDeg": "Expert",
 "CellField.NuclearPoreCornerSpreadNm": "Expert",
 "CellField.NuclearPoreDensityPerUm2": "Advanced",
 "CellField.NuclearPoreMinDistNm": "Expert",
@@ -2321,6 +2407,10 @@ self.ISC_MM_TIERS = {
 "Fluorophores.Microtubules_EffectiveDye": "Advanced",
 "Fluorophores.Microtubules_EmissionNm": "Advanced",
 "Fluorophores.Microtubules_PhotonsPerSecOn": "Advanced",
+"Fluorophores.NuclearLamina_DetectedPct": "Advanced",
+"Fluorophores.NuclearLamina_EffectiveDye": "Advanced",
+"Fluorophores.NuclearLamina_EmissionNm": "Advanced",
+"Fluorophores.NuclearLamina_PhotonsPerSecOn": "Advanced",
 "Fluorophores.NuclearPores_DetectedPct": "Advanced",
 "Fluorophores.NuclearPores_EffectiveDye": "Advanced",
 "Fluorophores.NuclearPores_EmissionNm": "Advanced",

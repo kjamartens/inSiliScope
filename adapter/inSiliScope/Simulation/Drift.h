@@ -35,8 +35,8 @@
 //                away from the coverslip), zero at an acquisition's first
 //                frame and constant within a frame. Every step is a pure
 //                function of (seed, frame) (counter-based draws), so a stack
-//                and live mode follow one path for one seed. The JS twin is
-//                web/prototype/scope/drift.js.
+//                and live mode follow one path for one seed (the webSMLM
+//                block's too: isc_drift_trajectory, cli/block_entry.cpp).
 //
 //                Used by: SR (emitter offset, focus - dz), WideField and
 //                BrightField (DriftFrames: the full-grid image spectrum

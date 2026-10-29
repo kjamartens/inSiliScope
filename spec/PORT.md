@@ -1,9 +1,16 @@
 # Porting the cell field simulation into the insiliscope core and the inSiliScope adapter
 
 > **Keep this file up to date while it exists.** It is the port spec (originally the hand-off between
-> webSMLM's `cell_field_sim/` and demoCam_SMLM_MM, both now in this repo). Whenever the prototype in
-> `web/` changes in a way that affects anything described here (hash channels, defaults, geometry, dye
-> model, function names), update this file in the same commit. Correct it when reality diverges from it
+> webSMLM's `cell_field_sim/` and demoCam_SMLM_MM, both now in this repo). Whenever the core or the
+> engine changes in a way that affects anything described here (hash channels, defaults, geometry, dye
+> model, function names), update this file in the same commit.
+>
+> **The JS reference is retired (2026-10-28).** The prototype (`web/prototype/`, generator and imaging twin), the lab
+> (`web/lab/`) and the JS-vs-C++ checks (`label_parity`, `scope_parity`, `engine_check`, `js_reference.mjs`) are gone;
+> the last full parity run passed on the tree before the cut (commit 2e8bf1a's message). The golden vectors frozen from
+> the JS stay (`spec/golden/ref.txt`, was `ref_js.txt`); a deliberate change re-freezes them from the C++
+> (`golden.mjs --freeze <isc_parity>`). The model code is C++ only, and the sections below that name a JS twin, the lab
+> or a parity check record how each step was ported and checked at the time. Correct it when reality diverges from it
 > (a decision changed, a section turned out wrong), and mark finished steps in section 11 (the overall
 > milestones are tracked in [PLAN.md](../docs/dev/PLAN.md)). Delete the file only once the port is complete and
 > [ALGORITHM.md](ALGORITHM.md) plus `CLAUDE.md` carry everything that is still true.
@@ -27,13 +34,13 @@ gotcha, GPU/CPU render paths). Then read the JS source listed in section 1.
 
 ---
 
-## 1. Source material (the JS prototype is the reference implementation)
+## 1. Source material (the JS prototype was the reference implementation until 2026-10-28)
 
-Prototype changes are tried in the lab first (`web/lab/`, [README](../web/lab/README.md)) and ported here in the
-PR to main, listed in `PORT_PENDING.md` until then. The imaging path (dyes, kinetics, PSF, render, camera, WideField)
-has a JS twin too, `web/prototype/scope/` (2026-10-01), held equal to the C++ by `tests/parity/scope_parity.mjs`.
-All in `web/prototype/` (moved there from `web/` in M3, when the viewer switched to WASM; history imported from the webSMLM repository's `cell_field_sim/`). Line numbers drift; grep
-the function names. The *why* of every algorithm is in [ALGORITHM.md](ALGORITHM.md) (the prototype's
+Until 2026-10-28 prototype changes were tried in the lab first (`web/lab/`) and ported here in the PR to main, listed in
+`PORT_PENDING.md` until then; the imaging path (dyes, kinetics, PSF, render, camera, WideField) had a JS twin too,
+`web/prototype/scope/` (2026-10-01), held equal to the C++ by `tests/parity/scope_parity.mjs`. All of it was in
+`web/prototype/` (moved there from `web/` in M3, when the viewer switched to WASM; history imported from the webSMLM
+repository's `cell_field_sim/`); it is in git history now. The files below are named as they were. The *why* of every algorithm is in [ALGORITHM.md](ALGORITHM.md) (the prototype's
 README).
 
 | File | What to port |
@@ -113,9 +120,10 @@ ABI) and `InSiliScopeXYStage.h/.cpp` in `adapter/inSiliScope/`; add them and cor
   fdlibm), so it has no bit-exact counterpart; expect "near" wherever the JS uses it (cytoplasm mesh
   ring spacing) on a libm other than the one Node was built with.
 
-**Golden vectors** ([golden/](golden/), `tests/parity/`). `tests/parity/js_reference.mjs` evals the
-generator half of `web/prototype/index.html` under Node and dumps RNG addresses (negative `cx,cy`, wrapping `k`),
-V8 math samples and 50 packed windows; `golden.mjs --freeze` stores that in `spec/golden/`, and ctest
+**Golden vectors** ([golden/](golden/), `tests/parity/`). `tests/parity/js_reference.mjs` evaluated the
+generator half of `web/prototype/index.html` under Node and dumped RNG addresses (negative `cx,cy`, wrapping `k`),
+V8 math samples and 50 packed windows; `golden.mjs --freeze` stored that in `spec/golden/` (since 2026-10-28 the freeze
+runs `isc_parity`, the C++, on the same cases: equal to the JS freeze, 35/35 cases), and ctest
 `golden_vectors` requires native and WASM output to match it **bit for bit**. Achieved for RNG and
 packing (M0). M2 extended them with `cells` cases (cytoplasm mesh, microtubules, lattice sites through
 `buildMicrotubuleLabelPoints` with a constant rng): **bit-identical** natively on Linux/glibc against
@@ -525,10 +533,10 @@ any cache. The viewer packs each block of its padded window as one job (`block` 
 whichever worker comes next (the pack worker and the cell workers, nearest the view first, two in flight per
 worker), keeps the rows and grows its cell map as they arrive; cell and dye jobs carry the rows of the blocks
 they touch and their workers install them instead of packing, so a block is packed once per page, not once
-per worker (`web/index.html` `iscEngine.inject`, `web/lab/engine.js` `World.setPackedBlock`; the `?nw` path
+per worker (`web/index.html` `iscEngine.inject`; the `?nw` path
 still packs its window in one `pack` job). `world_checks` `BlockInjection`: a world fed another's rows answers cells, mesh,
 microtubules, dyes and events byte-identically with `blocksPacked == 0`, still after `DropCaches`; foreign
-rows are rejected; the C ABI round trip is checked too (`wasm_abi_smoke.mjs` under Node).
+rows are rejected; the C ABI round trip is checked too (`isc_world_pack_block` -> `isc_world_set_block`).
 
 ### 6.6 Packed blocks across runs (ABI 8, 2026-10-04)
 `isc_world_set_cache_dir(w, dir)` gives a world a disk store of its packed blocks (`core/src/blockstore.*`):
@@ -541,11 +549,9 @@ untouched); a row that fails it is dropped and the block repacked. Blocks packed
 rewritten whole (temp file + rename) every 16 new blocks, at `isc_world_flush_cache` and in the world's
 destructor; FIFO cap `BLOCK_STORE_MAX` = 4096 blocks (a few MB), one file per directory, so a world of another
 key overwrites it ("keep the last one"). `isc_world_version()` returns `ISC_WORLD_VERSION` (the C header), the
-date `spec/golden` was last re-frozen: bump it with every change that moves a cell; `web/prototype/scope/world.js`
-carries the same string as `WORLD_VERSION` and `engine_check` compares the two. Nothing under Emscripten: the
+date `spec/golden` was last re-frozen: bump it with every change that moves a cell. Nothing under Emscripten: the
 viewer keeps the same five numbers per cell in the browser's `localStorage` (one entry, its pack key plus the
-module's `ISC_WORLD_VERSION`, at most 3000 blocks) and hands them to its pack job (`inject` before the query),
-which also makes `engine_check`'s "pack with remembered blocks" case. Hosts (CellFieldSettings::cacheDir,
+module's `ISC_WORLD_VERSION`, at most 3000 blocks) and hands them to its pack job (`inject` before the query). Hosts (CellFieldSettings::cacheDir,
 `Simulation/CacheDir.h`): cli `--disk-cache` 0/1/2 (default 1; 2 adds the opt-in PSF kernel file, see
 PsfGeneratorBridge.h), MM `General_DiskCache` Off/Cells/CellsAndPsf. `world_checks` `BlockStoreTest`: a second
 world of the same key takes every block from the file (same cells, nothing packed), mt*/label* changes keep the
@@ -554,7 +560,8 @@ key, a packing parameter changes it, a damaged file is ignored and rewritten.
 ### 6.7 Nucleus surface (ABI 9, 2026-10-05)
 The nucleus is a shaped ellipsoid (spec/ALGORITHM.md "Nucleus shape"; `core/src/cells.cpp` `NucShapeInit` and the
 `Nuc*` functions, bit-exact with the prototype's `nucShapeInit`/`nucMapLocal`/...). `isc_cell_nucleus_rings(w, cx, cy,
-slices, pts, out, cap)` returns its drawing rings (horizontal sections, both poles included, cell-local xyz) for the
+slices, pts, out, cap)` returns its drawing rings (horizontal sections, then a widened base's or top's cap as 4 more
+rings, so the surface closes in a point at both ends (2026-10-29); cell-local xyz) for the
 viewer's `cell` job, which draws them instead of its ellipsoid (the pack record keeps the plain ellipsoid's numbers for
 the fallback). `isc_optical_volume_in_window` takes the asymmetric nucleus chord. `ISC_WORLD_VERSION` 2026-10-05.
 MM properties (one indexed handler, `g_CellFieldCoreParam` names the core parameter each sets):
@@ -588,8 +595,7 @@ Code: `Simulation/WidefieldRender.{h,cpp}`,
   over the FOV. WideField reads k_em from it and deposits dose over its whole support. SR still uses
   `FluoParam_IllumProfile`.
 * **Dye grid (world-anchored).** Upscaled grid, pitch = pixel / upscale, cell i = world [i pitch, (i+1)
-  pitch): the same cells from every stage pose (the dyes bin the same way; `BleachField` cells map one to
-  one). It covers the FOV plus the part of a 2 um margin the pattern still excites (none for the square),
+  pitch): the same cells from every stage pose (the dyes bin the same way). It covers the FOV plus the part of a 2 um margin the pattern still excites (none for the square),
   plus one cell for the sub-cell shift; z planes of `zPlaneNm`, world-anchored; slab =
   `SimType_CellFieldZRangeUm` around the focus (0 = [-5, 50] um), applied per focus to the cached planes.
 * **Dye tiles** (`WidefieldDyeTiles`, C1). 64 x 64-cell world tiles holding the whole [-5, 50] um column
@@ -641,9 +647,10 @@ Code: `Simulation/WidefieldRender.{h,cpp}`,
   per batch of frames; frames rendered in parallel between re-anchors (since 2026-10-04 the cli/viewer
   movie too: each frame's bleach coefficients serially, then a batch of frames in parallel, the frame
   that re-anchors alone; with no bleaching dyes the weights of `Begin` are reused, no `exp` per frame; and
-  the cli/viewer keep the scene, PSF and world across movies as BrightField does). **Live**: `BleachField`,
-  world-anchored dose in sparse 256^2 tiles of the grid pitch, deposited over the pattern support after
-  each frame; reset on a world change or a pitch change. The producer renders the frame (a weighted sum)
+  the cli/viewer keep the scene, PSF and world across movies as BrightField does). **Live** (history: replaced by the exact light history,
+  section 23; the unused `BleachField` class was removed on 2026-10-27): `BleachField`, world-anchored dose in
+  sparse 256^2 tiles of the grid pitch, deposited over the pattern support after each frame; reset on a world
+  change or a pitch change. The producer renders the frame (a weighted sum)
   and hands background, noise and publication to a finisher thread that overlaps the next frame's scene
   work (D4). During a stage move a worker builds the destination's scene (own `CellFieldSource`, shared
   tiles) and the live loop swaps it in on arrival (C3). Frames are never stale: each is the image of its
@@ -667,8 +674,8 @@ Code: `Simulation/WidefieldRender.{h,cpp}`,
   with noise on the GPU; `Create()` rejects software adapters and self-checks against the CPU; a failure
   mid-stream falls back to the CPU (`General_GpuStatus` says which). fp16 spectra cost <= 3e-4 rms of the
   image (measured 2.7e-5 .. 2.5e-4). Checks: ctest `widefield` (the job format through a CPU reference
-  host: identical to the scene's own), `tests/web/wf_gpu_check.mjs` and `viewer_wf_movie.mjs` (headless
-  Chromium, SwiftShader), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
+  host: identical to the scene's own), `tests/web/wf_gpu_check.mjs` (headless
+  Chromium; `ISC_CHROME=1` for an adapter), ctest `wf_gpu_d3d11` (Windows) / `tools/wine_wf_gpu_check.sh` (Wine + lavapipe
   + Microsoft's HLSL compiler).
 * Limits: drift (section 16) renders on the CPU.
 
@@ -718,14 +725,14 @@ spread that work: its movie worker builds the world and the scene with the per-s
 worker builds a scene from those screens alone (`UpdateFromPhase`, no world) and computes its share of the sources
 (`SourceImageAt`, a round-robin split); the movie worker takes all sources' images and forms the image exactly as
 `Image` does (`SetImageFromSources`: the same float sum in source order), then renders the frames. ctest
-`brightfield` checks the three paths bit for bit; `tests/web/viewer_bf_movie.mjs` checks the split movie equals the
-single-worker one (`?bfsplit=0`). Not with the lab's JS engine.
+`brightfield` checks the three paths bit for bit; `tests/web/bf_split_check.mjs` checks the split movie equals the
+single-worker one (Node, the worker protocol on one module per engine).
 
 ## 16. Labels, dyes and the light path (issue 16, 2026-10-05)
 
-The JS reference is `web/prototype/scope/` (`dyes.js` labels and schedules, `world.js` queries, `spectra.js`,
-`dye_library.js`, `fluorescence.js`, `widefield.js` `meanFieldImage`, `scope_movie.js`); the C++ matches it number for
-number (`tests/parity/label_parity.mjs`, `tests/parity/scope_parity.mjs`). Physics: `docs/physics/dyes-and-light-path.md`
+The JS reference was `web/prototype/scope/` (`dyes.js` labels and schedules, `world.js` queries, `spectra.js`,
+`dye_library.js`, `fluorescence.js`, `widefield.js` `meanFieldImage`, `scope_movie.js`; retired 2026-10-28); the C++
+matched it number for number (`tests/parity/label_parity.mjs`, `tests/parity/scope_parity.mjs`). Physics: `docs/physics/dyes-and-light-path.md`
 and `photophysics.md`; the why: ALGORITHM.md "Labels, dyes and the light path".
 
 **Core, ABI 10** (`core/src/dyes.*`, `world.*`, `capi.cpp`). Replaces `isc_world_set_kinetics` and the
@@ -841,7 +848,8 @@ A random walk per axis, xy and z set separately (Cnossen et al., Opt. Express 29
 eadm7765 (2024); docs/physics/camera.md). Replaces the linear `SimType_DriftNmPerSec` (constant speed, random direction
 per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleForSeed`.
 
-- `Simulation/Drift.{h,cpp}` (JS twin `web/prototype/scope/drift.js`): `d(0) = 0`, `d(f) = d(f-1) + sqrt(frameSec) x
+- `Simulation/Drift.{h,cpp}` (the webSMLM block's `driftTrajectory` too, `isc_drift_trajectory`; the shifts in
+  `DriftShift.cpp`): `d(0) = 0`, `d(f) = d(f-1) + sqrt(frameSec) x
   (sxy g0, sxy g1, sz g2)`, `g` = `CounterGauss` on `CounterRng(seed ^ 0x44524654 "DRFT", f)`, pixel 0, draws x, y, z in
   that order (`DriftStep`, `DriftTrajectory`). nm, camera axes, +z away from the coverslip; the focal plane is `focus -
   dz`. The JS uses the same pcg4d and Box-Muller: the trajectories agree to the last digit.
@@ -882,13 +890,12 @@ per seed, SR only), which is removed with `ComputeDriftOffsetPx` / `DriftAngleFo
   (shifted frame = the scene posed at -d, 5e-7; focus grid vs exact focus, 2e-5 rms), ctest `brightfield` (whole-cell
   shift = the posed scene to its margin taper, 2e-3 of the contrast; focus grid 2e-4 of the contrast; a sub-cell posed
   scene differs by ~10% of the contrast through its own geometry sampling, printed only), `scope_parity` (SR, WF, BF
-  drift cases), `tests/block/check_cellfield_block.mjs`.
+  drift cases).
 
 ## 18. Micro-Manager hub and devices (2026-10-06)
 
 The adapter's device layout, tiers and naming are in `spec/MM_DEVICES.md`; this section lists what changed in the
-engine (C++ `Simulation/ScopeMovie.*` and its JS twin `web/prototype/scope/scope_movie.js`, so the cli, the viewer and
-webSMLM have it too). Every new option's default keeps the earlier output.
+engine (C++ `Simulation/ScopeMovie.*`, so the cli, the viewer and webSMLM have it too). Every new option's default keeps the earlier output.
 
 - Labels: `specimen` (0 = CellField, `data/specimens.json`), `mode` (the experiment's label mode, for targets whose
   `<prefix>-mode` is -2 Global; -1 = each target's own), `<prefix>-dye` -1 = Typical (`data/dyes/library.json`
@@ -941,7 +948,7 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
 - Registry: `data/specimens.json` specimen 1 `Nanorulers`, target `docking` (prefix `ruler`, structure 1);
   `data/dyes/library.json` `typicalLabels.docking` (ATTO 655 DNA-PAINT, 80 % = incorporation, *estimate*).
 - Designs: `data/origami/designs.json` -> `tools/gen_origami_designs.mjs [--check]` -> `core/src/origami_designs.inc`,
-  `web/prototype/scope/origami_designs_data.js`, `web/origami_designs.js` (viewer panel).
+  `web/origami_designs.js` (viewer panel; and the JS reference's table until 2026-10-28).
 - Core (`core/src/origami.{h,cpp}` = `origami.js` line for line): params `specimen`, `origamiDesign`, `origamiDensity`
   (1.2 /um^2; 0.3 until 2026-10-12), `origamiMinSpacingNm` (0 = none; 250 until 2026-10-12), `origamiBend` (1), `origamiLpNm` (1500), `origamiStrandsPerSpot` (5),
   `origamiAttachNm` (7), `origamiLinkerNm` (3), `origamiRoll` (0 uniform / 1 fixed), `origamiRollDeg`, `origamiHeights`
@@ -962,8 +969,8 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
 - MM: `SampleHolder` positions = the registry's specimens (`MountSpecimen` sets `specimen`; the settings carry the
   origami params only while mounted, so a switch is a new world); device `Nanorulers` (spec/MM_DEVICES.md); per-target
   label rows and couplings (`LoadTargetDye`, camera gain and light preset follow the mounted specimen's target).
-- Checks: `web/lab/origami_check.mjs` (33, ~1 s, part of `web/lab/check.mjs`), `world_checks.Origami`, golden (4
-  origami cases), `label_parity` on two nanoruler worlds, ctest `cli_origami` / `cli_origami_geometry`, `scope_parity`
+- Checks: `world_checks.origami` (with the `origami_bend.py` cross-check, `tests/parity/origami_bend_ref.inc`), golden (4
+  origami cases), `label_parity` on two nanoruler worlds, ctest `cli_serve`, `scope_parity`
   nanoruler cases (DNA-PAINT, dSTORM 3D + drift, WideField 100 %, BrightField 99.95 %), `engine_check` nanoruler world,
   `tests/web/viewer_scene.mjs` sample switch, the block check's nanoruler window, `tools/test_specimens.py` (14 s).
 - Site spacing and 2D origami (2026-10-13; spec/ALGORITHM.md): param `origamiSpacingNm` (80; clamp 1-10000), option
@@ -973,7 +980,7 @@ The model and its reasons: spec/ALGORITHM.md "DNA-origami nanorulers"; public pa
   `origamiGeometry`); `OrigamiMoleculeRoll(d, p, h1)` (flat = 0); `isc_origami_heights` uses heightNm. Design ids
   `Nanoruler` (renamed from `Nanoruler80`; saved MM configs naming it must be re-made) and `TUDelftLogo`. No ABI
   change; golden +3 origami cases (40 nm rod, logo at 20 and 160 nm), existing lines unchanged; `label_parity` and
-  `scope_parity` logo rows; `world_checks.Origami` and `origami_check.mjs` spacing/logo checks.
+  `scope_parity` logo rows; `world_checks.origami` spacing/logo checks.
 - DNA-PAINT binding kinetics are the target's (2026-10-12): `data/specimens.json` `paint` (k_on, mean bound time;
   `TargetData::paintKonPerMPerSec` / `paintOnSec`), options `<prefix>-paint-kon`, `<prefix>-paint-on-sec` right after
   `<prefix>-imager-nm` (rate-history light keys), `LabelPhysicsOptions::paint*` / `labelPhotophysics` `o.paint*`; the
@@ -1018,7 +1025,7 @@ complexes" and "Label linkage".
 - MM: `CellField` rows `NuclearPores_*` (the target rows, `_Mode` Basic per target), `NuclearPoreDensityPerUm2`
   (Advanced) and the geometry (Expert), `<Target>_Binder` (Advanced) + overrides (Expert); `Fluorophores.Mode` removed;
   `Lasers.Preset` `Auto` (spec/MM_DEVICES.md 4). `SampleSettings::SameLabels` compares bit for bit (NaN linkage slots).
-- Checks: `web/lab/npc_check.mjs` + `label_regression.mjs`, `world_checks.npcs`, golden `npcs` cases, `label_parity`
+- Checks: `label_regression.mjs`, `world_checks.npcs`, golden `npcs` cases, `label_parity`
   (three structures), `scope_parity` two-target cases, `engine_check` (pores, linkage, two-colour movie), the block
   check's pores window, `test_insiliscope.py` (defaults, couplings, GPU = CPU with two labels), `adapter_pixel_hash`
   (TOTAL before pores = the old reference with pores None and MT linkage Legacy; configs `pores`, `pores-dstorm`).
@@ -1178,7 +1185,7 @@ reads its kinetics at the dose at its own (x, y, z), one core query per movie.
 - **Checks**: ctest `world_checks.clock_map` (uniform map = ABI 11 bit for bit for every mode, interpolated clocks =
   per-dye ABI 11 queries, the order rule, cache independence, the bleach ends, threads, bad input), `history_check`
   (folds and maps against brute-force sums, signature rules, an averaged stack record = a per-pose fold, speed gates;
-  `RUN_SERIAL`), `label_parity.mjs` clock-map section (C++ = JS, with bleach cases), `wasm_abi_smoke`, `scope_parity`,
+  since 2026-10-27 `history_check --bench`, not a test), `label_parity.mjs` clock-map section (C++ = JS, with bleach cases), `scope_parity`,
   `engine_check`, `tools/test_history.py` ("Edge": no step at the beam's half contour, mean field and dye by dye),
   `adapter_pixel_hash` (Flat / BFP 0: unchanged).
 
@@ -1219,8 +1226,31 @@ Iteration mode (JS first, `PORT_PENDING.md`, commits 4a95ac6 data, df05e91 JS), 
   are world params (a change is a new world; the packed blocks come back from the cache).
 - JS: `Math.hypot(x, y)` in the bead plane's fade became `Math.sqrt(x * x + y * y)` (exact for the integer offsets, so
   C++ = JS without fdlibm's hypot in the engine).
-- Checks: `web/lab/fiducial_check.mjs` (in `web/lab/check.mjs`), `world_checks.fiducials` (determinism under query
-  order, Poisson count, diameter spread, the three heights on a World's surface, cells unmoved, C ABI; 1.4 s), golden
+- Checks: ctest `fiducials` (`cli/fiducials_check.cpp`: the light, the bead kernel, bleaching movies), `world_checks.fiducials` (determinism under query
+  order, Poisson count, Clark-Evans, diameter spread, the three heights on a World's surface, cells unmoved, C ABI; 1.4 s), golden
   4 `fiducials` cases (step surface; `compare.mjs` reads `fid` lines without a leading count), `scope_parity` 5 bead
   movies (TetraSpeck static images, dark red OnTop Gaussian, gold Layer with scatter and drift, a 0.5 s half-time
   from t = 0, nanorulers with orange FluoSpheres): 100 % identical ADU.
+
+## 25. Nuclear lamina, a third cell-field target (2026-10-27)
+
+Branch `lamin_network`, JS and the port together (no `PORT_PENDING.md`). The model: spec/ALGORITHM.md "Nuclear lamina".
+
+- Registry: `data/specimens.json` CellField target `lamin` (row `NuclearLamina`, prefix `lamin`, structure 2; the
+  nanorulers' `docking` moved to 3), the new field `defaultDye: "None"` (`gen_dye_library.mjs` -> JS, `TargetData::
+  defaultNone`); `typicalLabels.lamin`, `linkagePresets.defaults.lamin` IgG2-PAINT.
+- Core: `BuildLaminForCell` (`core/src/npcs.*`), `LaminDyesInBlock` (`dyes.*`), params `laminDensity` (0) and
+  `laminNpcExclNm` (40), skipped by `PackingFingerprint`; the world builds the lamina lazily per cell (after its pores),
+  its blocks walked after the pores' (`ForEachDyeBlock` items carry the structure). **ABI 16:** `ISC_STRUCT_LAMIN` 2,
+  `ISC_STRUCT_ORIGAMI_SITES` 3, `ISC_STRUCT_COUNT` 4 (kinetics rows 1 + 6 x 4), `isc_cell_lamin` (stride 6: point,
+  outward normal; cell-local). `ISC_WORLD_VERSION` unchanged.
+- Engine/cli: the registry's `lamin-*` label options (default dye None), `lamin-density` 2000 (passed as the core's
+  `laminDensity`; `p.laminNpcExclNm` the exclusion), `kTargetText`.
+- Viewer: the Nuclear lamina label group (Dye None), a Nuclear lamina group (density, pore exclusion; Advanced), the
+  pack keys skip `lamin`; the View toggle Nuclear lamina (`showLamin`, off; layer `lamin.points`, GL kind 9: the
+  points of the detailed cells from `isc_cell_lamin`, fetched only while it is on). Block: four structures,
+  `laminDensity` 0 by default, the docking strands' sites `structure` 3, `abiVersion` 16.
+- MM: `CellField` rows `NuclearLamina_*` (from the registry; `_Label` default None), `NuclearLaminaDensityPerUm2`
+  (Advanced) and `NuclearLaminaPoreExclusionNm` (Expert); the shipped configs leave the lamina unlabelled.
+- Checks: `world_checks.lamin`, golden `lamin` cases (`lam` / `lmd`
+  lines), `label_parity` (a lamina world, ABI 16); every default output unchanged (cli reference TIFFs incl. the nanorulers, `adapter_pixel_hash`).

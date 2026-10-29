@@ -204,8 +204,10 @@ render();
 if (optics) { const cp = $('mv_camera-preset'); if (cp) takeCameraMag(cameraOptics(+cp.value)); setPixelSize(opticsNow()); }   // from the start
 new MutationObserver(render).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
 let markTimer = 0;
-$('panel').addEventListener('change', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 50); });
-$('panel').addEventListener('input', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 200); });
+// (#side: the settings under the image and the controls column beside it, whose boxes hold the objective's NA, ...)
+const sideEl = $('side') || $('panel');
+sideEl.addEventListener('change', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 50); });
+sideEl.addEventListener('input', () => { clearTimeout(markTimer); markTimer = setTimeout(markCurrent, 200); });
 // A camera picked in the settings changes the pixel size too (its sensor pixel and magnification, the objective as
 // picked); so does the Magnification row.
 if ($('mv_camera-preset')) $('mv_camera-preset').addEventListener('change', () => {
@@ -220,5 +222,13 @@ if ($('mv_pixel-nm')) $('mv_pixel-nm').addEventListener('input', () => {   // (a
   const o = opticsNow(), mag = o.sensorUm * 1000 / (o.objectiveMag * px);
   if (Number.isFinite(mag) && mag > 0 && Math.abs(+em.value - mag) > 1e-9) { em.value = mag; fire(em); }
 });
-self.mmConfig = { apply, render, markCurrent, pruneExtra, matches, valueOf, extra, config: CFG };
+// The objective's magnification (web/live/settings_file.js: an instrument saved and loaded with it).
+const objectiveMag = () => (optics ? optics.objectiveMag : undefined);
+function setObjectiveMag(m) {
+  if (!optics || !(m > 0)) return;
+  optics.objectiveMag = m;
+  setPixelSize(opticsNow());
+  markCurrent();
+}
+self.mmConfig = { apply, render, markCurrent, pruneExtra, matches, valueOf, extra, config: CFG, objectiveMag, setObjectiveMag };
 })();

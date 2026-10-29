@@ -137,6 +137,9 @@
     { "id": "npc-paint", "title": "Nuclear pores alone",
       "text": "The default movie with the microtubules unlabelled (mt-dye None): the pores in DNA-PAINT with Cy3B at 561 nm, focus 0.85 um up, where this nucleus starts (its lowest pores lie at 0.8 um).",
       "options": {"mt-dye": "None", "z": 0.85} },
+    { "id": "lamin-paint", "title": "Nuclear lamina alone",
+      "text": "The nuclear lamina, unlabelled by default, turned on (lamin-dye Typical: Cy3B DNA-PAINT at 561 nm, 2.5 nM, 70 % of the points, through anti-lamin antibodies) with the microtubules and pores unlabelled (mt-dye None, npc-dye None), focus 0.85 um up as for the pores: random points on the nuclear envelope (lamin-density 2000 per um^2, an estimate), none within 20 nm of a pore centre. About four times the pores' blinks: some 1400 labelled sites per um^2 against the pores' ~300.",
+      "options": {"mt-dye": "None", "npc-dye": "None", "lamin-dye": "Typical", "z": 0.85} },
     { "id": "sr-bright", "title": "Bright blinks",
       "text": "The microtubules alone (npc-dye None) at 4 kW/cm^2 of 640 nm (laser-640 4, the default 1): about four times the photons per blink, with the library's brightness spread (photon-cv 0.5).",
       "options": {"npc-dye": "None", "laser-640": 4} },
@@ -202,7 +205,8 @@
       "story": "The cell field carries two labelled structures at once: the microtubules and the nuclear pores, each with its own dye, mode and laser. The top row is what is really there, the bottom row what the camera makes of it. The pores sit on the nuclear envelope, so for the pores alone the focus goes up to where the nucleus starts (0.85 um).",
       "rows": [
         {"panels": [["gt-mt", "microtubules: ground truth"], ["gt-npc", "nuclear pores: ground truth"], ["gt-both", "both: ground truth"]], "caption": "The world model's positions in this field of view, in the viewer's colours (height above the coverslip)."},
-        {"panels": [["mt-only", "microtubules (640 nm)"], ["npc-paint", "nuclear pores (561 nm), focus 0.85 um"], ["sr-default", "both (default)"]], "caption": "Two colours, one camera: ATTO 655 on the microtubules, Cy3B on the pores, through a multi-band filter set. In the two-target movie the dense microtubules outshine most pores."}
+        {"panels": [["mt-only", "microtubules (640 nm)"], ["npc-paint", "nuclear pores (561 nm), focus 0.85 um"], ["sr-default", "both (default)"]], "caption": "Two colours, one camera: ATTO 655 on the microtubules, Cy3B on the pores, through a multi-band filter set. In the two-target movie the dense microtubules outshine most pores."},
+        {"panels": [["npc-paint", "nuclear pores (default label)"], ["lamin-paint", "nuclear lamina (lamin-dye Typical)"]], "caption": "The third cell-field target, the nuclear lamina, is off until labelled: here on its own beside the pores, both Cy3B DNA-PAINT at 561 nm, focus 0.85 um."}
       ] },
     { "title": "Focus and the objective",
       "story": "The cells are a few micrometres tall and the focus is a plane through them. What lies above or below it blurs with the 3D PSF; the objective's numerical aperture sets how small a spot can get.",

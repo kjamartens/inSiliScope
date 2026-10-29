@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Every setting survives a page reload: the controls of the settings (#side: the live panel, its column and the
 // settings below the image) and of the View box (#viewPanel) are written to localStorage when changed and set back,
-// with their events, once the page has loaded. Per browser; "Reset all to defaults" (☰) forgets them.
+// with their events, once the page has loaded, then 'isc-restored' fires. Per browser; "Reset all to defaults" (☰)
+// forgets them.
 (() => {
   const PREFIX = 'isc.set.';
   const roots = () => ['side', 'viewPanel'].map(id => document.getElementById(id)).filter(Boolean);
@@ -41,7 +42,10 @@
           fire(el);
         }
       }
-    } finally { restoring = false; }
+    } finally {
+      restoring = false;
+      window.dispatchEvent(new Event('isc-restored'));   // (the view's position follows: web/index.html VIEW_POS_KEY)
+    }
   }
   if (document.readyState === 'complete') setTimeout(restore, 0);
   else window.addEventListener('load', () => setTimeout(restore, 0));

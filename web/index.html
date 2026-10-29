@@ -141,6 +141,8 @@
   #liveCtl select,#liveCtl input[type=number],#liveCtl input[type=text],#panel select,#panel input[type=number],#panel input[type=text]{height:24px;box-sizing:border-box}
   #liveCtl .opt,#panel .opt{gap:6px;margin:3px 0;min-height:24px}
   #liveCtl .opt .ctl select{max-width:none;width:100%}
+  .opt.text:has(#zernCoeffs){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val{display:none}
+  #zernCoeffs{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}   /* (the 28 Zernike modes under their name) */
   #liveCtl .sub{font-size:10px;line-height:1.35}
   #liveCtl .opt .unit,#liveCtl .opt .u{font-size:10px}
   #liveCtl .lc{border:1px solid var(--border);border-radius:var(--radius);padding:5px 7px;flex:none}
@@ -565,8 +567,7 @@
 // viewer's own Advanced for a setting MM does not have); show() hides rows that do not apply (e.g. WideField rows unless that modality is
 // chosen). A preset (or an entry with kids) draws its kids indented under it; picking a preset writes their values,
 // editing one by hand makes it "Custom". Styles are CSS only (body[data-ui-style], UI_STYLES).
-// This script is data only (no DOM access until a show()/fmt() runs): web/lab/engine_check.mjs reads the defaults
-// from it (tests/parity/load_prototype.mjs schemaDefaults). The renderer is the uiPanel script below.
+// This script is data only (no DOM access until a show()/fmt() runs). The renderer is the uiPanel script below.
 const { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI } = (() => {
 const $ = id => document.getElementById(id);
 const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
@@ -603,7 +604,7 @@ const USER_DYES = {
   modeIndex: n => +$('ud' + n + '-mode').value,
 };
 // A target's dye choice and mode (P: its prefix, data/specimens.json).
-const choiceOf = P => ($('mv_' + P + '-dye') ? $('mv_' + P + '-dye').value : String(firstDyeFor(TARGETS.find(t => t.prefix === P), DD.dyeDefault.mode)));
+const choiceOf = P => ($('mv_' + P + '-dye') ? $('mv_' + P + '-dye').value : String(defaultDyeFor(TARGETS.find(t => t.prefix === P))));
 const modeOf = P => {
   const m = $('mv_' + P + '-mode') ? +$('mv_' + P + '-mode').value : -1, v = choiceOf(P);
   if (m >= 0) return MODE_NAMES[m];
@@ -617,6 +618,9 @@ const inMode = (P, ...modes) => () => FL() && modes.includes(modeOf(P));
 const dyeHasMode = (i, m) => !DD.dyes[i].modes[m].generic;
 // The target's typical dye in a mode (data/dyes/library.json typicalLabels; the engine's <prefix>-dye = -1).
 const firstDyeFor = (t, m) => dyeIndex(DD.typicalLabels[t.id][m].dye);
+// A target's dye at load: None for a target that is off until labelled (data/specimens.json defaultDye: the nuclear
+// lamina), else its typical dye in the library's default mode (the engine's <prefix>-dye default).
+const defaultDyeFor = t => t.defaultDye === 'None' ? DYE_NONE_V : firstDyeFor(t, DD.dyeDefault.mode);
 function filterDyes(P) {
   const sel = $('mv_' + P + '-dye'), m = modeOf(P);
   for (let i = 0; i < ND; i++) { const o = sel.options[i]; o.hidden = o.disabled = !dyeHasMode(i, m); }
@@ -661,7 +665,7 @@ const DYE_FIELD_ROWS = [
 // strands 80 %); the same mode keeps them.
 const lastMode = {};   // per target prefix: the mode the panel had (the initial one: the default dye's)
 // It also re-applies the camera preset's gain when that depends on the imaging (data/dyes/cameras.json
-// gainElectronsPerAduWideField, the EMCCD: single-molecule vs WideField/BrightField; prototype cameraPresetGain).
+// gainElectronsPerAduWideField, the EMCCD: single-molecule vs WideField/BrightField).
 const presetGain = c => (c.gainElectronsPerAduWideField !== undefined && (BF() || mtMode() === 'WideField')
   ? c.gainElectronsPerAduWideField : c.gainElectronsPerAdu);
 // The sensor in use is an EMCCD: the Sensor select, or the camera preset's type when that says "the preset's".
@@ -732,8 +736,9 @@ const basicLaserShown = nm => {
 // A dye pick or a mode change loads the auto light preset (the targets' presets combined).
 // In BrightField (its Preset) the lasers stay off: the dye's preset is loaded when a fluorescence preset is picked.
 const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightPresetValues(autoLightPreset(vals)));
-// The panel's first light: the cell field's default labels' presets combined (as the engine's auto).
-const DEFAULT_LIGHT = lightPresetValues(combineLightPresets(DD.specimens[SPECIMEN_DEFAULT].targets.map(t =>
+// The panel's first light: the cell field's default labels' presets combined (as the engine's auto; a target with
+// no default label adds none).
+const DEFAULT_LIGHT = lightPresetValues(combineLightPresets(DD.specimens[SPECIMEN_DEFAULT].targets.filter(t => t.defaultDye !== 'None').map(t =>
   DD.dyes[firstDyeFor(t, DD.dyeDefault.mode)].modes[DD.dyeDefault.mode].lightPreset)), DD.specimens[SPECIMEN_DEFAULT]);
 const dyeFieldValues = (prefix, d, mode) => Object.fromEntries(DYE_FIELD_ROWS.map(([k, , , , get, modes]) =>
   [prefix + k, !modes || modes.includes(mode) ? +(+get(d, mode)).toPrecision(6) : NaN]));
@@ -750,6 +755,9 @@ const LABEL_TEXT = {
     cells: 'no exclusion from cells' },
   npcs: { dev: 'CellField', row: 'NuclearPores', what: 'the nuclear pores\' label', axis: 'the pore axis', pct: 'Labelled sites',
     sites: 'Share of the 64 Nup96 sites per pore (2 rings x 8 corners x 4) that carry a label. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 60 %, dSTORM 58 %, PALM 58 %, WideField 100 %; data/dyes/library.json typicalLabels).',
+    cells: 'no exclusion from the nucleus' },
+  lamin: { dev: 'CellField', row: 'NuclearLamina', what: 'the nuclear lamina\'s label', axis: 'the envelope normal', pct: 'Labelled points',
+    sites: 'Share of the lamina points (Nuclear lamina: Density) that carry a label, one docking site per point. Unlabelled by default (Dye None): pick a dye to turn the lamina on. Changing the mode sets it to the mode\'s suggestion (DNA-PAINT 70 %, dSTORM 70 %, PALM 58 %, WideField 100 %; estimates, data/dyes/library.json typicalLabels).',
     cells: 'no exclusion from the nucleus' },
   docking: { dev: 'Nanorulers', row: 'Docking', what: 'the docking strands\' label', axis: 'the rod axis', pct: 'Labelled strands',
     sites: 'Share of the designed docking strands (Strands per spot, Nanorulers) that are incorporated and labelled: each strand independently (80 % in every mode; estimate).',
@@ -769,7 +777,7 @@ const linkageItems = (t, id, code) => !(t.id in DD.linkageDefaults) ? [] : [
 ];
 const labelGroup = (t, i) => {
   const P = t.prefix, T = LABEL_TEXT[t.id], id = k => 'mv_' + P + '-' + k, code = k => '<code>' + T.dev + '.' + T.row + '_' + k + '</code>';
-  const dyeDef = firstDyeFor(t, DD.dyeDefault.mode);
+  const dyeDef = defaultDyeFor(t), rowsDye = firstDyeFor(t, DD.dyeDefault.mode);   // (the rows: a library dye)
   return Object.assign(i === 0 ? { sect: 'Sample preparation' } : {}, { id: P + 'label', title: t.name + ' label', open: true,
     show: () => mounted().id === t.specimen, items: [
     range(id('label-pct'), T.pct, '%', T.sites + ' 0 = the target is off. ' + code('LabelingPct'), 0, 100, 0.5, DD.typicalLabels[t.id][DD.dyeDefault.mode].labelingPct, { fmt: fx(1) }),
@@ -783,7 +791,7 @@ const labelGroup = (t, i) => {
       } }),
     select(id('dye'), 'Dye', 'Dye of ' + T.what + ': a library dye (FPbase spectra; data/dyes) or one of your own (Custom dyes, Advanced level: + Add a dye), or None (no label: the target is off). Lists the dyes with data for the Mode above (Custom: any mode). Picking a library dye loads its values into the rows below (advanced); edit them after. A custom dye is edited in its own group. A pick also loads the light preset of the labelled targets\' dyes together. ' + code('Label'),
       [...DD.dyes.map((d, j) => [String(j), d.name]), ...[1, 2, 3].map(n => ['' + (ND + n - 1), 'Dye ' + n + ' (custom)']), [String(DYE_NONE_V), 'None (no label)']],
-      String(dyeDef), { apply: v => withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), modeOf(P)))), kids: dyeRows(P, {}, dyeDef) }),
+      String(dyeDef), { apply: v => withLightPreset(modeSuggestion(t, dyeFieldValues(id('dye') + '.', choiceDye(v), modeOf(P)))), kids: dyeRows(P, {}, rowsDye) }),
     num(id('imager-nm'), 'Imager', 'nM', 'DNA-PAINT imager concentration: binding events per site per second = k_on x c. The free imager also adds a uniform background (chamber height, Illumination). Taken as constant: no depletion by binding or photobleaching over the movie, and ' + T.cells + '. ' + code('ImagerNanoMol'), 0, null, 0.1, t.paint.imagerNm, { show: inMode(P, 'DNA-PAINT') }),
     num(id('paint-on-sec'), 'Bound time', 's', 'DNA-PAINT: mean time an imager stays bound to a docking site (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye (data/specimens.json paint). ' + code('BoundTimeSec'), 0.001, null, 0.01, t.paint.onSec, { adv, show: inMode(P, 'DNA-PAINT') }),
     num(id('paint-kon'), 'Binding rate k_on', 'M⁻¹s⁻¹', 'DNA-PAINT: imager association rate; binding events per site per second = k_on x imager concentration (the target\'s docking sequence; data/specimens.json paint). ' + code('KonPerMolarPerSec'), 0, null, 1e5, t.paint.konPerMPerSec, { adv, show: inMode(P, 'DNA-PAINT') }),
@@ -873,16 +881,19 @@ const UI_GROUPS = [
     select('theme', 'Look', 'Colours: the viewer\'s depth colours, or bright flat colours on black (fluorescence-like). Display only.',
       [['viewer', 'Depth colours'], ['fluo', 'Dark fluorescence'], ['fluoZ', 'Dark fluorescence (depth)']], 'fluoZ', { adv }),
     select('mtMap', 'Microtubule colours', 'The microtubules\' colours: a scale over the height (coverslip to the top of the cell); the small bars below preview each choice (click one to pick it). The Look\'s: as the Look draws them. Display only.',
-      LINE_MAP_ITEMS, 'ice', { adv, show: CF }),
+      LINE_MAP_ITEMS, 'ice', { adv, show: () => CF() && $('showMt').checked }),
     select('npcMap', 'Pore colours', 'The nuclear pores\' colours: a scale over the height (coverslip to the top of the cell); the small bars below preview each choice (click one to pick it). The Look\'s: as the Look draws them. Display only.',
-      LINE_MAP_ITEMS, 'warm', { adv, show: CF }),
+      LINE_MAP_ITEMS, 'warm', { adv, show: () => CF() && $('showNpcs').checked }),
     select('nucMap', 'Nucleus colours', 'The nucleus\' colours: a scale over its own height (its bottom to its top), so its shape reads as shading; the small bars preview each choice. The Look\'s: as the Look draws it (the viewer\'s depth colours over the cell\'s height, or one colour). Display only.',
-      LINE_MAP_ITEMS, 'greys', { adv, show: CF }),
+      LINE_MAP_ITEMS, 'greys', { adv, show: () => CF() && $('showNucleus').checked }),
+    select('laminMap', 'Lamina colours', 'The nuclear lamina\'s colours: a scale over the height (coverslip to the top of the cell); the small bars below preview each choice (click one to pick it). The Look\'s: one colour. Display only.',
+      LINE_MAP_ITEMS, 'greens', { adv, show: () => CF() && $('showLamin').checked }),
     grid('Show', [
       check('showCyto', 'Cytoplasm', 'Draw the cell bodies.', true, { show: CF }),
       check('showNucleus', 'Nucleus', 'Draw the nuclei (colour = depth).', true, { show: CF }),
       check('showMt', 'Microtubules', 'Draw the microtubules.', true, { show: CF }),
       check('showNpcs', 'Nuclear pores', 'Draw the nuclear pores of the detailed cells: the two 8-fold rings of each (cytoplasmic light, nucleoplasmic dark), from 400 px/µm also the four Nup96 sites at each corner.', true, { show: CF }),
+      check('showLamin', 'Nuclear lamina', 'Draw the nuclear lamina of the detailed cells as a surface: the nuclear envelope its points lie on (Nuclear lamina: Density; at 2000 per µm² they are 22 nm apart, too close to draw one by one), labelled or not. Its opacity follows the points\' local density (counted within 0.3 µm) relative to the set density: where the lamina is sparser it shows through.', false, { show: CF }),
       check('showRulers', 'Nanorulers', 'Draw the DNA-origami rods: their bent outlines from above.', true, { show: NR }),
       check('showFids', 'Fiducial beads', 'Draw the fiducial beads (Sample: Fiducial beads) as discs of their diameter, over the scene.', true, { show: FID }),
       check('showDyes', 'Dyes', 'Draw the fluorescent dyes of the core in their emission colour, once zoomed in far enough (≥ 120 px/µm).', false),
@@ -936,7 +947,7 @@ const UI_GROUPS = [
     range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, 0.8, { adv, show: CF, fmt: fx(2) }),
     num('chunkSize', 'Chunk size', 'µm', 'Side of the square chunk grid. One candidate cell per chunk, so this sets the mean cell spacing. <code>CellField.ChunkSizeUm</code>', 4, 200, 1, 26, { adv, show: CF }),
   ] },
-  // The DNA-origami nanorulers (core params origami*, web/prototype/scope/origami.js; Micro-Manager: Nanorulers).
+  // The DNA-origami nanorulers (core params origami*, core/src/origami.*; Micro-Manager: Nanorulers).
   { id: 'origami', title: 'Nanorulers', open: true, show: NR, items: [
     select('origamiDesign', 'Design', 'The DNA-origami design (data/origami/designs.json): the 1D nanoruler is a 13 nm rod with three spots of docking strands one site spacing apart and 20 nm beyond the outer ones (at 80 nm: a 200 nm rod, spots at 20, 100 and 180 nm); the 2D origami is a rigid plate lying face up with one strand on each of the 37 hexagons of the TU Delft logo. <code>Nanorulers.Design</code>',
       DESIGNS.map((d, i) => [String(i), d.name]), '0'),
@@ -1027,13 +1038,19 @@ const UI_GROUPS = [
     range('mtMaxZSlope', 'Max z slope', '× xy', 'Largest height change per unit of lateral path.', 1, 20, 0.5, 5, { adv, fmt: fx(1) }),
     range('mtLineWidth', 'Drawn thickness', 'µm', 'Stroke width of the drawn microtubules. Display only.', 0.02, 0.5, 0.01, 0.02, { adv, fmt: fx(2) }),
   ] },
-  // The nuclear pore complexes (issue 15; core params npc*, web/prototype/scope npcs): Nup96 rings on the envelope.
+  // The nuclear pore complexes (issue 15; core params npc*, core/src/npcs.*): Nup96 rings on the envelope.
   { id: 'npc', title: 'Nuclear pores', show: CF, items: [
     range('mv_npc-density', 'Density', '/µm²', 'Nuclear pore complexes per µm² of nuclear envelope, over the whole envelope (8; measured 5-8.6 /µm² in HeLa and U2OS interphase nuclei: Maeshima et al. 2006, Dultz & Ellenberg 2010). Placed uniformly by area, each along the envelope\'s normal (cytoplasmic ring outside, nucleoplasmic inside), no two closer than Min distance; above the jamming limit fewer fit. 0 = no pores, the target is off. <code>CellField.NuclearPoreDensityPerUm2</code>', 0, 30, 0.1, 8, { fmt: fx(1) }),
     num('npcMinDistNm', 'Min distance', 'nm', 'Smallest centre distance of two pores (180 nm; a pore is about 120 nm across, Maeshima et al. 2006). <code>CellField.NuclearPoreMinDistNm</code>', 0, 500, 5, 180, { adv }),
     num('npcRadiusNm', 'Ring radius', 'nm', 'Radius of the Nup96 rings (53.5 nm; Thevathasan et al. 2019, as webSMLM). <code>CellField.NuclearPoreRadiusNm</code>', 20, 150, 0.5, 53.5, { adv }),
     num('npcRingSepNm', 'Ring separation', 'nm', 'Distance between the cytoplasmic and the nucleoplasmic ring (50 nm; Thevathasan et al. 2019). <code>CellField.NuclearPoreRingSepNm</code>', 0, 150, 1, 50, { adv }),
     num('npcCornerSpreadNm', 'Corner spread', 'nm', 'Each of the 8 corners holds 4 Nup96 on an arc of this diameter (12 nm; webSMLM after Thevathasan et al. 2019). <code>CellField.NuclearPoreCornerSpreadNm</code>', 0, 30, 0.5, 12, { adv }),
+  ] },
+  // The nuclear lamina (2026-10-27; core params lamin*, spec/ALGORITHM.md "Nuclear lamina"): random points on the
+  // envelope, none at the pores. Unlabelled by default (its label group: Dye None).
+  { id: 'lamin', title: 'Nuclear lamina', show: CF, items: [
+    range('mv_lamin-density', 'Density', '/µm²', 'Nuclear lamina points per µm² of nuclear envelope, over the whole envelope (2000; an estimate: a random stand-in for the lamin network, to be replaced by a network later). Placed uniformly by area and independently, none within half the Pore exclusion of a pore centre. Each carries one docking site; its label linkage leaves the point in a random direction. It shows only when labelled (Nuclear lamina label: Dye) or drawn (View: Nuclear lamina). <code>CellField.NuclearLaminaDensityPerUm2</code>', 100, 10000, 100, 2000, { adv, fmt: fx(0) }),
+    num('laminNpcExclNm', 'Pore exclusion', 'nm', 'Diameter of the disc around each nuclear pore\'s centre that holds no lamina point (40 nm; estimate). <code>CellField.NuclearLaminaPoreExclusionNm</code>', 0, 300, 5, 40, { adv }),
   ] },
 
   ...TARGETS.map(labelGroup),
@@ -1134,9 +1151,11 @@ const UI_GROUPS = [
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
   ] },
   { id: 'objective', host: 'lv_objHost', title: 'Objective & PSF', open: true, items: [
+    num('mv_na', 'NA', 'NA', 'Numerical aperture of the objective (the Objective preset sets it; a value typed here makes the preset Custom). <code>Objective.NA</code>', 0.1, 1.7, 0.01, 1.4, { adv: true }),
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3'),
     select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
+    text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. <code>Objective.ZernikeCoefficients</code>', undefined, { maxlength: 400 }),
     button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
   ] },
   // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
@@ -1237,7 +1256,7 @@ const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus
 const dyeNameOf = P => isNone(choiceOf(P)) ? 'None' : USER_DYES.isUser(choiceOf(P)) ? USER_DYES.name(USER_DYES.slot(choiceOf(P))) : choiceDye(choiceOf(P)).name;
 const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, autoLightPreset, brightField: BF, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
   structure: () => mounted().targets[0].structure, specimen: () => mounted().id, isNone, noneValue: DYE_NONE_V, dyeNameOf,
-  dyeName: () => dyeNameOf(curPrefix()) };
+  dyeName: () => dyeNameOf(curPrefix()), refreshUserDyes };
 return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
 })();
 </script>
@@ -1335,7 +1354,7 @@ function renderEntry(e, host, g, parent) {
   } else if (e.kind === 'text') {
     row = h('div', { class: 'opt text' });
     const ctl = h('div', { class: 'ctl' });
-    ctl.append(h('input', { type: 'text', id: e.id, value: e.value, maxlength: 40 }));
+    ctl.append(h('input', { type: 'text', id: e.id, value: e.value === undefined ? '' : e.value, maxlength: e.maxlength || 40 }));
     row.append(labelCell(e, e.id), ctl, h('div', { class: 'val' }));
   } else {
     row = h('div', { class: 'opt ' + e.kind });
@@ -1545,7 +1564,8 @@ for (const r of entries) {
       const vals = r.presets[el.value];
       if (vals) for (const k in vals) setValue(k, vals[k]);
     });
-    if (r.apply) el.addEventListener('input', () => { const vals = r.apply(el.value); for (const k in vals) if (+$(k).value !== vals[k]) setValue(k, vals[k]); });
+    // (while a settings file is applied, self.ISC_QUIET: the file's values, not what a pick would load with them)
+    if (r.apply) el.addEventListener('input', () => { const vals = r.apply(el.value); if (self.ISC_QUIET) return; for (const k in vals) if (+$(k).value !== vals[k]) setValue(k, vals[k]); });
     // A preset select fires input before change: syncing on that input would match its unchanged kids and put the
     // old preset back before change applies the new one, so a preset syncs only after applying (on change).
     if (r.kind !== 'preset') el.addEventListener('input', sync);
@@ -1738,8 +1758,10 @@ function setStopsU(u, stops) {
   gl.uniform3fv(u.u_stops, a); gl.uniform1i(u.u_nst, Math.min(6, stops.length));
 }
 function lineStops(kind) {
-  const isNpc = kind === K['npc.lines'], el = document.getElementById(isNpc ? 'npcMap' : 'mtMap');
-  return (el && LINE_MAPS[el.value]) || (isNpc ? PORE_STOPS : MT_STOPS);
+  const [id, def] = kind === K['npc.lines'] ? ['npcMap', PORE_STOPS] : kind === K['lamin.surface'] ? ['laminMap', LINE_MAPS.greens]
+    : ['mtMap', MT_STOPS];
+  const el = document.getElementById(id);
+  return (el && LINE_MAPS[el.value]) || def;
 }
 function depthRGB(z, zmin, zmax, stops = DEPTH_STOPS) {
   const t = zmax > zmin ? (z - zmin) / (zmax - zmin) : 0.5;
@@ -1811,6 +1833,28 @@ const host = document.getElementById('canvasHost');
 // nucleus in one corner of the camera's field, microtubules out to the cell edge, a strip of empty coverslip.
 const START = { cx: 14.8, cy: -6.0 };
 const view = { cx: START.cx, cy: START.cy, scale: 9, tiltRad: 0, azRad: 0, pz: 0 };
+// The position in the sample (the view's centre = the stage) and the zoom survive a reload (2026-10-29), as the
+// controls do (live/persist.js, its key prefix, so Reset all forgets them with the rest): saved after each frame
+// that moved them, set at start (so the packing starts there) and again once the controls are restored (the
+// Sample's handler sets the zoom).
+const VIEW_POS_KEY = 'isc.set.view.pos';
+let viewPosSaved = '', viewPosReady = false;
+function loadViewPos() {
+  try {
+    const v = (localStorage.getItem(VIEW_POS_KEY) || '').split(',').map(Number);
+    if (v.length === 3 && v.every(Number.isFinite) && v[2] > 0) { view.cx = v[0]; view.cy = v[1]; view.scale = v[2]; return true; }
+  } catch (e) { /* storage blocked */ }
+  return false;
+}
+function saveViewPos() {
+  if (!viewPosReady) return;
+  const s = [view.cx, view.cy, view.scale].map(v => +v.toFixed(4)).join(',');
+  if (s === viewPosSaved) return;
+  viewPosSaved = s;
+  try { localStorage.setItem(VIEW_POS_KEY, s); } catch (e) { /* private window */ }
+}
+loadViewPos();
+window.addEventListener('isc-restored', () => { if (loadViewPos()) requestDraw(); viewPosReady = true; });
 
 const els = {};
 // The one Seed (the Sample group): the world is drawn from seed ^ 'CELL' (as Micro-Manager's hub and the cli derive it),
@@ -1833,7 +1877,8 @@ const worldSeed = () => (noiseSeed() ^ 0x43454C4C) | 0;
  'mtMinSeparation', 'mtMinSeparationVal',
  'mtMaxZSlope', 'mtMaxZSlopeVal',
  'mv_npc-density', 'mv_npc-densityVal', 'npcMinDistNm', 'npcRadiusNm', 'npcRingSepNm', 'npcCornerSpreadNm',
- 'showDyes', 'mtMap', 'npcMap', 'nucMap', 'zFollow', 'zSoft', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showGrid', 'resetView', 'randomCell', 'prevCell',
+ 'mv_lamin-density', 'mv_lamin-densityVal', 'laminNpcExclNm',
+ 'showDyes', 'mtMap', 'npcMap', 'nucMap', 'laminMap', 'zFollow', 'zSoft', 'tiltDeg', 'tiltDegVal', 'showXZ', 'showCyto', 'showNucleus', 'showMt', 'showNpcs', 'showLamin', 'showGrid', 'resetView', 'randomCell', 'prevCell',
  'azimuthDeg', 'azimuthDegVal', 'perspDeg', 'perspDegVal', 'perspMist', 'perspMistVal', 'perspCut', 'zClipMin', 'zClipMax', 'detailCells', 'sceneScope', 'theme', 'pivotZ',
  'dataSlice', 'sliceZ', 'sliceZVal', 'opaqueSlices', 'cropData', 'stackStepUm', 'srStepUm', 'srFramesShown', 'wfAverage', 'planeTimes', 'dataStatus',
  'showWfIso', 'isoLevel', 'isoLevelVal', 'showLocs', 'locSpread', 'locFrames', 'locPrecXyNm', 'locPrecZNm', 'captureNm',
@@ -1910,6 +1955,9 @@ function params() {
     npcRadiusNm: Math.max(0, +els.npcRadiusNm.value),
     npcRingSepNm: Math.max(0, +els.npcRingSepNm.value),
     npcCornerSpreadNm: Math.max(0, +els.npcCornerSpreadNm.value),
+    // The nuclear lamina (2026-10-27): the density is the engine's lamin-density option (mv_lamin-density).
+    laminDensity: Math.max(0, +els['mv_lamin-density'].value),
+    laminNpcExclNm: Math.max(0, +els.laminNpcExclNm.value),
     // The DNA-origami nanorulers (the Sample select at 1 = data/specimens.json's Nanorulers = core param specimen 1):
     // their core params, only then, so a cell field's params (and every cache keyed on them) stay as they were.
     ...(+els.mv_specimen.value === 1 ? {
@@ -1933,10 +1981,9 @@ function params() {
 // targets in structure order: microtubules, nuclear pores, docking strands), the labelled site fraction, the
 // fluorescent fraction of the dye in use and the label linkage (World.setLabels / isc_world_set_label). Dye None: no
 // dyes (density 0).
-// The structures' built-in linkage numbers (dyes.js LEGACY_LINKAGE), for a Built-in attachment with a number overridden;
-// until the module is in, such a label takes the built-in numbers whole.
+// The structures' built-in linkage numbers (the C++ LegacyLinkageNm, from the first setup job: onSetup), for a Built-in
+// attachment with a number overridden; until then such a label takes the built-in numbers whole.
 let legacyLinkage = null;
-import('./prototype/scope/dyes.js').then(D => { legacyLinkage = D.LEGACY_LINKAGE; requestDraw(); }, e => console.warn('dyes.js:', e));
 const LINKAGE_KEYS = [['binder-nm', 'binderNm'], ['binder-flex-nm', 'binderFlexNm'], ['linker-min-nm', 'linkerMinNm'], ['linker-max-nm', 'linkerMaxNm']];
 // A target's linkage as the panel has it (scope_movie.js scopeLinkage, dyes.js normLinkage); null = the structure's
 // built-in numbers (or no linkage model).
@@ -1977,11 +2024,12 @@ function mapCss(stops) {
 }
 function lookStops(kindId) {
   const th = IscScene.THEMES[els.theme.value] || IscScene.THEMES.viewer, col = th.layers[kindId] && th.layers[kindId].color;
-  return col ? [[col[0] / 255, col[1] / 255, col[2] / 255]] : (kindId === 'npc.lines' ? PORE_STOPS : kindId === 'nucleus.surface' ? DEPTH_STOPS : MT_STOPS);
+  return col ? [[col[0] / 255, col[1] / 255, col[2] / 255]] : (kindId === 'npc.lines' ? PORE_STOPS : kindId === 'nucleus.surface' ? DEPTH_STOPS
+    : kindId === 'lamin.surface' ? LINE_MAPS.greens : MT_STOPS);
 }
 const mapPickers = [];
 const closeMapLists = except => { for (const m of mapPickers) if (m !== except) m.list.hidden = true; };
-for (const [id, kindId] of [['mtMap', 'mt.lines'], ['npcMap', 'npc.lines'], ['nucMap', 'nucleus.surface']]) {
+for (const [id, kindId] of [['mtMap', 'mt.lines'], ['npcMap', 'npc.lines'], ['nucMap', 'nucleus.surface'], ['laminMap', 'lamin.surface']]) {
   const sel = els[id];
   if (!sel || !sel.parentNode) continue;
   const lsKey = 'isc.ui.' + id;   // the choice is remembered across reloads
@@ -2020,7 +2068,7 @@ function updateMapChips() {
     cur.firstChild.style.background = css(sel.value); cur.lastChild.textContent = opt ? opt.textContent : '';
   }
 }
-for (const id of ['mtMap', 'npcMap', 'nucMap', 'theme']) for (const ev of ['input', 'change']) els[id].addEventListener(ev, updateMapChips);
+for (const id of ['mtMap', 'npcMap', 'nucMap', 'laminMap', 'theme']) for (const ev of ['input', 'change']) els[id].addEventListener(ev, updateMapChips);
 updateMapChips();
 
 // Follow live focus: the Z clip = the focal plane (mv_z, the live focus) +- ZFOLLOW_UM, set on the Z clip's own boxes.
@@ -2090,6 +2138,7 @@ function stateFromUI() {
   if (els.showNucleus.checked) layers['nucleus.surface'] = mapOver('nucMap');
   if (els.showMt.checked) layers['mt.lines'] = mapOver('mtMap');
   if (els.showNpcs.checked) layers['npc.lines'] = mapOver('npcMap');
+  if (els.showLamin.checked && p.laminDensity > 0) layers['lamin.surface'] = mapOver('laminMap');
   const sliceStyle = els.opaqueSlices.checked ? { style: { blend: 'alpha' } } : {};
   const slice = els.dataSlice.value;   // the image slice: one of the image data layers (or none)
   if (slice === 'wf' || slice === 'wfSum') layers['mt.wfSlice'] = { style: Object.assign({}, sliceStyle.style, slice === 'wfSum' ? { sumZ: true } : {}) };
@@ -2253,16 +2302,18 @@ const LINE_DEPTH_BIAS = 0.25;         // um: a contour line sorts after the surf
 const COL_OUTLINE = [90, 169, 230, 0.25], COL_CONTOUR = [20, 30, 45, 0.55];
 const ALPHA_CYTO = 0.6, ALPHA_NUC = 0.5;
 const ORDER_Q = 0.5 * Math.PI / 180, ORDER_BUDGET_MS = 4;
-// kinds a cell outside the detail budget does not draw (microtubules, pores, dyes); a faint neighbour also
+// kinds a cell outside the detail budget does not draw (microtubules, pores, lamina, dyes); a faint neighbour also
 // drops its contour lines
 const K = IscScene.KIND, IV = IscScene.IV_MAX;
-const HIDE_PLAIN = (1 << K['mt.lines']) | (1 << K['mt.dyes']) | (1 << K['npc.lines']);
+const HIDE_PLAIN = (1 << K['mt.lines']) | (1 << K['mt.dyes']) | (1 << K['npc.lines']) | (1 << K['lamin.surface']);
 const HIDE_GHOST = HIDE_PLAIN | (1 << K['cyto.contours']);
 let frameExact = false, sortDeadline = Infinity, orderStale = false;
 let animPlaying = false;   // an animation preview is playing (the camera moves every frame)
 
 // The nucleus surface rings in the cell's local frame (x, y, z per point, np points per ring, bottom pole to top
-// pole): the engine's rings (asset.nuc) when it sends them, else the plain ellipsoid of the pack record.
+// pole): the engine's rings (asset.nuc) when it sends them, else the plain ellipsoid of the pack record. The engine's
+// close a widened base or top with its cap's rings (2026-10-29: they ended at the cap's rim, so the flat base was
+// missing from the nucleus and lamina surfaces).
 function nucRingsLocal(c, entry) {
   if (entry.nuc) return { xyz: entry.nuc, np: entry.nucPts };
   const xyz = new Float64Array(NUC_RINGS * NUC_PTS * 3), ct = Math.cos(c.nucRot), st = Math.sin(c.nucRot), rz = c.nucHeight / 2;
@@ -2453,6 +2504,32 @@ function drawCell2D(c, asset, p, F, cf) {
     }
     ctx.restore();
   }
+  const kLam = K['lamin.surface'];
+  if (on(kLam)) {   // the lamina's surface: the nuclear envelope's quads back to front, in the Z clip
+    ensureOrder(r, entry, t, p.cytoContourStep, cf.detailed);
+    const css = slotCss(F, kLam * IV, cf.alpha, null), nl = css ? 1 : LAMIN_LEVELS, stops = css ? null : lineStops(kLam);
+    const a = Z.st[4 * kLam * IV + 3] * cf.alpha, cols = new Map(), { lx, ly, h, qidx } = r;
+    const dens = entry.laminDens && entry.laminDens.length === r.nv - r.nvC ? entry.laminDens : null;
+    const X = v => t.ox + (lx[v] * t.cr - ly[v] * t.sr) * t.S;
+    const Y = v => t.H2 + ((t.oy + lx[v] * t.sr + ly[v] * t.cr) * t.cosT - (h[v] - t.pz) * t.sinT) * t.S;
+    for (const q of r.order) {
+      if (q < r.nqC || q >= r.nq || r.qavgH[q] < F.zc[0] || r.qavgH[q] > F.zc[1]) continue;
+      const lv = laminLevel(r.qavgH[q], c.height, nl), b = 4 * q;
+      const dq = dens ? Math.round(Math.min(1, (dens[qidx[b] - r.nvC] + dens[qidx[b + 1] - r.nvC] + dens[qidx[b + 2] - r.nvC] + dens[qidx[b + 3] - r.nvC]) / 4) * 20) : 20;
+      if (!dq) continue;
+      const ck = lv * 32 + dq;
+      let col = cols.get(ck);
+      if (!col) {
+        col = css ? css.replace(/[\d.]+\)$/, m => (parseFloat(m) * dq / 20) + ')') : depthColor((lv + 0.5) / nl * c.height, 0, c.height, a * dq / 20, stops);
+        cols.set(ck, col);
+      }
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(X(qidx[b]), Y(qidx[b])); ctx.lineTo(X(qidx[b + 1]), Y(qidx[b + 1]));
+      ctx.lineTo(X(qidx[b + 2]), Y(qidx[b + 2])); ctx.lineTo(X(qidx[b + 3]), Y(qidx[b + 3]));
+      ctx.fill();
+    }
+  }
   if (!(on(0) || on(1) || on(2) || on(3))) return;
   ensureOrder(r, entry, t, p.cytoContourStep, cf.detailed);
   const { lx, ly, h, sx, sy, qidx, order, nq, nqC, qcx, qcy, qavgH } = r, L = r.lines, seg = L.seg;
@@ -2529,7 +2606,7 @@ function drawCell2D(c, asset, p, F, cf) {
 // when the cell's effective rotation, the tilt or the contour step change), alpha-blended, depth-tested against
 // the microtubules but not written. Pan/zoom, what is shown and every clip interval only change uniforms.
 // Falls back to the 2D path when WebGL2 is unavailable or the context is lost.
-let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glNpcProg = null, glNpcU = null, glPtProg = null, glPtU = null, glSliceProg = null, glSliceU = null, glIsoProg = null, glIsoU = null, glLocProg = null, glLocU = null;
+let gl = null, useGl = false, glProg = null, glU = null, glMtProg = null, glMtU = null, glNpcProg = null, glNpcU = null, glLamProg = null, glLamU = null, glPtProg = null, glPtU = null, glSliceProg = null, glSliceU = null, glIsoProg = null, glIsoU = null, glLocProg = null, glLocU = null;
 // u_off: the cell centre's turned-frame offset from the pivot, u_rot: its effective rotation (cos, sin), u_tilt:
 // (sin, cos) of the tilt, u_pz: the pivot height, u_persp: 1 / the eye's distance (0 = orthographic; core.js). worldOf() is a point's turned-frame (u, v) offset from the pivot.
 const GL_COMMON = `
@@ -2622,6 +2699,15 @@ void main() {
   s += vec2(float(gl_VertexID & 1) * 2.0 - 1.0, float(gl_VertexID >> 1) * 2.0 - 1.0) * u_ptHalf;
   gl_Position = clipOf(s, depthOf(a_pt.xyz, w));
   v_w = vec3(w, a_pt.z);
+}`;
+// A surface in a cell's own frame (the nuclear lamina): a_p cell-local x, y, z and w = an opacity factor (the lamina's
+// density relative to the set one).
+const GL_SURF_VS = `#version 300 es
+in vec4 a_p; out vec3 v_w; out float v_d;` + GL_COMMON + `
+void main() {
+  vec2 w = worldOf(a_p.xyz), s = screenOf(a_p.xyz, w);
+  gl_Position = clipOf(s, depthOf(a_p.xyz, w));
+  v_w = vec3(w, a_p.z); v_d = a_p.w;
 }`;
 // Data slices: a polygon in world coordinates relative to the stack's texture origin (u_off/u_rot carry that origin's
 // turned offset and the view rotation), sampled from the stack's 3D texture (R16UI: planes, or planes x frames for
@@ -2751,22 +2837,37 @@ void main() {
 }`;
 // Lines (microtubules, pores): a style without a colour (r < 0) draws the height over the cell's (u_zr) in depth colours.
 // u_stops / u_nst: the height scale (lineStops), 2-6 colours, a piecewise-linear ramp
-const glFsLine = kind => `#version 300 es
-precision highp float;
-in vec3 v_w; in float v_k; out vec4 o; uniform vec2 u_zr; uniform vec3 u_stops[6]; uniform int u_nst; uniform int u_fadePass;` + GL_CLIP + `
+const GL_DEPTH_RGB = `
+uniform vec2 u_zr; uniform vec3 u_stops[6]; uniform int u_nst;
 vec3 depthRGB(float t) {
   float f = clamp(t, 0.0, 0.9999) * float(u_nst - 1);
   int i = int(floor(f));
   vec3 a = u_stops[0], b = u_stops[1];
   for (int k = 0; k < 5; k++) if (k == i) { a = u_stops[k]; b = u_stops[k + 1]; }
   return mix(a, b, f - float(i));
-}
+}`;
+const glFsLine = kind => `#version 300 es
+precision highp float;
+in vec3 v_w; in float v_k; out vec4 o; uniform int u_fadePass;` + GL_CLIP + GL_DEPTH_RGB + `
 void main() {
   vec4 st = zoneStyle(${kind}, v_w);
   if (st.a < 0.0) discard;
   bool faded = v_k > 1.0 || zFade(v_w.z) < 1.0;
   if (faded != (u_fadePass == 1)) discard;   // a faded line writes no depth: it must not hide what is behind it
   float a = st.a * u_cellA / v_k;
+  if (a < 0.004) discard;
+  vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
+  o = fogged(rgb, a, v_w);
+}`;
+// The lamina's surface: a kind's style, or (no colour) the height scale over u_zr; its opacity times v_d (the
+// lamina's density relative to the set one, at most 1: a sparser lamina shows through).
+const glFsDepth = kind => `#version 300 es
+precision highp float;
+in vec3 v_w; in float v_d; out vec4 o;` + GL_CLIP + GL_DEPTH_RGB + `
+void main() {
+  vec4 st = zoneStyle(${kind}, v_w);
+  if (st.a < 0.0) discard;
+  float a = st.a * u_cellA * clamp(v_d, 0.0, 1.0);
   if (a < 0.004) discard;
   vec3 rgb = st.r < 0.0 ? depthRGB((v_w.z - u_zr.x) / max(1e-6, u_zr.y - u_zr.x)) : st.rgb;
   o = fogged(rgb, a, v_w);
@@ -2818,6 +2919,8 @@ function initGl() {
   if (!a || !b || !d) return false;
   glProg = a.pr; glU = a.u; glMtProg = b.pr; glMtU = b.u; glPtProg = d.pr; glPtU = d.u;
   if (np) { glNpcProg = np.pr; glNpcU = np.u; } else console.warn('nuclear pores unavailable (shader)');
+  const lam = link(GL_SURF_VS, glFsDepth(K['lamin.surface']), ['a_p'], ['u_zr', 'u_stops', 'u_nst']);
+  if (lam) { glLamProg = lam.pr; glLamU = lam.u; } else console.warn('nuclear lamina unavailable (shader)');
   if (e) { glSliceProg = e.pr; glSliceU = e.u; } else console.warn('data slices unavailable (shader)');
   const iso = link(GL_ISO_VS, GL_ISO_FS, ['a_p', 'a_n'], []);
   if (iso) { glIsoProg = iso.pr; glIsoU = iso.u; } else console.warn('thresholded surface unavailable (shader)');
@@ -2825,7 +2928,7 @@ function initGl() {
   if (loc) { glLocProg = loc.pr; glLocU = loc.u; } else console.warn('localizations unavailable (shader)');
   cvGl.addEventListener('webglcontextlost', e => {
     e.preventDefault();
-    for (const a of assets.values()) if (a.entry) { a.entry.gl = null; a.entry.mtGl = null; a.entry.npcGl = null; } // buffers died with the context
+    for (const a of assets.values()) if (a.entry) { a.entry.gl = null; a.entry.mtGl = null; a.entry.npcGl = null; a.entry.laminGl = null; } // buffers died with the context
     dyeGl = null; sliceGl = null; capFb = null;
     for (const st of stackStore.values()) { st.tex = st.maskTex = st.texGl = null; }
     for (const e of isoStore.values()) e.gl = null;
@@ -2835,12 +2938,13 @@ function initGl() {
   return true;
 }
 function freeMeshGl(entry) {
-  const g = entry.gl, m = entry.mtGl, n = entry.npcGl;
-  entry.gl = null; entry.mtGl = null; entry.npcGl = null;
+  const g = entry.gl, m = entry.mtGl, n = entry.npcGl, lm = entry.laminGl;
+  entry.gl = null; entry.mtGl = null; entry.npcGl = null; entry.laminGl = null;
   if (!gl || gl.isContextLost()) return;
   if (g) { gl.deleteBuffer(g.vbo); gl.deleteBuffer(g.ibo); gl.deleteVertexArray(g.vao); }
   if (m) for (const l of m.values()) { gl.deleteBuffer(l.vbo); gl.deleteVertexArray(l.vao); }
   if (n) { gl.deleteBuffer(n.vbo); gl.deleteVertexArray(n.vao); }
+  if (lm) { gl.deleteBuffer(lm.vbo); gl.deleteBuffer(lm.ibo); gl.deleteVertexArray(lm.vao); }
 }
 const GL_STRIDE = 36; // a_pos 3f, a_oth 3f, a_ext 2f, a_col 4 x u8
 // Every kind is in the index buffer (what is shown is a uniform), so it changes only with the depth order.
@@ -3011,6 +3115,35 @@ function ensureNpcGl(entry, npcs, p, arcs) {
   gl.bindVertexArray(null);
   return l;
 }
+// The nuclear lamina is drawn as the surface its points lie on: the nuclear envelope's mesh (getMeshRender's nucleus
+// vertices and quads, ~800 vertices), not the points themselves (2026-10-28: at 2000 per um^2, some 250 000 per
+// nucleus, 22 nm apart, far below the view's detail, and the view slowed to a few frames per second). The 2D fallback
+// colours its quads by height in LAMIN_LEVELS steps of the cell's height.
+const LAMIN_LEVELS = 12;
+const laminLevel = (z, height, nl) => nl > 1 && height > 0 ? Math.min(nl - 1, Math.max(0, Math.floor(z / height * nl))) : 0;
+// The lamina's surface of a cell as triangles (x, y, z cell-local, and the lamina's density relative to the set one:
+// laminDens, 1 until the worker sends it), made once per asset.
+function ensureLaminGl(entry, c) {
+  if (entry.laminGl) return entry.laminGl;
+  const r = getMeshRender(entry, c), nv = r.nv - r.nvC, pos = new Float32Array(4 * nv), idx = new Uint32Array(6 * (r.nq - r.nqC));
+  const dens = entry.laminDens && entry.laminDens.length === nv ? entry.laminDens : null;
+  for (let v = 0; v < nv; v++) {
+    pos[4 * v] = r.lx[r.nvC + v]; pos[4 * v + 1] = r.ly[r.nvC + v]; pos[4 * v + 2] = r.h[r.nvC + v]; pos[4 * v + 3] = dens ? dens[v] : 1;
+  }
+  for (let q = r.nqC, o = 0; q < r.nq; q++) {
+    const b = 4 * q, a0 = r.qidx[b] - r.nvC, a1 = r.qidx[b + 1] - r.nvC, a2 = r.qidx[b + 2] - r.nvC, a3 = r.qidx[b + 3] - r.nvC;
+    idx[o++] = a0; idx[o++] = a1; idx[o++] = a2; idx[o++] = a0; idx[o++] = a2; idx[o++] = a3;
+  }
+  const l = entry.laminGl = { vbo: gl.createBuffer(), ibo: gl.createBuffer(), vao: gl.createVertexArray(), count: idx.length };
+  gl.bindVertexArray(l.vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, l.vbo);
+  gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 16, 0);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, l.ibo);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  return l;
+}
 // The dyes to draw on the GPU (drawDyes keeps it current): {vbo, vao, count, key, ox, oy}, positions relative to
 // the origin (ox, oy) so float32 keeps them exact.
 let dyeGl = null;
@@ -3088,6 +3221,21 @@ function drawSceneGl(cells, p, F) {
     gl.depthFunc(gl.LESS); gl.depthMask(true);
     gl.bindVertexArray(dyeGl.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, dyeGl.count);
+  }
+  const kLam = K['lamin.surface'];
+  if (Z.n[kLam] && glLamProg) {   // opaque pass: the lamina's surface, depth written, per cell in its own frame
+    gl.useProgram(glLamProg); frame(glLamU);
+    setStopsU(glLamU, lineStops(kLam));
+    gl.depthFunc(gl.LESS); gl.depthMask(true);
+    for (const cf of cells) {
+      const { cell: c, asset } = cf;
+      if ((cf.hide >> kLam) & 1) continue;
+      const l = ensureLaminGl(asset.entry, c);
+      cellU(glLamU, c, cf);
+      gl.uniform2f(glLamU.u_zr, 0, c.height);
+      gl.bindVertexArray(l.vao);
+      gl.drawElements(gl.TRIANGLES, l.count, gl.UNSIGNED_INT, 0);
+    }
   }
   if (glSliceProg) drawDataGl(F, F.target, 'opaque');   // opaque data slices: depth written, before the translucent pass
   if (F.zfade) { gl.depthFunc(gl.LEQUAL); gl.depthMask(false); drawLines(1); gl.depthMask(true); gl.depthFunc(gl.LESS); }
@@ -3291,7 +3439,7 @@ function getMtPathXZ(mts, t, yl, yh, zc, tag) {
 }
 // The nucleus as horizontal sections bottom to top, each ring cut to turned y in [y0, y1] (relative to the pivot)
 // and reduced to its leftmost and rightmost point along the turned x: { xl, zl, xr, zr } (turned x relative to the
-// pivot). From nucRingsLocal (both poles included, so they reach the true top and bottom of a shaped nucleus).
+// pivot). From nucRingsLocal (closed at both ends, so they reach the true top and bottom of a shaped nucleus).
 function nucXZSections(c, entry, t, y0, y1) {
   // cached per cell for its pose in the view and the y range (a live frame redraws the view without moving it)
   const key = [t.ou, t.oy, t.cr, t.sr, y0, y1].join('|'), hit = entry.nucXZ;
@@ -3323,9 +3471,10 @@ function updateLegend(Z, st, nr) {
   const grad = stops => 'linear-gradient(90deg,' + stops.map(c => `rgb(${c[0] * 255 | 0},${c[1] * 255 | 0},${c[2] * 255 | 0})`).join(',') + ')';
   const mtDepth = grad(lineStops(K['mt.lines']));
   const poreDepth = grad(lineStops(K['npc.lines'])) + ' ';   // (a trailing space: never equal to mtDepth)
+  const laminDepth = grad(lineStops(K['lamin.surface'])) + '   ';
   const sw = k => {
     const o = 4 * k * IV, s = Z.st;
-    return s[o] < 0 ? (k === K['npc.lines'] ? poreDepth : k === K['mt.lines'] ? mtDepth : k === K['nucleus.surface'] && nucScale(els.nucMap.value) ? grad(nucScale(els.nucMap.value)) + '  ' : depth) : `rgb(${s[o] * 255 | 0},${s[o + 1] * 255 | 0},${s[o + 2] * 255 | 0})`;
+    return s[o] < 0 ? (k === K['npc.lines'] ? poreDepth : k === K['lamin.surface'] ? laminDepth : k === K['mt.lines'] ? mtDepth : k === K['nucleus.surface'] && nucScale(els.nucMap.value) ? grad(nucScale(els.nucMap.value)) + '  ' : depth) : `rgb(${s[o] * 255 | 0},${s[o + 1] * 255 | 0},${s[o + 2] * 255 | 0})`;
   };
   const on = id => Z.n[K[id]] > 0, items = [];
   if (nr) { if (on('ruler.outline')) items.push([sw(K['ruler.outline']), 'nanoruler (DNA origami)']); }
@@ -3335,6 +3484,7 @@ function updateLegend(Z, st, nr) {
     if (on('nucleus.surface')) items.push([sw(K['nucleus.surface']), 'nucleus']);
     if (on('mt.lines')) items.push([sw(K['mt.lines']), 'microtubules']);
     if (on('npc.lines')) items.push([sw(K['npc.lines']), 'nuclear pores']);
+    if (on('lamin.surface')) items.push([sw(K['lamin.surface']), 'nuclear lamina']);
   }
   if (on('mt.dyes')) items.push([sw(K['mt.dyes']), 'dyes']);
   if (st.layers['fid.beads']) {
@@ -3342,7 +3492,7 @@ function updateLegend(Z, st, nr) {
     items.push([`rgb(${c[0]},${c[1]},${c[2]})`, 'fiducial beads']);
   }
   if (st.grid && !nr) items.push(['#4a5668', 'chunk grid']);
-    const html = items.map(([c, t], i) => `<span style="white-space:nowrap${i ? ';margin-left:10px' : ''}"><span class="sw" style="background:${c}${c === depth || c === poreDepth || c === mtDepth ? ';width:18px' : ''}"></span>${t}</span>`).join(' ');
+    const html = items.map(([c, t], i) => `<span style="white-space:nowrap${i ? ';margin-left:10px' : ''}"><span class="sw" style="background:${c}${c === depth || c === poreDepth || c === mtDepth || c === laminDepth ? ';width:18px' : ''}"></span>${t}</span>`).join(' ');
   if (html === legendKey) return;
   legendKey = html;
   const el = document.getElementById('legend');
@@ -3470,6 +3620,19 @@ function drawXZWith(vis, p, F, cam) {
       if (list) strokeNpcs(list);
     }
     if (!nucDone) drawNucleus();
+    const kLam = K['lamin.surface'];
+    if (on(kLam, cf)) {   // the lamina's surface: the nuclear envelope's outline in the view's turned-y range, filled
+      const sec = nucXZSections(c, asset.entry, t, y0, y1);
+      if (sec.length) {
+        const css = slotCss(F, kLam * IV, cf.alpha, null), path = new Path2D();
+        path.moveTo(X(sec[0].xl), Y(sec[0].zl));
+        for (const s of sec) path.lineTo(X(s.xl), Y(s.zl));
+        for (let k = sec.length - 1; k >= 0; k--) path.lineTo(X(sec[k].xr), Y(sec[k].zr));
+        path.closePath();
+        g.fillStyle = css || depthGrad(z0, opa(kLam, 1), lineStops(kLam));
+        g.fill(path);
+      }
+    }
     if (on(kCyto, cf) || on(kOut, cf)) {
       const pr = getXZProfile(asset.entry, c, t.rot, yl, yh);
       if (pr) {
@@ -3563,7 +3726,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 15) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 15');
+  if (M._isc_abi_version() !== 16) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 16');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -3613,6 +3776,7 @@ function iscEngine(M) {
   const LABEL_MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'], ORIENT_MODES = ['Free', 'Fixed', 'Random'];
   const linkageVector = lk => lk ? [lk.binderNm, lk.binderFlexNm, lk.linkerMinNm, lk.linkerMaxNm] : [NaN, NaN, NaN, NaN];
   function labelVector(l) {
+    if (Array.isArray(l)) return l;
     if (!l.mode) return l.linkage ? [l.density, l.fluorescentFraction, 2, 0.01, 0.05, 1, 1, 0.5, 0, 0, 0, 90, 0, 0, 0, 0, ...linkageVector(l.linkage)]
       : [l.density, l.fluorescentFraction];
     const k = l.kinetics, o = l.orientation;
@@ -3665,6 +3829,47 @@ function iscEngine(M) {
       buf = M._malloc(bufBytes);
     }
     return buf;
+  }
+  // The nuclear lamina's density at each nucleus ring vertex (nuc: x, y, z per vertex, cell-local), relative to the
+  // set density perUm2 (1 = as set): the lamina points (isc_cell_lamin, ABI 16) within LAMIN_DENS_R_UM of the vertex
+  // over pi R^2 -- on a smooth surface the part inside a ball of radius R has the area pi R^2 to second order, whatever
+  // its curvature. The points are read in place (some 250 000 per nucleus at 2000 per um^2), the vertices found
+  // through a grid of cell R over their bounding box (each cell's vertices listed in one array).
+  const LAMIN_DENS_R_UM = 0.3;
+  function laminDensity(w, cx, cy, nuc, perUm2) {
+    const nv = nuc.length / 3, R = LAMIN_DENS_R_UM, R2 = R * R, dens = new Float32Array(nv);
+    let n = M._isc_cell_lamin(w, cx, cy, 0, 0), ptr = 0;
+    if (n > 0) { ptr = scratch(n * 6 * 8); n = Math.min(n, M._isc_cell_lamin(w, cx, cy, ptr, n)); }
+    if (!nv) return dens;
+    const lo = [Infinity, Infinity, Infinity];
+    for (let v = 0; v < nv; v++) for (let a = 0; a < 3; a++) lo[a] = Math.min(lo[a], nuc[3 * v + a]);
+    const g = [0, 0, 0], cellOf = new Int32Array(nv);
+    for (let v = 0; v < nv; v++) for (let a = 0; a < 3; a++) g[a] = Math.max(g[a], Math.floor((nuc[3 * v + a] - lo[a]) / R) + 1);
+    const [gx, gy, gz] = g, start = new Int32Array(gx * gy * gz + 1), list = new Int32Array(nv);
+    for (let v = 0; v < nv; v++) {
+      const i = Math.floor((nuc[3 * v] - lo[0]) / R), j = Math.floor((nuc[3 * v + 1] - lo[1]) / R), k = Math.floor((nuc[3 * v + 2] - lo[2]) / R);
+      cellOf[v] = (i * gy + j) * gz + k; start[cellOf[v] + 1]++;
+    }
+    for (let q = 0; q < gx * gy * gz; q++) start[q + 1] += start[q];
+    const fill = start.slice(0, -1);
+    for (let v = 0; v < nv; v++) list[fill[cellOf[v]]++] = v;
+    const H = M.HEAPF64, b = ptr / 8;
+    for (let p = 0; p < n; p++) {
+      const x = H[b + 6 * p], y = H[b + 6 * p + 1], z = H[b + 6 * p + 2];
+      const i0 = Math.floor((x - lo[0]) / R), j0 = Math.floor((y - lo[1]) / R), k0 = Math.floor((z - lo[2]) / R);
+      for (let i = Math.max(0, i0 - 1); i <= Math.min(gx - 1, i0 + 1); i++)
+        for (let j = Math.max(0, j0 - 1); j <= Math.min(gy - 1, j0 + 1); j++)
+          for (let k = Math.max(0, k0 - 1); k <= Math.min(gz - 1, k0 + 1); k++) {
+            const q = (i * gy + j) * gz + k;
+            for (let s = start[q]; s < start[q + 1]; s++) {
+              const v = list[s], ex = nuc[3 * v] - x, ey = nuc[3 * v + 1] - y, ez = nuc[3 * v + 2] - z;
+              if (ex * ex + ey * ey + ez * ez < R2) dens[v]++;
+            }
+          }
+    }
+    const s = perUm2 > 0 ? 1 / (Math.PI * R2 * perUm2) : 0;
+    for (let v = 0; v < nv; v++) dens[v] *= s;
+    return dens;
   }
   // Calls fn(ptr, cap) (the ABI's cap/total convention) until the buffer is big
   // enough; returns a copy of the n*stride doubles written.
@@ -3739,39 +3944,32 @@ function iscEngine(M) {
     return [res, res.frames ? [res.frames.buffer] : []];
   }
   // A live frame (web/live/live.js): one frame of the sample at d.t, or d.n frames at once (a recording chunk:
-  // isc_live_frames, one movie on the sample's clock). Without the module's live session: a movie of d.n frames at
-  // start-sec = d.t (no sample history), then t advances by the exposure per frame.
+  // isc_live_frames, one movie on the sample's clock).
   function liveFrame(d, post) {
     const nF = Math.max(1, d.n | 0);
-    if (M._isc_live_frame && (nF === 1 || M._isc_live_frames)) {
-      if (d.reset) M._isc_live_reset();
-      if (M._isc_live_profile && !!d.profile !== !!self.iscLiveProfile) { self.iscLiveProfile = !!d.profile; M._isc_live_profile(d.profile ? 1 : 0); }
-      const tw = performance.now();
-      const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(13 * 8), err = M._malloc(512);
-      M.stringToUTF8(d.spec, s, n);
-      const px = nF > 1 ? M._isc_live_frames(s, nF, d.lit === false ? 0 : 1, info, err, 512) : M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
-      let res;
-      if (px < 0) res = { type: 'live', id: d.id, error: M.UTF8ToString(err) };
-      else {
-        const v = M.HEAPF64.slice(info / 8, info / 8 + 13), p = M._isc_live_image();
-        res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
-          n: nF, t: v[2] + nF * (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), tStart: v[2], clock: v[3], lit: !!v[4],
-          epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
-          paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null, workerMs: performance.now() - tw };
-        if (d.profile && M._isc_live_profile_json) res.profile = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
-      }
-      for (const ptr of [s, info, err]) M._free(ptr);
-      return [res, res.frames ? [res.frames.buffer] : []];
+    if (d.reset) M._isc_live_reset();
+    if (M._isc_live_profile && !!d.profile !== !!self.iscLiveProfile) { self.iscLiveProfile = !!d.profile; M._isc_live_profile(d.profile ? 1 : 0); }
+    const tw = performance.now();
+    const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(13 * 8), err = M._malloc(512);
+    M.stringToUTF8(d.spec, s, n);
+    const px = nF > 1 ? M._isc_live_frames(s, nF, d.lit === false ? 0 : 1, info, err, 512) : M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
+    let res;
+    if (px < 0) res = { type: 'live', id: d.id, error: M.UTF8ToString(err) };
+    else {
+      const v = M.HEAPF64.slice(info / 8, info / 8 + 13), p = M._isc_live_image();
+      res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
+        n: nF, t: v[2] + nF * (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), tStart: v[2], clock: v[3], lit: !!v[4],
+        epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
+        paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null, workerMs: performance.now() - tw };
+      if (d.profile && M._isc_live_profile_json) res.profile = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
     }
-    const exp = +((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000;
-    const r = handle({ type: 'movie', id: d.id, spec: d.spec.replace(/(^| )(start-sec|frames)=\S+/g, '') + ' frames=' + nF + ' start-sec=' + d.t, noGpu: true });
-    const [m, tr] = r;
-    return [{ ...m, type: 'live', n: nF, tStart: d.t, t: d.t + nF * exp, engine: 'movie' }, tr];
+    for (const ptr of [s, info, err]) M._free(ptr);
+    return [res, res.frames ? [res.frames.buffer] : []];
   }
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'options' || d.type === 'psf' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'options' || d.type === 'setup' || d.type === 'psf' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
         // d (nm) each), on the beads' own world.
@@ -3831,9 +4029,15 @@ function iscEngine(M) {
         const rings = M.HEAP32[ints / 4], n = M.HEAP32[ints / 4 + 1];
         // The nucleus surface rings (ABI 9; cell-local x, y, z, both poles included).
         const nuc = query((ptr, cap) => M._isc_cell_nucleus_rings(w, d.cx, d.cy, ISC_NUC_SLICES, ISC_NUC_PTS, ptr, cap), 3,
-                          ISC_NUC_SLICES * ISC_NUC_PTS);
+                          (ISC_NUC_SLICES + 8) * ISC_NUC_PTS);   // (+ a widened half's cap rings)
         const out = { type: 'cell', key: d.key, sig: d.sig, seed: d.seed, rings, n, mesh, mts: null, nuc, nucPts: ISC_NUC_PTS };
+        // the lamina's density on the nucleus rings, when the view draws the lamina
+        if (d.lamin) {
+          out.withLamin = true;
+          if (d.p.laminDensity > 0) out.laminDens = laminDensity(w, d.cx, d.cy, nuc, d.p.laminDensity);
+        }
         const transfer = [mesh.buffer, nuc.buffer];
+        if (out.laminDens) transfer.push(out.laminDens.buffer);
         if (d.mt) {
           const nMt = M._isc_cell_microtubules(w, d.cx, d.cy, 0, 0, 0, 0, ints);
           const total = M.HEAP32[ints / 4];
@@ -3964,12 +4168,46 @@ function iscEngine(M) {
       }
       if (d.type === 'live') return liveFrame(d, post);
       if (d.type === 'options') {
-        // the movie options the module knows (isc_scope_options: name \t default \t help per line)
+        // the movie options the module knows (isc_scope_options: name \t default \t help \t part \t value names per line)
         const n = M._isc_scope_options(0, 0) + 1, b = M._malloc(n);
         M._isc_scope_options(b, n);
         const lines = M.UTF8ToString(b).split('\n').filter(Boolean).map(l => l.split('\t'));
         M._free(b);
-        return [{ type: 'options', id: d.id, names: lines.map(l => l[0]), defaults: lines.map(l => +l[1]) }, []];
+        return [{ type: 'options', id: d.id, names: lines.map(l => l[0]), defaults: lines.map(l => +l[1]),
+          parts: lines.map(l => l[3] || ''), valueNames: lines.map(l => (l[4] ? l[4].split('|') : null)) }, []];
+      }
+      if (d.type === 'live-replay') {
+        // A saved session's light (web/live/settings_file.js): a fresh sample, then each run of frames without rendering
+        // (isc_live_advance = LiveScope::Advance), so the next live frame is the one the session would have rendered.
+        M._isc_live_reset();
+        const err = M._malloc(512);
+        let error = null;
+        for (const r of d.records) {
+          const n = M.lengthBytesUTF8(r.spec) + 1, s = M._malloc(n);
+          M.stringToUTF8(r.spec, s, n);
+          const rc = M._isc_live_advance(s, Math.max(1, r.n | 0), r.lit === false ? 0 : 1, err, 512);
+          M._free(s);
+          if (rc < 0) { error = M.UTF8ToString(err); break; }
+        }
+        M._free(err);
+        return [{ type: 'live-replay', id: d.id, t: M._isc_live_time(), error }, []];
+      }
+      if (d.type === 'setup') {
+        // A movie spec's resolved setup (isc_scope_setup: JSON of the light path, excitation, labels).
+        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), err = M._malloc(512);
+        M.stringToUTF8(d.spec, s, n);
+        let res;
+        const need = M._isc_scope_setup ? M._isc_scope_setup(s, 0, 0, err, 512) : -2;
+        if (need === -2) res = { type: 'setup', id: d.id, error: 'this viewer module has no isc_scope_setup (regenerate web/insiliscope_module.js)' };
+        else if (need < 0) res = { type: 'setup', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          const b = M._malloc(need + 1);
+          M._isc_scope_setup(s, b, need + 1, err, 512);
+          res = { type: 'setup', id: d.id, setup: JSON.parse(M.UTF8ToString(b)) };
+          M._free(b);
+        }
+        M._free(s); M._free(err);
+        return [res, []];
       }
       if (d.type === 'movie') {
         // The adapter's render code (sim::RenderScopeMovie via isc_scope_movie), on a
@@ -4022,6 +4260,40 @@ function genWorkerMain() {
 const genWorkers = { ok: false, pack: null, cells: [], busy: [], dyes: null };
 let genBlobUrl = null, mainEngine = null, mainEngineStarting = false;
 function coreReady() { return genWorkers.ok || !!mainEngine; }
+// A movie spec's resolved setup (the C++ isc_scope_setup: light path, excitation, labels, the built-in linkages) for
+// the light-path plot, the BFP readout and the data layers; on the dyes worker, the last few kept. Before the core is
+// up the jobs wait (flushSetupWaiting).
+const setupJobs = new Map(), setupWaiting = [], setupCache = new Map();
+let setupJobId = 3e9;
+function setupJob(spec) {
+  const hit = setupCache.get(spec);
+  if (hit) return hit;
+  const p = new Promise((res, rej) => {
+    const go = () => {
+      const job = { type: 'setup', id: ++setupJobId, spec }, done = d => (d.error ? rej(new Error(d.error)) : res(onSetup(d.setup)));
+      if (genWorkers.ok) { setupJobs.set(job.id, done); genWorkers.dyes.postMessage(job); }
+      else if (mainEngine) setTimeout(() => { try { done(mainEngine.handle(job)[0]); } catch (e) { rej(e); } }, 0);
+      else setupWaiting.push(go);
+    };
+    go();
+  });
+  setupCache.set(spec, p);
+  p.catch(() => setupCache.delete(spec));
+  if (setupCache.size > 16) setupCache.delete(setupCache.keys().next().value);
+  return p;
+}
+function flushSetupWaiting() { for (const go of setupWaiting.splice(0)) go(); }
+function onSetupResult(d) { const j = setupJobs.get(d.id); setupJobs.delete(d.id); if (j) j(d); }
+// JSON has no NaN: a label vector's null is NaN (a linkage number left to the structure).
+function onSetup(S) {
+  for (const l of S.labels) l.label_vector = l.label_vector.map(v => (v === null ? NaN : v));
+  if (!legacyLinkage) {
+    legacyLinkage = Object.fromEntries(Object.entries(S.legacy_linkage).map(([id, v]) =>
+      [id, { binderNm: v[0], binderFlexNm: v[1], linkerMinNm: v[2], linkerMaxNm: v[3] }]));
+    requestDraw();
+  }
+  return S;
+}
 // The WASM binary (the base64 inside the module text) decoded and compiled ONCE here and handed to
 // every worker as a WebAssembly.Module, instead of a decode + compile per worker. null when the
 // browser cannot (the workers then compile it themselves, as before).
@@ -4037,11 +4309,8 @@ const wasmModulePromise = (() => {
 function wasmModuleOptions(mod) {
   return mod ? { instantiateWasm(info, done) { WebAssembly.instantiate(mod, info).then(inst => done(inst, mod)); return {}; } } : {};
 }
-// self.ISC_ENGINE_URL (set only by web/lab.html, see web/lab/serve.mjs): an ES module with the same
-// handle() protocol (web/lab/engine.js, the JS reference) replaces the WASM engine.
-const engineUrl = () => self.ISC_ENGINE_URL && new URL(self.ISC_ENGINE_URL, location.href).href;
 function spawnGenWorker() {
-  const w = engineUrl() ? new Worker(engineUrl(), { type: 'module' }) : new Worker(genBlobUrl);
+  const w = new Worker(genBlobUrl);
   w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
   // The shared compiled module (a structured clone); a browser that cannot clone it gets null.
   wasmModulePromise.then(mod => {
@@ -4051,12 +4320,10 @@ function spawnGenWorker() {
 }
 function initGenWorkers() {
   try {
-    if (!engineUrl()) {
-      const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
-        (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
-        iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
-      genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-    }
+    const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
+      (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
+      iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
+    genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
     // (a touch screen: at most 2 cell workers, as each one holds its own WASM heap of >= 96 MB and a phone's tab is
     // stopped well below what a desktop's may use)
     const K = Math.max(1, Math.min(matchMedia('(pointer:coarse)').matches ? 2 : 6, (navigator.hardwareConcurrency || 4) - 2));
@@ -4077,11 +4344,17 @@ function initGenWorkers() {
       else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
       else if (t === 'bf-begin') onBfBegin(e.data);
       else if (t === 'origami') onOrigamiResult(e.data);
-      else if (t === 'options') { if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults); }
+      else if (t === 'options') {
+        // the engine's options by name: default, settings-file part, value names (web/live/settings_file.js)
+        self.ISC_ENGINE_OPTIONS = new Map(e.data.names.map((n, i) => [n, { def: e.data.defaults[i], part: e.data.parts[i], names: e.data.valueNames[i] }]));
+        if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults);
+      }
+      else if (t === 'setup') onSetupResult(e.data);
       else if (t !== 'bf-end') onDyeResult(e);
     };
     genWorkers.ok = true;
-    if (!engineUrl()) genWorkers.dyes.postMessage({ type: 'options', id: 0 });
+    flushSetupWaiting();
+    genWorkers.dyes.postMessage({ type: 'options', id: 0 });
     schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
 }
@@ -4094,17 +4367,13 @@ function disableGenWorkers() {
   startMainEngine();
 }
 // The same engine on the main thread (?nw, or no workers): draw() then calls it
-// synchronously, as the prototype did with its JS generator.
+// synchronously.
 function startMainEngine() {
   if (mainEngine || mainEngineStarting) return;
   mainEngineStarting = true;
-  if (engineUrl()) {
-    import(engineUrl()).then(m => m.createEngine()).then(e => { mainEngine = e; requestDraw(); }).catch(showLoadError);
-    return;
-  }
   try { (0, eval)(self.ISC_MODULE_SRC); } // defines createInsiliscope
   catch (e) { showLoadError(e); return; }
-  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); requestDraw(); })
+  wasmModulePromise.then(mod => createInsiliscope(wasmModuleOptions(mod))).then(M => { mainEngine = iscEngine(M); flushSetupWaiting(); requestDraw(); })
     .catch(showLoadError);
 }
 // The core could not start (no WebAssembly, out of memory, a blocked script): say so where "Loading..." stood, instead
@@ -4225,7 +4494,7 @@ function blocksOfRect(p, [x0, y0, x1, y1]) {
   for (let bx = bx0; bx <= bx1; bx++) for (let by = by0; by <= by1; by++) out.push([bx, by]);
   return out;
 }
-const PACK_KEY_SKIP = /^(mt|npc|showCytoContours$|cytoContourStep$)/;
+const PACK_KEY_SKIP = /^(mt|npc|lamin|showCytoContours$|cytoContourStep$)/;
 function packKey(seed, p) {
   const o = [seed];
   for (const k in p) if (!PACK_KEY_SKIP.test(k)) o.push(k + '=' + p[k]);
@@ -4373,9 +4642,12 @@ function unpackAsset(d) {
   // The worker's typed arrays as they are: the mesh interleaved (x, y, h per vertex k*n + i; its outer
   // ring is the footprint outline), the microtubules as xyz + lens, the nucleus rings as xyz. No per-vertex or
   // per-point objects.
-  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh }, nuc: d.nuc || null, nucPts: d.nucPts || 0 },
+  return { sig: d.sig, seed: d.seed, hasMt: !!d.mts, hasLamin: !!d.withLamin,
+    entry: { mesh: { rings: d.rings, n: d.n, flat: d.mesh }, nuc: d.nuc || null, nucPts: d.nucPts || 0, laminDens: d.laminDens || null },
     mts: d.mts || null, npcs: d.npcs || null, nuc: d.nuc || null, nucPts: d.nucPts || 0 };
 }
+// An asset holds what the view wants of it: the microtubules (and pores) for mt, the lamina's density for lamin.
+const assetHas = (a, mt, lamin) => (a.hasMt || !mt) && (a.hasLamin || !lamin);
 function onCellResult(wi, d) {
   genWorkers.busy[wi] = null;
   if (assetInflight.get(d.key) === d.sig) assetInflight.delete(d.key);
@@ -4391,7 +4663,7 @@ function onCellResult(wi, d) {
 // Sends the most wanted missing assets to whichever cell workers are idle: the detailed cells first (with their
 // microtubules), then the other visible cells (cytoplasm only: no microtubules there), then a prefetch ring; each
 // nearest the view centre first. v.mtKeys: the cells whose asset should carry microtubules (the detailed ones and
-// the next few, so a cell entering the budget has them already).
+// the next few, so a cell entering the budget has them already); v.lamin: those also carry the lamina's density.
 function pumpAssets() {
   if (!genWorkers.ok || !lastView) return;
   const v = lastView;
@@ -4400,9 +4672,9 @@ function pumpAssets() {
   const px = Math.ceil(w * PREFETCH_VIEWS), py = Math.ceil(h * PREFETCH_VIEWS);
   const mx = (v.cx0 + v.cx1) / 2, my = (v.cy0 + v.cy1) / 2, cand = [];
   const want = (key, cell, inView) => {
-    const a = assets.get(key), mt = v.mtKeys.has(key);
-    if ((a && a.sig === v.sig && (a.hasMt || !mt)) || assetInflight.get(key) === v.sig) return;
-    cand.push({ key, cell, mt, rank: (v.detail.has(key) ? 0 : inView ? 1e6 : 2e6) + Math.hypot(cell.cx - mx, cell.cy - my) });
+    const a = assets.get(key), mt = v.mtKeys.has(key), lamin = mt && v.lamin;
+    if ((a && a.sig === v.sig && assetHas(a, mt, lamin)) || assetInflight.get(key) === v.sig) return;
+    cand.push({ key, cell, mt, lamin, rank: (v.detail.has(key) ? 0 : inView ? 1e6 : 2e6) + Math.hypot(cell.cx - mx, cell.cy - my) });
   };
   for (let cx = v.cx0 - px; cx <= v.cx1 + px; cx++) for (let cy = v.cy0 - py; cy <= v.cy1 + py; cy++) {
     const key = cx + ',' + cy, cell = v.map.get(key);
@@ -4415,21 +4687,21 @@ function pumpAssets() {
   let ci = 0;
   for (let wi = 0; wi < genWorkers.busy.length && ci < cand.length; wi++) {
     if (genWorkers.busy[wi]) continue;
-    const { key, cell, mt } = cand[ci++];
+    const { key, cell, mt, lamin } = cand[ci++];
     genWorkers.busy[wi] = key;
     assetInflight.set(key, v.sig);
-    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt,
+    genWorkers.cells[wi].postMessage({ type: 'cell', key, sig: v.sig, seed: v.seed, p: v.p, cx: cell.cx, cy: cell.cy, mt, lamin,
       blocks: blocksForCell(cell) });
   }
 }
 // The asset to draw for `cell` right now, or null if none exists yet (the worker will
 // deliver it and request a redraw). Without workers the core runs here, synchronously.
-function getAsset(cell, key, seed, p, sig, mt) {
+function getAsset(cell, key, seed, p, sig, mt, lamin) {
   const a = assets.get(key);
-  if (a && a.sig === sig && (a.hasMt || !mt)) return a;
+  if (a && a.sig === sig && assetHas(a, mt, lamin)) return a;
   if (!genWorkers.ok) {
     if (!mainEngine) return null;
-    const [d] = mainEngine.handle({ type: 'cell', key, sig, seed, p, cx: cell.cx, cy: cell.cy, mt: true });
+    const [d] = mainEngine.handle({ type: 'cell', key, sig, seed, p, cx: cell.cx, cy: cell.cy, mt: true, lamin });
     if (d.missing) return null;
     disposeAsset(a);
     const fresh = unpackAsset(d);
@@ -4490,7 +4762,7 @@ let drawQueued = false;
 function requestDraw() {
   if (drawQueued) return;
   drawQueued = true;
-  requestAnimationFrame(() => { drawQueued = false; draw(); });
+  requestAnimationFrame(() => { drawQueued = false; draw(); saveViewPos(); });
 }
 
 // A frame drawn from a scene state: stateFromUI() for the main view, an animation's own for its preview and
@@ -4633,8 +4905,8 @@ function renderFrame(st, target) {
   detailPrev = det.set;
   const target0 = scope === 'all' ? null : (st.target || det.order[0] || null);
   F.target = st.target || det.order[0] || null;   // the cell the data layers are made for
-  const sig = assetSig(seed, p), mtKeys = new Set();
-  if (st.layers['mt.lines']) {
+  const sig = assetSig(seed, p), mtKeys = new Set(), wantLamin = !!st.layers['lamin.surface'];
+  if (st.layers['mt.lines'] || st.layers['npc.lines'] || wantLamin) {   // the detailed cells' own assets
     for (const k of det.set) mtKeys.add(k);
     if (scope === 'all' && N > 0) for (const k of det.order.slice(N, N + 3)) mtKeys.add(k);
   }
@@ -4643,14 +4915,14 @@ function renderFrame(st, target) {
   for (const cell of visCells) {
     const key = cell.cx + ',' + cell.cy, detailed = det.set.has(key);
     if (scope === 'target' && key !== target0) continue;
-    const asset = getAsset(cell, key, seed, p, sig, mtKeys.has(key));
+    const asset = getAsset(cell, key, seed, p, sig, mtKeys.has(key), wantLamin && mtKeys.has(key));
     if (!asset) { nLoading++; continue; }
     vis.push(detailed ? { cx: cell.cx, cy: cell.cy, cell, asset, hide: 0, alpha: 1, detailed: true }
       : { cx: cell.cx, cy: cell.cy, cell, asset, hide: scope === 'ghosts' ? HIDE_GHOST : HIDE_PLAIN,
           alpha: scope === 'ghosts' ? ghostA : 1, detailed: false });
-    if (mtKeys.has(key) && detailed && !asset.hasMt) nLoading++;
+    if (mtKeys.has(key) && detailed && (!asset.hasMt || (wantLamin && !asset.hasLamin))) nLoading++;
   }
-  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mtKeys, detail: det.set, vis: visCells };
+  lastView = { seed, p, sig, map, cx0, cx1, cy0, cy1, mtKeys, lamin: wantLamin, detail: det.set, vis: visCells };
   evictAssets();
   pumpAssets();
   if (st.xz) drawXZ(vis, p, F); // before the dyes, which add their x-z points to it
@@ -4693,6 +4965,8 @@ function renderFrame(st, target) {
     Object.assign(hud.dataset, nr ? { rulers: nRulers, cells: '' } : { rulers: '', cells: nCells, onScreen: vis.length,
       detailed: scope === 'all' && N > 0 ? nDet : '', microtubules: nMt, chunks: coreCount });
     hud.dataset.beads = st.layers['fid.beads'] ? nBeads : '';
+    // the cells drawing the lamina's surface (a test reads it)
+    hud.dataset.lamina = st.layers['lamin.surface'] ? vis.filter(v => !((v.hide >> K['lamin.surface']) & 1)).length : '';
     hudText.textContent = [hudHead,
       nr && oriPending ? 'loading nanorulers…' : '', !coreReady() ? 'loading core…' : '',
       blockPending.size ? `packing ${blockPending.size} block${blockPending.size > 1 ? 's' : ''}…` : '', nLoading ? `loading ${nLoading} cells…` : '',
@@ -5473,6 +5747,8 @@ function movieSpec(ov) {
   // The live panel's Configuration (web/live/mm_config_ui.js): a preset's options the panel has no control for.
   const mmExtra = self.ISC_MM_EXTRA || {};
   for (const k in mmExtra) if (!has(k) && !MOVIE_KEYS.includes(k)) o.push(k + '=' + mmExtra[k]);
+  // Zernike modes typed over the preset's (ZERN, below): all 28
+  if (self.ISC_ZERN && ISC_ZERN.user) ISC_ZERN.user.forEach((v, j) => { if (!has('zern.' + j)) o.push('zern.' + j + '=' + v); });
   if (!has('seed')) o.push('seed=' + noiseSeed());
   o.push('world-seed=' + (worldSeed() >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
@@ -5510,7 +5786,7 @@ function bfSplitWanted() {
   const drifting = ['drift-xy-nm-per-sqrt-sec', 'drift-z-nm-per-sqrt-sec', 'drift-xy-speed-nm-per-sec', 'drift-z-speed-nm-per-sec']
     .some(k => +document.getElementById('mv_' + k).value !== 0);
   return document.getElementById('mv_modality').value === '1' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough && !drifting &&
-    !self.ISC_ENGINE_URL && !/[?&]bfsplit=0/.test(location.search);
+    !/[?&]bfsplit=0/.test(location.search);
 }
 function cancelBfSplit() {
   if (!bfSplit) return;
@@ -5552,7 +5828,7 @@ function finishBfSplit() {
 }
 function makeMovie() {
   cancelBfSplit();
-  iscTrack('make-movie', { modality: modality() === 1 ? 'brightfield' : 'fluorescence' });
+  iscTrack('make-movie', { modality: document.getElementById('mv_modality').value === '1' ? 'brightfield' : 'fluorescence' });
   const spec = movieSpec();
   const size = +document.getElementById('mv_size').value * (+document.getElementById('mv_pixel-nm').value) / 1000;
   const rect = [view.cx - size / 2, view.cy - size / 2, view.cx + size / 2, view.cy + size / 2];
@@ -5680,22 +5956,24 @@ function toggleMoviePlay() {
   movieRaf = requestAnimationFrame(tick);
 }
 // Little-endian baseline TIFF: one uncompressed 16-bit grey page per frame,
-// the spec in the first page's ImageDescription (the cli writes the same layout).
+// the spec in the first page's ImageDescription.
 // pxUm (optional): the pixel size, as ImageJ writes it (XResolution/YResolution = pixels per unit, ResolutionUnit
 // none, "unit=micron" in the description), on every page.
+// Every page's tags come first, then the frames back to back: a description starting "ImageJ=" (the Record TIFF) makes
+// ImageJ / Fiji read the frames as one contiguous block from the first page's data, without reading the other pages'
+// tags (tags between the frames shifted every frame after the first, 2026-10-28).
 function writeTiff16(frames, w, h, n, desc, pxUm) {
   const enc = new TextEncoder().encode(desc + '\0'), px = w * h, res = pxUm > 0;
   const entries = p => (p === 0 ? 10 : 9) + (res ? 3 : 0), ifdBytes = p => 2 + 12 * entries(p) + 4 + (res ? 16 : 0);
   const ppu = res ? Math.round(1e6 / pxUm) : 0;   // pixels per micron x 1e6 (a RATIONAL ppu / 1e6)
-  let size = 8;
-  for (let p = 0; p < n; p++) size += px * 2 + (p === 0 ? enc.length + (enc.length & 1) : 0) + ifdBytes(p);
-  const buf = new ArrayBuffer(size), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let head = 8 + enc.length + (enc.length & 1);
+  for (let p = 0; p < n; p++) head += ifdBytes(p);
+  const buf = new ArrayBuffer(head + n * px * 2), dv = new DataView(buf), u8 = new Uint8Array(buf);
   dv.setUint16(0, 0x4949, true); dv.setUint16(2, 42, true);
+  new Uint16Array(buf, head, n * px).set(frames.subarray ? frames.subarray(0, n * px) : frames.slice(0, n * px));
   let pos = 8, link = 4;
   for (let p = 0; p < n; p++) {
-    const data = pos;
-    for (let i = 0; i < px; i++) dv.setUint16(pos + 2 * i, frames[p * px + i], true);
-    pos += px * 2;
+    const data = head + p * px * 2;
     let descOff = 0;
     if (p === 0) { descOff = pos; u8.set(enc, pos); pos += enc.length + (enc.length & 1); }
     let resOff = 0;
@@ -5767,17 +6045,28 @@ function layerNote(id) {
   return kind === 'dyes' ? DYE_UI.dyeName() : DYE_UI.dyeName() + ', ' + dataMode(kind === 'loc' ? 'sr' : kind);
 }
 const dataStartSec = () => Math.max(0, +document.getElementById('mv_start-sec').value || 0);
-// The world labels and photophysics an SMLM data layer's movie has (scope_movie.js scopeLabels on its spec: mode,
-// kinetics from the dye and light path, detected photons per second while ON), for the localizations' blinks; null
-// until the JS reference's modules are in (a redraw follows).
-let dataScopeSM = null;
-import('./prototype/scope/scope_movie.js').then(SM => { dataScopeSM = SM; requestDraw(); }, e => console.warn('scope_movie.js:', e));
-function dataLabelInfo(ov) {
-  if (!dataScopeSM) return null;
-  const SM = dataScopeSM, spec = SM.parseSpec(movieSpec(ov)), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
-  const L = SM.scopeLabels(spec, lp), l = L[DYE_UI.structure()];
-  return { labels: L.map(x => x.label), detectedPerSec: l.states.main ? l.states.main.detectedPerSec : 0, mode: l.mode, dye: l.dye ? l.dye.name : 'None' };
+// The world labels and photophysics an SMLM data layer's movie has (its spec's setup job: each structure's label
+// vector as the movie sets it, mode, dye, detected photons per second while ON), for the localizations' blinks; null
+// until its setup is in (a redraw follows; dataLabelsReady: the promise of it, null on a failure).
+const dataLabels = new Map();
+function dataLabelEntry(ov) {
+  const spec = movieSpec(ov), s = DYE_UI.structure(), key = s + '|' + spec;
+  let e = dataLabels.get(key);
+  if (e) return e;
+  e = { info: null, p: null };
+  e.p = setupJob(spec).then(S => {
+    const l = S.labels[s];
+    e.info = { labels: S.labels.map(x => x.label_vector), detectedPerSec: l.main ? l.main.detected_per_s : 0, mode: l.mode,
+      dye: l.dye_id ? l.dye_name : 'None' };
+    requestDraw();
+    return e.info;
+  }, err => { dataLabels.delete(key); console.warn('setup:', err); return null; });
+  dataLabels.set(key, e);
+  if (dataLabels.size > 32) dataLabels.delete(dataLabels.keys().next().value);
+  return e;
 }
+function dataLabelInfo(ov) { return dataLabelEntry(ov).info; }
+function dataLabelsReady(ov) { return dataLabelEntry(ov).p; }
 const DATA_MAX_PX = 512, DATA_MEM_BYTES = 300e6;
 // The data settings: the panel's, overridden by an animation's (state.data).
 function dataParams(over) {
@@ -6075,6 +6364,7 @@ async function acquireData(layerIds, key, over, onProgress, signal) {
     const kind = DATA_KIND[id];
     if (!kind) continue;
     for (let i = 0; i < 100 && !cellBounds(key)?.precise; i++) { requestDraw(); await new Promise(r => setTimeout(r, 100)); }   // the cell's outline first
+    if (kind === 'loc') await dataLabelsReady(dataModeOv('sr'));   // the movie's labels (a setup job)
     const plan = kind === 'loc' ? locPlan(key, dp) : stackPlan(kind, key, dp);
     if (plan && !plans.some(p => p.key === plan.key)) plans.push(Object.assign(plan, { kind }));
   }
@@ -6418,6 +6708,41 @@ updateEmGainReadout();
 const syncQeFlat = () => { document.getElementById('mv_qe').disabled = !document.getElementById('qeFlat').checked; };
 document.getElementById('qeFlat').addEventListener('input', () => { syncQeFlat(); schedulePrepare(); });
 syncQeFlat();
+// The Zernike modes (Expert, Objective & PSF; = Objective.ZernikeCoefficients): the preset's 28 coefficients from the
+// C++ setup readout (isc_scope_setup's "zernike"), unless typed over (ZERN.user: then every zern.<j> is in the spec,
+// movieSpec). Picking a preset replaces them, as in Micro-Manager; so does Reset all. A settings file's zern.<j> go
+// through ZERN.set (web/live/settings_file.js).
+const zernEl = document.getElementById('zernCoeffs'), ZERN = self.ISC_ZERN = { user: null, preset: null };
+const zernText = z => z.map(v => +(+v).toFixed(5)).join(' ');
+const forgetZern = () => { try { localStorage.removeItem('isc.set.zernCoeffs'); } catch (e) { /* private window */ } };
+async function showZern() {
+  zernEl.style.outline = '';
+  if (ZERN.user) { if (document.activeElement !== zernEl) zernEl.value = zernText(ZERN.user); return; }
+  try {
+    const S = await setupJob(movieSpec());
+    if (S.zernike) ZERN.preset = S.zernike;
+    if (!ZERN.user && S.zernike && document.activeElement !== zernEl) zernEl.value = zernText(S.zernike);
+  } catch (e) { /* the readout follows with the next change */ }
+}
+ZERN.clear = () => { ZERN.user = null; forgetZern(); showZern(); };
+ZERN.set = (j, v) => {   // one coefficient, over the others as they are now
+  ZERN.user = (ZERN.user || ZERN.preset || new Array(28).fill(0)).slice();
+  ZERN.user[j] = v;
+  showZern();
+};
+zernEl.addEventListener('input', () => {   // (typing arrives settled, settle.js)
+  const v = zernEl.value.trim().split(/[\s,;]+/).filter(Boolean).map(Number);
+  const ok = (v.length === 28 || v.length === 15) && v.every(Number.isFinite);
+  zernEl.style.outline = ok ? '' : '1px solid #e0a64a';
+  if (!ok) return;
+  while (v.length < 28) v.push(0);
+  ZERN.user = v;
+  schedulePrepare();
+});
+zernEl.addEventListener('blur', showZern);
+document.getElementById('mv_psf-zernike-preset').addEventListener('change', () => { ZERN.user = null; forgetZern(); showZern(); });
+window.addEventListener('isc-reset', () => ZERN.clear());
+setTimeout(showZern, 0);
 // The dyes' colour, density and fluorescent fraction redraw the dye overlay.
 for (const k of [...DYE_UI.targets.flatMap(t => [t.prefix + '-dye', t.prefix + '-label-pct', t.prefix + '-dye.fluorescent-pct']),
   'dye1.source', 'dye2.source', 'dye3.source', 'dye1.fluorescent-pct', 'dye2.fluorescent-pct', 'dye3.fluorescent-pct'])
@@ -6430,7 +6755,7 @@ function syncSpecimen() {
 }
 els.mv_specimen.addEventListener('input', () => {
   const nr = DYE_UI.nanorulers();
-  if (!DYE_UI.brightField()) {
+  if (!DYE_UI.brightField() && !self.ISC_QUIET) {   // (a settings file brings its own)
     const b = document.getElementById('mv_illum-bfp');
     b.value = DYE_UI.lightPresetValues(DYE_UI.autoLightPreset())['mv_illum-bfp'];
     b.dispatchEvent(new Event('input', { bubbles: true }));
@@ -6443,8 +6768,7 @@ els.mv_specimen.addEventListener('input', () => {
 syncSpecimen();
 
 // ---- PSF preview (Objective & PSF, advanced) ----
-// The kernel a movie uses and its splat (isc_scope_psf_preview = sim::MakeScopePsfPreview; in lab.html the JS
-// reference's scopePsfPreview): each z plane oversampled (sum 1) beside the camera image of one emitter at a pixel
+// The kernel a movie uses and its splat (isc_scope_psf_preview = sim::MakeScopePsfPreview): each z plane oversampled (sum 1) beside the camera image of one emitter at a pixel
 // centre, shown in the movie player; the slider is the emitter's defocus. A job for the movie worker (it shares the
 // kernel memo with the movies and works from file:// pages), or the main-thread engine with ?nw.
 let psfJob = null, psfJobId = 0;
@@ -6511,26 +6835,25 @@ function showPsfPlane(f) {
 document.getElementById('psfPreview').addEventListener('click', previewPsf);
 
 // ---- light path: spectra plot and detection readout (issue 16) ----
-// From the JS reference's own physics (prototype/scope: scopeLightPath, scopeLabels = what a movie uses): the dye's
-// excitation and emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission
-// and the camera QE; below, the detected fraction, effective wavelength and photons per second while ON.
-let specMods = null, specTimer = 0;
+// From the movie's own setup (the setup job: the C++ light path and labels a movie uses): the dye's excitation and
+// emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission and the camera
+// QE; below, the detected fraction, effective wavelength and photons per second while ON.
+let specTimer = 0;
 
-// ---- the BFP position's readout: regime and depth (the JS reference's excitation, as a movie uses it) ----
+// ---- the BFP position's readout: regime and depth (the setup job's excitation, as a movie uses it) ----
 let bfpTimer = 0;
 function scheduleBfpReadout() { clearTimeout(bfpTimer); bfpTimer = setTimeout(drawBfpReadout, 120); }
 async function drawBfpReadout() {
   const out = document.getElementById('bfpReadout');
   if (!out) return;
   try {
-    specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
-    const [SM] = await specMods;
-    const spec = SM.parseSpec(movieSpec()), ex = SM.scopeExcitation(spec);
+    const ex = (await setupJob(movieSpec())).excitation;
+    if (!ex) { out.textContent = ''; return; }
     const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
-    const nm = lit.length ? lit[lit.length - 1] : 640, d = ex.depthNm(nm);
-    out.textContent = ex.regime + (ex.regime === 'TIRF' ? `: 1/e depth ${d.toFixed(0)} nm at ${nm} nm, field x${ex.F.toFixed(2)}`
+    const nm = lit.length ? lit[lit.length - 1] : 640, d = ex.depth_nm[nm];
+    out.textContent = ex.regime + (ex.regime === 'TIRF' ? `: 1/e depth ${d.toFixed(0)} nm at ${nm} nm, field x${ex.field_factor.toFixed(2)}`
       : ex.regime === 'HILO' ? `: sheet ${(Math.asin(Math.min(1, ex.u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium` + (d > 0 ? `, ${(d / 1000).toFixed(1)} µm thick` : '')
-      : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.uMax.toFixed(3)}), no light` : ': the beam straight up');
+      : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.u_max.toFixed(3)}), no light` : ': the beam straight up');
   } catch (e) { out.textContent = ''; }
 }
 for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
@@ -6567,10 +6890,7 @@ async function drawSpecPlot(big) {
   const k = big ? 2 : Math.min(4, Math.max(1, (cv2.clientWidth || SPEC_W) / SPEC_W * (devicePixelRatio || 1)));
   if (!big && cv2.width !== Math.round(SPEC_W * k)) { cv2.width = Math.round(SPEC_W * k); cv2.height = Math.round(SPEC_H * k); }
   try {
-    specMods = specMods || Promise.all([import('./prototype/scope/scope_movie.js'), import('./prototype/scope/dye_library.js')]);
-    const [SM, DL] = await specMods;
-    const spec = SM.parseSpec(movieSpec()), camera = SM.scopeCamera(spec), lp = SM.scopeLightPath(spec, camera);
-    const AL = SM.scopeLabels(spec, lp);
+    const S = await setupJob(movieSpec()), lp = S.light_path, AL = S.labels;
     const shown = DYE_UI.targets.filter(t => t.specimen === DYE_UI.specimen() && !AL[t.structure].off).map(t => [t, AL[t.structure]]);
     const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8 * k, bot = H - 16 * k;
     const X = nm => (nm - x0) / (x1 - x0) * W, Y = v => bot - v * (bot - top);
@@ -6593,49 +6913,52 @@ async function drawSpecPlot(big) {
       if (fill) { g.lineTo(X(x1), Y(0)); g.lineTo(X(x0), Y(0)); g.closePath(); g.fillStyle = fill; g.fill(); return; }
       g.setLineDash((dash || []).map(v => v * k)); g.strokeStyle = style; g.lineWidth = P.lw * k; g.stroke(); g.setLineDash([]);
     };
-    curve(lp.emissionFilter.T, null, null, P.emFill);
-    if (P.emEdge) curve(lp.emissionFilter.T, P.emEdge);
-    legend.push(['emission filter: ' + lp.emissionFilter.name, { fill: P.emFill, stroke: P.emEdge }]);
-    curve(lp.dichroic.T, P.dich, [2, 2]);
-    legend.push(['dichroic: ' + lp.dichroic.name, { stroke: P.dich, dash: [2, 2] }]);
-    if (lp.excitationFilter.T.some(v => v !== 1)) {
-      curve(lp.excitationFilter.T, P.exF, [6, 2, 1, 2]);
-      legend.push(['excitation filter: ' + lp.excitationFilter.name, { stroke: P.exF, dash: [6, 2, 1, 2] }]);
+    curve(lp.emission_T, null, null, P.emFill);
+    if (P.emEdge) curve(lp.emission_T, P.emEdge);
+    legend.push(['emission filter: ' + lp.emission_filter, { fill: P.emFill, stroke: P.emEdge }]);
+    curve(lp.dichroic_T, P.dich, [2, 2]);
+    legend.push(['dichroic: ' + lp.dichroic, { stroke: P.dich, dash: [2, 2] }]);
+    if (lp.excitation_T.some(v => v !== 1)) {
+      curve(lp.excitation_T, P.exF, [6, 2, 1, 2]);
+      legend.push(['excitation filter: ' + lp.excitation_filter, { stroke: P.exF, dash: [6, 2, 1, 2] }]);
     }
     curve(lp.qe, P.qe, [1, 3]);
-    legend.push(['camera QE' + (lp.qeName ? ': ' + lp.qeName : ''), { stroke: P.qe, dash: [1, 3] }]);
+    legend.push(['camera QE' + (lp.qe_name ? ': ' + lp.qe_name : ''), { stroke: P.qe, dash: [1, 3] }]);
     for (const [t, L] of shown) {
       const name = DYE_UI.dyeNameOf(t.prefix);
       for (const [role, dash] of [['main', null], ['pre', [5, 3]]]) {
-        const st = L.dye.states[role];
-        if (!st || st.isDark || (role === 'pre' && L.mode !== 'PALM')) continue;
-        const sp = DL.stateSpectra(st), who = name + (role === 'pre' ? ' (pre state)' : '');
+        const sp = L['dye_' + role];
+        if (!sp.present || sp.is_dark || (role === 'pre' && L.mode !== 'PALM')) continue;
+        const who = name + (role === 'pre' ? ' (pre state)' : '');
         const c = waveColour(sp.em ? centroidNm(sp.em) : sp.ex ? centroidNm(sp.ex) : 600, light);   // its weighted emission wavelength
         if (sp.ex) { curve(sp.ex, c, [3, 3]); legend.push([who + ' excitation', { stroke: c, dash: [3, 3] }]); }
         if (sp.em) { curve(sp.em, c, dash); legend.push([who + ' emission', { stroke: c, dash }]); }
       }
     }
+    let lines = 0;
     for (const l of lp.lasers) {
-      if (!(l.kWPerCm2 > 0)) continue;   // blocked by the excitation filter
+      if (!(l.kw_per_cm2 > 0)) continue;   // blocked by the excitation filter
+      lines++;
       // a laser line: its colour with an edge on both sides (white on the dark looks), so it stands apart from a dye
       // curve of the same hue
       const c = P.laser(l.nm), x = X(l.nm), w = P.laserW * k, e = (light ? 1 : 1.5) * k;
       g.fillStyle = P.laserEdge; g.fillRect(x - w / 2 - e, top, w + 2 * e, bot - top);
       g.fillStyle = c; g.fillRect(x - w / 2, top, w, bot - top);
-      legend.push([`${l.nm} nm laser, ${+l.kWPerCm2.toFixed(3)} kW/cm²`, { stroke: c, width: P.laserW, edge: P.laserEdge }]);
+      legend.push([`${l.nm} nm laser, ${+l.kw_per_cm2.toFixed(3)} kW/cm²`, { stroke: c, width: P.laserW, edge: P.laserEdge }]);
     }
-    const fmt = st => st ? `${(100 * st.detectedFraction).toFixed(1)} % detected at ${st.lambdaNm.toFixed(0)} nm, ${Math.round(st.detectedPerSec).toLocaleString()} ph/s` : 'dark';
+    cv2.dataset.lasers = lines;
+    const fmt = st => st ? `${(100 * st.detected_fraction).toFixed(1)} % detected at ${st.lambda_nm.toFixed(0)} nm, ${Math.round(st.detected_per_s).toLocaleString()} ph/s` : 'dark';
     const parts = [];
     if (!shown.length) parts.push('no labelled target (every dye None, 0 % labelled or no structure)');
     for (const [t, L] of shown) {
       const who = shown.length > 1 ? t.name + ': ' : '';
-      parts.push(`${who}<b>${DYE_UI.dyeNameOf(t.prefix)}</b>, ${L.mode}: ${fmt(L.states.main)}${L.mode === 'WideField' ? '' : ' while ON'}`);
-      if (L.states.pre) parts.push(`pre state: ${fmt(L.states.pre)}`);
-      if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.onSecNow).toPrecision(3)} ms, initial ON ${L.label.kinetics.initialOnSec.toPrecision(3)} s (excitation x${L.excitationScale.toPrecision(3)} of Dempsey 2011's)`);
-      if (L.kActPerSec > 0) parts.push(`activation ${L.kActPerSec.toPrecision(3)} /s per dye`);
-      const bg = L.imagerBackgroundPerPxPerSec(+document.getElementById('mv_pixel-nm').value / 1000);
+      parts.push(`${who}<b>${DYE_UI.dyeNameOf(t.prefix)}</b>, ${L.mode}: ${fmt(L.main)}${L.mode === 'WideField' ? '' : ' while ON'}`);
+      if (L.pre) parts.push(`pre state: ${fmt(L.pre)}`);
+      if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.on_s_now).toPrecision(3)} ms, initial ON ${L.initial_on_s.toPrecision(3)} s (excitation x${L.excitation_scale.toPrecision(3)} of Dempsey 2011's)`);
+      if (L.k_act_per_s > 0) parts.push(`activation ${L.k_act_per_s.toPrecision(3)} /s per dye`);
+      const bg = L.imager_background_per_px_per_s;
       if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
-      if (L.dye.modes[L.mode] && L.dye.modes[L.mode].generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
+      if (L.generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
     }
     // the legend and the readout (what reaches the camera per label) only under the enlarged plot
     if (big) {
@@ -6647,10 +6970,7 @@ async function drawSpecPlot(big) {
     }
     out.innerHTML = !big ? '' : parts.join('<br>');
   } catch (e) {
-    specMods = null;   // try the import again next time
-    // Browsers do not load ES modules from file:// pages: the plot (the JS reference's physics) needs the page over http.
-    if (location.protocol === 'file:') out.innerHTML = 'The spectra plot needs the viewer served over http (e.g. <code>node web/lab/serve.mjs</code>, then http://localhost:8123/web/), not opened as a file. Movies are not affected.';
-    else out.textContent = 'light path: ' + (e && e.message || e);
+    out.textContent = 'light path: ' + (e && e.message || e);
   }
 }
 // the plot follows the settings and the controls column (where Illumination & light path is)
@@ -6731,6 +7051,8 @@ resizeCanvas();
 </script>
 <script src="live/live.js"></script>
 <script src="live/mm_config_ui.js"></script>
+<script src="live/settings_core.js"></script>
+<script src="live/settings_file.js"></script>
 <script src="anim/editor.js"></script>
 <script src="live/persist.js"></script>
 </body>

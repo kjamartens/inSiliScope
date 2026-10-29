@@ -3,8 +3,8 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   Dyes and their photophysics in a light path (issue 16): the
-//                twin of web/prototype/scope/dye_library.js. From a dye
+// DESCRIPTION:   Dyes and their photophysics in a light path (issue 16).
+//                From a dye
 //                (library entry or one of three slots, with overrides), a
 //                mode and the light path (LightPath.h) it gives, per
 //                emitting state (main, pre): the excitation rate per dye
@@ -142,6 +142,7 @@ struct TargetData
    double paintKonPerMPerSec, paintOnSec;   // DNA-PAINT binding kinetics (data/specimens.json paint)
    double paintImagerNm;                     // the default imager concentration, nM
    int linkageDefault;   // its default linkage preset (index into LinkagePresetIds()); -1 = no linkage model
+   bool defaultNone;     // its dye defaults to None (data/specimens.json defaultDye): off until labelled
 };
 // A label linkage preset (library.json linkagePresets; JS dyes.js linkedDye): the probe's rigid length from the
 // binding site, its flexibility (ball radius), the chemical linker's length range, nm. structureDefault (the first,

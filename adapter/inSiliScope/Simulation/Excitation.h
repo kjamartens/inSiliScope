@@ -5,10 +5,9 @@
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   Excitation geometry (2026-10-13): the beam's in-plane profile
 //                and where the laser spot sits in the objective's back focal
-//                plane -- epi, HILO, TIRF -- as one 3D excitation factor. The
-//                twin of web/prototype/scope/excitation.js (its header has the
-//                physics and the references; spec/ALGORITHM.md "Excitation
-//                geometry").
+//                plane -- epi, HILO, TIRF -- as one 3D excitation factor
+//                (the physics and the references: spec/ALGORITHM.md
+//                "Excitation geometry").
 //
 //                u (option illum-bfp) = the spot's distance from the BFP centre
 //                in units of the critical angle's radius: n_i sin(theta_i) =

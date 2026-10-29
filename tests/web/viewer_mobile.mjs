@@ -4,7 +4,7 @@
 // square stage at full width, the world view as the inset in its top-right corner), Live starting by itself, the focus knob (a swipe and
 // − / +), two fingers on the live image (up = focus up, a spread = zoom), the inset swap (kept over a reload), two
 // fingers on the world view (pinch = zoom, both up = tilt), and a wide window putting every node back.
-//   node tests/web/viewer_mobile.mjs [--channel=chrome]
+//   node tests/web/viewer_mobile.mjs [--channel=chrome] [--swiftshader]   (the hardware GPU; --swiftshader: software GL, ~10x slower)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,7 +28,7 @@ let fail = 0;
 const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 setTimeout(() => { console.log('FAIL  timed out after 240 s'); process.exit(1); }, 240000).unref();
-const browser = await chromium.launch({ channel: arg('channel') || undefined, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ channel: arg('channel') || undefined, args: arg('swiftshader') ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--enable-gpu', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
 const page = await ctx.newPage();
 const cdp = await ctx.newCDPSession(page);
@@ -102,9 +102,16 @@ try {
   const s1 = await page.evaluate(() => view.scale);
   check(s1 > s0 * 2 && Math.abs(t1d - t0d) > 10, `two fingers on the world view: a pinch zooms ${s0.toFixed(2)} -> ${s1.toFixed(2)}, both up tilt ${t0d} -> ${t1d}°`);
 
+  // the position in the sample (moved here) and the zoom (the pinch's) are kept over a reload, like the settings
+  const pos0 = await page.evaluate(async () => { view.cx += 37.25; view.cy -= 12.5; requestDraw(); await new Promise(r => setTimeout(r, 300));
+    return [view.cx, view.cy, view.scale]; });
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 120000 });
   await ready();
   check(await page.evaluate(() => document.getElementById('mStage').classList.contains('worldBig')), 'the world view stays big over a reload');
+  await page.waitForFunction(() => viewPosReady, null, { timeout: 30000 });   // (after the controls are restored)
+  const pos1 = await page.evaluate(() => [view.cx, view.cy, view.scale]);
+  check(pos1.every((v, i) => Math.abs(v - pos0[i]) < 1e-3 * Math.max(1, Math.abs(pos0[i]))),
+    `the position and zoom are kept over a reload: (${pos0.map(v => v.toFixed(2))}) -> (${pos1.map(v => v.toFixed(2))})`);
 
   // a wide window: the side-by-side layout again, every node in its place
   await page.setViewportSize({ width: 1200, height: 800 });

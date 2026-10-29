@@ -1,9 +1,11 @@
-// Compares parity outputs against the JS reference and prints the M0 table.
-//   node compare.mjs <ref_js.txt> <name>=<out.txt> [<name>=<out.txt> ...] [--tol 1e-6] [--geomtol 1e-6]
-// Exit code 0 = PASS (RNG bit-exact, every layout equal or within --tol,
-// cytoplasm mesh / microtubules equal or within --geomtol). The mesh uses
+// Compares parity outputs against the frozen goldens and prints the M0 table.
+//   node compare.mjs <ref.txt> <name>=<out.txt> [<name>=<out.txt> ...] [--tol 1e-6] [--geomtol 1e-6]
+// Exit code 0 = PASS (RNG and math bit-exact, every layout equal or within --tol,
+// cytoplasm mesh / microtubules (the cell, mesh, mtp, mtl lines) equal or within
+// --geomtol, every other structure line within --tol). The mesh uses
 // Math.pow = the host's std::pow, so a native build on another libm than the
-// one Node was built against is only "near" there (accepted 2026-09-25).
+// one Node was built against is only "near" there (accepted 2026-09-25); the
+// pores, lamina, nanorulers and beads use no pow.
 import fs from 'fs';
 
 const args = process.argv.slice(2);
@@ -40,6 +42,8 @@ function parse(path) {
       case 'fic': case 'fid': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
       // nuclear pores (ABI 13): attachment points, pores per cell, dyes per linkage; first value = a count
       case 'npa': case 'npc': case 'npd': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
+      // nuclear lamina (ABI 16): points per cell, dyes per linkage; first value = a count
+      case 'lam': case 'lmd': geomLine(r, t[1], `${t[0]} ${t[2]},${t[3]} ${t[4]}`, t.slice(5)); break;
     }
   }
   return r;
@@ -86,7 +90,9 @@ FN.forEach((fn, k) => {
   const row = outs.map(o => {
     let bad = 0;
     ref.math.forEach((a, i) => { if (!o.r.math[i] || o.r.math[i][k + 1] !== a[k + 1]) bad++; });
-    return bad ? `${bad} / ${ref.math.length} differ` : `bit-exact (${ref.math.length})`;
+    if (bad || o.r.math.length !== ref.math.length) pass = false;
+    return bad ? `**${bad} / ${ref.math.length} differ**` : o.r.math.length !== ref.math.length ?
+      `**${o.r.math.length} samples, want ${ref.math.length}**` : `bit-exact (${ref.math.length})`;
   });
   say(`| Math.${fn} vs core jsm::${fn} | ` + row.join(' | ') + ' |');
 });
@@ -119,7 +125,8 @@ for (const [id, rc] of ref.cases) {
       const c = cmpNumLists(v, w); pkExact &&= c.exact; pkMax = Math.max(pkMax, c.maxd);
     }
     const fmt = (exact, same, maxd) => !same ? 'DIVERGES (cell set)' : exact ? 'equal' : maxd <= tol ? `near ${maxd.toExponential(1)}` : `DIVERGES ${maxd.toExponential(1)}`;
-    const rawS = fmt(rawExact, rawMax !== Infinity, rawMax);
+    // (the same raw candidates: none missing, none extra)
+    const rawS = fmt(rawExact, rawMax !== Infinity && rc.raw.size === oc.raw.size, rawMax);
     const pkS = fmt(sameSet && pkExact, sameSet, pkMax);
     cells.push(rawS, pkS);
     const verdict = pkS.startsWith('DIVERGES') || rawS.startsWith('DIVERGES') ? 'diverges' : pkS === 'equal' && rawS === 'equal' ? 'equal' : 'near';
@@ -140,15 +147,19 @@ if (ref.geom.size) {
     const row = outs.map(o => {
       const og = o.r.geom.get(id);
       if (!og) { pass = false; tally[o.name].diverges++; return 'missing'; }
-      let same = og.size === rg.size, exact = true, maxd = 0;
+      let same = og.size === rg.size, exact = true, maxd = 0, maxdExact = 0;
       for (const [k, v] of rg) {
         const w = og.get(k);
         // leading counts (points per microtubule, rings/n, labels) must agree exactly (a bead line has none)
         if (!w || w.length !== v.length || (!k.startsWith('mesh') && !k.startsWith('fid ') && v[0] !== w[0]) ||
             (k.startsWith('mesh') && (v[0] !== w[0] || v[1] !== w[1]))) { same = false; continue; }
-        const c = cmpNumLists(v, w); exact &&= c.exact; maxd = Math.max(maxd, c.maxd);
+        const c = cmpNumLists(v, w); exact &&= c.exact;
+        // pow (the cytoplasm mesh) reaches only the cells' mesh and microtubules: the rest within --tol
+        if (/^(cell|mesh|mtp|mtl) /.test(k)) maxd = Math.max(maxd, c.maxd);
+        else maxdExact = Math.max(maxdExact, c.maxd);
       }
-      const verdict = !same ? 'diverges' : exact ? 'equal' : maxd <= geomTol ? 'near' : 'diverges';
+      const verdict = !same ? 'diverges' : exact ? 'equal' : maxd <= geomTol && maxdExact <= tol ? 'near' : 'diverges';
+      maxd = Math.max(maxd, maxdExact);
       tally[o.name][verdict]++;
       if (verdict === 'diverges') pass = false;
       return !same ? 'DIVERGES (counts)' : exact ? 'equal' : `${verdict === 'near' ? 'near' : 'DIVERGES'} ${maxd.toExponential(1)}`;

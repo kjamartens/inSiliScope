@@ -3,7 +3,7 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   See DyeLibrary.h (twin of web/prototype/scope/dye_library.js).
+// DESCRIPTION:   See DyeLibrary.h.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
@@ -173,10 +173,12 @@ const LinkagePresetData& LinkagePresetAt(int i) { return kLinkagePresets[i]; }
 bool LegacyLinkageNm(const char* targetId, double out[4])
 {
    // The numbers before the linkage model (core dyes.cpp LegacyLinkage, JS dyes.js LEGACY_LINKAGE): microtubules a
-   // 12 nm binder tip off the 12.5 nm lattice radius with a 2-5 nm linker shell; pores webSMLM's 2-5 nm linker.
+   // 12 nm binder tip off the 12.5 nm lattice radius with a 2-5 nm linker shell; pores webSMLM's 2-5 nm linker; the
+   // lamina (newer than the model) the dye on the point.
    static const struct { const char* id; double nm[4]; } kLegacy[] = {
       { "microtubules", { 12, 0, 2, 5 } },
       { "npcs", { 0, 0, 2, 5 } },
+      { "lamin", { 0, 0, 0, 0 } },
    };
    for (const auto& e : kLegacy)
       if (!std::strcmp(e.id, targetId))

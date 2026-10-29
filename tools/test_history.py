@@ -232,15 +232,23 @@ def main():
     core.snapImage()
     x1 = drift_nm(core)[0]
     core.setProperty("SampleHolder", "TimeWhileIdle", "Running")
+    ta = time.time()
     core.snapImage()
     x2 = drift_nm(core)[0]
+    tb = time.time()
     time.sleep(2.0)
+    tc = time.time()
     core.snapImage()
     x3 = drift_nm(core)[0]
+    td = time.time()
     core.setProperty("SampleHolder", "TimeWhileIdle", "Paused")
-    print(f"Drift at 250 nm/s over 2 s idle: Paused {x1 - x0:.0f} nm, Running {x3 - x2:.0f} nm (expected ~12, ~500)")
+    # Running: the sample drifts by the time that passed between the two snaps' frames (bracketed by the clock around
+    # the calls, so a slow machine moves the bounds with it), give or take a frame's step at each end.
+    step = 250 * core.getExposure() / 1000
+    lo, hi = 250 * (tc - tb) - 2 * step, 250 * (td - ta) + 2 * step
+    print(f"Drift at 250 nm/s idle: Paused {x1 - x0:.0f} nm over 2 s, Running {x3 - x2:.0f} nm (expected {lo:.0f}..{hi:.0f})")
     assert 0 <= x1 - x0 < 40, f"Paused: the sample should not drift while idle ({x1 - x0:.0f} nm)"
-    assert 350 < x3 - x2 < 700, f"Running: the sample should drift ~500 nm in 2 s idle ({x3 - x2:.0f} nm)"
+    assert lo < x3 - x2 < hi, f"Running: the sample should drift by the idle time ({x3 - x2:.0f} nm, want {lo:.0f}..{hi:.0f})"
     core.setProperty("SampleHolder", "DriftXySpeedNmPerSec", "0")
 
     core.unloadAllDevices()

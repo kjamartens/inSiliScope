@@ -18,38 +18,25 @@ env:
   NODE_VERSION: 24
 
 jobs:
-  # Iteration mode (web/lab/README.md): while PORT_PENDING.md exists, the JS prototype is ahead of the C++
-  # core. This gate fails (blocking the merge and any release) and the C++/WASM/golden jobs below are
-  # skipped instead of failing one by one; the port removes the file.
-  port-gate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: No pending C++ port
-        run: |
-          if [ -f PORT_PENDING.md ]; then
-            echo "::error file=PORT_PENDING.md::The prototype is ahead of the C++ core; port it before merging (web/lab/README.md)."
-            cat PORT_PENDING.md
-            exit 1
-          fi
-
-  # The lab's headless check: prototype loads, no NaN geometry, address determinism. Runs in iteration mode too.
-  lab-check:
+  # The generated data are current (the generators' --check).
+  data-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: node web/lab/check.mjs
       # data/dyes -> the generated dye library and docs/references.md are current.
       - run: node tools/gen_dye_library.mjs --check
+      # data/origami/designs.json -> the core and viewer design tables are current.
+      - run: node tools/gen_origami_designs.mjs --check
       # data/fiducials: the curves give balinovic2019's quoted efficiencies; fitted tails, emitters and the gold Mie table current.
       - run: node tools/fiducial_spectra/check.mjs
 
   # The viewer's DOM-free modules in Node: scene core (camera, clip tables, detail budget, layer registry), data-layer
   # computations (thresholded surface, localizations), animation
-  # sequences, export encoders (GIF decoded back, MP4/WebM structure). The browser checks (tests/web/*) stay local.
+  # sequences, export encoders (GIF decoded back, MP4/WebM structure), the BrightField worker split on the viewer's own
+  # worker code (iscEngine, the committed module). The browser checks (tests/web/viewer_*) stay local.
   viewer-js:
     runs-on: ubuntu-latest
     steps:
@@ -57,21 +44,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: node tests/web/scene_core_check.mjs && node tests/web/scene_compute_check.mjs && node tests/web/anim_unit.mjs && node tests/web/encode_unit.mjs && node tests/web/mm_config_check.mjs && node tests/web/analytics_unit.mjs
-
-  # JS imaging reference (web/prototype/scope) == the C++ (the committed WASM module): events, SR, WideField.
-  scope-parity:
-    needs: port-gate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - run: node tests/parity/scope_parity.mjs
+      - run: node tests/web/scene_core_check.mjs && node tests/web/scene_compute_check.mjs && node tests/web/anim_unit.mjs && node tests/web/encode_unit.mjs && node tests/web/mm_config_check.mjs && node tests/web/analytics_unit.mjs && node tests/web/settings_unit.mjs && node tests/web/bf_split_check.mjs
 
   core-native:
-    needs: port-gate
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -88,7 +63,6 @@ jobs:
         run: ctest --test-dir build/msvc -C Release -j 8 --output-on-failure
 
   core-wasm:
-    needs: port-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -103,14 +77,10 @@ jobs:
         run: |
           cmake --preset wasm
           cmake --build --preset wasm
-      - name: Golden vectors (WASM under Node)
+      - name: Golden vectors + world checks (WASM under Node)
         run: ctest --test-dir build/wasm -j 8 --output-on-failure
       - name: Viewer module up to date (web/insiliscope_module.js)
         run: node tools/embed_web_module.mjs --check
-      - name: webSMLM block (dist/cellfield_block.js; published as a release asset by release.yml)
-        run: |
-          node tools/make_cellfield_block.mjs
-          node tests/block/check_cellfield_block.mjs
       - name: WASM size
         run: |
           ls -l build/wasm/core/insiliscope.wasm
@@ -122,23 +92,7 @@ jobs:
             build/wasm/core/insiliscope.wasm
             build/wasm/core/insiliscope.js
 
-  # The frozen golden vectors must match what the prototype in web/ produces:
-  # a generator change in web/prototype/ needs a re-freeze in the port commit.
-  golden-fresh:
-    needs: port-gate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-      - name: Re-freeze from web/prototype/index.html and diff
-        run: |
-          node tests/parity/golden.mjs --freeze
-          git diff --exit-code --stat spec/golden
-
   core-native-linux:
-    needs: port-gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -216,6 +216,42 @@ void NpcDyesInBlock(uint32_t seed, int32_t cx, int32_t cy, const std::vector<Npc
    }
 }
 
+uint32_t LaminH1(uint32_t seed, int32_t cx, int32_t cy)
+{
+   return Pcg4d(seed ^ LAMIN_DYE_SALT, (uint32_t)cx, (uint32_t)cy, 0u).a;
+}
+
+void LaminDyesInBlock(uint32_t seed, int32_t cx, int32_t cy, const std::vector<LaminPoint>& pts, const std::vector<int32_t>& ids,
+                      double density, double fluorescentFraction, std::vector<NpcDye>& out, const Linkage& linkage,
+                      std::vector<LinkageParts>* parts)
+{
+   const double labelledBelow = std::min(1.0, std::max(0.0, density));
+   const double ff = std::min(1.0, std::max(0.0, fluorescentFraction));
+   if (!(labelledBelow > 0) || !(ff > 0)) return;
+   const uint32_t h1 = LaminH1(seed, cx, cy);
+   const LinkageSetup L(linkage);
+   const int32_t k = 0;
+   for (int32_t pi : ids) {
+      const LaminPoint& q = pts[(size_t)pi];
+      const int32_t n = q.cand;
+      const uint32_t label = Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LABEL).a;
+      if (Unit(label) >= labelledBelow) continue;
+      if (ff < 1.0 && Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::FLUOR).a) >= ff) continue;
+      const double r1 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_U).a);
+      const double r2 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_PHI).a);
+      const double r3 = Unit(Pcg4d(h1, (uint32_t)k, (uint32_t)n, DYE_CH::LINK_R).a);
+      // The binder's direction: uniform (no side of the envelope preferred), drawn at the unused site address k = 1.
+      const double au = Unit(Pcg4d(h1, 1u, (uint32_t)n, DYE_CH::LINK_U).a) * 2 - 1;
+      const double aphi = Unit(Pcg4d(h1, 1u, (uint32_t)n, DYE_CH::LINK_PHI).a) * 2 * jsm::PI;
+      const double as = jsm::sqrt(1 - au * au);
+      const Pt3 a = { as * jsm::cos(aphi), as * jsm::sin(aphi), au };
+      LinkageParts lp;
+      const Pt3 pos = LinkedDye(q.c, a, 0, L, h1, k, n, r1, r2, r3, parts ? &lp : nullptr);
+      out.push_back({ pos, pi, k, n, label });
+      if (parts) parts->push_back(lp);
+   }
+}
+
 namespace {
 // Log-normal factor with mean 1 and CV cv from two uniforms (Box-Muller);
 // sigma and mu (LogNormalParams) are the CV's, computed once per schedule.

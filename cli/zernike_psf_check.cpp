@@ -226,6 +226,7 @@ sim::PsfGeneratorRequest FixtureRequest()
 
 int main(int argc, char** argv)
 {
+   std::setvbuf(stdout, nullptr, _IONBF, 0);   // progress shows as it runs (ctest, pipes)
    if (argc < 2)
    {
       std::fprintf(stderr, "usage: zernike_psf_check <zernike_ref.bin> [--bench]\n");

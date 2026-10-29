@@ -60,6 +60,10 @@ enum CellFieldNumber
    CF_NPC_RADIUS_NM,
    CF_NPC_RING_SEP_NM,
    CF_NPC_CORNER_SPREAD_NM,
+   // The nuclear lamina (2026-10-27): the density is the engine's lamin-density option (by hand), the exclusion a core
+   // param.
+   CF_LAMIN_DENSITY,
+   CF_LAMIN_NPC_EXCL_NM,
    CF_COUNT
 };
 // The core parameter each CellField number sets as is (nullptr: handled by hand in BuildSampleSettings).

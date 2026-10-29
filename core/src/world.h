@@ -42,16 +42,17 @@ namespace isc {
 constexpr int PACK_BLOCK_CHUNKS = 8;
 // The structures that carry labels (issue 16; JS world.js STRUCTURES = the
 // targets of data/specimens.json): one label each, indexed by their position:
-// the microtubules and the nuclear pores (CellField, issue 15) and the docking
-// strands (Nanorulers). A new structure (nucleus DNA, ...) adds a target there
+// the microtubules, the nuclear pores (CellField, issue 15) and the nuclear
+// lamina (CellField, 2026-10-27), and the docking strands (Nanorulers). A new structure (nucleus DNA, ...) adds a target there
 // and its site generator here. A world holds one specimen (Params::specimen):
 // its geometry -- the cell field, or an OrigamiField -- yields the dye blocks;
 // labels, schedules and the queries are shared, and a world never yields a
 // structure of another specimen.
 constexpr int STRUCTURE_MT = 0;
 constexpr int STRUCTURE_NPC = 1;
-constexpr int STRUCTURE_ORIGAMI = 2;
-constexpr int STRUCTURE_COUNT = 3;
+constexpr int STRUCTURE_LAMIN = 2;     // ABI 16
+constexpr int STRUCTURE_ORIGAMI = 3;   // 3 since ABI 16 (2 before)
+constexpr int STRUCTURE_COUNT = 4;
 
 struct CellAssets {
    Cell cell;                                // shape + packed pose
@@ -78,13 +79,18 @@ struct CellAssets {
    std::vector<NpcBlock> npcBlocks;
    double npcReachXY = 0;
    double npcSites[NPC_SITES * 3] = {};
+   // The nuclear lamina (BuildLaminForCell; needs the pores), on demand (EnsureLamin), its dye blocks as the pores'.
+   bool laminBuilt = false;
+   std::vector<LaminPoint> lamin;
+   std::vector<NpcBlock> laminBlocks;
+   double laminReachXY = 0;
 };
 
 struct WorldDye {
    double x, y, z;                           // world um (z above the coverslip)
    uint32_t id;                              // per-dye hash (stable across windows)
-   int32_t cx, cy, mtIndex;                  // mtIndex -1 on a pore
-   int32_t k, n;                             // lattice address on the microtubule; pore: site, candidate index
+   int32_t cx, cy, mtIndex;                  // mtIndex -1 on a pore and the lamina
+   int32_t k, n;                             // lattice address on the microtubule; pore: site, candidate index; lamina: 0, candidate index
    int32_t structure;                        // STRUCTURE_*
 };
 
@@ -243,6 +249,8 @@ public:
    // The pores of the cell of chunk (cx, cy) (cell-local, candidate order);
    // false if that chunk holds no cell (isc_cell_npcs).
    bool CellNpcs(int32_t cx, int32_t cy, std::vector<Npc>& out);
+   // The lamina points of the cell at chunk (cx, cy) (cell-local, candidate order); false if there is no cell there.
+   bool CellLamin(int32_t cx, int32_t cy, std::vector<LaminPoint>& out);
 
    // The packed cell of chunk (cx, cy); false if that chunk holds none.
    bool FindCell(int32_t cx, int32_t cy, Cell& out);
@@ -309,8 +317,8 @@ private:
    };
    struct DyeBlock {
       std::vector<PackedDye> dyes;          // world coordinates
-      int32_t cx = 0, cy = 0, mtIndex = 0;  // mtIndex -1 on a pore block
-      uint32_t h1 = 0;                      // DyeH1 of the microtubule (NpcH1 of the cell's pores)
+      int32_t cx = 0, cy = 0, mtIndex = 0;  // mtIndex -1 on a pore or lamina block
+      uint32_t h1 = 0;                      // DyeH1 of the microtubule (NpcH1 / LaminH1 of the cell's pores / lamina)
       int32_t structure = STRUCTURE_MT;
       double zLo = 0, zHi = 0;              // z range of the dyes
       bool scheduled = false;
@@ -346,7 +354,7 @@ private:
    };
    // A shaped illumination's 1/16 dose steps make up to 16 histories in a FOV.
    static constexpr size_t kParkedSlots = 15;
-   using BlockKey = std::array<int32_t, 5>; // cx, cy, structure, element (microtubule, molecule; 0 for pores), block
+   using BlockKey = std::array<int32_t, 5>; // cx, cy, structure, element (microtubule, molecule; 0 for pores, lamina), block
    struct BlockKeyHash {
       size_t operator()(const BlockKey& k) const
       {
@@ -414,11 +422,14 @@ private:
                      int block) const;
    // The fluorescent pore dyes of pore block `block` of the cell (CellAssets::npcBlocks).
    void GenerateNpcDyes(DyeBlock& blk, const Cell& c, const CellAssets& A, int block) const;
+   void GenerateLaminDyes(DyeBlock& blk, const Cell& c, const CellAssets& A, int block) const;
    // Whether the pores carry dyes (npcDensity, the pore label's density and fluorescent fraction > 0).
    bool NpcsLabelled() const;
+   bool LaminLabelled() const;
    // The farthest a microtubule dye can be from the axis, and a pore dye from its pore's centre (um).
    double MtDyeReach() const;
    double NpcDyeReach() const;
+   double LaminDyeReach() const;
    // The fluorescent docking strands of one origami molecule (cx, cy, mtIndex
    // = tile x, tile y, molecule index; k = spot, n = ring position).
    void GenerateOrigamiDyes(DyeBlock& blk, const OrigamiMolecule& m) const;

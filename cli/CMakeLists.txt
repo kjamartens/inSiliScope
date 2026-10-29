@@ -10,6 +10,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/BrightfieldRender.cpp
   ${ISC_SIM}/SampleSource.cpp
   ${ISC_SIM}/Drift.cpp
+  ${ISC_SIM}/DriftShift.cpp
   ${ISC_SIM}/DyeLibrary.cpp
   ${ISC_SIM}/LightPath.cpp
   ${ISC_SIM}/Excitation.cpp
@@ -46,7 +47,7 @@ if(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
 endif()
 
 if(EMSCRIPTEN)
-  add_executable(insiliscope_scope_web scope_wasm.cpp ${ISC_SIM_SRC})
+  add_executable(insiliscope_scope_web scope_wasm.cpp scope_setup.cpp ${ISC_SIM_SRC})
   target_include_directories(insiliscope_scope_web PRIVATE ${ISC_SIM})
   target_link_libraries(insiliscope_scope_web PRIVATE insiliscope_core)
   # WASM SIMD for the render code (FFT butterflies, multiply loops); the core
@@ -62,10 +63,31 @@ if(EMSCRIPTEN)
     # copying the heap) from 16 MB in several steps.
     -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=96MB
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_psf_preview,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_frames,_isc_live_image,_isc_live_paths,_isc_live_reset,_isc_live_profile,_isc_live_profile_json]"
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_psf_preview,_isc_scope_setup,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_frames,_isc_live_image,_isc_live_paths,_isc_live_reset,_isc_live_advance,_isc_live_time,_isc_live_profile,_isc_live_profile_json]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_scope_web PROPERTIES OUTPUT_NAME insiliscope_scope_single SUFFIX ".js")
+
+  # The webSMLM block's module (M4): the core's C ABI plus the engine's sample drift (block_entry.cpp:
+  # isc_drift_trajectory, Simulation/Drift.cpp), self-contained, compiled and instantiated synchronously
+  # (WASM_ASYNC_COMPILATION=0: the factory not a Promise; plain script, MODULARIZE=0: the Emscripten 6 factory is
+  # always async), because webSMLM builds structures synchronously on the main thread. ~100 KB, far under the
+  # browsers' sync compile limit. tools/make_cellfield_block.mjs wraps it into dist/cellfield_block.js.
+  add_executable(insiliscope_block ${PROJECT_SOURCE_DIR}/core/src/wasm_entry.cpp block_entry.cpp ${ISC_SIM}/Drift.cpp)
+  target_include_directories(insiliscope_block PRIVATE ${ISC_SIM})
+  target_link_libraries(insiliscope_block PRIVATE insiliscope_core)
+  target_link_options(insiliscope_block PRIVATE
+    -O3
+    -sMODULARIZE=0
+    -sENVIRONMENT=web,worker
+    -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
+    -sWASM_ASYNC_COMPILATION=0
+    -sALLOW_MEMORY_GROWTH=1
+    -sFILESYSTEM=0
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_drift_trajectory]"
+    "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAP32,stringToUTF8,lengthBytesUTF8]"
+  )
+  set_target_properties(insiliscope_block PROPERTIES OUTPUT_NAME insiliscope_block SUFFIX ".js")
   return()
 endif()
 
@@ -84,20 +106,10 @@ else()
   target_link_libraries(insiliscope_sim PUBLIC Threads::Threads)
 endif()
 
-add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp)
+add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp scope_setup.cpp settings_file.cpp)
 target_link_libraries(insiliscope_cli PRIVATE insiliscope_sim)
 
 if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
-  add_test(NAME cli_tiff COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test.tif --frames 20 --size 64 --x -4 --y -5)
-  add_test(NAME cli_geometry COMMAND insiliscope_cli --geometry-json ${CMAKE_CURRENT_BINARY_DIR}/cli_geometry.json --geometry-um 30 --geometry-detail 1 --x 5 --y -3)
-  add_test(NAME cli_tiff_bf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_bf.tif --modality BrightField --frames 3 --size 64 --x -4 --y -5 --bf-quality 2)
-  add_test(NAME cli_tiff_wf COMMAND insiliscope_cli --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_wf.tif --mt-mode WideField --frames 10 --size 64 --x -4 --y -5)
-  # The DNA-origami nanorulers (specimen 1): a DNA-PAINT movie and the molecules' geometry with every strand.
-  add_test(NAME cli_origami COMMAND insiliscope_cli --specimen Nanorulers --out ${CMAKE_CURRENT_BINARY_DIR}/cli_test_origami.tif
-           --frames 20 --size 48 --ruler-imager-nm 20)
-  add_test(NAME cli_origami_geometry COMMAND insiliscope_cli --specimen Nanorulers --geometry-json
-           ${CMAKE_CURRENT_BINARY_DIR}/cli_origami.json --geometry-um 10 --geometry-detail 1)
-
   add_executable(sr_render_check sr_render_check.cpp)
   target_link_libraries(sr_render_check PRIVATE insiliscope_sim)
   add_test(NAME sr_render COMMAND sr_render_check)
@@ -114,9 +126,7 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   # The exact light history (LightHistory.h): its folds and maps against independent sums, the core reading them.
   add_executable(history_check history_check.cpp)
   target_link_libraries(history_check PRIVATE insiliscope_sim)
-  add_test(NAME history_check COMMAND history_check)
-  # (its speed gates -- a fold <= 5 ms, a map <= 15 ms -- measure the host, not the other checks beside it)
-  set_tests_properties(history_check PROPERTIES RUN_SERIAL TRUE)
+  add_test(NAME history_check COMMAND history_check)   # (its speed check: history_check --bench)
 
   add_executable(drift_check drift_check.cpp)
   target_link_libraries(drift_check PRIVATE insiliscope_sim)
@@ -132,10 +142,17 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   target_link_libraries(live_scope_check PRIVATE insiliscope_sim)
   add_test(NAME live_scope COMMAND live_scope_check)
 
+  # Settings files (settings_file.h: the viewer's Save settings, insiliscope_cli --settings): parts, names, mixing,
+  # warnings, the light history replayed = the live session's next frame.
+  add_executable(settings_check settings_check.cpp settings_file.cpp)
+  target_link_libraries(settings_check PRIVATE insiliscope_sim)
+  add_test(NAME cli_settings COMMAND settings_check)
+
   # The cli's diagnostic outputs (scope_probes.h: the docs' physics figures) show what a movie renders.
-  add_executable(probes_check probes_check.cpp scope_probes.cpp)
+  add_executable(probes_check probes_check.cpp scope_probes.cpp scope_setup.cpp)
   target_link_libraries(probes_check PRIVATE insiliscope_sim)
   add_test(NAME cli_probes COMMAND probes_check WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  # The cli end to end (SR, WideField, BrightField, nanorulers, drift, probes, geometry), its outputs read back, and
   # --serve (many commands in one process, the figure builder's way) = separate runs, byte for byte.
   add_test(NAME cli_serve COMMAND ${CMAKE_COMMAND} -DCLI=$<TARGET_FILE:insiliscope_cli>
            -DDIR=${CMAKE_CURRENT_BINARY_DIR}/serve_check -P ${CMAKE_CURRENT_SOURCE_DIR}/serve_check.cmake)
@@ -144,6 +161,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(brightfield_check brightfield_check.cpp)
   target_link_libraries(brightfield_check PRIVATE insiliscope_sim)
   add_test(NAME brightfield COMMAND brightfield_check)
+
+  # The fiducial beads' light, bead kernel and bleaching movies (where they are: world_checks.fiducials).
+  add_executable(fiducials_check fiducials_check.cpp)
+  target_link_libraries(fiducials_check PRIVATE insiliscope_sim)
+  add_test(NAME fiducials COMMAND fiducials_check)
 
   # The C++ GibsonLanniZernike PSF against webSMLM's JS (tests/psf/zernike_ref.bin).
   add_executable(zernike_psf_check zernike_psf_check.cpp)
@@ -155,5 +177,7 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
                    ${ISC_SIM}/WidefieldGpuD3D11.cpp)
     target_link_libraries(wf_gpu_d3d11_check PRIVATE insiliscope_sim)
     add_test(NAME wf_gpu_d3d11 COMMAND wf_gpu_d3d11_check)
+    set_tests_properties(wf_gpu_d3d11 PROPERTIES SKIP_RETURN_CODE 77)   # no hardware Direct3D 11 device
   endif()
+  isc_cap_test_threads()
 endif()

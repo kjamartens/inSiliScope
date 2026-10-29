@@ -18,7 +18,6 @@
 //
 //                The kernel spectra are shared process-wide (keyed by the
 //                kernel, upscale and grid), so live frames reuse them.
-//                JS twin: web/prototype/scope/binned_blinks.js.
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 

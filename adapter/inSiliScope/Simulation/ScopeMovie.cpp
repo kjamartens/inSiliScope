@@ -3,9 +3,7 @@
 // PROJECT:       insiliscope
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
-// DESCRIPTION:   See ScopeMovie.h. The twin of web/prototype/scope/
-//                scope_movie.js (options, setup) and fluorescence.js (the
-//                fluorescence movie), issue 16.
+// DESCRIPTION:   See ScopeMovie.h (issue 16).
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
@@ -85,6 +83,8 @@ const TargetText kTargetText[] = {
      "% of the binding sites (13 x 8 nm lattice, 1625 /um) that carry a label", "the microtubule axis" },
    { "npcs", "CellField", "NuclearPores", "the nuclear pores'", "% of the 64 Nup96 sites per pore that carry a label",
      "the pore axis" },
+   { "lamin", "CellField", "NuclearLamina", "the nuclear lamina's", "% of the lamina points that carry a label",
+     "the envelope normal" },
    { "docking", "Nanorulers", "Docking", "the docking strands'",
      "% of the designed docking strands incorporated (each strand on its own: the incorporation efficiency)",
      "the rod axis" },
@@ -108,6 +108,47 @@ std::vector<std::string> OrigamiDesignIds()
    for (int32_t i = 0; i < isc_origami_design_count(); ++i)
       ids.push_back(isc_origami_design_id(i));
    return ids;
+}
+
+// The part of a settings file a named option belongs to (ScopeOptionPart; docs/dev/SAVE_SETTINGS.md has the table).
+// By name, so a new option without a rule here stops Options() at its first use.
+const char* PartOf(const std::string& n)
+{
+   auto starts = [&](const char* p) { return n.compare(0, std::strlen(p), p) == 0; };
+   auto in = [&](std::initializer_list<const char*> list) {
+      for (const char* k : list)
+         if (n == k)
+            return true;
+      return false;
+   };
+   if (in({ "disk-cache", "prepare", "illum-geometry" }))
+      return "host";
+   if (in({ "x", "y", "z", "focus-um", "frames", "exposure-ms", "start-sec" }) || starts("drift-"))
+      return "measurement";
+   for (int s = 0; s < TargetCount(); ++s)
+      if (starts((std::string(TargetAt(s).prefix) + "-").c_str()))
+         return "sample";
+   // the hardware: objective and its PSF, camera, beam shape, the parts given by their numbers (a custom line or filter)
+   if (in({ "na", "immersion-index", "pixel-nm", "psf-model", "psf-zernike-preset", "psf-mask", "psf-mask-modes",
+            "psf-mask-waist", "psf-working-distance-um", "camera-preset", "qe-curve", "qe", "camera-type", "dark-per-sec",
+            "gain", "offset", "offset-std", "read-noise", "gain-std-pct", "read-noise-std-pct", "cic", "bit-depth",
+            "illum-profile", "illum-fwhm", "laser-custom-nm", "ex-lo-nm", "ex-hi-nm", "dichroic-edge-nm", "em-lo-nm",
+            "em-hi-nm", "bf-condenser-na", "bf-wavelength-nm", "bf-aberrations", "fid-blocking-od" }))
+      return "instrument";
+   // the sample: the specimen and its world, labels and dyes, beads, the medium and the chamber
+   if (in({ "seed", "world-seed", "specimen", "mode", "chunk-um", "occupancy", "cell-diam-min-um", "cell-diam-max-um",
+            "packing", "chamber-height-um", "background-per-sec", "bf-absorption-per-um", "psf-sample-index",
+            "psf-sample-depth-nm", "dye1.source", "dye2.source", "dye3.source" }) ||
+       starts("origami-") || starts("fid-") || starts("bf-n-") || (starts("dye") && n.find('.') != std::string::npos) ||
+       (n.size() > 8 && n.compare(n.size() - 8, 8, "-density") == 0))
+      return "sample";
+   // how the instrument is driven: the light, the filters in place, the camera's settings, the render quality
+   if (starts("laser-") || starts("wf-") || starts("mean-field-") || starts("blink-") || starts("bf-") ||
+       (starts("psf-") && !starts("psf-sample-")) ||
+       in({ "light-preset", "ex-filter", "dichroic", "em-filter", "illum-bfp", "modality", "light-epi", "light-trans",
+            "size", "em-gain", "z-range-um" }))
+      return "settings";
+   return nullptr;
 }
 
 struct OptionTable
@@ -159,7 +200,8 @@ const OptionTable& Options()
       // Each target's label (data/specimens.json; Micro-Manager: the specimen device's <Row>_* rows, Fluorophores):
       // <prefix>-dye, -mode, -label-pct, -imager-nm, -orient*, -wobble-deg, -motion, and for a target with a linkage
       // model (library.json linkagePresets.defaults) -binder, -binder-nm, -binder-flex-nm, -linker-min-nm,
-      // -linker-max-nm. The default dye: the target's typical dye in the library's default mode (JS targetLabelOptions).
+      // -linker-max-nm. The default dye: the target's typical dye in the library's default mode, or None for a target
+      // with defaultNone (the lamina: off until labelled; JS targetLabelOptions).
       for (int s = 0; s < TargetCount(); ++s)
       {
          const TargetData& tg = TargetAt(s);
@@ -172,7 +214,7 @@ const OptionTable& Options()
             std::snprintf(b, sizeof b, "%s%s %g", m ? ", " : "", DyeModeNames()[static_cast<size_t>(m)].c_str(), tg.typicalPct[m]);
             pcts += b;
          }
-         v.push_back({ keep(P + "-dye"), static_cast<double>(tg.typicalDye[DefaultDyeMode()]),
+         v.push_back({ keep(P + "-dye"), static_cast<double>(tg.defaultNone ? DyeNoneChoice() : tg.typicalDye[DefaultDyeMode()]),
                        keep(D + "_Label: a library dye, Dye1..Dye3, or None (no label: the target is off); -1 Typical = " + T.what +
                             " typical dye in their mode (data/dyes/library.json typicalLabels; names accepted)") });
          v.push_back({ keep(P + "-mode"), -1,
@@ -245,6 +287,7 @@ const OptionTable& Options()
          { "cell-diam-max-um", 35, "CellField.CellDiameterMaxUm" },
          { "mt-density", 0.9, "CellField.MicrotubuleDensityPerUm2 (0: no microtubules, the target is off)" },
          { "npc-density", 8, "CellField.NuclearPoreDensityPerUm2: nuclear pores per um^2 of nuclear envelope (8: chosen by the user 2026-10-13, was 12; measured 5-8.6 of maeshima2006 and dultz2010; 0: no pores, the target is off; the pore geometry: p.npcMinDistNm, p.npcRadiusNm, p.npcRingSepNm, p.npcCornerSpreadNm)" },
+         { "lamin-density", 2000, "CellField.NuclearLaminaDensityPerUm2: nuclear lamina points per um^2 of nuclear envelope (2000: estimate, 2026-10-27, was 50; 100 .. 10000 in the viewer and MM; 0: no lamina; it is unlabelled by default: lamin-dye None; p.laminNpcExclNm: no point within half of it of a pore centre, default 40 nm)" },
          { "packing", 1, "CellField.Packing (1 on, 0 off)" },
          { "origami-design", 0, "Nanorulers.Design: the DNA-origami design (data/origami/designs.json; names accepted)" },
          { "origami-spacing-nm", 80, "Nanorulers.SpacingNm: lattice step between neighbouring spots, nm; the body grows with it (a rod keeps 20 nm ends; the UIs offer 640-5)" },
@@ -336,6 +379,9 @@ const OptionTable& Options()
          { "blink-min-photons", 50, "Renderer.BlinkMinPhotons: a blink with fewer detected photons than this in a frame is not splatted in that frame (Quality Fast 100, Realistic 50, Exhaustive 0); binned and mean-field frames and continuous dyes keep every one" },
       };
       v.insert(v.end(), rest.begin(), rest.end());
+      for (const ScopeOption& x : v)
+         if (!PartOf(x.name))
+            throw std::runtime_error(std::string("ScopeMovie.cpp: option '") + x.name + "' has no part (PartOf)");
       return o;
    }();
    return t;
@@ -453,6 +499,24 @@ bool IsNamedOption(const std::string& name)
 const std::vector<ScopeOption>& ScopeMovieOptions()
 {
    return Options().opts;
+}
+
+const std::vector<std::string>* ScopeOptionNames(const std::string& name)
+{
+   return OptionNames(name);
+}
+
+const char* ScopeOptionPart(const std::string& name)
+{
+   if (name.compare(0, 2, "p.") == 0 && name.size() > 2)
+      return "sample";
+   if (ZernikeKeyIndex(name) >= 0)
+      return "instrument";
+   OverrideKey ok;
+   if (!IsNamedOption(name) && ParseOverrideKey(name, ok) && (ok.slot >= 0 || ok.structure >= 0) &&
+       IndexOf(DyeFieldNames(), ok.field) >= 0)
+      return "sample";
+   return IsNamedOption(name) ? PartOf(name) : nullptr;
 }
 
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value)
@@ -1340,7 +1404,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    std::map<std::string, double> world = {
       { "chunkSize", O("chunk-um") }, { "density", O("occupancy") },
       { "cellDiamMin", O("cell-diam-min-um") }, { "cellDiamMax", O("cell-diam-max-um") },
-      { "mtDensity", O("mt-density") }, { "npcDensity", O("npc-density") },
+      { "mtDensity", O("mt-density") }, { "npcDensity", O("npc-density") }, { "laminDensity", O("lamin-density") },
       { "enablePacking", O("packing") != 0 ? 1.0 : 0.0 },
    };
    // The specimen and its params (the origami-* options; p.<name> on top, below).
@@ -1487,6 +1551,27 @@ bool ScopeLabelState(const ScopeSpec& spec, int structure, bool pre, ScopeStateR
    return true;
 }
 
+bool ScopeZernike(const ScopeSpec& spec, std::vector<double>& z, std::string& err)
+{
+   const std::vector<std::string>& presets = ZernikePresetNames();
+   const int preset = static_cast<int>(ScopeSpecGet(spec, "psf-zernike-preset"));
+   if (preset < 0 || preset >= static_cast<int>(presets.size()))
+   {
+      err = "psf-zernike-preset " + std::to_string(preset) + " out of range (0-" +
+            std::to_string(presets.size() - 1) + ")";
+      return false;
+   }
+   const ZernikeCoefficients p = ZernikePresetCoefficients(presets[static_cast<size_t>(preset)]);
+   z.assign(p.begin(), p.end());
+   for (const auto& kv : spec)
+   {
+      const int j = ZernikeKeyIndex(kv.first);
+      if (j >= 0)
+         z[static_cast<size_t>(j)] = kv.second;
+   }
+   return true;
+}
+
 bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorRequest& req, std::string& err)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
@@ -1532,21 +1617,11 @@ bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorReq
    req.workingDistanceUm = O("psf-working-distance-um");
    req.sampleDepthNm = O("psf-sample-depth-nm");
    req.pupilSamples = static_cast<int>(std::max(0.0, O("psf-pupil-samples")));
-   const std::vector<std::string>& presets = ZernikePresetNames();
-   const int preset = static_cast<int>(O("psf-zernike-preset"));
-   if (preset < 0 || preset >= static_cast<int>(presets.size()))
-   {
-      err = "psf-zernike-preset " + std::to_string(preset) + " out of range (0-" +
-            std::to_string(presets.size() - 1) + ")";
+   std::vector<double> zv;
+   if (!ScopeZernike(spec, zv, err))
       return false;
-   }
-   ZernikeCoefficients z = ZernikePresetCoefficients(presets[static_cast<size_t>(preset)]);
-   for (const auto& kv : spec)
-   {
-      const int j = ZernikeKeyIndex(kv.first);
-      if (j >= 0)
-         z[static_cast<size_t>(j)] = kv.second;
-   }
+   ZernikeCoefficients z{};
+   std::copy(zv.begin(), zv.end(), z.begin());
    req.zernikeCoefficients = FormatZernikeCoefficients(z, ',');
    req.maskType = O("psf-mask") == 1 ? PsfMaskType::DoubleHelix : PsfMaskType::None;
    req.maskModes = static_cast<int>(std::min(8.0, std::max(2.0, O("psf-mask-modes"))));
@@ -4866,12 +4941,11 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
                  "insiliscope modality=BrightField seed=%ld world_seed=%u x=%g y=%g z=%g size=%u pixel_nm=%g "
                  "exposure_ms=%g frames=%ld focus_um=%g quality=%d sources=%d upscale=%d sub=%d slices=%d grid=%ux%u "
                  "na=%g condenser_na=%g lambda_nm=%g n_medium=%g n_cytoplasm=%g n_nucleus=%g n_microtubule=%g "
-                 "absorption_per_um=%g photons_per_px=%.4g drift_xy=%g drift_z=%g setup_ms=%.0f image_ms=%.0f",
+                 "absorption_per_um=%g photons_per_px=%.4g drift_xy=%g drift_z=%g",   // (no times: the same file every run)
                  S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, p.pixelSizeNm, S.expSec * 1000, N, focusUm, bs.quality,
                  scene.Sources(), q.upscale, q.sub, scene.Slices(), scene.GridNx(), scene.GridNy(), bs.na,
                  bs.condenserNa, bs.wavelengthNm, bs.nMedium, bs.nCytoplasm, bs.nNucleus, bs.nMicrotubule,
-                 bs.absorptionPerUm, flux, p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec, scene.SetupMs(),
-                 scene.LastImageMs());
+                 bs.absorptionPerUm, flux, p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec);
    info.description = desc;
    DriftInfo(S, info);
    NoiseSetup noise(S.seed, W, H, p);

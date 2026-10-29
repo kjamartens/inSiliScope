@@ -347,6 +347,7 @@ bool SameFloats(const std::vector<float>& a, const std::vector<float>& b)
 
 int main(int argc, char** argv)
 {
+   std::setvbuf(stdout, nullptr, _IONBF, 0);   // progress shows as it runs (ctest, pipes)
    if (argc > 1 && std::strcmp(argv[1], "--bench") == 0)
    {
       Bench();

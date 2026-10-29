@@ -33,33 +33,106 @@ bool LiveScope::Frame(const ScopeSpec& spec, bool countLight, std::vector<uint16
    return Frames(spec, 1, countLight, adu, info, err);
 }
 
+struct LiveScope::Step
+{
+   ScopeSpec spec;   // the frames' spec at the drifted pose, from the sample's time
+   ScopeResolved R;
+   LightState light;
+   DriftNm d;
+   double posX = 0, posY = 0;
+   bool epi = false, trans = false, lit = false;
+};
+
+int LiveScope::Begin(const ScopeSpec& specIn, long n, bool countLight, Step& st, std::string& err)
+{
+   ScopeSpec& spec = st.spec;
+   spec = specIn;
+   spec["frames"] = 1;
+   if (!ScopeResolve(spec, st.R, err))
+      return -1;
+   const SimulationParams& p = st.R.p;
+   // A new world (seed, cell or specimen parameters) is a fresh sample, as the adapter's SyncHistoryWorld.
+   if (!haveWorld_ || !st.R.cf.SameWorld(world_))
+   {
+      Reset();
+      world_ = st.R.cf;
+      haveWorld_ = true;
+      drift_ = DriftWalker(st.R.seed, p.drift, 0);
+   }
+   drift_.SetSettings(p.drift);
+   ScopeLights(spec, st.epi, st.trans);
+   const bool lightsSample = st.epi && ScopeSampleIntensityKwCm2(spec) > 0;
+   // One movie of n frames only where the frames are alike: the pose fixed (no drift) and every frame lighting the
+   // sample (the movie's dyes run on from the clock frame by frame). Otherwise frame by frame.
+   if (n > 1 && (p.drift.On() || !(countLight && lightsSample)))
+      return 0;
+   spec["frames"] = static_cast<double>(n);
+   st.d = drift_.Position();
+   // The FOV over the moved sample, the focal plane dz lower in it (the adapter's live pose); the movie's own drift
+   // is off (its frame 0 is undrifted anyway).
+   const double x = ScopeSpecGet(spec, "x"), y = ScopeSpecGet(spec, "y"), z = ScopeSpecGet(spec, "z");
+   st.posX = x - st.d.x / 1000.0;
+   st.posY = y - st.d.y / 1000.0;
+   spec["x"] = st.posX;
+   spec["y"] = st.posY;
+   spec["z"] = z - st.d.z / 1000.0;
+   for (const char* k : { "drift-xy-nm-per-sqrt-sec", "drift-z-nm-per-sqrt-sec", "drift-xy-speed-nm-per-sec",
+                          "drift-z-speed-nm-per-sec" })
+      spec[k] = 0;
+   // The frames' light (the adapter's MakeLightState at the drifted pose: the beam's place, the HILO pivot at the
+   // focus); they start at the sample's time now.
+   st.lit = countLight && lightsSample;
+   if (!MakeLightState(spec, st.lit, st.light, err))
+      return -1;
+   spec["start-sec"] = history_.T();
+   return 1;
+}
+
+void LiveScope::Finish(const Step& st, long n)
+{
+   noiseCounter_ += static_cast<uint32_t>(n);
+   // The frames' light goes into the history (the next frame sees it), one frame at a time as live mode adds it; the
+   // sample's time runs from its first light on (the adapter's rule: before it every dye is fresh and DNA-PAINT's
+   // binding stationary), and the drift moves on.
+   for (long f = 0; f < n; ++f)
+   {
+      if (st.lit || history_.Lit())
+         history_.Advance(st.R.expSec, st.light);
+      tSec_ += st.R.expSec;
+      if (st.R.p.drift.On())
+         drift_.Step(st.R.expSec);
+   }
+}
+
+bool LiveScope::Advance(const ScopeSpec& spec, long n, bool countLight, std::string& err)
+{
+   n = std::max(1L, n);
+   Step st;
+   const int how = Begin(spec, n, countLight, st, err);
+   if (how < 0)
+      return false;
+   if (how == 0)
+   {
+      for (long f = 0; f < n; ++f)
+         if (!Advance(spec, 1, countLight, err))
+            return false;
+      return true;
+   }
+   Finish(st, n);
+   return true;
+}
+
 bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::vector<uint16_t>& adu,
                        LiveFrameInfo& info, std::string& err)
 {
    const auto t0 = std::chrono::steady_clock::now();
    n = std::max(1L, n);
    info = LiveFrameInfo();
-   ScopeSpec spec = specIn;
-   spec["frames"] = 1;
-   ScopeResolved R;
-   if (!ScopeResolve(spec, R, err))
+   Step st;
+   const int how = Begin(specIn, n, countLight, st, err);
+   if (how < 0)
       return false;
-   const SimulationParams& p = R.p;
-   // A new world (seed, cell or specimen parameters) is a fresh sample, as the adapter's SyncHistoryWorld.
-   if (!haveWorld_ || !R.cf.SameWorld(world_))
-   {
-      Reset();
-      world_ = R.cf;
-      haveWorld_ = true;
-      drift_ = DriftWalker(R.seed, p.drift, 0);
-   }
-   drift_.SetSettings(p.drift);
-   bool epi = false, trans = false;
-   ScopeLights(spec, epi, trans);
-   const bool lightsSample = epi && ScopeSampleIntensityKwCm2(spec) > 0;
-   // One movie of n frames only where the frames are alike: the pose fixed (no drift) and every frame lighting the
-   // sample (the movie's dyes run on from the clock frame by frame). Otherwise frame by frame.
-   if (n > 1 && (p.drift.On() || !(countLight && lightsSample)))
+   if (how == 0)
    {
       adu.clear();
       std::vector<uint16_t> one;
@@ -83,28 +156,13 @@ bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::ve
       info.renderMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
       return true;
    }
-   spec["frames"] = static_cast<double>(n);
-   const DriftNm d = drift_.Position();
-   // The FOV over the moved sample, the focal plane dz lower in it (the adapter's live pose); the movie's own drift
-   // is off (its frame 0 is undrifted anyway).
-   const double x = ScopeSpecGet(spec, "x"), y = ScopeSpecGet(spec, "y"), z = ScopeSpecGet(spec, "z");
-   const double posX = x - d.x / 1000.0, posY = y - d.y / 1000.0;
-   spec["x"] = posX;
-   spec["y"] = posY;
-   spec["z"] = z - d.z / 1000.0;
-   for (const char* k : { "drift-xy-nm-per-sqrt-sec", "drift-z-nm-per-sqrt-sec", "drift-xy-speed-nm-per-sec",
-                          "drift-z-speed-nm-per-sec" })
-      spec[k] = 0;
-   info.epi = epi;
-   info.trans = trans;
-   // The frames' light (the adapter's MakeLightState at the drifted pose: the beam's place, the HILO pivot at the
-   // focus); they start at the sample's time now.
-   info.lit = countLight && lightsSample;
-   LightState light;
-   if (!MakeLightState(spec, info.lit, light, err))
-      return false;
-   spec["start-sec"] = history_.T();
-   info.litSec = history_.DoseAt(posX, posY);
+   const ScopeResolved& R = st.R;
+   const SimulationParams& p = R.p;
+   const ScopeSpec& spec = st.spec;
+   info.epi = st.epi;
+   info.trans = st.trans;
+   info.lit = st.lit;
+   info.litSec = history_.DoseAt(st.posX, st.posY);
 
    ScopeMovieInfo mi;
    info.paths = "[]";
@@ -140,7 +198,7 @@ bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::ve
       std::copy(one.begin(), one.end(), adu.begin() + static_cast<std::ptrdiff_t>(px * static_cast<size_t>(f)));
       ++done;
       return true;
-   }, mi, err, nullptr, true, &paths, &history_, &light);
+   }, mi, err, nullptr, true, &paths, &history_, &st.light);
    if (!ok)
       return false;
    if (done != n)
@@ -148,21 +206,9 @@ bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::ve
       err = "no frame rendered";
       return false;
    }
-   noiseCounter_ += static_cast<uint32_t>(n);
-
-   // The frames' light goes into the history (the next frame sees it), one frame at a time as live mode adds it; the
-   // sample's time runs from its first light on (the adapter's rule: before it every dye is fresh and DNA-PAINT's
-   // binding stationary), and the drift moves on.
    info.tSec = tSec_;
-   info.drift = d;
-   for (long f = 0; f < n; ++f)
-   {
-      if (info.lit || history_.Lit())
-         history_.Advance(R.expSec, light);
-      tSec_ += R.expSec;
-      if (p.drift.On())
-         drift_.Step(R.expSec);
-   }
+   info.drift = st.d;
+   Finish(st, n);
    info.width = R.W;
    info.height = R.H;
    info.blinks = mi.blinks;

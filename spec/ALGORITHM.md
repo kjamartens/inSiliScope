@@ -1,12 +1,10 @@
 # Cell field simulation -- algorithm notes
 
-The *why* behind every non-obvious decision in the cell-field generator. Written against the JS
-prototype (`web/prototype/index.html` generator half, `web/prototype/microtubules.js`), which is the reference
-implementation the C++ core (`core/`) is ported from; function names below are the JS ones (the C++
-uses the same names in PascalCase). Read the relevant section before touching an algorithm, in either
-language, and do not "simplify" what it says was fixed on purpose.
-
-Open `web/prototype/index.html` directly in a browser to see it (the prototype; `web/index.html` is the viewer on the WASM core) -- no build step, no server.
+The *why* behind every non-obvious decision in the cell-field generator. First written against the JS
+prototype, the reference implementation the C++ core (`core/`) was ported from bit for bit (retired on 2026-10-28;
+the golden vectors in `spec/golden` were frozen from it). Function names below are often the JS ones (the C++ uses the
+same names in PascalCase). Read the relevant section before touching an algorithm, and do not "simplify" what it says
+was fixed on purpose.
 
 ## The idea being tested
 
@@ -319,7 +317,7 @@ points, and bounding purely by that would mask a genuine height change rather th
 spread it out) via a few back-and-forth smoothing passes, the same "relax toward
 neighbours" idiom `mtNudgeRoundGrid()`'s own collision resolution already uses elsewhere
 in this file — catches whatever the three fixes above don't, rather than relying on them
-being exhaustive. `tools/check_cellfield_microtubules.mjs`'s own step-slope check (see
+being exhaustive. The step-slope check (`world_checks.microtubules`, see
 below) exists specifically to catch a regression in this; its own ratio metric additionally
 needs an absolute `|dz|` floor (`STEEP_MIN_DZ`) before flagging a step, since the RATIO
 alone spikes on plenty of genuinely tiny, invisible height wiggles whenever the walk's
@@ -426,7 +424,7 @@ Path smoothing and Min turn radius are two DIFFERENT, complementary constraints,
 same knob under two names: smoothing shapes the TYPICAL, everyday wiggliness (how far the
 walk wanders per µm, all cases, including the ones far under the turn-radius cap), while
 minimum turn radius is a hard FLOOR only the rare tail ever hits (the worst-case single
-step/segment). Verified together (`tools/check_cellfield_microtubules.mjs`'s own scenarios
+step/segment). Verified together (the retired `check_cellfield_microtubules.mjs`'s scenarios
 and a direct single-cell, low-density Playwright screenshot comparison): off (both 0) shows
 visibly sharp kinks and zigzags; defaults (0.3 µm / 0.35 µm) already read as gently curving
 strands with no visible sharp turns; pushed further (1.5 µm / 0.6 µm) reads as long, sweeping
@@ -455,8 +453,9 @@ across a real run) dropped from 0.18 (Path smoothing off) to 0.009 at the slider
 over/under-nucleus crossing transitions) stayed a comparable, expected magnitude, i.e. this
 smooths the everyday wiggle without flattening genuine large crossings.
 
-**Verification**: `tools/check_cellfield_microtubules.mjs` (Playwright) checks three
-things independently after generation, across several parameter scenarios including one
+**Verification**: ctest `world_checks.microtubules` (`MicrotubuleGeometry` in `tests/parity/world_tests.cpp`, ~0.6 s;
+until 2026-10-28 `web/tools/check_cellfield_microtubules.mjs` on the JS prototype, ported with its scenarios and
+bounds) checks four things independently after generation, on one cell, across three parameter scenarios including one
 with widened End direction jitter/Wobble turn strength specifically to exercise the
 over/under-nucleus crossing rule: every point against the same containment bounds the
 clamp is supposed to enforce (footprint, nucleus, and `sampleCytoMeshHeight`); a coarse
@@ -464,10 +463,13 @@ histogram of z-as-fraction-of-local-ceiling across every point, which should hav
 density in the middle third rather than being bimodal (pinned near 0 and 1) — the
 signature of the hard-snap artifact above; and, for every consecutive pair of points on a
 path, the ratio of |dz| to the lateral distance moved, which should only rarely exceed a
-generous multiple — the signature of the "sudden, fully vertical drop" artifact above.
-Run it after touching microtubule or cytoplasm-height-field code (`cd web/tools && node
-check_cellfield_microtubules.mjs`; needs `web/tools/node_modules` — `cd web/tools && npm
-install` once).
+generous multiple — the signature of the "sudden, fully vertical drop" artifact above; and the implied turn radius at
+every interior point against `mtMinTurnRadius` (at most 2 % of turns under 0.9 x it). Run it after touching
+microtubule or cytoplasm-height-field code. Its power, measured on 2026-10-28 by breaking the generator: a skipped
+containment clamp, a floor-or-ceiling snap, sudden z drops and an xy zigzag in the final paths each fail it; removing
+`MtEnforceMinTurnRadius` alone does not (tight turns 0.00 -> 0.92 %, under the 2 % bound: today's walk rarely turns
+that tightly by itself), nor do removing `MtLimitZSlopeRealized` and `MtTrimSteepEnds` (no steep step either way at
+these scenarios: the box smoothing already prevents them).
 
 **Scale bar**: bottom-right, fixed in screen space (untouched by pan/tilt), picks a
 round 1-2-5 length that renders near a target on-screen size at the current zoom
@@ -522,7 +524,10 @@ does not change it); the signed distance for the cytoplasm profile is the neares
 node so the bilinear surface between nodes clears a steep rim (a wide top); the optical volume (BrightField) takes the
 asymmetric chord `[nucZ - below, nucZ + above]`; the microtubule push-out works radially in (s, zeta): the boundary scale
 by bisection (24 steps), divided by the containment margin. Drawing uses horizontal sections at `s = W(zeta)`,
-`zeta = -cos(pi i / (n - 1))`, both poles included (ABI 9 `isc_cell_nucleus_rings`).
+`zeta = -cos(pi i / (n - 1))` (ABI 9 `isc_cell_nucleus_rings`). A widened half (`f` > 0, the base by default) ends at
+`zeta = -1` in a flat cap of width `f`, not a pole, so its cap follows as 4 more rings at `s = f k / 4` (k = 0..3, the
+centre a single point): the rings close the surface at both ends (2026-10-29; before, the drawn nucleus and lamina had a
+hole in the base).
 
 ## Microtubule starts, ends and the obstacle envelope (2026-10-05)
 
@@ -639,7 +644,7 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
   sums (~50 ms for the default kernel). On the default kernel the splat keeps ~58 % of the square's pixels at 3e-6, ~39
   % at 1e-5 (all planes alike; emitters near focus keep less).
 - **Checks.** ctest `sr_render`: threshold 0 = the uncut splat bit for bit, kept pixels exact, left-out pixels <
-  threshold (Nearest, Linear, Cubic, Fft). `scope_parity`/`engine_check` run the default (3e-6) on both sides.
+  threshold (Nearest, Linear, Cubic, Fft).
 
 ## Dim blinks (2026-10-14)
 
@@ -655,8 +660,8 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
 - **Not.** Binned frames (approximate SMLM: the same events, one FFT, no saving per event), blinks rendered mean-field,
   and the continuous populations (WideField labels, pre states, the dSTORM initial ON, per dye or mean field) keep every
   dye: dropping dim members of a dense population would darken it as a whole. Nothing is renormalized.
-- **Checks.** `scope_parity` (the JS and the C++ cut the same blinks: 100 % identical ADU), ctest `cli_probes`
-  (Realistic = the option defaults).
+- **Checks.** ctest `cli_probes` (Realistic = the option defaults); until 2026-10-28 the JS reference cut the same
+  blinks (100 % identical ADU).
 
 ## Blink render regimes (2026-10-08)
 
@@ -677,8 +682,8 @@ Blinks render per label (main group) and per frame in one of three regimes; the 
   photons and z plane, the fluctuation; lost: the position within a cell. Cost per FOV area: 3-4 s (u = 1), 13-20 s
   (u = 2), 30-38 s (u = 3) for the movie above at any density. Accuracy (photons): sum within 0.04 %, image relative L2
   4.3 / 2.1 / 1.8 % at u = 1 / 2 / 3 against the splat of the same events; ADU movies 0.5-2 % in the mean image (u =
-  2). The C++ FFT is float (`RealFft2d`), the JS float64: `scope_parity` still gives 100 % identical ADU.
-- **Mean field**, `BlinkExpectation.*` (JS `blink_expectation.js`). No events: each dye's expected ON seconds in the
+  2). The C++ FFT is float (`RealFft2d`); the retired JS reference's float64 FFT gave 100 % identical ADU.
+- **Mean field**, `BlinkExpectation.*`. No events: each dye's expected ON seconds in the
   frame, `ExpectedBlinkOnSeconds(mode, segments, t0, t1)`, x the detected rate x the structure's dye density image (the
   continuous populations' mean-field machinery: `BuildMeanField`, drift, per clock region with a host clock).
   - dSTORM / PALM: the chain the core walks (`dyes.cpp`): I (initial ON) -> D (first dark, activation rate) -> ON
@@ -719,7 +724,7 @@ Blinks render per label (main group) and per frame in one of three regimes; the 
 ## DNA-origami nanorulers (2026-10-12)
 
 A second specimen (`specimen` 1, `data/specimens.json`): a field of DNA-origami rods on the coverslip
-(`core/src/origami.*`, JS twin `web/prototype/scope/origami.js`, bit-exact; designs `data/origami/designs.json` ->
+(`core/src/origami.*`; designs `data/origami/designs.json` ->
 `tools/gen_origami_designs.mjs`). The model reference is the user's `tools/origami_reference/origami_bend.py`; the public
 description is `docs/samples/nanorulers/index.md`.
 
@@ -737,8 +742,8 @@ description is `docs/samples/nanorulers/index.md`.
   sqrt(ds / Lp) per segment, exact circular arcs (sinc form; half-angle 0 handled), placed with the chord along the
   yaw and its midpoint at the position (the "aligned" frame of `origami_bend.py`). The normals are Box-Muller on
   `pcg4d(h1, K_BEND, i >> 1, 0)` (cos for even i, sin for odd) with `jsm::` math, so C++ = JS bit for bit; the
-  cross-check (`tools/origami_reference/crosscheck.py`) feeds `origami_bend.py` the same normals: same sites to 1e-14
-  nm. Statistics (checked in `origami_check.mjs` and `world_checks.Origami`): end-angle variance L/Lp, tangent
+  cross-check (`tools/origami_reference/crosscheck.py`, frozen in `tests/parity/origami_bend_ref.inc`) feeds
+  `origami_bend.py` the same normals: same sites to 1e-14 nm. Statistics (checked in `world_checks.origami`): end-angle variance L/Lp, tangent
   correlation e^(-s/2Lp), <R^2> of the 2D chain. Fold-over (|kappa| D/2 >= 1) counted, kept.
 - **Default Lp 1500 nm** (*estimate*): measured bending persistence lengths of origami bundles are 0.74-1 um (4HB),
   1-3 um (6HB), 3-8.2 um (8HB) (chhabra2020); a 12-helix rod is stiffer, so 1500 leans soft.
@@ -766,8 +771,7 @@ description is `docs/samples/nanorulers/index.md`.
 
 ## DNA-PAINT rate changes act at once (2026-10-12)
 
-The persistent (DNA-PAINT) blinks are drawn per site and 1 s bin (`PersistentGen`, `core/src/dyes.cpp`, JS twin
-`persistentGen`). Under a rate history a bin used to take the kinetics of the segment holding its start, so a change of
+The persistent (DNA-PAINT) blinks are drawn per site and 1 s bin (`PersistentGen`, `core/src/dyes.cpp`). Under a rate history a bin used to take the kinetics of the segment holding its start, so a change of
 imager concentration showed from the next whole second (the free-imager background, computed per frame, changed at
 once: users saw the background move and not the blinks). Now a bin with a segment start inside it is cut in pieces:
 
@@ -781,15 +785,16 @@ once: users saw the background move and not the blinks). Now a bin with a segmen
   change: a blink already on screen would vanish or move when the concentration is changed.
 - A union of Poisson processes on disjoint intervals is the inhomogeneous process: exact. The mean-field expectation
   (`BlinkExpectation`) integrates per piece the same way. Checks: `world_checks.kinetics_history` (x10 at 60.4 s: the
-  blinks before it unchanged, 1612 -> 16204 in [60.4, 61)), `label_parity` (C++ = JS), ctest `blink_regimes`
+  blinks before it unchanged, 1612 -> 16204 in [60.4, 61)), ctest `blink_regimes`
   (expectation vs the core across straddled bins, -0.2 sigma). In MM a 1 -> 10 nM step shows in the next frames; only
   the imagers bound at the change finish their ON time (~50 ms).
 
 ## Nuclear pore complexes, a second cell-field target (2026-10-12, issue 15)
 
-The cell field's second labelled structure (`ISC_STRUCT_NPC` 1; the nanorulers' docking strands moved to 2), imaged
-together with the microtubules, each with its own label. `core/src/npcs.*`, JS twin in `web/prototype/index.html`
-(`nucSurfaceMesh`, `buildNpcsForCell`), bit-exact (golden `npcs` lines, `label_parity`).
+The cell field's second labelled structure (`ISC_STRUCT_NPC` 1; the nanorulers' docking strands moved to 2, and to 3
+with the lamina), imaged
+together with the microtubules, each with its own label. `core/src/npcs.*`
+(`NucSurfaceMesh`, `BuildNpcsForCell`), frozen by the golden `npcs` lines.
 
 - **One pore = webSMLM's Nup96 model**: 2 rings at -+ sep/2 along the pore axis x 8 corners x 4 arc points (phi =
   -+22.5 / -+67.5 deg on an arc of radius spread/2 around the corner at R), 64 attachment points, ring 0 the
@@ -814,6 +819,36 @@ together with the microtubules, each with its own label. `core/src/npcs.*`, JS t
 - **No cell moves**: `PackingFingerprint` and the pack keys skip `npc*`, `ISC_WORLD_VERSION` stays, the block caches stay
   valid. Pores add no BrightField contrast (BRIGHTFIELD.md).
 
+## Nuclear lamina, a third cell-field target (2026-10-27)
+
+The lamina under the nuclear envelope as a third labelled cell-field structure (`ISC_STRUCT_LAMIN` 2; the docking
+strands moved to 3, ABI 16). For now a **random stand-in** for the lamin network: points, not filaments, placed
+independently; the placement lives in one function (`BuildLaminForCell`, `core/src/npcs.*`) so a network (meshwork, filaments) can replace it later. Checks: the golden `lamin`
+lines, `world_checks.lamin`.
+
+- **Placement: uniform by area over the whole envelope**, on the pores' surface mesh (`nucSurfaceMesh`; the sampling
+  `nucSamplePoint` / `nucPointNormal` was factored out of `buildNpcsForCell` with the pores' draws unchanged). Candidate
+  i is `pcg4d(seed ^ 0x4C414D31 ("LAM1"), cx, cy, i)`; N = round(`laminDensity` x area), at most 50 N candidates.
+- **No point at a pore**: a candidate within `laminNpcExclNm` / 2 (40 nm diameter, the user's choice; *estimate*) of
+  a pore centre (3D distance, a hash grid of the pore centres; the answer of testing every pore) is rejected. The pores
+  are the geometric ones (`npcDensity`), labelled or not; the lamin params never move a pore. No lamina-lamina spacing.
+- **Density**: the engine's `lamin-density` 2000 per um^2 (the user's choice, 2026-10-27, was 50; *estimate*; 100 to
+  10000 in the viewer and MM); the core's `laminDensity`
+  defaults to **0**, so a world with the default labels (the goldens, webSMLM's block) has no lamina.
+- **Dyes**: one docking site per point (k = 0, n = the candidate index); per cell `H1 = pcg4d(seed ^ 0x4C414D44
+  ("LAMD"), cx, cy, 0).a` and the `DYE_CH` channels, so labelling, schedules and orientation work unchanged. The label
+  linkage starts at the point along a **uniform random direction** (`u = 2 unit(pcgA(H1, 1, n, LINK_U)) - 1`, `phi = 2 pi
+  unit(pcgA(H1, 1, n, LINK_PHI))`: the unused site address k = 1; the user's choice, 2026-10-27, no side of the envelope
+  preferred; it pointed inward before), attachNm
+  0; the built-in ("Legacy") linkage is the dye on the point. Dye blocks: the points in one cell-local 1 um cube, after
+  the pores' blocks. A Fixed orientation is about the outward normal (Duff frame).
+- **Off by default**: the registry's `defaultDye: "None"` makes `lamin-dye` default to None (engine, viewer, MM), so
+  every default output is unchanged. Typical labels (anti-lamin antibodies, lamin-FP fusions): DNA-PAINT Cy3B 70 %,
+  dSTORM AF647 70 %, PALM mEos3.2 58 %, WideField mEGFP 100 %, linkage IgG2-PAINT; DNA-PAINT kinetics as the pores'
+  (*estimates*).
+- **No cell moves**: `PackingFingerprint` and the pack keys skip `lamin*`, `ISC_WORLD_VERSION` stays. No BrightField
+  contrast (BRIGHTFIELD.md: only simulated structures, and the lamina is no volume).
+
 ## Label linkage: binder, linker, dye (2026-10-12)
 
 One model of the dye-to-structure distance for every structure (`LinkageOffset`, `core/src/dyes.*`, JS `linkedDye`):
@@ -834,8 +869,8 @@ One model of the dye-to-structure distance for every structure (`LinkageOffset`,
 
 One slider moves the laser spot across the objective's back focal plane (option `illum-bfp`, u): 0 = the centre
 (epi), 1 = the critical angle, > 1 = TIRF up to the pupil edge u_max = NA / n_s; beyond it the spot is clipped and no
-light reaches the sample (dyes and imager dark; the autofluorescence background, a camera-side term, stays). JS
-`web/prototype/scope/excitation.js` (the header has the formulas), C++ twin `Simulation/Excitation.*`.
+light reaches the sample (dyes and imager dark; the autofluorescence background, a camera-side term, stays). C++
+`Simulation/Excitation.*`.
 
 - **Why u = r / r_crit.** The sine condition makes the BFP radius proportional to n_i sin(theta_i), so moving the spot
   linearly is linear in u = n_i sin(theta_i) / n_s, and the critical angle sits at u = 1 for every objective and
@@ -881,9 +916,9 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   specimen u = 1.03 (TIRF, under the 1.40 objective's pupil edge; both *estimates*); in epi the nanorulers' 20 nM
   imager over 100 um saturates the camera.
 - **The kinetics follow the local light**, every dye at the dose at its own (x, y, z), on every consumer (MM, cli,
-  viewer, the JS reference): the clock map, "Exact light history" below. DNA-PAINT binding does not depend on the light
+  viewer): the clock map, "Exact light history" below. DNA-PAINT binding does not depend on the light
   (photons x the factor only). The check: a Flat HILO beam (one F everywhere) = epi with every laser x F, per mode
-  (`excitation_check.mjs`, ctest `excitation`: 100 % identical ADU).
+  (ctest `excitation`: 100 % identical ADU).
 - **Live under drift** (MM, fixed on purpose): the drift's z part enters a frame's focus on a 10 nm grid (the stage's
   own z stays exact), and the mean-field scenes stay posed at an anchor within 1 um of the FOV, their images shifted to
   it by a phase ramp (`FluorescenceMovie::AnchorMeanField`, the drift movies' `RenderShiftedImages`; the beam's axis
@@ -896,8 +931,8 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
 ## Exact light history (2026-10-15/16)
 
 Every dye's kinetics run at the dose at its own (x, y, z): one core query per movie (core ABI 14, the **clock map**;
-`core/src/clockmap.*`, `World::EventsInMap` / `ContinuousInMap`; JS `web/prototype/scope/clockmap.js`, `world.js`),
-the map made by the host's light history (`Simulation/LightHistory.*`; JS `light_history.js`) or, for a cli/viewer
+`core/src/clockmap.*`, `World::EventsInMap` / `ContinuousInMap`),
+the map made by the host's light history (`Simulation/LightHistory.*`) or, for a cli/viewer
 movie, by the same builder from the movie's own past. No levels, z bands, clock regions or dark rule.
 
 - **Why (fixed on purpose).** The stepped history it replaced (`IlluminationHistory`, removed 2026-10-16) counted the
@@ -950,7 +985,7 @@ movie, by the same builder from the movie's own past. No levels, z bands, clock 
   the windows still open. Fixed on purpose: the bleach was the host's (`ClockMapView::BleachEnd` per window), so a
   sample bleached down to the per-dye regime (~3000 of 3.2M dyes left) still pulled every window through the query each
   frame: 332 ms -> 0.9 ms per live frame. Order: by block, then (tOn in T, the own clock's time, dye, blink) -- the ABI 11
-  order under a uniform map. JS twin per query, no caches, the same numbers and order (`label_parity.mjs`).
+  order under a uniform map.
 - **Mean field on the map.** Per structure the map's entries on its finest lattice x height bands (`MapEntries`; bands
   merge the scene's dye planes while the photons per dye at Tq, Tq + span and Tq + 2 span stay within 1 % of the
   largest, at most 64): per entry the hazard H at the movie's start and its rate h now; frame 0's weight rate e^-H
@@ -976,7 +1011,7 @@ movie, by the same builder from the movie's own past. No levels, z bands, clock 
 ## Fiducial beads (2026-10-22/23)
 
 Optional beads on either specimen, for drift correction (`core/src/fiducials.*` places them, `Simulation/Fiducials.*`
-renders them; JS twin `web/prototype/scope/fiducials.js`, bit-exact; data `data/fiducials/`, spectra and brightness
+renders them; data `data/fiducials/`, spectra and brightness
 from balinovic2019). Off by default (`fidDensity` 0): every other output is unchanged.
 
 - **Not a labelled structure.** A bead holds 1e4-1e6 dyes that bleach as their mean, so it needs no dye list, label,
@@ -1115,5 +1150,5 @@ the top of that section. Full-network labeling can reach millions of points, so 
 
 [`PORT.md`](PORT.md) is the spec for the C++ port and the inSiliScope integration (cells,
 microtubules, dyes/blinks, dummy XY stage). **While that file exists, update it in the same commit as
-any change to the prototype that it describes** (hash channels, defaults, geometry, dye model, function
-names), and re-freeze the golden vectors (`node tests/parity/golden.mjs --freeze`).
+any change to the core that it describes** (hash channels, defaults, geometry, dye model, function
+names), and re-freeze the golden vectors deliberately (`node tests/parity/golden.mjs --freeze <isc_parity>`).

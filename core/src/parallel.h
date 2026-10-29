@@ -24,8 +24,8 @@ namespace isc {
 // threads, at least `grain` items per thread. fn must not throw.
 void ParallelFor(size_t n, size_t grain, const std::function<void(size_t)>& fn);
 
-// Threads ParallelFor may use: 0 = the hardware's, capped at 16 (the
-// default); 1 = serial. A pool made earlier keeps its worker count; the
+// Threads ParallelFor may use: 0 = the hardware's, capped at 16 or by the
+// environment variable ISC_THREADS (the default); 1 = serial. A pool made earlier keeps its worker count; the
 // value caps how many of them a call uses.
 void SetWorldThreads(int n);
 int WorldThreads();

@@ -51,7 +51,7 @@ endif()
 if(EMSCRIPTEN)
   add_executable(insiliscope_wasm src/wasm_entry.cpp)
   target_link_libraries(insiliscope_wasm PRIVATE insiliscope_core)
-  set(ISC_EXPORTS "_isc_abi_version,_isc_pcg4d,_isc_hash_unit,_isc_params_new,_isc_params_free,_isc_params_set,_isc_pack_window,_isc_world_new,_isc_world_free,_isc_cells_in_window,_isc_sites_in_window,_isc_density_in_window,_isc_density3d_in_window,_isc_optical_volume_in_window,_isc_world_set_dye_cache,_isc_world_prefetch,_isc_world_set_label,_isc_world_set_kinetics_history,_isc_events_in_window,_isc_continuous_in_window,_isc_world_set_clock_map,_isc_events_in_map,_isc_continuous_in_map,_isc_world_prefetch_map,_isc_world_pack_block,_isc_world_set_block,_isc_world_set_cache_dir,_isc_world_flush_cache,_isc_world_version,_isc_cell_outline,_isc_cell_mesh,_isc_cell_microtubules,_isc_cell_nucleus_rings,_isc_cell_npcs,_isc_origami_in_window,_isc_origami_outline,_isc_origami_sites,_isc_origami_design_count,_isc_origami_design_id,_isc_origami_heights,_isc_fiducials_in_window,_malloc,_free")
+  set(ISC_EXPORTS "_isc_abi_version,_isc_pcg4d,_isc_hash_unit,_isc_params_new,_isc_params_free,_isc_params_set,_isc_pack_window,_isc_world_new,_isc_world_free,_isc_cells_in_window,_isc_sites_in_window,_isc_density_in_window,_isc_density3d_in_window,_isc_optical_volume_in_window,_isc_world_set_dye_cache,_isc_world_prefetch,_isc_world_set_label,_isc_world_set_kinetics_history,_isc_events_in_window,_isc_continuous_in_window,_isc_world_set_clock_map,_isc_events_in_map,_isc_continuous_in_map,_isc_world_prefetch_map,_isc_world_pack_block,_isc_world_set_block,_isc_world_set_cache_dir,_isc_world_flush_cache,_isc_world_version,_isc_cell_outline,_isc_cell_mesh,_isc_cell_microtubules,_isc_cell_nucleus_rings,_isc_cell_npcs,_isc_cell_lamin,_isc_origami_in_window,_isc_origami_outline,_isc_origami_sites,_isc_origami_design_count,_isc_origami_design_id,_isc_origami_heights,_isc_fiducials_in_window,_malloc,_free")
   set(ISC_EXPORTS "${ISC_EXPORTS}" PARENT_SCOPE)   # cli/ links the viewer module with the same list
   target_link_options(insiliscope_wasm PRIVATE
     -O3
@@ -82,25 +82,5 @@ if(EMSCRIPTEN)
   )
   set_target_properties(insiliscope_web PROPERTIES OUTPUT_NAME insiliscope_single SUFFIX ".js")
 
-  # The webSMLM block's module (M4): the same C ABI, self-contained, compiled
-  # and instantiated synchronously (WASM_ASYNC_COMPILATION=0: the factory
-  # not a Promise; plain script, MODULARIZE=0: the Emscripten 6 factory is
-  # always async), because webSMLM builds structures
-  # synchronously on the main thread. ~100 KB, far under the browsers' sync
-  # compile limit.
-  # tools/make_cellfield_block.mjs wraps it into dist/cellfield_block.js.
-  add_executable(insiliscope_block src/wasm_entry.cpp)
-  target_link_libraries(insiliscope_block PRIVATE insiliscope_core)
-  target_link_options(insiliscope_block PRIVATE
-    -O3
-    -sMODULARIZE=0
-    -sENVIRONMENT=web,worker
-    -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
-    -sWASM_ASYNC_COMPILATION=0
-    -sALLOW_MEMORY_GROWTH=1
-    -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS}]"
-    "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAP32,stringToUTF8,lengthBytesUTF8]"
-  )
-  set_target_properties(insiliscope_block PROPERTIES OUTPUT_NAME insiliscope_block SUFFIX ".js")
+  # (the webSMLM block's module, insiliscope_block, is in cli/CMakeLists.txt: it links the engine's drift)
 endif()

@@ -3,8 +3,8 @@
 The imaging modality next to Fluorescence (until issue 16: next to SuperRes and WideField): the cells of the CellField world seen in transmitted
 light, from their refractive index. Code: `adapter/inSiliScope/Simulation/BrightfieldRender.{h,cpp}` (engine),
 core ABI 6 `isc_optical_volume_in_window` (geometry), `ScopeMovie.cpp` (cli/viewer), the adapter's
-`RenderBrightfieldStack` and live loop. Tests: ctest `brightfield`, `cli_tiff_bf`, `world_checks` (OpticalVolume),
-`tests/web/viewer_bf_movie.mjs`, `tools/test_cellfield_stage.py` (BrightField + z sequence).
+`RenderBrightfieldStack` and live loop. Tests: ctest `brightfield`, `cli_serve`, `world_checks` (OpticalVolume),
+`tests/web/bf_split_check.mjs`, `tools/test_cellfield_stage.py` (BrightField + z sequence).
 
 ## Rule
 

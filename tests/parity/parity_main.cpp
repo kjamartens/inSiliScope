@@ -1,7 +1,8 @@
 // Parity harness: reads tests/parity cases (see make_cases.mjs), runs them
-// through core, prints results in the same line format js_reference.mjs
-// prints for the JS prototype. Built natively and with Emscripten (run under
-// Node with NODERAWFS), so the same file checks native, WASM and JS.
+// through core and prints one line per result (the format of
+// spec/golden/ref.txt, frozen from the retired JS prototype). Built natively
+// and with Emscripten (run under Node with NODERAWFS), so the same file
+// checks native and WASM against the goldens.
 //
 //   isc_parity <cases.txt> <out.txt>
 #include "cells.h"
@@ -122,7 +123,7 @@ void CellsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p,
    }
 }
 
-// Nuclear pores of the first `maxCells` present candidates (js_reference.mjs 'npcs').
+// Nuclear pores of the first `maxCells` present candidates ('npcs').
 void NpcsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p, int cx0, int cy0, int cx1, int cy1,
               int maxCells)
 {
@@ -179,7 +180,58 @@ void NpcsCase(FILE* f, const std::string& id, uint32_t seed, const Params& p, in
    }
 }
 
-// The molecules of a window of a nanoruler field (js_reference.mjs 'origami').
+// The nuclear lamina of the first `maxCells` present candidates ('lamin').
+void LaminCase(FILE* f, const std::string& id, uint32_t seed, const Params& p, int cx0, int cy0, int cx1, int cy1,
+               int maxCells)
+{
+   Linkage flex;
+   flex.binderNm = 19.3; flex.binderFlexNm = 15.3; flex.linkerMinNm = 0.5; flex.linkerMaxNm = 2;
+   const Linkage links[2] = { NormLinkage(LegacyLinkage(STRUCTURE_LAMIN)), NormLinkage(flex) };
+   int done = 0;
+   for (int cx = cx0; cx <= cx1 && done < maxCells; cx++) {
+      for (int cy = cy0; cy <= cy1 && done < maxCells; cy++) {
+         const Cell c = RawCandidate(seed, cx, cy, p);
+         if (!c.present) continue;
+         done++;
+         const NucSurfaceMesh M = BuildNucSurfaceMesh(c);
+         const std::vector<LaminPoint> pts = BuildLaminForCell(seed, cx, cy, c, p, BuildNpcsForCell(seed, cx, cy, c, p));
+         double s[6] = { 0, 0, 0, 0, 0, 0 };
+         for (const LaminPoint& q : pts) {
+            s[0] += q.c.x; s[1] += q.c.y; s[2] += q.c.z;
+            s[3] += q.n.x; s[4] += q.n.y; s[5] += q.n.z;
+         }
+         std::fprintf(f, "lam %s %d %d 0 %zu", id.c_str(), cx, cy, pts.size());
+         PrintD(f, M.area);
+         for (double v : s) PrintD(f, v);
+         for (size_t i = 0; i < pts.size(); i += 23) {
+            const LaminPoint& q = pts[i];
+            std::fprintf(f, " %d %d", q.cand, q.piece);
+            for (const Pt3* v : { &q.c, &q.n }) { PrintD(f, v->x); PrintD(f, v->y); PrintD(f, v->z); }
+         }
+         std::fprintf(f, "\n");
+         std::vector<int32_t> ids;
+         for (int32_t i = 0; i < (int32_t)pts.size() && i < 200; i++) ids.push_back(i);
+         for (int v = 0; v < 2; v++) {
+            std::vector<NpcDye> dyes;
+            std::vector<LinkageParts> parts;
+            LaminDyesInBlock(seed, cx, cy, pts, ids, 0.7, 0.9, dyes, links[v], &parts);
+            double sx = 0, sy = 0, sz = 0;
+            for (const NpcDye& e : dyes) { sx += e.pos.x; sy += e.pos.y; sz += e.pos.z; }
+            std::fprintf(f, "lmd %s %d %d %d %zu", id.c_str(), cx, cy, v, dyes.size());
+            PrintD(f, sx); PrintD(f, sy); PrintD(f, sz);
+            for (size_t i = 0; i < dyes.size(); i += 7) {
+               const NpcDye& e = dyes[i];
+               const LinkageParts& P = parts[i];
+               std::fprintf(f, " %d %d %d %u", e.pore, e.k, e.n, e.id);
+               for (const Pt3* q : { &e.pos, &P.site, &P.rigid, &P.tip }) { PrintD(f, q->x); PrintD(f, q->y); PrintD(f, q->z); }
+            }
+            std::fprintf(f, "\n");
+         }
+      }
+   }
+}
+
+// The molecules of a window of a nanoruler field ('origami').
 void OrigamiCase(FILE* f, const std::string& id, uint32_t seed, double x0, double y0, double x1, double y1, Params p)
 {
    p.specimen = SPECIMEN_NANORULERS;
@@ -211,7 +263,7 @@ void OrigamiCase(FILE* f, const std::string& id, uint32_t seed, double x0, doubl
    }
 }
 
-// The beads of a window of a fiducial field on the step surface (js_reference.mjs 'fiducials').
+// The beads of a window of a fiducial field on the step surface ('fiducials').
 void FiducialsCase(FILE* f, const std::string& id, uint32_t seed, double x0, double y0, double x1, double y1,
                    const Params& p)
 {
@@ -281,6 +333,10 @@ int main(int argc, char** argv)
          std::string id, pname; long long seed; int cx0, cy0, cx1, cy1, maxCells;
          ss >> id >> seed >> pname >> cx0 >> cy0 >> cx1 >> cy1 >> maxCells;
          NpcsCase(f, id, ToU32(seed), paramSets.at(pname), cx0, cy0, cx1, cy1, maxCells);
+      } else if (kind == "lamin") {
+         std::string id, pname; long long seed; int cx0, cy0, cx1, cy1, maxCells;
+         ss >> id >> seed >> pname >> cx0 >> cy0 >> cx1 >> cy1 >> maxCells;
+         LaminCase(f, id, ToU32(seed), paramSets.at(pname), cx0, cy0, cx1, cy1, maxCells);
       } else if (kind == "origami") {
          std::string id, kv; long long seed; double x0, y0, x1, y1;
          ss >> id >> seed >> x0 >> y0 >> x1 >> y1;

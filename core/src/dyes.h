@@ -36,6 +36,9 @@ constexpr uint32_t DYE_SALT = 0x9E3779B9u;
 constexpr uint32_t NPC_DYE_SALT = 0x4E504344u;   // "NPCD"
 constexpr double NPC_LINKER_MIN_NM = 2;
 constexpr double NPC_LINKER_MAX_NM = 5;
+// Nuclear lamina (2026-10-27): one dye hash per cell (H1 = Pcg4d(seed ^ LAMIN_DYE_SALT, cx, cy, 0)), one site per point
+// (k = 0), n = the point's candidate index (BuildLaminForCell).
+constexpr uint32_t LAMIN_DYE_SALT = 0x4C414D44u;   // "LAMD"
 constexpr double DYE_BLOCK_UM = 1.0;             // generation/caching unit along a microtubule
 
 // Per-site purpose channels (the 4th Pcg4d word of H2).
@@ -294,6 +297,17 @@ struct Npc;
 void NpcDyesInBlock(uint32_t seed, int32_t cx, int32_t cy, const std::vector<Npc>& pores, const std::vector<int32_t>& ids,
                     const double* sites, double density, double fluorescentFraction, std::vector<NpcDye>& out,
                     const Linkage& linkage, std::vector<LinkageParts>* parts = nullptr);
+
+// H1 of a cell's lamina: Pcg4d(seed ^ LAMIN_DYE_SALT, cx, cy, 0).a.
+uint32_t LaminH1(uint32_t seed, int32_t cx, int32_t cy);
+
+struct LaminPoint;
+// Fluorescent dyes of the lamina points pts[ids[..]] of a cell (BuildLaminForCell): one site per point (k 0), the
+// draws as on a pore (NpcDyesInBlock), the binder along a uniform random direction (the user's choice: no side of the envelope preferred; drawn at k = 1).
+// NpcDye rows: pore = the point's index into pts. Appends (parts: one per dye, if given).
+void LaminDyesInBlock(uint32_t seed, int32_t cx, int32_t cy, const std::vector<LaminPoint>& pts, const std::vector<int32_t>& ids,
+                      double density, double fluorescentFraction, std::vector<NpcDye>& out, const Linkage& linkage,
+                      std::vector<LinkageParts>* parts = nullptr);
 
 // Mean emission dipole of dye (k, n) (JS dyeOrientation): false for Free
 // (isotropic, no draws). Fixed: polar angle from the microtubule axis T and

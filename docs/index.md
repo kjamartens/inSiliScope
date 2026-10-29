@@ -35,7 +35,7 @@ One C++ world model, three consumers:
 
 | Consumer | What it is | Where |
 |---|---|---|
-| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, a live microscope (bleaching where you look, the Micro-Manager config presets) that records TIFF stacks (WASM); cell animations exported as MP4/WebM/GIF | [Open the viewer](../){ target="_blank" }, [how to use it](quickstart.md) |
+| **Viewer** | Pan/zoom/tilt/turn through the field in your browser, a live microscope (bleaching where you look, the Micro-Manager config presets) that records TIFF stacks (WASM); setups saved and loaded as files in mixable parts (instrument, settings, sample, measurement); cell animations exported as MP4/WebM/GIF | [Open the viewer](../){ target="_blank" }, [how to use it](quickstart.md) |
 | **Micro-Manager adapter** | A hub (`mmgr_dal_inSiliScope.dll`) with one device per part of the microscope (camera, stages, objective, filters, lasers, lamp, sample): move the stage, change focus, run live acquisitions, sequences and z stacks against a sample that never changes | [Micro-Manager](micro-manager.md) |
 | **webSMLM block** | The same core as a single generated JS file for [webSMLM](https://github.com/HohlbeinLab/webSMLM) | [Quickstart](quickstart.md) |
 
@@ -50,8 +50,8 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
 - **Address-based determinism.** Every cell, microtubule and dye is a pure function of `(seed, address)`. Any window
   of the infinite field can be generated alone, in any order, on any platform, with identical results. See
   [World model](samples/cell-field/world-model.md).
-- **Bit-exact across targets.** The RNG and the geometry match the original JS prototype bit for bit (native, WASM, JS),
-  guarded by golden vectors in CI.
+- **Bit-exact across targets.** The RNG and the geometry are the same bit for bit natively and in WASM, guarded by
+  golden vectors in CI.
 - **Dyes and a light path.** Each structure has its own label: a dye of the library (FPbase spectra; AF647, mEos3.2, ATTO 655,
   mEGFP, ...) in a mode: *dSTORM*, *PALM* (with the pre-converted state), *DNA-PAINT* (with the free imager's background)
   or *WideField* (every dye at once, bleaching by its photon budget). Lasers, dichroic, emission filter and the camera's

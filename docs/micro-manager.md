@@ -249,11 +249,19 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearPores_BoundTimeSec` | Advanced | 0.05 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
 | `NuclearPores_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
 | `NuclearPores_Binder` | Advanced | SNAP-Halo | `Legacy`, `IgG2-STORM`, `IgG1-STORM`, `IgG2-PAINT`, `IgG1-PAINT`, `Nanobody`, `Nanobody-PAINT`, `SNAP-Halo`, `FP` | How the nuclear pores' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in numbers before the linkage model. |
+| `NuclearLamina_Mode` | Advanced | DNA-PAINT | `dSTORM`, `PALM`, `DNA-PAINT`, `WideField` | How the nuclear lamina' dye emits (each target has its own): dSTORM, PALM, DNA-PAINT or WideField. A change sets the labelled % to the mode's suggestion and the label to Typical where the dye has no data for it. |
+| `NuclearLamina_Label` | Advanced | None | `Typical`, `ATTO655`, `ATTO542`, `Cy3B`, `Custom`, `Dye1`, `Dye2`, `Dye3`, `None` | The label: Typical (the usual dye for this target's Mode), any dye with data in that mode (Dye1-3: the custom dyes of Fluorophores, Expert), or None (no label: the target is off). A pick applies the Lasers Auto preset. |
+| `NuclearLamina_LabelingPct` | Advanced | 70 | 0 .. 100 | Labelled fraction of the nuclear lamina' sites, % (a mode change sets its suggestion). |
+| `NuclearLamina_ImagerNanoMol` | Advanced | 2.5 | 0 .. 10000 | DNA-PAINT imager concentration in the buffer, nanomolar: binding events per site per second = k_on x c, so it sets how many sites blink per frame (a change acts at once); the free imager adds a uniform background. |
+| `NuclearLamina_BoundTimeSec` | Advanced | 0.05 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
+| `NuclearLamina_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
+| `NuclearLamina_Binder` | Advanced | IgG2-PAINT | `Legacy`, `IgG2-STORM`, `IgG1-STORM`, `IgG2-PAINT`, `IgG1-PAINT`, `Nanobody`, `Nanobody-PAINT`, `SNAP-Halo`, `FP` | How the nuclear lamina' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in numbers before the linkage model. |
 | `CellDiameterMinUm` | Advanced | 25 | 5 .. 100 | Smallest cell diameter, um. |
 | `CellDiameterMaxUm` | Advanced | 35 | 5 .. 100 | Largest cell diameter, um. |
 | `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
 | `MicrotubuleDensityPerUm2` | Advanced | 0.9 | 0 .. 2 | Microtubule density, per um^2 of cell. |
 | `NuclearPoreDensityPerUm2` | Advanced | 8 | 0 .. 30 | Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (8; measured 5-8.6 in HeLa and U2OS nuclei; 0 = no pores, the target is off). |
+| `NuclearLaminaDensityPerUm2` | Advanced | 2000 | 100 .. 10000 | Nuclear lamina points per um^2 of nuclear envelope, uniform by area (2000, an estimate: a random stand-in for the lamin network). Unlabelled by default: NuclearLamina_Label turns it on. |
 | `IndexCytoplasm` | Advanced | 1.35 | 1 .. 2 | Refractive index of the cytoplasm (BrightField). |
 | `IndexNucleus` | Advanced | 1.35 | 1 .. 2 | Refractive index of the nucleus (BrightField). |
 | `IndexMicrotubule` | Advanced | 1.48 | 1 .. 2 | Refractive index of a microtubule (BrightField). |
@@ -265,6 +273,10 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearPores_BinderFlexNm` | Expert | -1 | -1 .. 1000 | The probe's flexibility: its end lies in a ball of this radius, nm (-1 = the preset's). |
 | `NuclearPores_LinkerMinNm` | Expert | -1 | -1 .. 1000 | Shortest chemical linker from the probe to the dye, nm (-1 = the preset's). |
 | `NuclearPores_LinkerMaxNm` | Expert | -1 | -1 .. 1000 | Longest linker, nm (uniform in volume between the two; -1 = the preset's). |
+| `NuclearLamina_BinderNm` | Expert | -1 | -1 .. 1000 | The probe's length from the binding site, outward along the structure's axis, nm (-1 = the Binder preset's). |
+| `NuclearLamina_BinderFlexNm` | Expert | -1 | -1 .. 1000 | The probe's flexibility: its end lies in a ball of this radius, nm (-1 = the preset's). |
+| `NuclearLamina_LinkerMinNm` | Expert | -1 | -1 .. 1000 | Shortest chemical linker from the probe to the dye, nm (-1 = the preset's). |
+| `NuclearLamina_LinkerMaxNm` | Expert | -1 | -1 .. 1000 | Longest linker, nm (uniform in volume between the two; -1 = the preset's). |
 | `ChunkSizeUm` | Expert | 26 | 4 .. 200 | Size of a packing block, um. |
 | `FocusHeightUm` | Expert | 0 | -10 .. 10 | Extra focus offset above the coverslip, um. |
 | `ZRangeUm` | Expert | 7 | 0 .. 50 | Total z slab around the focal plane whose dyes are rendered, um (0 = all). |
@@ -286,6 +298,7 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearPoreRadiusNm` | Expert | 53.5 | 20 .. 150 | Radius of a pore's Nup96 rings, nm. |
 | `NuclearPoreRingSepNm` | Expert | 50 | 0 .. 150 | Distance between a pore's cytoplasmic and nucleoplasmic ring, nm. |
 | `NuclearPoreCornerSpreadNm` | Expert | 12 | 0 .. 30 | Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm. |
+| `NuclearLaminaPoreExclusionNm` | Expert | 40 | 0 .. 300 | Diameter of the lamina-free disc around each nuclear pore's centre, nm (40). |
 | `Packing` | Expert | On | `On`, `Off` | Relax the cells into a packed field (Off: their seeded positions). |
 | `AbsorptionPerUm` | Expert | 0 | 0 .. 100 | Absorption of the cell material, per um (0 = unstained). |
 | `Microtubules_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the microtubules' dyes. |
@@ -298,6 +311,11 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearPores_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
 | `NuclearPores_WobbleConeDeg` | Expert | 0 | 0 .. 90 | Dipole wobble cone half-angle. |
 | `NuclearPores_Motion` | Expert | Static | `Static` | The dyes' motion. |
+| `NuclearLamina_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the nuclear lamina' dyes. |
+| `NuclearLamina_OrientPolarDeg` | Expert | 90 | 0 .. 180 | Fixed dipole: polar angle. |
+| `NuclearLamina_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
+| `NuclearLamina_WobbleConeDeg` | Expert | 0 | 0 .. 90 | Dipole wobble cone half-angle. |
+| `NuclearLamina_Motion` | Expert | Static | `Static` | The dyes' motion. |
 
 ### Nanorulers
 
@@ -360,6 +378,10 @@ The dyes: label mode, photophysics readouts, custom dyes.
 | `NuclearPores_DetectedPct` | Advanced (read-only) | 49.42111786 |  | The nuclear pores' dye: % of its emission the light path detects (read-only). |
 | `NuclearPores_EmissionNm` | Advanced (read-only) | 607.3777953 |  | The nuclear pores' dye: effective detected wavelength, nm (the PSF's; read-only). |
 | `NuclearPores_PhotonsPerSecOn` | Advanced (read-only) | 136746.8708 |  | The nuclear pores' dye: detected photons per second while ON (read-only). |
+| `NuclearLamina_EffectiveDye` | Advanced (read-only) | Cy3B (DNA-PAINT) |  | The dye and mode the nuclear lamina' label resolves to (Typical: the usual dye for the mode; read-only). |
+| `NuclearLamina_DetectedPct` | Advanced (read-only) | 0 |  | The nuclear lamina' dye: % of its emission the light path detects (read-only). |
+| `NuclearLamina_EmissionNm` | Advanced (read-only) | 0 |  | The nuclear lamina' dye: effective detected wavelength, nm (the PSF's; read-only). |
+| `NuclearLamina_PhotonsPerSecOn` | Advanced (read-only) | 0 |  | The nuclear lamina' dye: detected photons per second while ON (read-only). |
 | `Docking_EffectiveDye` | Advanced (read-only) | ATTO655 (DNA-PAINT) |  | The dye and mode the docking strands' label resolves to (Typical: the usual dye for the mode; read-only). |
 | `Docking_DetectedPct` | Advanced (read-only) | 0 |  | The docking strands' dye: % of its emission the light path detects (read-only). |
 | `Docking_EmissionNm` | Advanced (read-only) | 0 |  | The docking strands' dye: effective detected wavelength, nm (the PSF's; read-only). |

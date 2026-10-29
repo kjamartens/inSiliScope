@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds the webSMLM block (M4): dist/cellfield_block.js, a drop-in replacement for webSMLM's
 // `const CellField=(function(){...})();` IIFE, generated from the insiliscope_block target (the core's
-// C ABI, WASM inlined, instantiated synchronously) plus the thin JS wrapper below. Same entry point
+// C ABI and the engine's sample drift, WASM inlined, instantiated synchronously) plus the thin JS wrapper below. Same entry point
 // and return shape as the IIFE it replaces: CellField.buildWindow(w, h, opts).
 //
 //   node tools/make_cellfield_block.mjs                    # (re)write dist/cellfield_block.js
@@ -19,7 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = path.join(ROOT, 'build/wasm/core/insiliscope_block.js');
+const SRC = path.join(ROOT, 'build/wasm/cli/insiliscope_block.js');
 const args = process.argv.slice(2);
 const argVal = k => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : null; };
 const OUT = path.resolve(argVal('--out') || path.join(ROOT, 'dist/cellfield_block.js'));
@@ -64,7 +64,8 @@ function cellFieldFactory(SRC) {
   // site carries a dye (the microtubules' label at density 1, fluorescent fraction 1; core ABI 10), as
   // in the JS it replaces: webSMLM applies its own labelling efficiency to the returned sites. No nuclear pores
   // (npcDensity 0; insiliscope's cell field has 8 per um^2 of envelope since issue 15): webSMLM's field stays the
-  // microtubules; opts.params { npcDensity: 8, ... } adds them (sites with structure 1).
+  // microtubules; opts.params { npcDensity: 8, ... } adds them (sites with structure 1). No nuclear lamina either
+  // (laminDensity 0, the core's default; ABI 16): opts.params { laminDensity: 50 } adds it (structure 2).
   const DEFAULTS = {
     chunkSize: 26, jitter: 0.8, density: 0.33,
     cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35,
@@ -79,15 +80,16 @@ function cellFieldFactory(SRC) {
     mtDensity: 0.9, mtStartDecayPct: 1.6, mtEndDecayPct: 20, mtDirKappa: 1.5, mtWobbleTurn: 0.8, mtWobbleFactor: 1.05,
     mtStepLen: 0.05, mtSmoothLen: 1.5, mtMinTurnRadius: 0.15, mtMinSeparation: 0.05, mtMaxZSlope: 5,
     npcDensity: 0, npcMinDistNm: 180, npcRadiusNm: 53.5, npcRingSepNm: 50, npcCornerSpreadNm: 12,
+    laminDensity: 0, laminNpcExclNm: 40,
   };
   // The labelled site fraction (before ABI 10 the params labelEfficiency + labelNonBleaching; still accepted
   // in opts.params and mapped onto the label's density).
   const LABEL_KEYS = ['labelEfficiency', 'labelNonBleaching'];
   const PAD_UM = (12.5 + 12 + 5) / 1000;   // MT radius + binder + max linker: dye reach from the centreline
   // The specimens (insiliscope's data/specimens.json, the core param 'specimen', ABI 12): 0 the cell field, 1 the
-  // DNA-origami nanorulers (their params origami*: core/src/params.h); STRUCTURES = ISC_STRUCT_COUNT (ABI 13: 0 the
-  // microtubules, 1 the nuclear pores, 2 the docking strands).
-  const SPECIMENS = ['CellField', 'Nanorulers'], STRUCTURES = 3, ORIGAMI_STRIDE = 10;
+  // DNA-origami nanorulers (their params origami*: core/src/params.h); STRUCTURES = ISC_STRUCT_COUNT (ABI 16: 0 the
+  // microtubules, 1 the nuclear pores, 2 the nuclear lamina, 3 the docking strands).
+  const SPECIMENS = ['CellField', 'Nanorulers'], STRUCTURES = 4, ORIGAMI_STRIDE = 10;
   let M = null, world = 0, worldKey = '';
 
   function mod() {
@@ -120,7 +122,7 @@ function cellFieldFactory(SRC) {
     const lp = M._malloc(16);
     M.HEAPF64[lp >> 3] = density;
     M.HEAPF64[(lp >> 3) + 1] = 1;
-    // every structure (ISC_STRUCT_*: the microtubules, the nuclear pores, the nanorulers' docking strands; a world
+    // every structure (ISC_STRUCT_*: the microtubules, the nuclear pores and lamina, the docking strands; a world
     // yields its own only), each with its built-in label linkage (the rest of the label NaN / default)
     let r = 0;
     for (let s = 0; s < STRUCTURES && r === 0; s++) r = M._isc_world_set_label(world, s, lp, 2);   // ISC_LABEL_DENSITY, ISC_LABEL_FLUORESCENT_FRACTION
@@ -190,7 +192,8 @@ function cellFieldFactory(SRC) {
   // centreline comes within dye reach of the window (slab included); removed = null (cells are
   // packed on fixed 8x8-chunk blocks, independent of the window, so a pan never re-packs; the
   // per-window prune count no longer exists); packed = packing on. structure (the 4th entry; the IIFE had 3): 0 a
-  // microtubule's dye, 1 a nuclear pore's (only with opts.params.npcDensity > 0), 2 a nanoruler's docking strand.
+  // microtubule's dye, 1 a nuclear pore's (only with opts.params.npcDensity > 0), 2 a nuclear lamina point's (only with
+  // opts.params.laminDensity > 0), 3 a nanoruler's docking strand (2 before ABI 16).
   // Optional opts.params: overrides of DEFAULTS (core parameter names).
   // Optional opts.specimen: 'CellField' (default) or 'Nanorulers' (or 0 / 1): DNA-origami rods lying on the
   // coverslip, three spots of docking strands 80 nm apart (origamiSpacingNm), or 2D origami (origamiDesign 1, the TU
@@ -224,17 +227,28 @@ function cellFieldFactory(SRC) {
       M._isc_cells_in_window(wd, win.x0 - 0.5, win.y0 - 0.5, win.x1 + 0.5, win.y1 + 0.5, ptr, cap));
     return { sites, nCells, nMt: countMts(wd, cells, win), removed: null, packed: !!p.enablePacking };
   }
-  // The sample drift (insiliscope's Simulation/Drift.h, the JS twin web/prototype/scope/drift.js): per frame
+  // The sample drift (insiliscope's Simulation/Drift.h DriftTrajectory, isc_drift_trajectory): per frame
   // f = 0 .. frames-1, the sample's displacement {x, y, z} in nm, 0 at frame 0. A random walk (every frame a normal
   // step per axis of variance sigma^2 x frameSec, sigma = RMS nm after 1 s: xyNmPerSqrtSec for x and y each,
   // zNmPerSqrtSec) plus, in opts, a directed part: xySpeedNmPerSec, zSpeedNmPerSec, xyAngleDeg (-1 = random per
   // seed), zDirection (1 up, -1 down, 0 random per seed), angleWanderDeg and zAngleWanderDeg (each direction swings
   // within +/- this, deg; defaults 180 and 90), speedWanderPct, wanderTimeSec (the slow wander's correlation time).
   // The same path as an insiliscope movie of that seed (its `seed` option) with the same settings.
-  const Drift = __DRIFT__;
+  // (DriftSettings' fields in its order, with its defaults)
+  const DRIFT_KEYS = [['xyNmPerSqrtSec', 0], ['zNmPerSqrtSec', 0], ['xySpeedNmPerSec', 0], ['zSpeedNmPerSec', 0], ['xyAngleDeg', -1],
+    ['zDirection', 0], ['angleWanderDeg', 180], ['zAngleWanderDeg', 90], ['speedWanderPct', 0], ['wanderTimeSec', 60]];
   function driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec, opts) {
+    mod();
     const s = Object.assign({}, opts || {}, { xyNmPerSqrtSec: +xyNmPerSqrtSec || 0, zNmPerSqrtSec: +zNmPerSqrtSec || 0 });
-    return Drift.driftTrajectory(seed, frames, frameSec, s);
+    const n = Math.max(0, frames | 0), ps = M._malloc(DRIFT_KEYS.length * 8), po = M._malloc(Math.max(1, n) * 24);
+    DRIFT_KEYS.forEach(([k, d], i) => { M.HEAPF64[(ps >> 3) + i] = s[k] === undefined ? d : +s[k]; });
+    const r = M._isc_drift_trajectory(+seed || 0, n, +frameSec, ps, po);
+    const v = M.HEAPF64.slice(po >> 3, (po >> 3) + 3 * n);
+    M._free(ps); M._free(po);
+    if (r < 0) throw new Error('CellField: bad drift arguments');
+    const t = new Array(n);
+    for (let f = 0; f < n; f++) t[f] = { x: v[3 * f], y: v[3 * f + 1], z: v[3 * f + 2] };
+    return t;
   }
   // Frees the cached world (it is rebuilt on the next call).
   function dispose() { if (world) M._isc_world_free(world); world = 0; worldKey = ''; }
@@ -244,26 +258,7 @@ function cellFieldFactory(SRC) {
   return { buildWindow, driftTrajectory, dispose, workerSource, defaults: Object.assign({}, DEFAULTS), abiVersion: ABI };
 }
 
-// The sample drift (web/prototype/scope/drift.js and the counter-based draws it uses from rng.js),
-// inlined as plain functions: the same code as the viewer's JS reference, no second copy to maintain.
-function driftSource() {
-  const text = f => fs.readFileSync(path.join(ROOT, 'web/prototype/scope', f), 'utf8').replace(/\r\n/g, '\n');
-  const rng = text('rng.js');
-  const pick = (src, head) => {
-    const i = src.indexOf(head);
-    if (i < 0) throw new Error(`rng.js: ${head} not found`);
-    const eol = src.indexOf('\n', i), line = src.slice(i, eol);
-    if (line.trimEnd().endsWith('}')) return line + '\n';           // a one-line function
-    return src.slice(i, src.indexOf('\n}\n', i) + 3);
-  };
-  const parts = ['export function pcg4dInto(', 'export function unit(', 'export class CounterRng ', 'export function counterGauss(']
-    .map(h => pick(rng, h));
-  const drift = text('drift.js').replace(/^import .*\n/m, '');
-  const body = (parts.join('') + drift).replace(/^export /gm, '');
-  if (/\bBigInt\b|\d+n\b|\bimport\b/.test(body)) throw new Error('drift source is not ES2017 / self-contained');
-  return '(function () {\n' + body + 'return { driftTrajectory };\n})()';
-}
-const factory = cellFieldFactory.toString().replace('__ABI__', abi).replace('__DRIFT__', driftSource());
+const factory = cellFieldFactory.toString().replace('__ABI__', abi);
 const text = `${BEGIN}
 // GENERATED by tools/make_cellfield_block.mjs in ${repo} -- do not edit; regenerate instead.
 // source: ${repo}/tree/${commit}
@@ -272,7 +267,7 @@ const text = `${BEGIN}
 // sha256(module): ${sha}
 // licence: BSD-3-Clause, ${repo}/blob/${commit}/LICENSE
 // rebuild: cmake --preset wasm && cmake --build --preset wasm && node tools/make_cellfield_block.mjs
-// Replaces webSMLM's CellField IIFE: the insiliscope core (C++ -> WASM, the module text in the
+// Replaces webSMLM's CellField IIFE: the insiliscope core and drift (C++ -> WASM, the module text in the
 // last line, WASM inlined) + a thin wrapper. CellField.buildWindow(w, h, opts) as before
 // (see the comment on buildWindow); the module is instantiated synchronously on first use.
 // CellField.driftTrajectory(seed, frames, frameSec, xyNmPerSqrtSec, zNmPerSqrtSec, opts): the

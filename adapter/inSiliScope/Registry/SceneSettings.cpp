@@ -138,6 +138,7 @@ sim::SampleSettings BuildSampleSettings(const SceneState& s)
       {"cellDiamMax", s.cellField[CF_CELL_DIAM_MAX_UM].load()},
       {"mtDensity", s.cellField[CF_MT_DENSITY].load()},
       {"npcDensity", s.cellField[CF_NPC_DENSITY].load()},
+      {"laminDensity", s.cellField[CF_LAMIN_DENSITY].load()},
       {"enablePacking", s.cellFieldPacking.load() ? 1.0 : 0.0},
    };
    for (int i = 0; i < CF_COUNT; ++i)
@@ -308,6 +309,7 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
    s["cell-diam-max-um"] = st.cellField[CF_CELL_DIAM_MAX_UM].load();
    s["mt-density"] = st.cellField[CF_MT_DENSITY].load();
    s["npc-density"] = st.cellField[CF_NPC_DENSITY].load();
+   s["lamin-density"] = st.cellField[CF_LAMIN_DENSITY].load();
    s["packing"] = st.cellFieldPacking.load() ? 1 : 0;
    for (int i = 0; i < CF_COUNT; ++i)
       if (g_CellFieldCoreParam[i])

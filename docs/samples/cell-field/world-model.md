@@ -54,7 +54,8 @@ The same field without and with the packing step:
 
 ## Bit-exactness rules
 
-The core is bit-exact with the original JS prototype (the reference implementation, `web/prototype/`):
+The core was ported bit for bit from the original JS prototype (the reference implementation until 2026-10-28), and its
+outputs are frozen in the golden vectors; the rules that kept it bit-exact keep those outputs fixed:
 
 - `isc::jsm::sin/cos/asin/atan/atan2/exp/log/cbrt/hypot` are V8's fdlibm routines (generated, never hand-edited); the
   C++ standard library's transcendental functions are not used for anything the JS computes with `Math.*`.
@@ -62,7 +63,7 @@ The core is bit-exact with the original JS prototype (the reference implementati
 - No fast-math, no FMA contraction.
 - JS `Math.pow` is the host's `std::pow` in current V8 and cannot be matched across libms: the cytoplasm mesh is bit-exact
   only on the libm Node was built with, and "near" elsewhere (accepted).
-- Golden vectors (`spec/golden`) are frozen from the prototype and checked in CI.
+- Golden vectors (`spec/golden`) were frozen from the prototype and are checked in CI (native and WASM).
 
 ## The C ABI
 

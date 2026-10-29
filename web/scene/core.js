@@ -105,6 +105,7 @@ const REPS = {
   locs:     { label: 'SMLM localizations', prim: 'points', group: 'data', needs: 'events' },
   bfSlice:  { label: 'BrightField slice', prim: 'slice', group: 'data', needs: 'stack:bf', followsPlane: true },
   beads:    { label: 'beads', prim: 'points', group: 'geometry' },
+  points:   { label: 'points', prim: 'points', group: 'geometry' },
 };
 const DYE_REPS = ['dyes', 'wfSlice', 'wfIso', 'srFrames', 'srFramesLoc', 'locs'];
 const STRUCTURES = [
@@ -115,13 +116,14 @@ const STRUCTURES = [
   { id: 'ruler', label: 'Nanorulers', reps: ['outline'] },   // DNA-origami rods (a nanoruler world; drawn in 2D, no GL kind)
   { id: 'npc', label: 'Nuclear pores', reps: ['lines'] },     // the pores' two 8-fold rings on the nuclear envelope
   { id: 'fid', label: 'Fiducial', reps: ['beads'] },          // fiducial beads on either specimen (drawn in 2D, no GL kind)
+  { id: 'lamin', label: 'Nuclear lamina', reps: ['surface'] }, // the nuclear envelope the lamina points lie on, as a surface
 ];
 // Representations the renderer draws today; the other layers are listed but marked not available yet.
-const IMPLEMENTED = new Set(['surface', 'outline', 'contours', 'lines', 'dyes', 'wfSlice', 'srFrames', 'srFramesLoc', 'bfSlice', 'wfIso', 'locs', 'beads']);
+const IMPLEMENTED = new Set(['surface', 'outline', 'contours', 'lines', 'dyes', 'wfSlice', 'srFrames', 'srFramesLoc', 'bfSlice', 'wfIso', 'locs', 'beads', 'points']);
 // GL kinds: the index of a layer in the renderer's clip tables (mesh kinds 0-3 share one draw per cell).
 const KIND = { 'cyto.surface': 0, 'nucleus.surface': 1, 'cyto.outline': 2, 'cyto.contours': 3, 'mt.lines': 4, 'mt.dyes': 5,
-  'mt.wfIso': 6, 'mt.locs': 7, 'npc.lines': 8 };
-const N_KINDS = 9, IV_MAX = 4;
+  'mt.wfIso': 6, 'mt.locs': 7, 'npc.lines': 8, 'lamin.surface': 9 };
+const N_KINDS = 10, IV_MAX = 4;
 
 function buildLayers(structures) {
   const out = new Map();
@@ -163,6 +165,7 @@ const THEMES = {
     'mt.wfIso': { color: [120, 200, 255], opacity: 0.55, level: 1 },
     'mt.locs': { color: [255, 170, 60], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },
     'npc.lines': { color: [255, 190, 235], opacity: 1 },
+    'lamin.surface': { color: [120, 230, 140], opacity: 0.9 },
   }, ghost: { color: null, opacity: 0.25 } },
   fluo: { label: 'Dark fluorescence', bg: [0, 0, 0], layers: {
     'cyto.surface': { color: [38, 70, 120], opacity: 0.3 },
@@ -180,6 +183,7 @@ const THEMES = {
     'mt.wfIso': { color: [255, 90, 200], opacity: 0.5, level: 1 },
     'mt.locs': { color: [255, 200, 80], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },
     'npc.lines': { color: [255, 90, 140], opacity: 1 },
+    'lamin.surface': { color: [110, 255, 150], opacity: 0.9 },
   }, ghost: { color: [60, 90, 140], opacity: 0.18 } },
 };
 // Dark fluorescence with the microtubules and pores in depth colours (their height over the cell's).

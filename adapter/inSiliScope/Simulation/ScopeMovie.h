@@ -4,8 +4,7 @@
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   A short cell-field movie without Micro-Manager, for one FOV:
-//                the twin of web/prototype/scope/scope_movie.js +
-//                fluorescence.js (the JS reference, issue 16). Fluorescence
+//                the cli's and the viewer's engine (issue 16). Fluorescence
 //                (modality 0): every structure's label in its mode
 //                (dSTORM, PALM, DNA-PAINT, WideField) through the light path
 //                (DyeLibrary.h, LightPath.h): blinks per (structure, state)
@@ -79,6 +78,13 @@ double ScopeDefaultZ(const ScopeSpec& spec);
 // dichroic, em-filter, light-preset, camera-preset, qe-curve, camera-type:
 // their data/dyes ids). False if neither.
 bool ScopeOptionValue(const std::string& name, const char* text, double& value);
+// The names an option's value may be given by (ScopeOptionValue: name i = value i), or nullptr for a numeric option.
+const std::vector<std::string>* ScopeOptionNames(const std::string& name);
+// The part of a settings file (docs/dev/SAVE_SETTINGS.md) an option belongs to: "instrument" (the hardware),
+// "settings" (how it is driven, and the render quality), "sample", "measurement" (where and how long it is imaged), or
+// "host" (how this run works, not what it shows: disk-cache, prepare; never saved); nullptr for a name that is not an
+// option. Named options, p.* (sample), zern.* (instrument) and the dye field overrides (sample).
+const char* ScopeOptionPart(const std::string& name);
 // "k=v k=v ..." (spaces, commas or semicolons); false (with err) on a bad token.
 bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err);
 
@@ -100,6 +106,9 @@ struct PsfKernelCache;
 // BuildPsfGeneratorRequest would build it from the same PSFParam_ values.
 // False for psf-model 0 (Gaussian; err empty) or a bad value (err set).
 bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorRequest& req, std::string& err);
+// The pupil's 28 Zernike coefficients (OSA 0-27, waves): the psf-zernike-preset's, each zern.<j> in the spec replacing
+// its own (= Objective.ZernikeCoefficients after a preset and edits).
+bool ScopeZernike(const ScopeSpec& spec, std::vector<double>& z, std::string& err);
 // Its kernel (memoized, ComputePsfKernelCache); cache.valid = false and true
 // returned for the Gaussian.
 bool ScopePsfKernel(const ScopeSpec& spec, double wavelengthNm, PsfKernelCache& cache, std::string& err);

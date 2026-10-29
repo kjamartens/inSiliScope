@@ -251,8 +251,6 @@ The three regimes at a low, medium and high imager concentration:
 
 ## Where it lives
 
-JS reference: `web/prototype/scope/spectra.js`, `dye_library.js`, `fluorescence.js`, `scope_movie.js`. C++:
 `adapter/inSiliScope/Simulation/Spectra.*`, `LightPath.*`, `DyeLibrary.*` (data generated into `DyeLibraryData.inc` by
-`tools/gen_dye_library.mjs`), `ScopeMovie.*` (`FluorescenceMovie`), `BinnedBlinks.*` and `BlinkExpectation.*` (JS `binned_blinks.js`,
-`blink_expectation.js`). The core's label model (ABI 10) is in
+`tools/gen_dye_library.mjs`), `ScopeMovie.*` (`FluorescenceMovie`), `BinnedBlinks.*` and `BlinkExpectation.*`. The core's label model (ABI 10) is in
 `core/src/dyes.*`; spec/PORT.md section 16 has the details.

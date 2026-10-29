@@ -4,7 +4,7 @@
 // frame to frame) with one decimal per time; ● Record saves N frames as one 16-bit ImageJ TIFF stack (the pixel size
 // as XResolution, the frame interval and every setting in the header): by default a fresh sample (a movie; the live
 // sample's time stays), with "continue the live sample" the live sample's time runs on by N frames.
-//   node tests/web/viewer_live_record.mjs [--channel=chrome]
+//   node tests/web/viewer_live_record.mjs [--channel=chrome] [--swiftshader]   (the hardware GPU; --swiftshader: software GL, ~10x slower)
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -43,7 +43,7 @@ function readTiff(buf) {
 
 let fail = 0;
 const t0 = Date.now(), check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}  [${((Date.now() - t0) / 1000).toFixed(0)} s]`); };
-const browser = await chromium.launch({ channel: arg('channel') || undefined, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+const browser = await chromium.launch({ channel: arg('channel') || undefined, args: arg('swiftshader') ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--enable-gpu', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 }, acceptDownloads: true });
 const page = await ctx.newPage();
 const errors = [];
@@ -71,6 +71,13 @@ try {
     return { w: v.width, h: v.height, pw: p.width, ctlBottom: c.bottom, H: innerHeight, vbH: vb.height, lbH: lb.height, illum: !!document.querySelector('#liveCtl details[data-group=illum]') }; });
   check(Math.abs(sq.w - sq.h) < 1 && Math.abs(sq.pw - sq.w) < 2 && Math.abs(sq.ctlBottom - sq.H) < 2 && Math.abs(sq.vbH - sq.lbH) < 1 && sq.illum,
     `layout: the image square (${sq.w.toFixed(0)} px), the settings as wide (${sq.pw.toFixed(0)} px), the controls column to the bottom, the bars level (${sq.vbH.toFixed(0)}/${sq.lbH.toFixed(0)} px), illumination in the column ${JSON.stringify(sq)}`);
+  // the light-path readouts, from the movie spec's C++ setup (the setup job): the BFP line names a regime, the spectra
+  // plot drew the lit lasers
+  const ro = await page.waitForFunction(() => {
+    const b = document.getElementById('bfpReadout'), p = document.getElementById('specPlot');
+    return b && p && /^(Epi|HILO|TIRF|Clipped)\b/.test(b.textContent) && +p.dataset.lasers > 0 && { bfp: b.textContent, lasers: +p.dataset.lasers };
+  }, null, { timeout: 30000 }).then(h => h.jsonValue(), () => null);
+  check(!!ro, `the BFP readout and the spectra plot from the setup job: ${ro ? `"${ro.bfp}", ${ro.lasers} laser line(s)` : 'nothing drawn in 30 s'}`);
   await page.evaluate(() => document.getElementById('lv_live').click());
   const names = seen.map(s => s.split('#')[0]), vals = seen.map(s => s.split('#')[1].split('|'));
   check(names.every(n => n === names[0]) && /blink events \(core\)/.test(names[0]) && /BrightField image/.test(names[0]),
@@ -115,6 +122,8 @@ try {
       `${kind}: the header: ImageJ frames, unit, frame interval and the full engine spec`);
     check(Math.abs(d0.xres - 1000 / r.info.px) < 1e-4, `${kind}: the pixel size: ${(1000 / d0.xres).toFixed(2)} nm (viewer ${r.info.px.toFixed(2)} nm)`);
     check(frameOf(r, 0).some((v, i) => v !== frameOf(r, 19)[i]), `${kind}: the frames differ (blinks, noise)`);
+    // ImageJ / Fiji read an "ImageJ=" file's frames as one block from the first page's data, not page by page
+    check(r.pages.every((p, k) => p.data === d0.data + k * 128 * 128 * 2), `${kind}: the frames lie back to back from the first page's data (as Fiji reads them)`);
     check(r.info.btn === '● Record' && /saved insiliscope_live_128x128x20\.tif/.test(r.info.text), `${kind}: the button is back, the info line names the saved file`);
     return d0;
   };

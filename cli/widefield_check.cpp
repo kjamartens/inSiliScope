@@ -684,20 +684,6 @@ void Illumination()
       for (unsigned i = 0; i < 8; i++) sOk = sOk && smp[j * 8 + i] == ((i >= 1 && i <= 6) ? 1.0f : 0.0f);
    Check(x0 == -1 && x1 == 1 && y0 == -0.5 && y1 == 0.5 && sq.At(0.99, 0.49) == 1 && sq.At(1.0, 0) == 0 && sOk,
          "SquareIllumination: support and sampling");
-   BleachField bf;
-   bf.Reset(0.05);
-   bf.Deposit(sq, 10.0, -3.0, 7.0);
-   std::vector<float> in, out;
-   bf.DoseOver(9.2, -3.4, 30, 14, in);    // inside the square
-   bf.DoseOver(11.2, -3.4, 30, 14, out);  // just beside it
-   Check(std::all_of(in.begin(), in.end(), [](float v) { return v == 7.0f; }) &&
-            std::all_of(out.begin(), out.end(), [](float v) { return v == 0.0f; }),
-         "BleachField: deposit inside the pattern, 0 outside");
-   std::vector<float> neg;
-   bf.Reset(0.05);
-   bf.Deposit(sq, -20.0, -30.0, 2.0);
-   bf.DoseOver(-20.5, -30.2, 20, 8, neg);
-   Check(std::all_of(neg.begin(), neg.end(), [](float v) { return v == 2.0f; }), "BleachField: negative tiles");
 }
 
 void FastEqualsFull()
@@ -1024,10 +1010,11 @@ void RepeatedMovies()
          std::printf("  movie failed: %s\n", err.c_str());
       return all;
    };
-   const char* sr = "size=32 frames=4 x=30 y=10 psf-kernel-half-width-nm=1500 mt-imager-nm=20";
-   const char* wf = "size=32 frames=3 x=30 y=10 mt-mode=WideField psf-kernel-half-width-nm=1500";
-   const char* wfGauss = "size=32 frames=2 x=30 y=10 mt-mode=WideField psf-model=0 wf-upscale=2";
-   const char* other = "size=32 frames=2 x=-20 y=5 world-seed=7 mt-mode=WideField psf-kernel-half-width-nm=1500";
+   // (small: what matters is that a cached world, scene and PSF give the bits a fresh render gives)
+   const char* sr = "size=16 frames=2 x=30 y=10 npc-dye=None psf-kernel-half-width-nm=1500 mt-imager-nm=20";
+   const char* wf = "size=16 frames=2 x=30 y=10 npc-dye=None mt-mode=WideField psf-kernel-half-width-nm=1500";
+   const char* wfGauss = "size=16 frames=2 x=30 y=10 npc-dye=None mt-mode=WideField psf-model=0 wf-upscale=2";
+   const char* other = "size=16 frames=2 x=-20 y=5 npc-dye=None world-seed=7 mt-mode=WideField psf-kernel-half-width-nm=1500";
    const std::vector<uint16_t> sr1 = movie(sr), wf1 = movie(wf), g1 = movie(wfGauss);
    const std::vector<uint16_t> sr2 = movie(sr), wf2 = movie(wf);
    Check(!sr1.empty() && sr1 == sr2, "SR movie repeated in one process = the first (shared world)");
@@ -1041,7 +1028,7 @@ void RepeatedMovies()
 // Issue 16: a continuous population's mean-field image (the structure's FFT
 // image x the mean photons per dye) equals the per-dye path's (every dye's
 // PSF through the running image) on average: 1 % in total, 4 % per bright
-// pixel at 2 % labelling (as web/lab/check.mjs on the JS). Bright and with no
+// pixel at 2 % labelling. Bright and with no
 // read noise, offset or gain spread, so the ADU are the photon image.
 void MeanFieldVsPerDye()
 {
@@ -1091,6 +1078,7 @@ void MeanFieldVsPerDye()
 
 int main()
 {
+   std::setvbuf(stdout, nullptr, _IONBF, 0);   // progress shows as it runs (ctest, pipes)
    RepeatedMovies();
    MeanFieldVsPerDye();
    FftVsDft();

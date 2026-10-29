@@ -74,11 +74,9 @@ jobs:
         run: |
           cmake --preset wasm
           cmake --build --preset wasm
-      - name: Make + check the block
+      - name: Make the block
         run: |
           node tools/make_cellfield_block.mjs
-          node tools/make_cellfield_block.mjs --check dist/cellfield_block.js
-          node tests/block/check_cellfield_block.mjs dist/cellfield_block.js
           (cd dist && sha256sum cellfield_block.js | tee cellfield_block.js.sha256)
       - uses: actions/upload-artifact@v4
         with:

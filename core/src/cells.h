@@ -115,8 +115,11 @@ bool NucleusColumnLocal(const Cell& c, double lx, double ly, double& below, doub
 bool NucPushOutLocal(const Cell& c, Pt3& pt, double margin);
 // The footprint polygon (NUC_POLY_N points, cell-local; shaped only).
 std::vector<Pt2> NucFootprintPolygon(const Cell& c);
-// Drawing rings: `slices` horizontal sections of `pts` points, bottom to top,
-// zeta = -cos(pi i / (slices - 1)), both poles included; xyz, cell-local.
+// Drawing rings of `pts` points, bottom to top, xyz, cell-local: `slices` horizontal sections at
+// zeta = -cos(pi i / (slices - 1)), and before / after them a widened half's flat cap (nucFBot / nucFTop > 0) as
+// NUC_CAP_RINGS rings from its centre (one point) out to just inside the first / last section, so the surface is
+// closed at both ends (slices + 0, 1 or 2 x NUC_CAP_RINGS rings).
+constexpr int NUC_CAP_RINGS = 4;
 std::vector<Pt3> NucleusRingsLocal(const Cell& c, int slices, int pts);
 double CytoSlopeRunout(const Cell& c, const Params& p);
 double CytoDomeReach(const Cell& c, const Params& p);

@@ -8,9 +8,7 @@
 //                each line by its transmission there, the dichroic (reflects the lasers, R = 1 - T;
 //                transmits the emission), the emission filter, the camera's
 //                QE curve, the objective's collection efficiency and the
-//                imaging chamber's height (DNA-PAINT imager background). The
-//                twin of makeLightPath / backgroundQe in
-//                web/prototype/scope/dye_library.js.
+//                imaging chamber's height (DNA-PAINT imager background).
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 

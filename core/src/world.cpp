@@ -75,18 +75,17 @@ void EnsureMts(uint32_t seed, CellAssets& a, const Params& p)
    a.mtsBuilt = true;
 }
 
-// The nuclear pores of a cell's assets and their dye blocks, on demand (JS world.js npcs()): the pores per
-// NPC_BLOCK_UM cube, ordered (iz, iy, ix), pores in candidate order within a block.
-void EnsureNpcs(uint32_t seed, CellAssets& a, const Params& p)
+// Points on the envelope (pores, lamina) in their dye blocks (JS world.js npcs(), lamin()): the points per
+// NPC_BLOCK_UM cube, ordered (iz, iy, ix), points in candidate order within a block; reachXY: the farthest point from
+// the cell centre (xy).
+template <class T>
+void EnvelopeBlocks(const Cell& c, const std::vector<T>& pts, std::vector<CellAssets::NpcBlock>& out, double& reachXYOut)
 {
-   if (a.npcsBuilt) return;
-   const Cell& c = a.cell;
-   a.npcs = BuildNpcsForCell(seed, c.cx, c.cy, c, p);
    std::map<std::array<int32_t, 3>, size_t> cubes;   // (iz, iy, ix) -> block: the map's order is the blocks' order
    std::vector<CellAssets::NpcBlock> blocks;
    double reachXY = 0;
-   for (size_t i = 0; i < a.npcs.size(); i++) {
-      const Npc& q = a.npcs[i];
+   for (size_t i = 0; i < pts.size(); i++) {
+      const T& q = pts[i];
       const int32_t ix = (int32_t)std::floor(q.c.x / NPC_BLOCK_UM), iy = (int32_t)std::floor(q.c.y / NPC_BLOCK_UM);
       const int32_t iz = (int32_t)std::floor(q.c.z / NPC_BLOCK_UM);
       auto it = cubes.find({ iz, iy, ix });
@@ -99,30 +98,52 @@ void EnsureNpcs(uint32_t seed, CellAssets& a, const Params& p)
       blocks[it->second].ids.push_back((int32_t)i);
       reachXY = std::max(reachXY, jsm::hypot(q.c.x, q.c.y));
    }
-   a.npcBlocks.clear();
-   a.npcBlocks.reserve(blocks.size());
+   out.clear();
+   out.reserve(blocks.size());
    for (const auto& kv : cubes) {
       CellAssets::NpcBlock b = std::move(blocks[kv.second]);
       b.x = (b.ix + 0.5) * NPC_BLOCK_UM;
       b.y = (b.iy + 0.5) * NPC_BLOCK_UM;
       b.z = (b.iz + 0.5) * NPC_BLOCK_UM;
       LocalToWorld(c, b.x, b.y, b.wx, b.wy);
-      a.npcBlocks.push_back(std::move(b));
+      out.push_back(std::move(b));
    }
-   a.npcReachXY = reachXY;
+   reachXYOut = reachXY;
+}
+
+// The nuclear pores of a cell's assets and their dye blocks, on demand.
+void EnsureNpcs(uint32_t seed, CellAssets& a, const Params& p)
+{
+   if (a.npcsBuilt) return;
+   const Cell& c = a.cell;
+   a.npcs = BuildNpcsForCell(seed, c.cx, c.cy, c, p);
+   EnvelopeBlocks(c, a.npcs, a.npcBlocks, a.npcReachXY);
    NpcAttachmentPoints(p, a.npcSites);
    a.npcsBuilt = true;
 }
 
-// A cell's geometry and (withMts) microtubules (withNpcs: and pores): a pure function of seed, cell, params.
+// The nuclear lamina of a cell's assets (the pores first: it leaves them out) and its dye blocks, on demand.
+void EnsureLamin(uint32_t seed, CellAssets& a, const Params& p)
+{
+   if (a.laminBuilt) return;
+   EnsureNpcs(seed, a, p);
+   const Cell& c = a.cell;
+   a.lamin = BuildLaminForCell(seed, c.cx, c.cy, c, p, a.npcs);
+   EnvelopeBlocks(c, a.lamin, a.laminBlocks, a.laminReachXY);
+   a.laminBuilt = true;
+}
+
+// A cell's geometry and (withMts) microtubules (withNpcs: and pores; withLamin: and lamina): a pure function of seed,
+// cell, params.
 std::unique_ptr<CellAssets> BuildCellAssets(uint32_t seed, const Cell& c, const Params& p, bool withMts,
-                                            bool withNpcs = false)
+                                            bool withNpcs = false, bool withLamin = false)
 {
    std::unique_ptr<CellAssets> a(new CellAssets());
    a->cell = c;
    a->geom = BuildMtCellGeom(c, p);
    if (withMts) EnsureMts(seed, *a, p);
    if (withNpcs) EnsureNpcs(seed, *a, p);
+   if (withLamin) EnsureLamin(seed, *a, p);
    return a;
 }
 
@@ -193,6 +214,17 @@ double World::MtDyeReach() const
 double World::NpcDyeReach() const
 {
    return NpcSiteReachUm(p_) + LinkageReachNm(labels_[STRUCTURE_NPC].linkage) * 1e-3;
+}
+
+bool World::LaminLabelled() const
+{
+   const Label& l = labels_[STRUCTURE_LAMIN];
+   return p_.laminDensity > 0 && l.density > 0 && l.fluorescentFraction > 0;
+}
+
+double World::LaminDyeReach() const
+{
+   return LinkageReachNm(labels_[STRUCTURE_LAMIN].linkage) * 1e-3;
 }
 
 World::~World()
@@ -365,9 +397,9 @@ CellAssets& World::Assets(const Cell& c, bool withMts)
 
 void World::PrebuildAssets(const std::vector<const Cell*>& cells)
 {
-   const bool withNpcs = NpcsLabelled();
+   const bool withNpcs = NpcsLabelled(), withLamin = LaminLabelled();
    std::vector<const Cell*> missing;
-   std::vector<CellAssets*> partial;   // cached from a mesh-only request: microtubules (or pores) still to build
+   std::vector<CellAssets*> partial;   // cached from a mesh-only request: microtubules (or pores, lamina) still to build
    for (const Cell* cp : cells) {
       const Cell& c = *cp;
       const auto key = std::make_pair(c.cx, c.cy);
@@ -378,7 +410,7 @@ void World::PrebuildAssets(const std::vector<const Cell*>& cells)
       if (!known) {
          missing.push_back(cp);
          assetPrebuilt_[key] = nullptr;
-      } else if (have && (!have->mtsBuilt || (withNpcs && !have->npcsBuilt))) {
+      } else if (have && (!have->mtsBuilt || (withNpcs && !have->npcsBuilt) || (withLamin && !have->laminBuilt))) {
          partial.push_back(have);
       }
    }
@@ -388,10 +420,11 @@ void World::PrebuildAssets(const std::vector<const Cell*>& cells)
    if (work > 1 && (int)work >= WorldThreads() / 2) {
       std::vector<std::unique_ptr<CellAssets>> built(missing.size());
       ParallelFor(work, 1, [&](size_t i) {
-         if (i < missing.size()) built[i] = BuildCellAssets(seed_, *missing[i], p_, true, withNpcs);
+         if (i < missing.size()) built[i] = BuildCellAssets(seed_, *missing[i], p_, true, withNpcs, withLamin);
          else {
             EnsureMts(seed_, *partial[i - missing.size()], p_);
             if (withNpcs) EnsureNpcs(seed_, *partial[i - missing.size()], p_);
+            if (withLamin) EnsureLamin(seed_, *partial[i - missing.size()], p_);
          }
       });
       for (size_t i = 0; i < missing.size(); i++)
@@ -414,10 +447,12 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
    // in the usual order). Not under a deadline: that walk may stop early.
    if (!deadline_) PrebuildAssets(cells);
    const double mtReach = MtDyeReach(), blockReach = DYE_BLOCK_UM / 2 + mtReach;
-   // The pores (JS world.js forEachDyeBlock): blocks reaching within rb of the rect, after the microtubules'.
-   const bool npcOn = NpcsLabelled();
+   // The envelope's targets (JS world.js forEachDyeBlock): the pores' then the lamina's blocks reaching within rb of the
+   // rect, after the microtubules'.
+   const bool npcOn = NpcsLabelled(), laminOn = LaminLabelled();
    const double npcRb = std::sqrt(3.0) / 2 * NPC_BLOCK_UM + NpcDyeReach();
-   struct Item { DyeBlock* b; int mt, block; };   // mt -1: a pore block
+   const double laminRb = std::sqrt(3.0) / 2 * NPC_BLOCK_UM + LaminDyeReach();
+   struct Item { DyeBlock* b; int structure, mt, block; };
    std::vector<Item> batch;
    std::vector<size_t> work;
    for (const Cell* cp : cells) {
@@ -435,20 +470,26 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
             if (mid.z + blockReach < zMin || mid.z - blockReach >= zMax) continue;
             if (RectDist(mid.wx, mid.wy, x0, y0, x1, y1) > blockReach) continue;
             if (PastDeadline()) break;
-            batch.push_back({ &FindDyeBlock(c, STRUCTURE_MT, (int)i, b), (int)i, b });
+            batch.push_back({ &FindDyeBlock(c, STRUCTURE_MT, (int)i, b), STRUCTURE_MT, (int)i, b });
          }
       }
+      auto envelope = [&](int s, const std::vector<CellAssets::NpcBlock>& blocks, double reachXY, double rb) {
+         if (blocks.empty() || centreDist > reachXY + rb) return;
+         for (int b = 0; b < (int)blocks.size(); b++) {
+            const CellAssets::NpcBlock& blk = blocks[(size_t)b];
+            if (blk.z + rb < zMin || blk.z - rb >= zMax) continue;
+            if (RectDist(blk.wx, blk.wy, x0, y0, x1, y1) > rb) continue;
+            if (PastDeadline()) break;
+            batch.push_back({ &FindDyeBlock(c, s, 0, b), s, -1, b });
+         }
+      };
       if (npcOn) {
          EnsureNpcs(seed_, A, p_);
-         if (!A.npcBlocks.empty() && !(centreDist > A.npcReachXY + npcRb)) {
-            for (int b = 0; b < (int)A.npcBlocks.size(); b++) {
-               const CellAssets::NpcBlock& blk = A.npcBlocks[(size_t)b];
-               if (blk.z + npcRb < zMin || blk.z - npcRb >= zMax) continue;
-               if (RectDist(blk.wx, blk.wy, x0, y0, x1, y1) > npcRb) continue;
-               if (PastDeadline()) break;
-               batch.push_back({ &FindDyeBlock(c, STRUCTURE_NPC, 0, b), -1, b });
-            }
-         }
+         envelope(STRUCTURE_NPC, A.npcBlocks, A.npcReachXY, npcRb);
+      }
+      if (laminOn) {
+         EnsureLamin(seed_, A, p_);
+         envelope(STRUCTURE_LAMIN, A.laminBlocks, A.laminReachXY, laminRb);
       }
       // This cell's new dye blocks, then the prep work, in parallel; each
       // item touches only its own block.
@@ -457,7 +498,8 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
          if (!batch[k].b->generated) work.push_back(k);
       ParallelFor(work.size(), 2, [&](size_t w) {
          const Item& it = batch[work[w]];
-         if (it.mt < 0) GenerateNpcDyes(*it.b, c, A, it.block);
+         if (it.structure == STRUCTURE_NPC) GenerateNpcDyes(*it.b, c, A, it.block);
+         else if (it.structure == STRUCTURE_LAMIN) GenerateLaminDyes(*it.b, c, A, it.block);
          else GenerateDyes(*it.b, c, A.mts[it.mt].pts, *A.frames[it.mt], it.mt, it.block);
       });
       for (size_t k : work) dyeCount_ += batch[k].b->dyes.size();
@@ -697,6 +739,33 @@ void World::GenerateNpcDyes(DyeBlock& blk, const Cell& c, const CellAssets& A, i
    blk.generated = true;
 }
 
+void World::GenerateLaminDyes(DyeBlock& blk, const Cell& c, const CellAssets& A, int block) const
+{
+   const Label& label = labels_[STRUCTURE_LAMIN];
+   std::vector<NpcDye> dyes;
+   LaminDyesInBlock(seed_, c.cx, c.cy, A.lamin, A.laminBlocks[(size_t)block].ids, label.density, label.fluorescentFraction,
+                    dyes, label.linkage);
+   blk.dyes.clear();
+   blk.dyes.reserve(dyes.size());
+   blk.cx = c.cx; blk.cy = c.cy; blk.mtIndex = -1;
+   blk.h1 = LaminH1(seed_, c.cx, c.cy);
+   blk.structure = STRUCTURE_LAMIN;
+   blk.zLo = INFINITY; blk.zHi = -INFINITY;
+   const double rot = c.packRot;
+   const bool rotated = !(rot == 0 || std::isnan(rot));
+   const double cr = rotated ? jsm::cos(rot) : 1, sr = rotated ? jsm::sin(rot) : 0;
+   for (const NpcDye& d : dyes) {
+      double wx, wy;
+      if (!rotated) { wx = c.x + d.pos.x; wy = c.y + d.pos.y; }
+      else { wx = c.x + d.pos.x * cr - d.pos.y * sr; wy = c.y + d.pos.x * sr + d.pos.y * cr; }
+      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
+      blk.zLo = std::min(blk.zLo, d.pos.z);
+      blk.zHi = std::max(blk.zHi, d.pos.z);
+   }
+   blk.phase = Pcg4d((uint32_t)c.cx, (uint32_t)c.cy, 0x80000000u | (uint32_t)block, LAMIN_DYE_SALT).a;
+   blk.generated = true;
+}
+
 void World::UseHistorySlot(DyeBlock& b, uint64_t fp) const
 {
    if (b.fp == fp) return;
@@ -933,6 +1002,17 @@ bool World::CellNpcs(int32_t cx, int32_t cy, std::vector<Npc>& out)
    return true;
 }
 
+bool World::CellLamin(int32_t cx, int32_t cy, std::vector<LaminPoint>& out)
+{
+   PoolScope scope(pool_);
+   Cell c;
+   if (!FindCell(cx, cy, c)) return false;
+   CellAssets& A = Assets(c, false);
+   EnsureLamin(seed_, A, p_);
+   out = A.lamin;
+   return true;
+}
+
 bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 {
    if (origami_) return false;
@@ -1089,7 +1169,7 @@ bool World::DyeOrientationOf(const WorldDye& d, Pt3& dir)
    const Label& label = labels_[(size_t)d.structure];
    if (label.orientation.mode == OrientationMode::Free) return false;
    // Docking strands: no orientation model (Free only; the JS refuses the others).
-   if (d.structure != STRUCTURE_MT && d.structure != STRUCTURE_NPC) return false;
+   if (d.structure != STRUCTURE_MT && d.structure != STRUCTURE_NPC && d.structure != STRUCTURE_LAMIN) return false;
    Cell c;
    if (!FindCell(d.cx, d.cy, c)) return false;
    CellAssets& A = Assets(c);
@@ -1110,6 +1190,27 @@ bool World::DyeOrientationOf(const WorldDye& d, Pt3& dir)
       const double th = ((d.k & 31) >> 2) * jsm::PI / 4, ct = jsm::cos(th), st = jsm::sin(th);
       const Pt3 r = { ct * q.e1.x + st * q.e2.x, ct * q.e1.y + st * q.e2.y, ct * q.e1.z + st * q.e2.z };
       dir = DyeOrientationFixed(o, q.n, r);
+      return true;
+   }
+   if (d.structure == STRUCTURE_LAMIN) {
+      // Fixed: from the envelope's outward normal at the point, azimuth from its Duff basis's f1 (JS duffBasis).
+      const Orientation& o = label.orientation;
+      if (DyeOrientationRandom(LaminH1(seed_, d.cx, d.cy), d.k, d.n, o, dir)) return true;
+      EnsureLamin(seed_, A, p_);
+      const std::vector<LaminPoint>& pts = A.lamin;
+      if (pts.empty() || d.k != 0) return false;
+      size_t lo = 0, hi = pts.size() - 1;
+      while (lo < hi) {
+         const size_t m = (lo + hi) / 2;
+         if (pts[m].cand < d.n) lo = m + 1; else hi = m;
+      }
+      const LaminPoint& q = pts[lo];
+      if (q.cand != d.n) return false;
+      const double nx = q.n.x, ny = q.n.y, nz = q.n.z;
+      const double sg = nz >= 0 ? 1 : -1;
+      const double a = -1 / (sg + nz), b = nx * ny * a;
+      const Pt3 f1 = { 1 + sg * nx * nx * a, sg * b, -sg * nx };
+      dir = DyeOrientationFixed(o, q.n, f1);
       return true;
    }
    if (d.mtIndex < 0 || (size_t)d.mtIndex >= A.mts.size()) return false;

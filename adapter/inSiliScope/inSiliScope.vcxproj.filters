@@ -49,6 +49,9 @@
     <ClCompile Include="Simulation\Drift.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\DriftShift.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="InSiliScopeHub.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

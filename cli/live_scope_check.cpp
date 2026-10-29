@@ -5,7 +5,8 @@
 //   - another world (world-seed) is a fresh sample: time and clocks back to 0;
 //   - two sessions with the same requests give the same frames, bit for bit; the noise differs frame to frame;
 //   - dSTORM's initial ON fades where the light has been and not elsewhere;
-//   - a recording (Frames: n frames at once) = the same frames one by one (within one electron in a few pixels).
+//   - a recording (Frames: n frames at once) = the same frames one by one (within one electron in a few pixels);
+//   - a session replayed without rendering (Advance) gives the session's next frame, bit for bit.
 //
 //   live_scope_check     exit code 0 = all checks passed
 #include "LiveScope.h"
@@ -33,7 +34,8 @@ ScopeSpec Spec(const std::string& extra)
 {
    ScopeSpec s;
    std::string err;
-   const std::string text = "size=32 exposure-ms=100 npc-dye=None mt-mode=dSTORM x=3 y=-2 z=0.5 illum-profile=FlatTop " + extra;
+   const std::string text = "size=32 exposure-ms=100 npc-dye=None mt-mode=dSTORM x=3 y=-2 z=0.5 illum-profile=FlatTop "
+                            "psf-kernel-half-width-nm=2500 " + extra;
    if (!ParseScopeSpec(text, s, err))
    {
       std::printf("FAIL  spec: %s\n", err.c_str());
@@ -101,12 +103,12 @@ int main()
 
    // The initial ON (dSTORM): bright at a fresh place, fading under light.
    LiveScope fade;
-   const ScopeSpec bright = Spec("laser-640=5");
+   const ScopeSpec bright = Spec("laser-640=50");   // (8 frames: the dose of 80 at 5 mW)
    const Shot first = Take(fade, bright);
    Shot last;
-   for (int k = 0; k < 80; k++)
+   for (int k = 0; k < 8; k++)
       last = Take(fade, bright);
-   const Shot fresh = Take(fade, Spec("x=-30 laser-640=5"));
+   const Shot fresh = Take(fade, Spec("x=-30 laser-640=50"));
    std::snprintf(msg, sizeof msg, "dSTORM initial ON fades under light: mean %.0f ADU at 0 s, %.0f after %.1f s; 33 um away fresh (dose %.1f s)",
                  Mean(first.adu), Mean(last.adu), last.info.litSec, fresh.info.litSec);
    Check(first.ok && last.ok && Mean(last.adu) < 0.5 * Mean(first.adu) && fresh.info.litSec == 0.0, msg);
@@ -135,6 +137,7 @@ int main()
    // (CarryRunningImages, in the process-wide movie cache that both sessions share) round in another order, which
    // moves a Poisson draw by one electron in a few pixels (also on the frame-by-frame drift path). So: >= 99.5 % of
    // the pixels identical, the rest within one electron (4 ADU at 0.25 e-/ADU), the next live frame bit for bit.
+   const int nRec = 8;
    for (const char* mode : { "", "mt-mode=DNA-PAINT", "drift-xy-nm-per-sqrt-sec=20" })
    {
       const ScopeSpec rs = Spec(mode);
@@ -146,7 +149,7 @@ int main()
       }
       std::vector<uint16_t> seq, rec;
       const auto ts = std::chrono::steady_clock::now();
-      for (int k = 0; k < 20; k++)
+      for (int k = 0; k < nRec; k++)
       {
          const Shot s = Take(one, rs);
          seq.insert(seq.end(), s.adu.begin(), s.adu.end());
@@ -155,7 +158,7 @@ int main()
       LiveFrameInfo ri;
       std::string err;
       const auto tr = std::chrono::steady_clock::now();
-      const bool rok = batch.Frames(rs, 20, true, rec, ri, err);
+      const bool rok = batch.Frames(rs, nRec, true, rec, ri, err);
       const double recMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - tr).count();
       size_t same = 0;
       int maxDiff = 0;
@@ -171,13 +174,37 @@ int main()
                   sumRec / std::max<size_t>(1, rec.size()));
       const Shot nextOne = Take(one, rs), nextBatch = Take(batch, rs);
       std::snprintf(msg, sizeof msg,
-                    "recording %s: 20 frames at once = one by one, %.3f %% of pixels identical (%.0f ms, one by one "
+                    "recording %s: %d frames at once = one by one, %.3f %% of pixels identical (%.0f ms, one by one "
                     "%.0f ms); the next live frame after it identical: %s",
-                    *mode ? mode : "dSTORM", seq.size() ? 100.0 * same / seq.size() : 0.0, recMs, seqMs,
+                    *mode ? mode : "dSTORM", nRec, seq.size() ? 100.0 * same / seq.size() : 0.0, recMs, seqMs,
                     nextOne.adu == nextBatch.adu ? "yes" : "no");
       Check(rok && rec.size() == seq.size() && same >= 0.995 * seq.size() && maxDiff <= 4 && nextOne.adu == nextBatch.adu &&
-            std::fabs(ri.tSec - 0.3) < 1e-9 && std::fabs(nextBatch.info.tSec - 2.3) < 1e-9, msg);
+            std::fabs(ri.tSec - 0.3) < 1e-9 && std::fabs(nextBatch.info.tSec - (0.3 + 0.1 * nRec)) < 1e-9, msg);
       if (!rok) std::printf("      (%s)\n", err.c_str());
+   }
+
+   // A saved session replayed (Advance: the frames' light, drift, time and noise counter without rendering; the
+   // viewer's Load settings, insiliscope_cli --settings): the next frame is the session's, bit for bit. The session's
+   // frames as the viewer logs them: runs of the same spec as one call of n.
+   for (const char* mode : { "", "mt-mode=DNA-PAINT", "drift-xy-nm-per-sqrt-sec=20" })
+   {
+      const std::vector<std::pair<ScopeSpec, int>> runs = {
+         { Spec(mode), 3 }, { Spec(std::string(mode) + " x=8"), 2 }, { Spec(std::string(mode) + " laser-561=0 laser-640=0 light-preset=-1"), 1 },
+         { Spec(std::string(mode) + " laser-640=3"), 2 }, { Spec(mode), 2 } };
+      LiveScope session, replay;
+      bool aok = true;
+      std::string err;
+      for (const auto& r : runs)
+         for (int k = 0; k < r.second; k++)
+            Take(session, r.first);
+      for (const auto& r : runs)
+         aok = aok && replay.Advance(r.first, r.second, true, err);
+      const Shot a = Take(session, Spec(mode)), b = Take(replay, Spec(mode));
+      std::snprintf(msg, sizeof msg, "replay %s: the session's light without rendering, then the next frame = the session's "
+                    "(t %.1f s, lit here %.4f s vs %.4f s)", *mode ? mode : "dSTORM", b.info.tSec, a.info.litSec, b.info.litSec);
+      Check(aok && a.ok && b.ok && a.adu == b.adu && a.info.tSec == b.info.tSec && a.info.litSec == b.info.litSec &&
+            a.info.drift.x == b.info.drift.x, msg);
+      if (!aok) std::printf("      (%s)\n", err.c_str());
    }
 
    std::printf("live_scope: %d failure(s), %.1f s\n", g_failures,

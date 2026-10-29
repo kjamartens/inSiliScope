@@ -103,7 +103,23 @@ through it step by step.
   configurations are made; a setting Micro-Manager does not have keeps the viewer's own level; Basic at first). A note says how many
   hidden settings differ from their defaults. The ☰ menu switches between three looks (Compact, Focus, the default,
   and Light); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all to defaults** puts every setting back, those beside the image too. Every setting, the level and the
-  look are remembered in your browser across reloads (Reset all forgets them, and puts the panel and x-z view sizes back).
+  look are remembered in your browser across reloads, and so are the position in the sample and the zoom of the world
+  view (Reset all forgets them, and puts the panel and x-z view sizes back).
+- **Save and load settings.** The first section of the ☰ menu (and the two small icons beside Basic / Advanced /
+  Expert, a disk to save and a folder to load; not on a phone) keeps a setup as a file, `<name>.isc.json`, in parts that can be mixed: the
+  **Instrument** (objective, PSF and aberrations, camera and its noise, pixel size, the beam's shape, custom laser
+  lines and filter edges), the **Settings** (laser powers, the filters in place, the BFP position, the light paths,
+  camera size, render quality), the **Sample** (specimen, seed, cells or nanorulers, every target's label and dye,
+  custom dyes, beads, the medium), the **Measurement** (stage position, focus, exposure, drift, and the sample's light
+  history: every live frame that lit it) and, unticked by default, the **View** (the world view's camera, layers and
+  colours, the settings level and look). Each row shows where the part came from, a short id of its values (the same
+  values, the same id; "edited" once they moved) and a one-line summary. **Save…** asks for a name and the parts;
+  **Load…** (or a `.isc.json` dropped on the page) lists the file's parts and replaces only the ticked ones: another
+  lab's instrument with your sample, or your instrument with someone's sample. Loading a sample leaves the lasers as
+  they are; a loaded measurement replays its light history, so the next live frame is the one the saved session would
+  have taken (bleached and blinking as it was). A file from another release loads with a note that the image may
+  differ, and what the viewer could not take is listed. Every value is stored (defaults too) by name, and
+  `insiliscope_cli --settings <file>` renders the same frames on the command line.
   The viewer counts anonymous usage (which specimen, mode and Look are picked, Live, Record, saved TIFFs), without
   cookies: [Privacy](privacy.md) lists what is counted and how to turn it off.
   A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the
@@ -123,7 +139,9 @@ through it step by step.
   antibodies, nanobody, SNAP/Halo, ...; Advanced: its length, flexibility and linker) and the dipole orientation.
   Defaults: microtubules ATTO 655 DNA-PAINT through primary + secondary antibodies, pores Cy3B DNA-PAINT on SNAP-tagged
   Nup96. **Nuclear pores** sets their density on the nuclear envelope (default 8 per µm², at least 180 nm apart) and, in Advanced, the
-  minimum spacing and the ring geometry. A mode or dye pick loads the dye's fields, the mode's labelling and the light
+  minimum spacing and the ring geometry. A third target, the **Nuclear lamina label**, is unlabelled by default (Dye
+  None): pick a dye to show random lamina points on the nuclear envelope; **Nuclear lamina** (Advanced) sets their
+  density (default 2000 per µm², 100 to 10 000) and the lamina-free disc around each pore (40 nm). A mode or dye pick loads the dye's fields, the mode's labelling and the light
   preset of every labelled target combined (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic and
   filter; the **BFP position** slider, 0 = epi, 1 = the critical angle, between HILO and above TIRF, with the regime and
   how deep the light reaches shown under it; the DNA-PAINT presets set HILO, the nanorulers TIRF; in Advanced the beam
@@ -144,7 +162,11 @@ through it step by step.
 - Presets set several advanced options at once: **Cell shape** (footprint and outline), **Cell look** (cytoplasm height profile; the default is "Rounded") and **BF quality**. The options a preset drives are
   indented under it; editing one shows "Custom".
 - The live image uses the same PSF as the Micro-Manager adapter: a scalar Gibson-Lanni model with Zernike aberration
-  modes by default (the "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option). The
+  modes by default (the "PSF model" and "Aberrations" selects under Objective & PSF; Gaussian is the fast option).
+  From Advanced the box also has the objective's **NA** (the Objective preset in the Configuration sets it; a value typed
+  there makes the preset show "—", as Micro-Manager's turret goes to Custom), and in Expert the **Zernike modes**: the
+  Aberrations preset's 28 coefficients in waves (OSA order 0-27), which you can type over (28 values, or 15 with the rest
+  0); picking a preset replaces them again, as `Objective.ZernikeCoefficients` does in Micro-Manager. The
   kernel of the current PSF settings is computed in the background as soon as the page is ready and whenever those
   settings change. In Advanced, **Preview PSF** shows that kernel in a player over the view: the oversampled kernel
   beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from the
@@ -174,11 +196,18 @@ through it step by step.
   switches between the depth colours, bright colours on black (Dark fluorescence) and Dark fluorescence (depth, the
   default): on black, the microtubules and nuclear pores coloured by their height in the cell, the nucleus by its own
   height (drawn on the GPU, the 2D fallback keeps one colour for the microtubules). **Microtubule / Nuclear pore /
-  Nucleus colours** pick each one's colour scale (previewed in the list; defaults ice, warm and greys); the legend
-  shows only what is drawn.
+  Nucleus / Lamina colours** pick each one's colour scale (previewed in the list; defaults ice, warm, greys and greens),
+  each shown only while its structure is drawn; the legend shows only what is drawn.
 - **Nuclear pores** (View, on by default): each pore of a detailed cell as its two 8-fold rings on the nuclear envelope
   (cytoplasmic and nucleoplasmic, 50 nm apart, radius 53.5 nm), seen through their own tilt on the flanks of the
   nucleus; a pore is a dot when zoomed out, and from 400 px/µm each corner shows its four Nup96 sites.
+- **Nuclear lamina** (View, off by default): the lamina of each detailed cell as a surface, labelled or not (also in
+  the x-z view, filled): the nuclear envelope its points lie on, coloured by height (Lamina colours; the Look's = one
+  colour). The points themselves are not drawn: at the default 2000 per µm² they are 22 nm apart, a few hundred
+  thousand per nucleus. The surface's opacity follows their local density instead (the points within 0.3 µm of each
+  vertex, relative to the set density, at most fully opaque): today's lamina is uniform, so the surface is evenly
+  opaque; where a lamina is sparser it shows through. The density arrives a moment after the surface (the cell workers
+  generate the points, about half a second per nucleus).
 - The **x-z** checkbox (View, on by default) adds a side view along the bottom of the map: the cytoplasm, nuclei,
   microtubules and dyes of the view's depth range seen from the front (along y when the view is not turned), at equal
   horizontal and z scale; the Z clip shows as a band and an image slice's height as a dotted line. Its height follows
@@ -213,6 +242,3 @@ through it step by step.
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.
 - URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).
-- The original JS prototype the core was ported from is at
-  [`prototype/`](https://kjamartens.github.io/inSiliScope/prototype/index.html); it is the reference implementation
-  that the golden vectors are frozen from.

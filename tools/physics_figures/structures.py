@@ -16,8 +16,9 @@ def match(cells, x, y):
     return min(cells, key=lambda c: (c["x"] - x) ** 2 + (c["y"] - y) ** 2)
 
 
-def rings_of(nuc_cell, slices, pts):
-    return np.asarray(nuc_cell["rings"], float).reshape(slices, pts, 3)
+def rings_of(nuc_cell, pts):
+    """The cell's rings, bottom to top: the sections and a widened half's cap rings (to a point at each end)."""
+    return np.asarray(nuc_cell["rings"], float).reshape(-1, pts, 3)
 
 
 def widest(rg):
@@ -87,7 +88,7 @@ def cell_with_nucleus(ctx, tag, opts, n=1, size=2, detail=True):
     r = ctx.cli(dict(SPOT, **{"geometry-um": size, "geometry-detail": 1 if detail else 0}, **opts), tag=tag,
                 geometry_json=True, nucleus_json=True)
     geo, nuc = load(r["geometry_json"]), load(r["nucleus_json"])
-    return [(c, rings_of(match(nuc["cells"], c["x"], c["y"]), nuc["slices"], nuc["pts"]))
+    return [(c, rings_of(match(nuc["cells"], c["x"], c["y"]), nuc["pts"]))
             for c in cells_near(geo, SPOT["x"], SPOT["y"], n)]
 
 

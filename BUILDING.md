@@ -32,11 +32,11 @@ cmake --build --preset msvc-cli        # only insiliscope_cli
 ```bash
 cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm -j 8
 node tools/embed_web_module.mjs                      # web/insiliscope_module.js (regenerate after any core change)
-node tools/make_cellfield_block.mjs && node tests/block/check_cellfield_block.mjs
-node web/lab/serve.mjs --open                        # the viewer at http://localhost:8123/web/index.html
+node tools/make_cellfield_block.mjs                  # dist/cellfield_block.js (the webSMLM block)
+python -m http.server 8123                           # then the viewer at http://localhost:8123/web/index.html
 ```
 
-`bash tools/port_check.sh` runs the native and WASM tests, the golden vectors and the JS parity checks in one go.
+`bash tools/core_check.sh` runs the native and WASM tests (the golden vectors included) and the module check in one go.
 
 ## Micro-Manager adapter (Windows)
 
@@ -56,12 +56,14 @@ in an embedded JVM; the default Gibson-Lanni + Zernike model is C++ and needs no
 
 3. Build `adapter/inSiliScope/inSiliScope.sln` as Release|x64. The DLL lands in `adapter/inSiliScope/build/Release/x64/`.
 4. Smoke tests (each under 5 minutes), with `ADAPTER_DIR` set to that folder:
-   `python tools/test_insiliscope.py`, `tools/test_cellfield_stage.py`, `tools/test_history.py`,
-   `tools/test_specimens.py`, `tools/test_mm_configs.py`. `python tools/adapter_pixel_hash.py <dll dir>` before and
-   after a refactor must print the same hashes.
+   `python tools/test_insiliscope.py`, `tools/test_cellfield_stage.py` (and `--drift`), `tools/test_history.py`,
+   `tools/test_specimens.py`, `tools/test_fiducials.py`, `tools/test_mm_configs.py`. `python tools/adapter_pixel_hash.py
+   <dll dir>` (~20 s) compares the output of 14 configurations with `tools/adapter_pixel_hash_ref.txt`; after a
+   deliberate output change, `--write-ref` stores the new hashes.
 
 After a change to the property registry, regenerate the shipped configurations and the property reference:
-`python tools/gen_mm_configs.py` and `python tools/gen_property_reference.py` (both need `ADAPTER_DIR`; `--check` in CI).
+`python tools/gen_mm_configs.py` and `python tools/gen_property_reference.py` (both need `ADAPTER_DIR`, so they run
+locally, not in CI: `--check` there before committing).
 
 ## Documentation site
 

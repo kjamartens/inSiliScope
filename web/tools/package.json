@@ -5,7 +5,6 @@
   "description": "Playwright-driven checks for the cell-field viewer (web/).",
   "scripts": {
     "postinstall": "playwright install chromium",
-    "check:mt": "node check_cellfield_microtubules.mjs",
     "bench:pan": "node bench_pan.mjs"
   },
   "dependencies": {

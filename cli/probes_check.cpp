@@ -86,6 +86,7 @@ const char* kIdeal = "gain=1 read-noise=0 read-noise-std-pct=0 gain-std-pct=0 of
 
 int main()
 {
+   std::setvbuf(stdout, nullptr, _IONBF, 0);   // progress shows as it runs (ctest, pipes)
    char msg[256];
    const std::string base = std::string("size=32 x=-4 y=-5 disk-cache=0 psf-kernel-half-width-nm=2000 psf-z-range-um=2 ") +
                             kIdeal;

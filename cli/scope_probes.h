@@ -62,7 +62,8 @@ bool Density(const sim::ScopeSpec& spec, int nz, double zMin, double zMax, int u
 bool BrightfieldScreens(const sim::ScopeSpec& spec, const std::string& prefix, std::string& err);
 
 // The shaped nucleus surface of each cell in the square of side sizeUm around
-// the spec's x, y (isc_cell_nucleus_rings, world um), as JSON.
+// the spec's x, y (isc_cell_nucleus_rings, world um), as JSON: per cell its rings_n rings of pts points
+// (the slices sections plus a widened half's cap rings).
 bool NucleusJson(const sim::ScopeSpec& spec, double sizeUm, const std::string& path, std::string& err);
 
 } // namespace probes
