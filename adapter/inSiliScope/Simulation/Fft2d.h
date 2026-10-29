@@ -64,8 +64,10 @@ public:
    // Spectrum of the nx x ny image that is `in` (inW x inH, row stride
    // inStride) at the origin and zero elsewhere. spec: SpecSize().
    // skipZeroRows: rows of `in` that are all zero are not transformed (their
-   // spectrum rows set to zero): the same values, faster for a sparse image
-   // (the binned blinks, BinnedBlinks.h); the sign of an exact zero may differ.
+   // spectrum rows copied from a zero row's, signed zeros included): the same
+   // spectrum bit for bit, faster for a sparse image (the binned blinks,
+   // BinnedBlinks.h; the WideField dye planes). (Before 2026-10-29 the rows were
+   // +0, which moved the signs of some exact zeros and a downstream output.)
    void Forward(const float* in, unsigned inW, unsigned inH, size_t inStride, cfloat* spec,
                 bool skipZeroRows = false) const;
    // Inverse, normalised (1/(nx ny)): rows [row0, row0 + rows) of the image,
@@ -82,6 +84,7 @@ private:
    unsigned nx_ = 0, ny_ = 0, m_ = 0; // m = nx / 2
    FftPlan1d rows_, cols_;
    std::vector<cfloat> w_;            // exp(-2 pi i k / nx), k <= m
+   std::vector<cfloat> zeroRow_;      // the row pass of an all-zero row (skipZeroRows)
 };
 
 } // namespace sim

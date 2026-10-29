@@ -63,8 +63,10 @@ Upcoming ideas:
   shifted frame is ~3 ms), [x] dSTORM z move: scenes too big for the GPU's plane pool beside the others render on the
   CPU (two initial-ON scenes evicted each other's planes: a fresh-site z step 1.4-1.6 s -> 0.2-0.3 s; bench `zMove1um`
   8-10 s -> 2.5 s), [x] a steady view's bleach-basis rebuilds off the live thread (MM live: the next basis made ahead
-  on a thread, the dropped spectra freed on another; takes 2-60 ms). Next: [ ] a new pose's first full basis (a stage
-  move, drift re-anchoring, a channel or objective switch: 0.2-0.6 s per scene) is still made on the live thread.
+  on a thread, the dropped spectra freed on another; takes 2-60 ms). A new pose's first full basis (a stage move, drift
+  re-anchoring, a channel or objective switch: 0.3-0.7 s per scene) stays on the live thread: the next frame needs it
+  and no idle time precedes it; [x] its plane spectra cheaper, bit for bit (a buffer per thread, empty rows skipped:
+  990 planes 0.41-0.46 -> 0.30-0.35 s, 1380 planes about the same).
 - Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
   spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,

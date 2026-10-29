@@ -342,7 +342,7 @@ evicts nothing. Drift stays on the CPU (measured: a GPU path is not faster). MM 
 LiveScope: the viewer's and cli's frames stay a function of their requests) makes the next bleach basis ahead
 (`WidefieldScene::SetAsyncBasis`): past `kPrebuildAt` (0.4) of a Chebyshev basis' span, a copy of the scene builds it
 on a thread and half the cores below normal priority, the first frame after takes it (a frame beyond the basis in use
-waits for it); a new pose's or new weights' basis is still made at once. Spectra a live scene drops and a taken copy are
+waits for it); a new pose's or new weights' basis is still made at once (the next frame needs it; its plane spectra skip empty rows, `RealFft2d::Forward` `skipZeroRows`, bit for bit since 2026-10-29). Spectra a live scene drops and a taken copy are
 freed on a thread too (`Trash`: 1480 spectra took 0.23 s); `WidefieldAsyncBasisShutdown` joins both in the camera's
 `Shutdown`. Phases `wf.basis-async-start`, `wf.basis-async-take`, `wf.plane-spectra-async`.
 Phases `fl.dye-index`, `fl.dye-index-ahead`, `fl.dye-index-wait`, `wf.kernels`, `wf.plane-spectra`, `wf.accel-images`.

@@ -1476,10 +1476,17 @@ void WidefieldScene::PlaneSpectrum(const Channel& c, long k, const WidefieldSpar
    out.resize(fft.SpecSize());
    if (level == 0)
    {
-      std::vector<float> buf(static_cast<size_t>(g.nx) * g.ny, 0.0f);
+      // (2026-10-29: a buffer per thread, zero but for this plane's cells, which are cleared after -- a fresh one was
+      // 1.6 MB to allocate and clear per plane --, and the transform skips its empty rows; the same values.)
+      thread_local std::vector<float> buf;
+      const size_t n = static_cast<size_t>(g.nx) * g.ny;
+      if (buf.size() != n)
+         buf.assign(n, 0.0f);
       for (size_t i = 0; i < cells.size(); ++i)
          buf[cells[i]] = vals[i];
-      fft.Forward(buf.data(), g.nx, g.ny, g.nx, out.data());
+      fft.Forward(buf.data(), g.nx, g.ny, g.nx, out.data(), true);
+      for (size_t i = 0; i < cells.size(); ++i)
+         buf[cells[i]] = 0.0f;
       return;
    }
    // Cloud-in-cell onto the coarse cells (centres (f - 1) / 2 fine cells
