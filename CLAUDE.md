@@ -332,7 +332,8 @@ last step); `BrightfieldScene::ComputeImage` = `Image()`'s pixels without touchi
 Profile phases `bf.scene`, `bf.image`, `bf.prefetch-image`, `bf.prefetch-wait`, `bf.focus-cached`.
 Live WideField speed (2026-10-29): the WideField GPU hosts (`WidefieldGpuD3D11.cpp`, `web/wf_gpu.js`) keep resident
 spectra per scene geometry (the 4 used last; one per labelled target take turns), reset only on a new FFT shape; dye
-counts (`MovieCache::CountSlab` / `SlabQuantiles`) come from a `DyeIndex` (1 um bins, heights sorted, counts exact =
+counts (`MovieCache::CountSlab` / `SlabQuantiles`) come natively from a `DyeIndex` (the viewer's WASM keeps the heights-only slab columns per exact rect: an index is
+24 bytes per dye and took the viewer past its 2 GB heap, rc16's gallery job; 1 um bins, heights sorted, counts exact =
 `Density3d`), in live also made ahead 4 um around the FOV by `DyeIndexPrefetch` (native: a thread and a world of its
 own, no packed-block store, joined by `DyeIndexPrefetchShutdown` in the camera's `Shutdown`); a scene that shifts
 (drift, anchor) takes the CPU's FFT sizes (= GPU off); a scene whose planes do not fit the D3D11 pool beside the

@@ -1677,6 +1677,7 @@ struct MeanFieldSlot
    std::shared_ptr<const MapEntries> ent;
 };
 
+#if !defined(__EMSCRIPTEN__)
 // Dye counts (the mean-field switch's nZ, nSlab, nZLit; Survey's heights) from a dye index (2026-10-29): every dye of a
 // rect -- height, x, y by structure in 1 um world bins, each bin sorted by height -- counts any rect inside it at any
 // heights exactly as the core's ForEachDye filters (x0 <= x < x1, y0 <= y < y1, zLo <= z < zHi), so a count =
@@ -1848,6 +1849,43 @@ bool BuildDyeIndex(SampleSource& source, long bx0, long by0, long nbx, long nby,
    TimingLog(phase, TimingSince(t0), b);
    return true;
 }
+#else
+// The viewer (WASM) keeps the slab columns of before the dye index (heights only, per exact rect; MovieCache): an index
+// is 24 bytes per dye over a padded rect, and beside a new cell's survey it took the viewer past its 2 GB heap
+// (2026-10-29: rc16's gallery job aborted; the same counts and heights either way).
+// v sorted ascending, the same vector as std::sort's: bucketed by height (a bucket's index never falls as z grows), the
+// buckets sorted on all cores. The ~7 M heights of a 48 um WideField column took 0.65 s in one std::sort.
+void SortHeights(std::vector<double>& v)
+{
+   if (v.size() < (1u << 16))
+   {
+      std::sort(v.begin(), v.end());
+      return;
+   }
+   const auto mm = std::minmax_element(v.begin(), v.end());
+   const double lo = *mm.first, hi = *mm.second;
+   if (!(hi > lo))
+      return;
+   const size_t B = std::min<size_t>(v.size() / 256, size_t(1) << 16);
+   const double scale = static_cast<double>(B) / (hi - lo);
+   auto bucket = [&](double z) { return std::min(B - 1, static_cast<size_t>((z - lo) * scale)); };
+   std::vector<size_t> start(B + 1, 0);
+   for (double z : v)
+      start[bucket(z) + 1]++;
+   for (size_t b = 0; b < B; ++b)
+      start[b + 1] += start[b];
+   std::vector<size_t> pos(start.begin(), start.end() - 1);
+   std::vector<double> out(v.size());
+   for (double z : v)
+      out[pos[bucket(z)]++] = z;
+   const unsigned chunks = 64;
+   ParallelFor(chunks, [&](unsigned k) {
+      for (size_t b = B * k / chunks; b < B * (k + 1) / chunks; ++b)
+         std::sort(out.begin() + static_cast<std::ptrdiff_t>(start[b]), out.begin() + static_cast<std::ptrdiff_t>(start[b + 1]));
+   });
+   v.swap(out);
+}
+#endif
 
 #if !defined(__EMSCRIPTEN__)
 // Live (2026-10-29): a dye index made ahead, on a thread and a world of their own (a world is not thread-safe; the same
@@ -1996,6 +2034,8 @@ struct MovieCache
    BrightfieldScene brightfield;
    // Mean-field scenes by population (structure x 4 + state).
    std::map<int, std::unique_ptr<MeanFieldSlot>> meanField;
+   bool live = false;   // the movie is a live frame (CarryRunningImages)
+#if !defined(__EMSCRIPTEN__)
    // Dye counts from dye indexes (DyeIndex): each spans the rect asked grown by kDyeIndexPadUm, so the FOV's slab, a
    // live FOV that drifts (a new rect every frame) and a focus scrub share one. Live (native) keeps one made ahead
    // kDyeIndexAheadUm around the query rect (DyeIndexPrefetch), asked for when the rect comes within kDyeIndexLowUm of
@@ -2007,7 +2047,6 @@ struct MovieCache
 #if !defined(__EMSCRIPTEN__)
    static constexpr double kDyeIndexAheadUm = 4.0, kDyeIndexLowUm = 2.5;
 #endif
-   bool live = false;   // the movie is a live frame (CarryRunningImages)
    const DyeIndex& KeepIndex(DyeIndex&& ix)
    {
       ix.version = dyeVersion;
@@ -2204,6 +2243,133 @@ struct MovieCache
       }
       return true;
    }
+#else
+   // Dye counts (the mean-field switch's nZ, nSlab, nZLit) from a column's dye heights, sorted per structure (one
+   // sites query per column rect and dyeVersion): z in [zLo, zHi) and the rect as the core's ForEachDye filters, so a
+   // count = Density3d's with one bin. The boxes' heights follow the focus, so a count per box (as until 2026-10-14)
+   // missed at every focus step: 37-65 ms of each z step of a live WideField scrub. -1 on a core failure.
+   struct SlabColumn
+   {
+      double rect[4];
+      uint64_t version = 0;
+      std::vector<std::vector<double>> z;   // per structure, sorted
+   };
+   std::vector<SlabColumn> slabColumns;
+   static constexpr size_t kSlabColumns = 4;
+   static constexpr double kSlabStripUm = 4;
+   SlabColumn* Column(double x0, double y0, double x1, double y1)
+   {
+      const double rect[4] = { x0, y0, x1, y1 };
+      for (SlabColumn& c : slabColumns)
+         if (c.version == dyeVersion && std::equal(rect, rect + 4, c.rect))
+            return &c;
+      const double inf = std::numeric_limits<double>::infinity();
+      SlabColumn c;
+      std::copy(rect, rect + 4, c.rect);
+      c.version = dyeVersion;
+      // In strips of kSlabStripUm (half-open in x as the core's filter, the boundaries shared, so each dye is in one
+      // strip), keeping the heights only: a whole column's sites at once (5 doubles per dye, and the core's own copy)
+      // took > 1 GB for the ~7 M dyes of a 48 um WideField field, past the viewer's 2 GB WASM heap (2026-10-16).
+      const int strips = std::max(1, static_cast<int>(std::ceil((x1 - x0) / kSlabStripUm)));
+      auto edge = [&](int k) { return k == 0 ? x0 : k == strips ? x1 : x0 + (x1 - x0) * k / strips; };
+      std::vector<double> rows;
+      for (int k = 0; k < strips; ++k)
+      {
+         if (!source.Sites(edge(k), y0, edge(k + 1), y1, -inf, inf, rows))
+            return nullptr;
+         for (size_t i = 0; i + ISC_SITE_STRIDE <= rows.size(); i += ISC_SITE_STRIDE)
+         {
+            const size_t s = static_cast<size_t>(rows[i + 4]);
+            if (s >= c.z.size())
+               c.z.resize(s + 1);
+            c.z[s].push_back(rows[i + 2]);
+         }
+      }
+      for (std::vector<double>& v : c.z)
+         SortHeights(v);
+      if (slabColumns.size() >= kSlabColumns)
+         slabColumns.erase(slabColumns.begin());
+      slabColumns.push_back(std::move(c));
+      return &slabColumns.back();
+   }
+   // A rect without a column is counted by the core (Density3d, one bin: the same count), the box's count kept; asked
+   // again at other heights (a focus scrub) it gets its column. So a single movie builds no column for a count it
+   // reads once (the FOV's nSlab: 0.4 s of a 48 um WideField field in the viewer's WASM).
+   struct SlabCount
+   {
+      double box[6];
+      int mask;
+      uint64_t version;
+      long n;
+   };
+   std::vector<SlabCount> slabCounts;
+   long CountSlab(double x0, double y0, double x1, double y1, double zLo, double zHi, int mask)
+   {
+      const double rect[4] = { x0, y0, x1, y1 }, box[6] = { x0, y0, x1, y1, zLo, zHi };
+      bool hasColumn = false, seen = false;
+      for (const SlabColumn& c : slabColumns)
+         hasColumn = hasColumn || (c.version == dyeVersion && std::equal(rect, rect + 4, c.rect));
+      if (!hasColumn)
+      {
+         for (const SlabCount& c : slabCounts)
+            if (c.version == dyeVersion && std::equal(rect, rect + 4, c.box))
+            {
+               if (c.box[4] == zLo && c.box[5] == zHi)
+               {
+                  if (c.mask == mask)
+                     return c.n;
+               }
+               else
+                  seen = true;
+            }
+         if (!seen)
+         {
+            float one = 0;
+            const long n = source.Density3d(x0, y0, x1, y1, zLo, zHi, 1, 1, 1, mask, &one);
+            if (n >= 0)
+            {
+               if (slabCounts.size() >= 4 * kSlabColumns)
+                  slabCounts.erase(slabCounts.begin());
+               SlabCount c;
+               std::copy(box, box + 6, c.box);
+               c.mask = mask;
+               c.version = dyeVersion;
+               c.n = n;
+               slabCounts.push_back(c);
+            }
+            return n;
+         }
+      }
+      const SlabColumn* col = Column(x0, y0, x1, y1);
+      if (!col)
+         return -1;
+      long n = 0;
+      for (size_t s = 0; s < col->z.size(); ++s)
+         if ((mask >> s) & 1)
+         {
+            const std::vector<double>& v = col->z[s];
+            n += static_cast<long>(std::lower_bound(v.begin(), v.end(), zHi) - std::lower_bound(v.begin(), v.end(), zLo));
+         }
+      return n;
+   }
+   // The heights of structure s's dyes in [zLo, zHi) of the column at K quantiles ((k + 1/2) / K; none without dyes).
+   bool SlabQuantiles(double x0, double y0, double x1, double y1, double zLo, double zHi, int s, int K,
+                      std::vector<double>& out)
+   {
+      out.clear();
+      const SlabColumn* col = Column(x0, y0, x1, y1);
+      if (!col)
+         return false;
+      if (s < 0 || static_cast<size_t>(s) >= col->z.size())
+         return true;
+      const std::vector<double>& v = col->z[static_cast<size_t>(s)];
+      const size_t lo = static_cast<size_t>(std::lower_bound(v.begin(), v.end(), zLo) - v.begin());
+      const size_t hi = static_cast<size_t>(std::lower_bound(v.begin(), v.end(), zHi) - v.begin());
+      for (int k = 0; hi > lo && k < K; ++k)
+         out.push_back(v[lo + static_cast<size_t>((k + 0.5) / K * static_cast<double>(hi - lo))]);
+      return true;
+   }
+#endif
    // Live: the per-dye populations' running images by population (structure x
    // 4 + state), carried from one movie to the next at the same geometry
    // (FluorescenceMovie::CarryRunningImages): the image, its geometry key and

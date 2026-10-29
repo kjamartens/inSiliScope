@@ -57,7 +57,8 @@ Upcoming ideas:
   instrument's installed hardware.
 - Live WideField speed (2026-10-29, branch `lamin_network`): [x] the Direct3D 11 and WebGPU hosts keep the spectra of
   the 4 scene geometries used last (two scenes in turn re-made ~500 plane spectra per job: a z step 0.5 s, 0.8 fps),
-  [x] dye counts from a dye index (1 um bins sorted by height, exact; drift 70-90 ms per frame -> 7 ms), made ahead
+  [x] dye counts from a dye index (native only: the viewer's WASM keeps its slab columns, 2 GB heap; 1 um bins sorted by
+  height, exact; drift 70-90 ms per frame -> 7 ms), made ahead
   4 um around the FOV on a thread and world of its own in live, [x] a drifting scene on the CPU's FFT sizes (GPU on:
   28 -> 48 fps), [x] drift on the GPU paths measured and dropped (a basis rebuild costs the GPU as much as the CPU, the
   shifted frame is ~3 ms), [x] dSTORM z move: scenes too big for the GPU's plane pool beside the others render on the
