@@ -45,6 +45,7 @@ public:
 
    bool HasPlane(unsigned long long geometry, unsigned long long key) const override;
    bool Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err) override;
+   bool Fits(unsigned long long geometry, unsigned NX, unsigned NY, size_t planes) override;
 
    // Per-pixel frame inputs (width x height; empty maps = the scalar from
    // cam): offset ADU, gain photons/ADU, read noise e-, background photons

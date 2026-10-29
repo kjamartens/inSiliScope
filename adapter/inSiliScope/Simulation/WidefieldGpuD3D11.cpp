@@ -109,7 +109,13 @@ struct WidefieldGpuD3D11::Impl
       Buf kspec;
       unsigned kcap = 0;
       unsigned long long used = 0;
+      size_t need = 0;          // the planes its last job needed (Fits)
+      unsigned long long job = 0;   // that job's number
    };
+   unsigned long long jobs = 0;   // jobs run after a Fits
+   unsigned long long askGeometry = 0;
+   size_t askNeed = 0;
+   static constexpr unsigned long long kRecentJobs = 8;   // scenes served within this many jobs share the pool
    static constexpr size_t kMaxGeometries = 4;
    std::map<unsigned long long, Resident> resident;
    Resident* cur = nullptr;
@@ -404,6 +410,16 @@ struct WidefieldGpuD3D11::Impl
             todo.push_back(&p);
       if (todo.size() > freeSlots.size())
       {
+         // (A job that cannot fit evicts nothing: the other scenes keep their planes.)
+         size_t evictable = 0;
+         for (const auto& r : resident)
+            for (const auto& kv : r.second.planes)
+               evictable += kv.second.used < stamp ? 1 : 0;
+         if (todo.size() > freeSlots.size() + evictable)
+         {
+            err = "GPU plane spectra do not fit";
+            return false;
+         }
          // Least recently used first, of any geometry (never this job's).
          struct Victim
          {
@@ -484,6 +500,25 @@ bool WidefieldGpuD3D11::HasPlane(unsigned long long geometry, unsigned long long
    return it != impl_->resident.end() && it->second.planes.count(key) != 0;
 }
 
+bool WidefieldGpuD3D11::Fits(unsigned long long geometry, unsigned NX, unsigned NY, size_t planes)
+{
+   Impl& m = *impl_;
+   const size_t SS = static_cast<size_t>(NX / 2 + 1) * NY;
+   const bool sameShape = m.NX == NX && m.NY == NY && m.slotCap > 0;
+   // (Another shape resets the pool: Reset's first try.)
+   const size_t cap = sameShape ? m.slotCap : std::max<size_t>(4, (size_t(512) << 20) / (SS * 4));
+   size_t others = 0;
+   if (sameShape)
+      for (const auto& r : m.resident)
+         if (r.first != geometry && r.second.job + Impl::kRecentJobs > m.jobs && r.second.job > 0)
+            others += r.second.need;
+   if (planes + others > cap)
+      return false;
+   m.askGeometry = geometry;   // (recorded when its job runs: a job on another shape resets the pool first)
+   m.askNeed = planes;
+   return true;
+}
+
 bool WidefieldGpuD3D11::Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err)
 {
    try
@@ -518,6 +553,12 @@ bool WidefieldGpuD3D11::ImagesImpl(const WidefieldGpuJob& job, std::vector<std::
       }
    }
    m.cur = &m.Use(job.geometry);
+   if (m.askGeometry == job.geometry)
+   {
+      m.cur->need = m.askNeed;
+      m.cur->job = ++m.jobs;
+      m.askGeometry = 0;
+   }
    if (!m.EnsureKernels(job, err) || !m.EnsurePlanes(job, err))
       return false;
    const unsigned nChan = static_cast<unsigned>(job.channels.size());

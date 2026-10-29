@@ -1659,6 +1659,9 @@ struct MeanFieldSlot
    int upscale = 0;
    double gauss[4] = { 0, 0, 0, 0 };
    bool gpuMode = false, has = false;
+   // The accelerator could not keep the scene's planes (WidefieldScene::AccelTooBig): the population's scenes are the
+   // CPU's from then on (a new scene on the GPU's grid would first fail there and be made again).
+   bool accelTooBig = false;
    long psfVersion = 0;
    // AnchorMeanField: the pose (FOV origin, world um) the scene is kept at.
    bool anchored = false;
@@ -3400,7 +3403,10 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    // change starts from a fresh scene. An accelerator the scene does not use (shifts) is the CPU's (2026-10-29: a
    // drifting live WideField frame rebuilt its bleach basis on power-of-two grids, ~1.5x the CPU's work; now the
    // frames are those of the GPU off).
-   const bool sceneGpu = gpuMode || (accel != nullptr && !shifts);
+   if (slot.has && slot.scene.AccelTooBig())
+      slot.accelTooBig = true;
+   const bool cpuScene = shifts || slot.accelTooBig;   // (an accelerator the scene does not use)
+   const bool sceneGpu = gpuMode || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {
       slot.scene = WidefieldScene();
@@ -3430,7 +3436,7 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       nd.shifted = nd.shiftX != 0.0 || nd.shiftY != 0.0;
    }
    slot.scene.SetKeepSpectra(shifts);
-   slot.scene.SetAccelerator(shifts ? nullptr : accel);
+   slot.scene.SetAccelerator(cpuScene ? nullptr : accel);
    // GPU mode: the images wait for the GPU host (SetMeanFieldImages), a weighted scene's those of its basis (below; not
    // a blink population's: its weights change every frame).
    nd.deferred = gpuMode && !shifts && !(p.weighted && p.state == ISC_STATE_BLINK);

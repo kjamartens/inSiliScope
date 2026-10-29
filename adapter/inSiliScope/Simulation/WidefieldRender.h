@@ -339,6 +339,15 @@ public:
    // are then left out of the job.
    virtual bool HasPlane(unsigned long long geometry, unsigned long long key) const = 0;
    virtual bool Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err) = 0;
+   // Whether the planes (plane spectra) a scene of geometry on an NX x NY grid needs fit beside those of the scenes
+   // the host served last; false: the scene renders on the CPU (2026-10-29: two dSTORM initial-ON scenes, 1380 and
+   // 990 planes on a pool of 1020, evicted each other's at every job and re-made them at every refocus: a z step
+   // 1-1.5 s; on the CPU, its spectra cached, 0.3-0.5 s). A true answer counts the scene as served.
+   virtual bool Fits(unsigned long long geometry, unsigned NX, unsigned NY, size_t planes)
+   {
+      (void)geometry, (void)NX, (void)NY, (void)planes;
+      return true;
+   }
 };
 
 // The WideField renderer for one grid rect (a stage pose), any focus.
@@ -530,6 +539,8 @@ public:
    // on the CPU and GpuError() says why.
    void SetAccelerator(WidefieldAccelerator* acc) { accel_ = acc; }
    bool UsingAccelerator() const { return accel_ != nullptr; }
+   // The accelerator could not keep this scene's planes (WidefieldAccelerator::Fits): it rendered on the CPU.
+   bool AccelTooBig() const { return accelTooBig_; }
    const std::string& GpuError() const { return gpuError_; }
    // The GPU job of the current focus (false if it cannot run on the GPU:
    // not GPU mode, or an FFT beyond kMaxGpuFft); the images it yields go to
@@ -673,6 +684,7 @@ private:
    bool gpuMode_ = false, defer_ = false, keepSpectra_ = false;
    WidefieldAccelerator* accel_ = nullptr;
    std::string gpuError_;
+   bool accelTooBig_ = false;
    unsigned long long geometry_ = 0;
    bool JobFor(const FocusPlan& plan, const std::vector<const Channel*>& chans, WidefieldGpuJob& job) const;
    // Images of the plan's channels on the accelerator; false (accelerator

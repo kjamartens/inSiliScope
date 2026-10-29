@@ -335,7 +335,10 @@ spectra per scene geometry (the 4 used last; one per labelled target take turns)
 counts (`MovieCache::CountSlab` / `SlabQuantiles`) come from a `DyeIndex` (1 um bins, heights sorted, counts exact =
 `Density3d`), in live also made ahead 4 um around the FOV by `DyeIndexPrefetch` (native: a thread and a world of its
 own, no packed-block store, joined by `DyeIndexPrefetchShutdown` in the camera's `Shutdown`); a scene that shifts
-(drift, anchor) takes the CPU's FFT sizes (= GPU off). Drift stays on the CPU (measured: a GPU path is not faster).
+(drift, anchor) takes the CPU's FFT sizes (= GPU off); a scene whose planes do not fit the D3D11 pool beside the
+scenes served in the last 8 jobs (`WidefieldAccelerator::Fits`, dSTORM's initial-ON scenes: 1380 + 990 planes on 1020
+slots at 512 px) renders on the CPU (`AccelTooBig`, sticky per population in `MeanFieldSlot`), and a job that cannot fit
+evicts nothing. Drift stays on the CPU (measured: a GPU path is not faster).
 Phases `fl.dye-index`, `fl.dye-index-ahead`, `fl.dye-index-wait`, `wf.kernels`, `wf.plane-spectra`, `wf.accel-images`.
 `adapter_pixel_hash` reference: `tools/adapter_pixel_hash_ref.txt` (stored 2026-10-27 on `lamin_network`: TOTAL
 5a29ae84..., "TOTAL before pores" bf29b371...; the earlier references, TOTAL bf98d1ae... since the Gaussian beam default

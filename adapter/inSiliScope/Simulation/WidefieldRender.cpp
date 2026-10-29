@@ -1490,6 +1490,26 @@ bool WidefieldScene::MakeGpuJob(WidefieldGpuJob& job) const
 bool WidefieldScene::AccelImages(const FocusPlan& plan, const std::vector<const Channel*>& chans,
                                  std::vector<std::vector<float>>& out)
 {
+   // The planes the job needs (resident or not): one per channel and dye plane.
+   size_t need = 0;
+   std::vector<long> ks;
+   for (const Channel* c : chans)
+   {
+      ks.clear();
+      for (const FocusPlan::Dep& d : plan.deps)
+         if (!dyes_.planes.at(d.k).Empty(c->pop))
+            ks.push_back(d.k);
+      std::sort(ks.begin(), ks.end());
+      need += static_cast<size_t>(std::unique(ks.begin(), ks.end()) - ks.begin());
+   }
+   if (!accel_->Fits(geometry_, nx_, ny_, need))
+   {
+      accelTooBig_ = true;
+      gpuError_ = "WideField GPU: " + std::to_string(need) + " plane spectra do not fit on the GPU beside the other "
+                  "scenes'; this scene renders on the CPU";
+      accel_ = nullptr;
+      return false;
+   }
    WidefieldGpuJob job;
    if (!JobFor(plan, chans, job))
    {

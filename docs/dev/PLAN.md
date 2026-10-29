@@ -60,7 +60,10 @@ Upcoming ideas:
   [x] dye counts from a dye index (1 um bins sorted by height, exact; drift 70-90 ms per frame -> 7 ms), made ahead
   4 um around the FOV on a thread and world of its own in live, [x] a drifting scene on the CPU's FFT sizes (GPU on:
   28 -> 48 fps), [x] drift on the GPU paths measured and dropped (a basis rebuild costs the GPU as much as the CPU, the
-  shifted frame is ~3 ms). Next: [ ] the drift's bleach-basis rebuild (~0.3 s every few seconds) off the live thread.
+  shifted frame is ~3 ms), [x] dSTORM z move: scenes too big for the GPU's plane pool beside the others render on the
+  CPU (two initial-ON scenes evicted each other's planes: a fresh-site z step 1.4-1.6 s -> 0.2-0.3 s; bench `zMove1um`
+  8-10 s -> 2.5 s). Next: [ ] the bleach-basis rebuilds (drift ~0.3 s every few seconds; dSTORM at a fresh site ~1 s
+  each, the rest of the bench's z-move latency) off the live thread.
 - Excitation geometry: epi -> HILO -> TIRF on one BFP-position slider (2026-10-13, branch `claude/illum-geometry`,
   spec/PORT.md 22, spec/ALGORITHM.md "Excitation geometry"): [x] JS reference (`excitation.js`: FlatTop default, the
   HILO sheet, TIRF's evanescent field, clipped beyond the pupil; the imager over a 100 um chamber; DNA-PAINT HILO,
