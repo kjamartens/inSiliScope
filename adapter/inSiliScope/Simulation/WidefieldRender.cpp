@@ -1111,10 +1111,12 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
    }
    if (!missing.empty())
    {
+      const auto tK = TimingClock::now();
       std::vector<KernelSpec> made(missing.size());
       ParallelFor(static_cast<unsigned>(missing.size()), [&](unsigned i) { MakeKernel(psf, missing[i], made[i]); });
       for (size_t i = 0; i < missing.size(); ++i)
          kernels_[missing[i]] = std::move(made[i]);
+      TimingLog("wf.kernels", TimingSince(tK), std::to_string(missing.size()).c_str());
    }
    for (const Raw& r : raw)
    {
@@ -1220,10 +1222,12 @@ void WidefieldScene::FillSpectra(const std::vector<const Channel*>& chans, const
          }
    if (jobs.empty())
       return;
+   const auto tS = TimingClock::now();
    std::vector<std::vector<cfloat>> made(jobs.size());
    ParallelFor(static_cast<unsigned>(jobs.size()), [&](unsigned i) {
       PlaneSpectrum(*jobs[i].c, jobs[i].k, dyes_.planes.at(jobs[i].k), jobs[i].level, made[i]);
    });
+   TimingLog("wf.plane-spectra", TimingSince(tS), std::to_string(jobs.size()).c_str());
    for (size_t i = 0; i < jobs.size(); ++i)
    {
       CacheEntry& e = cache_[std::make_tuple(jobs[i].c->version, jobs[i].k, jobs[i].level)];
@@ -1495,7 +1499,11 @@ bool WidefieldScene::AccelImages(const FocusPlan& plan, const std::vector<const 
       return false;
    }
    std::string err;
-   if (!accel_->Images(job, out, err) || out.size() != job.channels.size())
+   const auto tG = TimingClock::now();
+   const bool ok = accel_->Images(job, out, err);
+   TimingLog("wf.accel-images", TimingSince(tG), (std::to_string(job.planes.size()) + " new planes, " +
+                                                  std::to_string(job.channels.size()) + " channels").c_str());
+   if (!ok || out.size() != job.channels.size())
    {
       gpuError_ = "WideField GPU failed: " + err;
       accel_ = nullptr;

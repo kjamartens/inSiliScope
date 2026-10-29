@@ -283,6 +283,8 @@ constexpr double kBackgroundFocusStepUm = 0.25;
 constexpr double kMeanFieldAnchorUm = 1.0;
 void SetBackgroundMapPrefetch(bool on);
 void BackgroundMapPrefetchShutdown();
+// Live dye counts: the dye index made ahead on a thread of its own (native builds); hosts that unload join it here.
+void DyeIndexPrefetchShutdown();
 
 // One blink group of a FluorescenceSimplePlan (a blinking label's main state):
 // its kernel, photons per blink and events, and the frames whose blinks the

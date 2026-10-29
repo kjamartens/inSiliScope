@@ -292,6 +292,7 @@ int CInSiliScopeCamera::Shutdown()
    // The render threads are done: join the ParallelFor pool's workers (the
    // DLL may be unloaded next).
    sim::BackgroundMapPrefetchShutdown();
+   sim::DyeIndexPrefetchShutdown();
    sim::ParallelPoolShutdown();
    sim::SetScopePsfRequestHook(nullptr);
    if (Hub())

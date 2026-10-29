@@ -86,12 +86,15 @@ struct WidefieldGpuD3D11::Impl
    ComPtr<ID3D11Buffer> cb; // 64 bytes of parameters
    std::map<std::string, Kernel> kernels;
 
-   // Geometry and resident spectra (as wf_gpu.js).
-   std::string geometry;
+   // The FFT grid (its size: shape) and the resident spectra (as wf_gpu.js): one pool of plane slots for the grid,
+   // and per scene geometry (WidefieldGpuJob::geometry) its planes' slots and its kernel spectra, the kMaxGeometries
+   // used last kept (2026-10-29: two mean-field scenes take turns, one per labelled target; with one geometry each job
+   // dropped the other's planes and kernels, and a live WideField z step re-made ~500 plane spectra, 0.5 s).
+   std::string shape;
    unsigned NX = 0, NY = 0, W = 0;
    size_t SS = 0, PS = 0;
-   Buf spec16, kspec, work, tw;
-   unsigned slotCap = 0, kcap = 0, pairCap = 1;
+   Buf spec16, work, tw;
+   unsigned slotCap = 0, pairCap = 1;
    std::vector<unsigned> freeSlots;
    struct PlaneEntry
    {
@@ -99,10 +102,36 @@ struct WidefieldGpuD3D11::Impl
       unsigned long long used;
       float scale;
    };
-   std::map<unsigned long long, PlaneEntry> planes;
-   std::map<int, unsigned> kslots;
+   struct Resident
+   {
+      std::map<unsigned long long, PlaneEntry> planes;
+      std::map<int, unsigned> kslots;
+      Buf kspec;
+      unsigned kcap = 0;
+      unsigned long long used = 0;
+   };
+   static constexpr size_t kMaxGeometries = 4;
+   std::map<unsigned long long, Resident> resident;
+   Resident* cur = nullptr;
    unsigned long long clock = 0;
-   unsigned long long residentGeometry = ~0ull;
+
+   // The geometry's resident state (made, and the least recently used beyond kMaxGeometries dropped, its slots freed).
+   Resident& Use(unsigned long long geometry)
+   {
+      Resident& r = resident[geometry];
+      r.used = ++clock;
+      while (resident.size() > kMaxGeometries)
+      {
+         auto victim = resident.end();
+         for (auto it = resident.begin(); it != resident.end(); ++it)
+            if (it->first != geometry && (victim == resident.end() || it->second.used < victim->second.used))
+               victim = it;
+         for (const auto& kv : victim->second.planes)
+            freeSlots.push_back(kv.second.slot);
+         resident.erase(victim);
+      }
+      return r;
+   }
 
    // Frames.
    unsigned fw = 0, fh = 0;
@@ -277,10 +306,8 @@ struct WidefieldGpuD3D11::Impl
       W = NX / 2 + 1;
       SS = static_cast<size_t>(W) * NY;
       PS = static_cast<size_t>(NX) * NY;
-      planes.clear();
-      kslots.clear();
-      kspec = Buf();
-      kcap = 0;
+      resident.clear();
+      cur = nullptr;
       // Resident fp16 plane spectra (up to 512 MB), work grids (up to 256 MB).
       slotCap = static_cast<unsigned>(std::max<size_t>(4, (size_t(512) << 20) / (SS * 4)));
       if (!MakeBuf(slotCap * SS * 4, nullptr, spec16, err))
@@ -329,38 +356,40 @@ struct WidefieldGpuD3D11::Impl
 
    bool EnsureKernels(const WidefieldGpuJob& job, std::string& err)
    {
+      Resident& r = *cur;
       std::vector<const WidefieldGpuJob::Kernel*> missing;
       for (const WidefieldGpuJob::Kernel& k : job.kernels)
-         if (!kslots.count(k.p))
+         if (!r.kslots.count(k.p))
             missing.push_back(&k);
       if (missing.empty())
          return true;
-      const size_t need = kslots.size() + missing.size(), bytes = SS * 8;
-      if (need > kcap)
+      const size_t need = r.kslots.size() + missing.size(), bytes = SS * 8;
+      if (need > r.kcap)
       {
-         const unsigned cap = static_cast<unsigned>(std::max<size_t>(need, std::max<size_t>(16, 2 * kcap)));
+         const unsigned cap = static_cast<unsigned>(std::max<size_t>(need, std::max<size_t>(16, 2 * r.kcap)));
          Buf nb;
          if (!MakeBuf(cap * bytes, nullptr, nb, err))
             return false;
-         if (kspec.b)
+         if (r.kspec.b)
          {
-            D3D11_BOX box = {0, 0, 0, static_cast<UINT>(kslots.size() * bytes), 1, 1};
-            ctx->CopySubresourceRegion(nb.b.Get(), 0, 0, 0, 0, kspec.b.Get(), 0, &box);
+            D3D11_BOX box = {0, 0, 0, static_cast<UINT>(r.kslots.size() * bytes), 1, 1};
+            ctx->CopySubresourceRegion(nb.b.Get(), 0, 0, 0, 0, r.kspec.b.Get(), 0, &box);
          }
-         kspec = nb;
-         kcap = cap;
+         r.kspec = nb;
+         r.kcap = cap;
       }
       for (const WidefieldGpuJob::Kernel* k : missing)
       {
-         const unsigned slot = static_cast<unsigned>(kslots.size());
-         kslots[k->p] = slot;
-         Write(kspec, slot * bytes, k->spec->data(), bytes);
+         const unsigned slot = static_cast<unsigned>(r.kslots.size());
+         r.kslots[k->p] = slot;
+         Write(r.kspec, slot * bytes, k->spec->data(), bytes);
       }
       return true;
    }
 
    bool EnsurePlanes(const WidefieldGpuJob& job, std::string& err)
    {
+      std::map<unsigned long long, PlaneEntry>& planes = cur->planes;
       const unsigned long long stamp = ++clock;
       for (const auto& ch : job.channels)
          for (const WidefieldGpuJob::Dep& d : ch)
@@ -375,15 +404,24 @@ struct WidefieldGpuD3D11::Impl
             todo.push_back(&p);
       if (todo.size() > freeSlots.size())
       {
-         std::vector<std::pair<unsigned long long, unsigned long long>> victims; // used, key
-         for (const auto& kv : planes)
-            if (kv.second.used < stamp)
-               victims.push_back({kv.second.used, kv.first});
+         // Least recently used first, of any geometry (never this job's).
+         struct Victim
+         {
+            unsigned long long used;
+            std::map<unsigned long long, PlaneEntry>* owner;
+            unsigned long long key;
+            bool operator<(const Victim& o) const { return used < o.used; }
+         };
+         std::vector<Victim> victims;
+         for (auto& r : resident)
+            for (const auto& kv : r.second.planes)
+               if (kv.second.used < stamp)
+                  victims.push_back({kv.second.used, &r.second.planes, kv.first});
          std::sort(victims.begin(), victims.end());
          for (size_t v = 0; v < victims.size() && todo.size() > freeSlots.size(); ++v)
          {
-            freeSlots.push_back(planes[victims[v].second].slot);
-            planes.erase(victims[v].second);
+            freeSlots.push_back((*victims[v].owner)[victims[v].key].slot);
+            victims[v].owner->erase(victims[v].key);
          }
          if (todo.size() > freeSlots.size())
          {
@@ -442,7 +480,8 @@ WidefieldGpuD3D11::~WidefieldGpuD3D11() = default;
 
 bool WidefieldGpuD3D11::HasPlane(unsigned long long geometry, unsigned long long key) const
 {
-   return impl_->residentGeometry == geometry && impl_->planes.count(key) != 0;
+   auto it = impl_->resident.find(geometry);
+   return it != impl_->resident.end() && it->second.planes.count(key) != 0;
 }
 
 bool WidefieldGpuD3D11::Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err)
@@ -467,16 +506,18 @@ bool WidefieldGpuD3D11::ImagesImpl(const WidefieldGpuJob& job, std::vector<std::
 {
    Impl& m = *impl_;
    out.clear();
-   std::ostringstream geo;
-   geo << job.geometry << ':' << job.NX << 'x' << job.NY << ':' << job.nx << 'x' << job.ny;
-   if (geo.str() != m.geometry)
+   std::ostringstream shape;
+   shape << job.NX << 'x' << job.NY;
+   if (shape.str() != m.shape)
    {
-      m.geometry = geo.str();
-      m.residentGeometry = ~0ull;
+      m.shape = shape.str();
       if (!m.Reset(job, err))
+      {
+         m.shape.clear();
          return false;
+      }
    }
-   m.residentGeometry = job.geometry;
+   m.cur = &m.Use(job.geometry);
    if (!m.EnsureKernels(job, err) || !m.EnsurePlanes(job, err))
       return false;
    const unsigned nChan = static_cast<unsigned>(job.channels.size());
@@ -490,14 +531,15 @@ bool WidefieldGpuD3D11::ImagesImpl(const WidefieldGpuJob& job, std::vector<std::
       chans.push_back(static_cast<uint32_t>(ch.size()));
       for (const WidefieldGpuJob::Dep& d : ch)
       {
-         auto pe = m.planes.find(d.key);
-         auto k0 = m.kslots.find(d.p0), k1 = m.kslots.find(d.p1);
-         if (pe == m.planes.end() || k0 == m.kslots.end() || (d.two && k1 == m.kslots.end()))
+         const Impl::Resident& r = *m.cur;
+         auto pe = r.planes.find(d.key);
+         auto k0 = r.kslots.find(d.p0), k1 = r.kslots.find(d.p1);
+         if (pe == r.planes.end() || k0 == r.kslots.end() || (d.two && k1 == r.kslots.end()))
          {
             std::ostringstream os;
-            os << "job refers to " << (pe == m.planes.end() ? "a plane" : "a kernel") << " it does not carry (key "
-               << d.key << ", planes " << m.planes.size() << ", job planes " << job.planes.size() << ", p " << d.p0
-               << "/" << d.p1 << ", kernels " << m.kslots.size() << ")";
+            os << "job refers to " << (pe == r.planes.end() ? "a plane" : "a kernel") << " it does not carry (key "
+               << d.key << ", planes " << r.planes.size() << ", job planes " << job.planes.size() << ", p " << d.p0
+               << "/" << d.p1 << ", kernels " << r.kslots.size() << ")";
             err = os.str();
             return false;
          }
@@ -522,7 +564,7 @@ bool WidefieldGpuD3D11::ImagesImpl(const WidefieldGpuJob& job, std::vector<std::
       return false;
    unsigned mx, my, ml;
    Impl::Grid256(m.SS, mx, my, ml);
-   if (!m.Dispatch("wf_mac", {static_cast<uint32_t>(m.SS), nChan, ml, 0}, {&m.spec16, &m.kspec, &bI, &bW, &bC, &chanSpec},
+   if (!m.Dispatch("wf_mac", {static_cast<uint32_t>(m.SS), nChan, ml, 0}, {&m.spec16, &m.cur->kspec, &bI, &bW, &bC, &chanSpec},
                    mx, my, nChan, err))
       return false;
    std::vector<uint32_t> pairList;

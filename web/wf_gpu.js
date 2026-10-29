@@ -8,7 +8,10 @@
 //
 // Plane spectra stay on the GPU (fp16 pairs, scaled by 1 / sum |values|),
 // keyed by (channel weights, world plane) within one job geometry, so a new
-// job at another focus of the same scene only re-pairs them.
+// job at another focus of the same scene only re-pairs them. The FFT grid's
+// slots are shared by the 4 geometries used last, each with its planes and
+// kernel spectra (2026-10-29: scenes that take turns, one per labelled
+// target, dropped each other's spectra at every job).
 //
 // Self-contained (stringified into the viewer's workers): defines
 // self.IscWfGpu = { create(wgsl) -> Promise<host|null>, jobFromModule(M, h) }.
@@ -40,9 +43,9 @@ function iscWfGpuDefine() {
         const module = device.createShaderModule({ code });
         this.pipes[name] = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: name } });
       }
-      this.geometry = null;
-      this.planes = new Map(); // key -> { slot, used }
-      this.kernels = new Map(); // p -> kslot
+      this.shape = null;
+      this.resident = new Map(); // geometry -> { planes: key -> { slot, used, scale }, kernels: p -> kslot, kspec, kcap, used }
+      this.cur = null;
       this.clock = 0;
       this.maxBinding = Math.min(device.limits.maxStorageBufferBindingSize, device.limits.maxBufferSize);
       this.lost = null;
@@ -113,17 +116,17 @@ function iscWfGpuDefine() {
 
     reset(job) {
       const W = job.NX / 2 + 1, SS = W * job.NY;
-      this.geometry = `${job.geometry}:${job.NX}x${job.NY}:${job.nx}x${job.ny}`;
+      this.shape = `${job.NX}x${job.NY}`;
       this.NX = job.NX; this.NY = job.NY; this.W = W; this.SS = SS; this.PS = job.NX * job.NY;
-      for (const b of [this.spec16, this.kspec, this.work, this.tw]) if (b) b.destroy();
+      for (const b of [this.spec16, this.work, this.tw]) if (b) b.destroy();
+      for (const r of this.resident.values()) if (r.kspec) r.kspec.destroy();
+      this.resident.clear();
+      this.cur = null;
       // Resident fp16 plane spectra: as many slots as one binding allows (at most 512 MB).
       this.slotCap = Math.max(4, Math.floor(Math.min(this.maxBinding, 512 << 20) / (SS * 4)));
       this.spec16 = this.storage(this.slotCap * SS * 4);
       this.freeSlots = [];
       for (let i = this.slotCap - 1; i >= 0; i--) this.freeSlots.push(i);
-      this.planes.clear();
-      this.kernels.clear();
-      this.kspec = null; this.kcap = 0;
       // Work grids: pairs of planes / channels.
       this.pairCap = Math.max(1, Math.min(32, Math.floor(Math.min(this.maxBinding, 256 << 20) / (this.PS * 8))));
       this.work = this.storage(this.pairCap * this.PS * 8);
@@ -147,46 +150,66 @@ function iscWfGpuDefine() {
       this.dispatch(enc, 'wf_fft', [cols, this.work, this.tw], NX, 1, pairs);
     }
 
+    // The geometry's resident state (made; the least recently used beyond 4 dropped, its slots freed).
+    use(geometry) {
+      let r = this.resident.get(geometry);
+      if (!r) { r = { planes: new Map(), kernels: new Map(), kspec: null, kcap: 0, used: 0 }; this.resident.set(geometry, r); }
+      r.used = ++this.clock;
+      while (this.resident.size > 4) {
+        let victim = null;
+        for (const [g, o] of this.resident) if (g !== geometry && (!victim || o.used < victim[1].used)) victim = [g, o];
+        for (const e of victim[1].planes.values()) this.freeSlots.push(e.slot);
+        if (victim[1].kspec) victim[1].kspec.destroy();
+        this.resident.delete(victim[0]);
+      }
+      return r;
+    }
+
     ensureKernels(job) {
-      const missing = job.kernels.filter(k => !this.kernels.has(k.p));
+      const r = this.cur;
+      const missing = job.kernels.filter(k => !r.kernels.has(k.p));
       if (!missing.length) return;
-      const need = this.kernels.size + missing.length, bytes = this.SS * 8;
-      if (need > this.kcap) {
-        const cap = Math.max(need, Math.min(Math.floor(this.maxBinding / bytes), 2 * this.kcap || 16));
+      const need = r.kernels.size + missing.length, bytes = this.SS * 8;
+      if (need > r.kcap) {
+        const cap = Math.max(need, Math.min(Math.floor(this.maxBinding / bytes), 2 * r.kcap || 16));
         if (cap < need) throw new Error('too many PSF planes for one GPU binding');
         const nb = this.storage(cap * bytes);
-        if (this.kspec) {
+        if (r.kspec) {
           const enc = this.device.createCommandEncoder();
-          enc.copyBufferToBuffer(this.kspec, 0, nb, 0, this.kernels.size * bytes);
+          enc.copyBufferToBuffer(r.kspec, 0, nb, 0, r.kernels.size * bytes);
           this.device.queue.submit([enc.finish()]);
-          this.kspec.destroy();
+          r.kspec.destroy();
         }
-        this.kspec = nb; this.kcap = cap;
+        r.kspec = nb; r.kcap = cap;
       }
       for (const k of missing) {
-        const slot = this.kernels.size;
-        this.kernels.set(k.p, slot);
-        this.device.queue.writeBuffer(this.kspec, slot * bytes, k.spec.buffer, k.spec.byteOffset, bytes);
+        const slot = r.kernels.size;
+        r.kernels.set(k.p, slot);
+        this.device.queue.writeBuffer(r.kspec, slot * bytes, k.spec.buffer, k.spec.byteOffset, bytes);
       }
     }
 
     // Plane spectra the job needs and the GPU lacks: pairs of planes per
     // grid, batches of pairCap grids.
     ensurePlanes(job, needed) {
+      const planes = this.cur.planes;
       const stamp = ++this.clock;
-      for (const key of needed) { const e = this.planes.get(key); if (e) e.used = stamp; }
-      const todo = job.planes.filter(p => !this.planes.has(p.key) && p.cells.length);
-      // Slots, evicting the least recently used planes this job does not use.
+      for (const key of needed) { const e = planes.get(key); if (e) e.used = stamp; }
+      const todo = job.planes.filter(p => !planes.has(p.key) && p.cells.length);
+      // Slots, evicting the least recently used planes (of any geometry) this job does not use.
       if (todo.length > this.freeSlots.length) {
-        const victims = [...this.planes.entries()].filter(([, e]) => e.used < stamp).sort((a, b) => a[1].used - b[1].used);
+        const victims = [];
+        for (const r of this.resident.values())
+          for (const [key, e] of r.planes) if (e.used < stamp) victims.push([r.planes, key, e]);
+        victims.sort((a, b) => a[2].used - b[2].used);
         while (todo.length > this.freeSlots.length && victims.length) {
-          const [key, e] = victims.shift();
-          this.planes.delete(key);
+          const [owner, key, e] = victims.shift();
+          owner.delete(key);
           this.freeSlots.push(e.slot);
         }
         if (todo.length > this.freeSlots.length) throw new Error('GPU plane spectra do not fit');
       }
-      for (const p of todo) this.planes.set(p.key, { slot: this.freeSlots.pop(), used: stamp, scale: p.absSum });
+      for (const p of todo) planes.set(p.key, { slot: this.freeSlots.pop(), used: stamp, scale: p.absSum });
       for (let b0 = 0; b0 < todo.length; b0 += 2 * this.pairCap) {
         const batch = todo.slice(b0, b0 + 2 * this.pairCap), pairs = Math.ceil(batch.length / 2);
         let n = 0;
@@ -199,7 +222,7 @@ function iscWfGpuDefine() {
             entries[4 * e] = pair; entries[4 * e + 1] = p.cells[j];
             entries[4 * e + 2] = f32bits(p.values[j]); entries[4 * e + 3] = comp;
           }
-          slots[4 * pair + comp] = this.planes.get(p.key).slot;
+          slots[4 * pair + comp] = planes.get(p.key).slot;
           slots[4 * pair + 2 + comp] = f32bits(1 / p.absSum);
           if (comp === 0) slots[4 * pair + 1] = NONE;
         });
@@ -224,8 +247,8 @@ function iscWfGpuDefine() {
     // The images of every job channel (Float32Array cw * ch each).
     async images(job) {
       if (this.lost) throw new Error(this.lost);
-      const geo = `${job.geometry}:${job.NX}x${job.NY}:${job.nx}x${job.ny}`;
-      if (geo !== this.geometry) this.reset(job);
+      if (`${job.NX}x${job.NY}` !== this.shape) this.reset(job);
+      this.cur = this.use(job.geometry);
       this.ensureKernels(job);
       const needed = new Set();
       for (const ch of job.channels) for (const d of ch) needed.add(d.key);
@@ -240,9 +263,9 @@ function iscWfGpuDefine() {
       job.channels.forEach((ch, c) => {
         chans[2 * c] = d; chans[2 * c + 1] = ch.length;
         for (const e of ch) {
-          const pl = this.planes.get(e.key);
-          depI[4 * d] = pl.slot; depI[4 * d + 1] = this.kernels.get(e.p0);
-          depI[4 * d + 2] = e.two ? this.kernels.get(e.p1) : NONE; depI[4 * d + 3] = f32bits(pl.scale);
+          const pl = this.cur.planes.get(e.key);
+          depI[4 * d] = pl.slot; depI[4 * d + 1] = this.cur.kernels.get(e.p0);
+          depI[4 * d + 2] = e.two ? this.cur.kernels.get(e.p1) : NONE; depI[4 * d + 3] = f32bits(pl.scale);
           depW[2 * d] = e.w0; depW[2 * d + 1] = e.w1;
           d++;
         }
@@ -253,7 +276,7 @@ function iscWfGpuDefine() {
       const bI = this.upload(depI), bW = this.upload(depW), bC = this.upload(chans);
       const [mx, my, ml] = this.grid256(this.SS);
       const mp = this.uniform([this.SS, nChan, ml, 0]);
-      this.dispatch(enc, 'wf_mac', [mp, this.spec16, this.kspec, bI, bW, bC, chanSpec], mx, my, nChan);
+      this.dispatch(enc, 'wf_mac', [mp, this.spec16, this.cur.kspec, bI, bW, bC, chanSpec], mx, my, nChan);
       temps.push(chanSpec, bI, bW, bC, mp);
       // Pairs of channels -> grids -> inverse FFT -> FOV images.
       const cs = job.cw * job.ch, imgs = this.storage(nChan * cs * 4);
