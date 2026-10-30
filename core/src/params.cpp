@@ -27,7 +27,7 @@ const Field kFields[] = {
    NUM(specimen), NUM(origamiDesign), NUM(origamiSpacingNm), NUM(origamiDensity), NUM(origamiMinSpacingNm), NUM(origamiBend), NUM(origamiLpNm),
    NUM(origamiStrandsPerSpot), NUM(origamiAttachNm), NUM(origamiLinkerNm), NUM(origamiRoll), NUM(origamiRollDeg),
    NUM(origamiHeights),
-   NUM(fidDensity), NUM(fidDiameterNm), NUM(fidDiameterCvPct), NUM(fidHeight), NUM(fidLayerUm),
+   NUM(fidDensity), NUM(fidDiameterNm), NUM(fidDiameterCvPct), NUM(fidHeight), NUM(fidLayerUm), NUM(fidAggregationPct),
 };
 #undef NUM
 #undef FLAG

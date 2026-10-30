@@ -184,7 +184,7 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `Laser561KWcm2` | Basic | 1 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser640KWcm2` | Basic | 1 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser730KWcm2` | Basic | 0 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
-| `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies. A preset by name: one dye mode's. None = as set. |
+| `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640`, `Beads-561` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies. A preset by name: one dye mode's. None = as set. |
 | `IlluminationProfile` | Basic | Gaussian | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge). |
 | `IlluminationFwhmPct` | Basic | 100 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
 | `BfpPosition` | Basic | 0.95 | 0 .. 1.2 | Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge NA / medium index (beyond it no light reaches the sample). |
@@ -353,12 +353,15 @@ Fiducial beads on the sample (any specimen): type, density, size, height.
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
-| `Type` | Basic | Gold | `Gold`, `TetraSpeck`, `FluoSpheresOrange`, `FluoSpheresRed`, `FluoSpheresDarkRed`, `FluoSpheresInfrared`, `Nanodiamond` | The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered laser light), TetraSpeck (100 nm, four dyes), FluoSpheres Orange 540/560 (200 nm, for a 488 channel), Red 580/605 (200 nm), DarkRed 660/680 (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm). |
+| `Type` | Basic | Gold | `Gold`, `TetraSpeck`, `FluoSpheresOrange`, `FluoSpheresRed`, `FluoSpheresDarkRed`, `FluoSpheresInfrared`, `Nanodiamond` | The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered laser light), TetraSpeck (100 nm, four dyes), FluoSpheres Orange 540/560 (200 nm, for a 488 channel), Red 580/605 (200 nm), DarkRed 660/680 (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm). A pick sets DiameterNm to its product size. |
 | `DensityPerUm2` | Basic | 0 | 0 .. 100 | Beads per um^2 of coverslip, placed at random (Poisson: doublets happen); 0 = no beads. |
-| `DiameterNm` | Advanced | -1 | -1 .. 2000 | Mean bead diameter, nm (brightness ~ d^3; the image is the PSF of the solid sphere); -1 = the type's product size. |
+| `Height` | Basic | OnTop | `Coverslip`, `OnTop`, `Layer` | Where the beads sit: Coverslip (on the glass, also under cells), OnTop (on the sample's surface; not on the bead sample, where it is the glass), Layer (anywhere in a gel layer of LayerUm, outside the cells). |
+| `AggregationPct` | Basic | 0 | 0 .. 90 | The chance a bead is stuck to the next one, %: clumps of touching beads, n beads with probability (1 - p) p^(n-1) (mean 1 / (1 - p); at 10 %, 81 % of the beads are single); DensityPerUm2 counts beads (an estimate). |
+| `DiameterNm` | Advanced | 100 | 10 .. 2000 | Mean bead diameter, nm (brightness ~ d^3: the dyes scale with the volume; the image is the PSF of the solid sphere); a Type pick sets its product size (100 or 200 nm; 20 nm beads: 20). |
 | `DiameterCvPct` | Advanced | 12 | 0 .. 50 | Bead-to-bead diameter spread, % (normal; an estimate). |
-| `Height` | Advanced | OnTop | `Coverslip`, `OnTop`, `Layer` | Where the beads sit: Coverslip (on the glass, also under cells), OnTop (on the sample's surface), Layer (anywhere in a gel layer of LayerUm, outside the cells). |
 | `LayerUm` | Advanced | 10 | 0 .. 1000 | The gel layer's thickness (Height = Layer), um. |
+| `PsfZRangeUm` | Advanced | 14 | 0.1 .. 40 | Span of the beads' PSF z stack, um (Objective.PsfZRangeUm is the molecules'): a bead far off focus, on top of the cells or in a gel layer, keeps its defocused image. |
+| `FarDefocus` | Expert | On | `On`, `Off` | On: a bead beyond its PSF z stack is a blur growing with the defocus (a Gaussian matched to the stack's last plane, faded in over its last 0.5 um; not physical). Off: such beads are not drawn (faster with many beads far off focus). |
 | `BleachHalfTimeSec` | Expert | 288 | 0 .. 1000000000 | A bead's fluorescence half-time at BleachRefKWcm2 at its dye's excitation peak, s (an estimate: 288 s; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching). |
 | `BleachRefKWcm2` | Expert | 1 | 1e-06 .. 1000 | The intensity the half-time is given at, kW/cm^2. |
 | `DyeCount` | Expert | -1 | -1 .. 1000000000 | Equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component; -1 = the type's (fitted to balinovic2019). |
@@ -459,6 +462,7 @@ How the images are computed: quality, GPU, caches, numerics.
 | `BlinkBinnedMaxEmitters` | Expert | 1000000000 | 0 .. 1000000000 | And binned above this many ON emitters in the frame. |
 | `BlinkBinnedUpscale` | Expert | 2 | 1 .. 8 | Cells of the binned grid per pixel, per axis (a blink is snapped to +-half a cell). |
 | `BlinkMinPhotons` | Expert | 50 | 0 .. 1000000 | A blink with fewer detected photons than this in a frame is not splatted in that frame (Quality: Fast 100, Realistic 50, Exhaustive 0 = every blink); binned and mean-field frames and continuous dyes keep every one. |
+| `BeadClumpsAsOne` | Expert | On | `On`, `Off` | On: a clump of fiducial beads is drawn as one bead of their volume at their centre of mass with their light (faster; Quality Fast, Realistic). Off: each bead of a clump (Exhaustive). |
 | `BlinkMeanFieldDensityPerUm2` | Expert | 1000000000 | 0 .. 1000000000 | A frame's blinks render mean-field (no blinks drawn: each dye's expected ON time; the blinking itself is lost) above this many expected ON emitters per um^2 of the focal slab. 1e9 = never. |
 | `BlinkMeanFieldMaxEmitters` | Expert | 1000000000 | 0 .. 1000000000 | And mean-field above this many expected ON emitters in the z range. 1e9 = never. |
 | `WriteScopeSpecTo` | Expert |  |  | Set to a file path: writes the engine spec of the current settings and stage pose there (insiliscope_cli --spec reproduces the frames). |

@@ -1862,6 +1862,101 @@ void Fiducials()
       for (const FiducialBead& e : b) worst = std::max(worst, std::fabs(e.z - e.d / 2000.0));
       Check(!b.empty() && worst == 0, "fiducials: nanorulers, OnTop at the radius", Fmt("%zu beads, worst %.3g um off", b.size(), worst));
    }
+   // ABI 17: the bead sample (specimen 2): no cells, no dyes, the beads on the coverslip.
+   {
+      Params p = CheapWith({ { "specimen", SPECIMEN_BEADS }, { "fidDensity", 0.3 }, { "fidHeight", 1 } });
+      World w(1249, p);
+      std::vector<FiducialBead> b;
+      w.FiducialsInRect(-10, -10, 10, 10, b);
+      double worst = 0;
+      for (const FiducialBead& e : b) worst = std::max(worst, std::fabs(e.z - e.d / 2000.0));
+      Check(!b.empty() && worst == 0, "fiducials: bead sample, OnTop at the radius", Fmt("%zu beads, worst %.3g um off", b.size(), worst));
+      std::vector<Cell> cells;
+      std::vector<WorldDye> dyes;
+      std::vector<WorldEvent> ev;
+      w.CellsInRect(-10, -10, 10, 10, cells);
+      w.SitesInWindow(-10, -10, 10, 10, -1, 50, dyes);
+      w.EventsInWindow(-10, -10, 10, 10, -1, 50, 0, 10, ev);
+      Cell c;
+      Check(cells.empty() && dyes.empty() && ev.empty() && !w.FindCell(0, 0, c) && w.BlockCells(0, 0).empty() &&
+               w.SurfaceHeightAt(0.5, 0.5) == 0,
+            "fiducials: bead sample, no cells or dyes", Fmt("%zu cells, %zu dyes, %zu blinks", cells.size(), dyes.size(), ev.size()));
+   }
+   // ABI 17: clumps. The density counts beads; a clump's size is geometric with ratio p (its singles 1 - p, mean
+   // 1 / (1 - p)); each later bead touches an earlier one and overlaps none; Coverslip keeps every centre at its
+   // radius; one query = the union of its pieces; p = 0 = the beads of before (the determinism block above).
+   {
+      const double S = 60, rho = 1.5, p = 0.4;
+      FiducialField F(7, CheapWith({ { "fidDensity", rho }, { "fidAggregationPct", 100 * p } }), flat);
+      std::vector<FiducialBead> b;
+      F.InRect(0, 0, S, S, b);
+      std::map<std::tuple<int32_t, int32_t, int32_t>, std::vector<FiducialBead>> clumps;
+      for (const FiducialBead& e : b) clumps[key(e)].push_back(e);
+      double nClumps = 0, singles = 0, beadsInFull = 0, zbad = 0;
+      std::string touch;
+      for (const auto& kv : clumps) {
+         const std::vector<FiducialBead>& v = kv.second;
+         // whole clumps only (one away from the window's edge: none of its beads cut off)
+         bool inner = true;
+         for (const FiducialBead& e : v) inner = inner && e.x > 3 && e.x < S - 3 && e.y > 3 && e.y < S - 3;
+         if (!inner) continue;
+         nClumps++;
+         singles += v.size() == 1;
+         beadsInFull += (double)v.size();
+         for (size_t j = 0; j < v.size(); j++) {
+            zbad = std::max(zbad, std::fabs(v[j].z - v[j].d / 2000.0));
+            bool touches = j == 0;
+            for (size_t k = 0; k < v.size(); k++) {
+               if (k == j) continue;
+               const double dz = v[j].z - v[k].z, dd = std::sqrt(std::pow(std::hypot(v[j].x - v[k].x, v[j].y - v[k].y), 2) + dz * dz);
+               const double want = (v[j].d + v[k].d) / 2000.0;
+               if (k < j && std::fabs(dd - want) < 1e-9) touches = true;
+               if (dd < 0.999 * want - 1e-12 && touch.empty()) touch = Fmt("beads %zu and %zu of a clump overlap: %.4f um apart, radii sum %.4f", j, k, dd, want);
+            }
+            if (!touches && touch.empty()) touch = Fmt("bead %zu of a clump touches no earlier bead", j);
+         }
+      }
+      const double area = (S - 6) * (S - 6), meanSize = beadsInFull / nClumps;
+      Check(std::fabs(beadsInFull / area / rho - 1) < 0.1, "fiducials: clumps, the density counts beads",
+            Fmt("%.3f beads / um^2 vs %.2f", beadsInFull / area, rho));
+      Check(std::fabs(singles / nClumps - (1 - p)) < 0.03, "fiducials: clumps, singles 1 - p",
+            Fmt("%.3f of %.0f clumps vs %.2f", singles / nClumps, nClumps, 1 - p));
+      Check(std::fabs(meanSize * (1 - p) - 1) < 0.05, "fiducials: clumps, mean size 1 / (1 - p)", Fmt("%.3f vs %.3f", meanSize, 1 / (1 - p)));
+      Same(touch, "fiducials: clumps, each bead touches an earlier one and overlaps none");
+      Check(zbad == 0, "fiducials: clumps on the coverslip, each centre at its radius", Fmt("worst %.3g um off", zbad));
+      auto fullKey = [](const FiducialBead& e) { return std::make_tuple(e.tx, e.ty, e.i, e.x, e.y, e.z, e.d); };
+      std::vector<std::tuple<int32_t, int32_t, int32_t, double, double, double, double>> whole, parts;
+      FiducialField A(11, CheapWith({ { "fidDensity", 3 }, { "fidAggregationPct", 70 } }), flat),
+         B(11, CheapWith({ { "fidDensity", 3 }, { "fidAggregationPct", 70 } }), flat);
+      std::vector<FiducialBead> wa, pb;
+      A.InRect(-7.3, -5.1, 9.2, 8.7, wa);
+      for (double x = 9.2; x > -7.3; x -= 1.7)
+         for (double y = -5.1; y < 8.7; y += 2.3) B.InRect(std::max(-7.3, x - 1.7), y, x, std::min(8.7, y + 2.3), pb);
+      for (const FiducialBead& e : wa) whole.push_back(fullKey(e));
+      for (const FiducialBead& e : pb) parts.push_back(fullKey(e));
+      std::sort(whole.begin(), whole.end());
+      std::sort(parts.begin(), parts.end());
+      Check(!whole.empty() && whole == parts, "fiducials: clumps, one query = the union of its pieces in any order",
+            Fmt("%zu vs %zu beads", whole.size(), parts.size()));
+   }
+   // Clumps in a Layer: in 3D, in the gel and out of the cells.
+   {
+      World layer = Fresh(1249, CheapWith({ { "fidDensity", 4 }, { "fidHeight", 2 }, { "fidLayerUm", 8 }, { "fidAggregationPct", 60 } }));
+      World plain = Fresh(1249, Cheap());
+      std::vector<FiducialBead> bl;
+      layer.FiducialsInRect(55, -5, 70, 10, bl);
+      std::string bad = bl.empty() ? "no beads" : "";
+      double zSpread = 0;
+      for (const FiducialBead& b : bl) {
+         const double r = b.d / 2000.0, s = plain.SurfaceHeightAt(b.x, b.y);
+         if (bad.empty() && !(b.z >= r - 1e-12 && b.z <= 8 - r + 1e-12 && b.z >= s + r - 1e-12))
+            bad = Fmt("bead at (%g, %g): z %.6g, radius %.4g, surface %.4g, layer 8 um", b.x, b.y, b.z, r, s);
+         for (const FiducialBead& o : bl)
+            if (o.tx == b.tx && o.ty == b.ty && o.i == b.i) zSpread = std::max(zSpread, std::fabs(o.z - b.z));
+      }
+      Same(bad, "fiducials: Layer clumps stay in the gel and out of the cells");
+      Check(zSpread > 0.05, "fiducials: Layer clumps grow in 3D", Fmt("largest height difference in a clump %.3f um", zSpread));
+   }
    // The C ABI.
    {
       IscParams* ip = AbiParams({ { "fidDensity", 2 }, { "fidHeight", 1 } });

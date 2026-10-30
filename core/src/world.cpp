@@ -238,7 +238,7 @@ bool World::SetCacheDir(const std::string& dir)
       store_->Flush();
       store_.reset();
    }
-   if (dir.empty() || origami_) return true;   // the store holds packed cells: a cell field's only
+   if (dir.empty() || NoCells()) return true;   // the store holds packed cells: a cell field's only
    std::unique_ptr<BlockStore> s(new BlockStore());
    if (!s->Open(dir, BlockStoreKey(seed_, PackingFingerprint(p_)))) return false;
    store_ = std::move(s);
@@ -337,7 +337,7 @@ void World::CellsInRect(double x0, double y0, double x1, double y1, std::vector<
 
 void World::CellsInRectPtr(double x0, double y0, double x1, double y1, std::vector<const Cell*>& out)
 {
-   if (origami_) return;
+   if (NoCells()) return;
    PoolScope scope(pool_);
    const double S = p_.chunkSize, reach = CellReachUm(p_);
    const int32_t cxLo = (int32_t)std::floor((x0 - reach) / S), cxHi = (int32_t)std::floor((x1 + reach) / S);
@@ -441,6 +441,7 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
       ForEachOrigamiBlock(x0, y0, x1, y1, prep, needs, fn);
       return;
    }
+   if (NoCells()) return;   // a bead sample: no labelled structure
    std::vector<const Cell*> cells;
    CellsInRectPtr(x0, y0, x1, y1, cells);
    // The assets of the cells not cached, built in parallel (Assets takes them
@@ -1015,7 +1016,7 @@ bool World::CellLamin(int32_t cx, int32_t cy, std::vector<LaminPoint>& out)
 
 bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 {
-   if (origami_) return false;
+   if (NoCells()) return false;
    PoolScope scope(pool_);
    for (const Cell& c : PackedBlock(FloorDiv(cx, PACK_BLOCK_CHUNKS), FloorDiv(cy, PACK_BLOCK_CHUNKS)))
       if (c.cx == cx && c.cy == cy) { out = c; return true; }
@@ -1025,7 +1026,7 @@ bool World::FindCell(int32_t cx, int32_t cy, Cell& out)
 const std::vector<Cell>& World::BlockCells(int32_t bx, int32_t by)
 {
    static const std::vector<Cell> none;
-   if (origami_) return none;
+   if (NoCells()) return none;
    PoolScope scope(pool_);
    return PackedBlock(bx, by);
 }
@@ -1033,7 +1034,7 @@ const std::vector<Cell>& World::BlockCells(int32_t bx, int32_t by)
 bool World::SetPackedBlock(int32_t bx, int32_t by, const double* rows, int32_t n, int stride, bool& skipped)
 {
    skipped = false;
-   if (origami_) return false;
+   if (NoCells()) return false;
    const auto key = std::make_pair(bx, by);
    if (blocks_.count(key)) { skipped = true; return true; }
    std::vector<Cell> cells;
@@ -1260,7 +1261,7 @@ double Overlap(double a0, double a1, double b0, double b1)
 
 double World::SurfaceHeightAt(double x, double y)
 {
-   if (origami_) return 0.0;
+   if (NoCells()) return 0.0;
    std::vector<const Cell*> cells;
    CellsInRectPtr(x, y, x, y, cells);
    PrebuildAssets(cells);

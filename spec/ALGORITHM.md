@@ -1010,7 +1010,7 @@ movie, by the same builder from the movie's own past. No levels, z bands, clock 
 
 ## Fiducial beads (2026-10-22/23)
 
-Optional beads on either specimen, for drift correction (`core/src/fiducials.*` places them, `Simulation/Fiducials.*`
+Optional beads on any specimen, for drift correction (and the bead sample: the beads alone, below) (`core/src/fiducials.*` places them, `Simulation/Fiducials.*`
 renders them; data `data/fiducials/`, spectra and brightness
 from balinovic2019). Off by default (`fidDensity` 0): every other output is unchanged.
 
@@ -1032,7 +1032,11 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   point PSF over its outer 0.4 um, with the light the z average moved past the core given back in proportion to the
   point PSF (the bead keeps the point's photons, 0.9999). Beyond the core the halo is the point kernel at its nearest
   sub-sample (one tap per pixel: the halo varies over many pixels). Bead kernels are cached per (point kernel, plane,
-  diameter on a 10 nm grid). The Gaussian PSF: sigma^2 + r^2 / 5 per axis. This design came from the timing gate
+  diameter on a 10 nm grid; the last 256). Since 2026-10-30 (the user's choice) a plane gets one only where the sphere
+  matters: its lateral variance r^2 / 5 at least 1 % (`kBeadSphereTol`) of the plane's spread sigma^2 = 1 / (2 pi x its
+  peak sample); elsewhere the core is the point PSF's plane (for 100 nm beads beyond ~0.5-1 um of defocus). Beads
+  through a 10 um gel layer had built ~1 ms of kernel per bead at every focus step (150 -> 29 ms for a 256 px frame of
+  0.3 /um^2, one thread; the image moved ~1 % rms, its light < 0.2 %). The Gaussian PSF: sigma^2 + r^2 / 5 per axis. This design came from the timing gate
   (beads < 5 % of a movie): a full cubic point splat plus a correction kernel cost 10 % under drift.
 - **The bead's halo reaches over the whole frame** (2026-10-23, the user's request). A bead is ~1e3-1e6 times a dye,
   and a bead above or below the focus spreads into a disc of radius ~ defocus x tan(theta) (2.4 um per um at NA 1.4):
@@ -1070,6 +1074,52 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   half-time make the rest negligible), plus the frames between the history's now and the movie's start-sec (a
   render-ahead batch after queued frames); 0 where no light reaches now. A bead setting is not a new world for the
   history (`BuildSampleSettings` leaves `fid*` out).
+- **Clumps** (2026-10-30, ABI 17, the user's request: one setting that gives both the share of clumped beads and the
+  clumps' sizes). `fidAggregationPct` p = the chance a bead is stuck to the next one, so a clump holds n beads with
+  P(n) = (1 - p) p^(n-1): geometric, mean 1 / (1 - p) (the size distribution of constant-kernel Smoluchowski
+  coagulation from single particles; *estimate*: not fitted to a product). `fidDensity` counts beads (the user's
+  choice), so the candidates are clumps at fidDensity (1 - p) and candidate i is a clump's first bead. Its size is one
+  draw on `seed ^ 'CLUM'` at (tx, ty, 64 i) (inverse CDF, at most 64); bead j >= 1 touches bead k < j (uniform), at a
+  random direction, the centres the radii's sum apart: in the plane for Coverslip / OnTop (both at their radii, so
+  2 sqrt(rk rj) apart in x, y; OnTop each at its own height there: a clump over a cell edge steps),
+  uniform on the sphere for Layer (the mirror direction when outside the gel or inside a cell, else another try). Up to
+  8 tries per bead, each its own channel, take the first that overlaps no placed bead (centres >= 0.999 x the radii's
+  sum) and stays within one tile (2 um) of the first bead in x and y; none: the bead is left out (rare: a crowded
+  clump of large beads). The tile bound lets a query pad by one tile only (p > 0). A clump's beads share its address
+  (tx, ty, i). p = 0 draws nothing more: every output of before, bit for bit (goldens `f00`-`f03`). Drawing
+  (2026-10-30, the user's idea): a clump is **one bead** of the beads' volume, d = (sum d^3)^(1/3), at their centre of
+  mass (d^3 weights) with their summed light (gold too, whose scatter is not by volume) and their light-weighted
+  bleaching rate and start (`fid-clumps-as-one` 1, Quality Fast and Realistic; 0 = each bead, Exhaustive; MM
+  `Renderer.BeadClumpsAsOne`). Clumps of one bead are unchanged bit for bit. A pair is a 2d dumbbell, not a 1.26 d
+  sphere: below the PSF's width for 100 nm beads. 256 px, 10 um layer, one frame, one thread: 27 -> 19 ms (40 %), 16 ->
+  8 ms (70 %). First tried: one halo per clump at the beads' mean position with each bead's own window; it left square
+  seams (each window's square around its own pixel against the halo's hole around the mean).
+- **The bead sample** (2026-10-30, ABI 17): `specimen` 2 (`Beads`, `data/specimens.json`, no targets): a world with no
+  cells (`World::NoCells`, as the nanorulers: no packing, block store or optical volume; surface 0) and no dye blocks,
+  only `FiducialField`. Mounting it with fid-density 0 sets 0.3 /um^2 and with fid-aggregation-pct 0 sets 40 % (the
+  specimen's `fiducials.densityPerUm2`, `aggregationPct`: MM `MountSpecimen`, the viewer's Sample select; the cli when
+  the spec has neither), and OnTop (the glass here) becomes Coverslip, which is not offered there. The auto light
+  preset, which needs a labelled target, is the specimen's `lightPreset`, `Beads-561`: 561 nm at 0.1 kW/cm^2, the
+  others off (the user's choice). The cli's default z: the beads' mean radius (Layer: the layer's middle).
+- **Bead size** (2026-10-30): a type's pick sets `fid-diameter-nm` to its product size in MM and the viewer (the cli's
+  -1); another size keeps the spectra, the emitters x (d / d_ref)^3 (`Fiducials.cpp`; 20 nm beads, the user's choice:
+  volume).
+- **The beads' PSF z stack** (2026-10-30): `fid-psf-z-range-um` (14 um; the dyes' `psf-z-range-um` 7 um): beads on top
+  of the cells or in a gel layer sit microns off focus. The beads drawn are those within half of it of the focus (+ the
+  drift's z), not the dyes' cut `z-range-um` (CellField.ZRangeUm, 7 um), which dropped every bead 3.5 um off focus.
+  Then the stack's edge was a step (a bead at 7.0 um drawn, at 7.1 gone); now every bead is drawn and beyond the
+  stack (`fid-far-defocus` 1, MM `Fiducials.FarDefocus`, Expert) a bead is a photon-conserving Gaussian whose sigma
+  grows linearly with |dz|, matched at the edge to that plane's spread (`BeadHalo::SigmaPx`: the halo plane's second
+  moment, per side of the focus; `farSigmaPxPerUm`), the plane faded into it linearly over the stack's last
+  `kBeadFarFadeUm` 0.5 um (the user's choice of a blur over the geometric defocus disc, 2026-10-30: not physical, no
+  defocus shape; the light is conserved, so the totals fall only as the blur leaves the frame: 20 nm orange beads at
+  512 px, 1.61e6 / 1.55e6 / 1.39e6 ADU above dark at 6 / 7 / 10 um). `fid-far-defocus` 0 draws none beyond the stack
+  (a far bead's Gaussian reaches 3 sigma, tens of um). ctest `fiducials` "the beads' depth" (no step at a 7 um stack's
+  edge within 15 %, light at 8 um, none with the switch off). A group's
+  kernel serves a bead component (within `kFiducialKernelReuseNm`) only when its span covers the beads'; else the bead
+  kernel is its own (`FiducialPsfRequest`: the dyes' request at nz = range / step + 1, its window at most
+  `kFiducialKernelHalfWidthNm` 3000 nm, the halo beyond: MM's 7 um window over 14 um took ~1.2 GB per colour and two
+  shipped-config tiers in one process ran out of memory), the halo on its planes.
 - **Not modelled**: aggregate blinking, single-dye steps, BrightField contrast of the beads.
 
 ## Known limitations / not yet done

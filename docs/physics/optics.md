@@ -222,6 +222,6 @@ BrightField through focus:
 
 ## Renderer.Quality: one knob for speed against precision
 
-Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets five of the knobs above together: the blink halo cut, the dimmest blink drawn, the PSF oversampling, the WideField grid and the BrightField quality. The three levels side by side on the three kinds of image:
+Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets five of the knobs above together: the blink halo cut, the dimmest blink drawn, the PSF oversampling, the WideField grid and the BrightField quality; and, for fiducial beads, whether a clump of beads is drawn as one bead (Fast, Realistic) or bead by bead (Exhaustive; [Fiducial beads](../samples/fiducials.md)). The three levels side by side on the three kinds of image:
 
 <!-- fig:quality-bundle -->

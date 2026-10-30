@@ -124,7 +124,10 @@ through it step by step.
   cookies: [Privacy](privacy.md) lists what is counted and how to turn it off.
   A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the
   mouse wheel, one step per notch.
-- **Specimen** (Sample): **Cell field** or **Nanorulers** ([Samples](samples/index.md)). Switching shows that sample's
+- **Specimen** (Sample): **Cell field**, **Nanorulers** or **Bead sample** ([Samples](samples/index.md); the bead sample
+  is a bare coverslip with only the fiducial beads: switching to it with no beads set puts 0.3 per µm² down in clumps
+  (40 % aggregation), turns the 561 nm laser to 0.1 kW/cm² and the others off, draws the beads and opens the Fiducial
+  beads group, where the diameter and the gel layer's thickness are Basic). Switching shows that sample's
   groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on;
   zoomed further out, the dyes inside the camera's field are still all drawn, the others not). **Seed** (default 42,
   **Random** draws a new one) is the one seed of the simulation, as in Micro-Manager (`inSiliScope.RandomSeed`) and the
@@ -150,12 +153,16 @@ through it step by step.
   available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
   own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
   Dipole orientations other than Free are not implemented yet.
-- **Fiducial beads** (Sample, either specimen; off by default, density 0): beads per µm² of coverslip placed at random,
-  then the bead **Type** (gold by default, TetraSpeck, FluoSpheres orange / red / dark red / infrared, red nanodiamonds; spectra and
-  brightness after Balinovic et al. 2019), in Advanced the diameter (default: the type's product size) and its spread
-  (12 %), the **Height** (on top of the sample by default, on the coverslip, or in a gel layer of a given thickness), in Expert the
-  bleach half-time (288 s at 1 kW/cm² at the dye's peak), the brightness as equivalent dyes and the filters' blocking OD
-  for gold's scattered laser light ([Fiducial beads](samples/fiducials.md)). The world view and its x-z side view draw
+- **Fiducial beads** (Sample, any specimen; off by default, density 0): beads per µm² of coverslip placed at random,
+  then the bead **Type** (gold by default, TetraSpeck, FluoSpheres orange / red / dark red / infrared, red nanodiamonds;
+  spectra and brightness after Balinovic et al. 2019), the **Height** (on top of the sample by default, on the
+  coverslip, or in a gel layer of a given thickness; on the bead sample no "on top"), the **Aggregation** slider (the
+  chance a bead is stuck to the next: clumps of touching beads, 0 % by default), in Advanced the **Diameter** (a type's
+  pick sets its product size, 100 or 200 nm; any other, such as 20 nm, after it: the dyes scale with the volume) and its
+  spread (12 %), the beads' PSF z range (14 µm), in Expert the
+  bleach half-time (288 s at 1 kW/cm² at the dye's peak), the brightness as equivalent dyes, the filters' blocking OD
+  for gold's scattered laser light and **Beyond the PSF stack** (Blur: a bead further off focus is a blur growing with
+  the defocus; Not drawn: left out, faster) ([Fiducial beads](samples/fiducials.md)). The world view and its x-z side view draw
   them as discs of their diameter over the scene (the **Fiducial beads** checkbox, View); in the live image they are
   bright and do not blink, a defocused bead's light spreads over the whole frame (its PSF window is twice the field of
   view), and under the light they fade (a half-time of about 5 minutes at 1 kW/cm² at their peak), much more slowly off it.

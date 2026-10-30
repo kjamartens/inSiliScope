@@ -18,8 +18,11 @@ namespace sim {
 
 // Renderer.Quality: BrightField quality level (bf-quality), PSF oversampling
 // (psf-oversampling), mean-field upscaling (wf-upscale), the blink halo cut
-// (psf-halo-cut) and the dimmest blink splatted in a frame (blink-min-photons,
-// detected photons; an *estimate* of what a localization needs) per level.
+// (psf-halo-cut), the dimmest blink splatted in a frame (blink-min-photons,
+// detected photons; an *estimate* of what a localization needs) and whether a
+// clump of fiducial beads is drawn as one bead of their volume
+// (fid-clumps-as-one; Exhaustive: each bead, the user's choice 2026-10-30) per
+// level.
 struct QualityPreset
 {
    const char* name;
@@ -28,11 +31,12 @@ struct QualityPreset
    double wf;
    double halo;
    double minPhotons;
+   double clumpsAsOne;
 };
 constexpr QualityPreset kQualityPresets[] = {
-   { "Fast", 1, 4, 1, 1e-5, 100 },
-   { "Realistic", 3, 6, 1, 3e-6, 50 },
-   { "Exhaustive", 4, 8, 2, 0.0, 0 },
+   { "Fast", 1, 4, 1, 1e-5, 100, 1 },
+   { "Realistic", 3, 6, 1, 3e-6, 50, 1 },
+   { "Exhaustive", 4, 8, 2, 0.0, 0, 0 },
 };
 
 // SampleHolder.DriftPreset (Off .. Extreme): xy and z drift speed (nm/s) and

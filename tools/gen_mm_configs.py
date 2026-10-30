@@ -265,6 +265,10 @@ NOT_CONFIG = {"x", "y", "z", "seed", "frames", "exposure-ms", "start-sec", "ligh
 # rows' values (registry keys -> names in the viewer), the viewer works the pixel size out of the current ones.
 OPTICS = {"objective-mag": "objectiveMag", "sensor-pixel-um": "sensorUm", "emission-mag": "emissionMag"}
 ZERN = re.compile(r"^zern\.\d+$")   # the spec's Zernike terms (WriteScopeSpecTo: the coefficients over the None preset)
+# Options a preset changes only as a side effect the viewer makes itself: mounting the bead sample sets its bead
+# density and aggregation when none is set and moves OnTop beads to the coverslip (MountSpecimen; the viewer's Sample
+# select does the same), which are no part of the preset.
+MOUNT_EFFECTS = {"Specimen": ("fid-density", "fid-aggregation-pct", "fid-height")}
 
 
 def viewer_zernike_presets():
@@ -400,6 +404,7 @@ def viewer_presets(cfg_paths):
                 own = {rows[p]["key"] for p in props if p in rows and rows[p]["key"] in fresh}
                 keys = sorted(own | {k for n in names for k, v in states[n].items()
                                      if v != fresh.get(k) or v != states[names[0]].get(k)})
+                keys = [k for k in keys if k not in MOUNT_EFFECTS.get(g, ())]
                 presets = []
                 for n in names:
                     # an option the spec leaves out is at the engine's default (null; the specimen when it is 0)

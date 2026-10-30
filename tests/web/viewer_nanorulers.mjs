@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The viewer's Sample select in headless Chromium: the DNA-origami nanorulers (a nanoruler world: no cells, the rods
 // drawn from above with their docking-strand dyes; a movie spec carries the specimen; zoomed out, the dyes in the
-// camera's field of view all drawn, and only those), then back to the cell field.
+// camera's field of view all drawn, and only those), then back to the cell field; then the bead sample (only the
+// fiducial beads, their aggregation, light, height, diameter) and back.
 //   node tests/web/viewer_nanorulers.mjs [--channel=chrome] [--swiftshader]
 import { runViewer } from './browser.mjs';
 
@@ -40,5 +41,51 @@ await runViewer('viewer nanorulers', { watchdogSec: 120 }, async ({ page, check 
   await set('mv_specimen', '0');
   await page.waitForFunction(() => +document.getElementById('hud').dataset.cells > 0, null, { timeout: 120000 });
   check(true, 'nanorulers: back to the cell field, cells again');
+  // The bead sample (2026-10-30): no cells or labels, mounting it sets 0.3 beads/um^2 and 40 % aggregation, OnTop beads
+  // on the glass (no OnTop offered), 561 nm at 0.1 kW/cm^2 and the other lasers off, draws them and opens their group,
+  // the diameter and the layer thickness Basic; the movie spec carries specimen=2 and the aggregation; the density
+  // counts beads whatever the aggregation; a type pick sets the diameter.
+  await set('mv_specimen', '2');
+  await page.waitForFunction(() => +document.getElementById('hud').dataset.beads > 0, null, { timeout: 120000 });
+  const bs = await page.evaluate(async () => {
+    const hud = document.getElementById('hud'), spec = movieSpec();
+    const groups = [...document.querySelectorAll('details.grp')].filter(g => g.style.display !== 'none').map(g => g.dataset.group);
+    const out = { dens: +document.getElementById('mv_fid-density').value, cells: hud.dataset.cells, beads: +hud.dataset.beads,
+      open: document.querySelector('details.grp[data-group="fiducials"]').open, groups, loading: !!document.getElementById('loading'),
+      spec: /(^| )specimen=2( |$)/.test(spec) && /(^| )fid-density=0.3( |$)/.test(spec) && / fid-aggregation-pct=40( |$)/.test(spec) };
+    const $ = id => document.getElementById(id), rowOf = id => $(id).closest('.opt');
+    out.height = $('mv_fid-height').value;
+    out.onTopHidden = $('mv_fid-height').querySelector('option[value="1"]').hidden;
+    out.lasers = Object.fromEntries([...document.querySelectorAll('[id^="mv_laser-"]')].filter(e => /^mv_laser-\d+$/.test(e.id)).map(e => [e.id.slice(9), +e.value]));
+    out.basicRows = ['mv_fid-diameter-nm', 'mv_fid-layer-um'].every(id => rowOf(id) && !rowOf(id).classList.contains('t-advanced'));
+    const type = $('mv_fid-type');
+    type.value = String(ISC_DYE_DATA.fiducials.types.findIndex(t => t.id === 'FluoSpheresRed'));
+    type.dispatchEvent(new Event('input', { bubbles: true }));
+    out.diamRed = +$('mv_fid-diameter-nm').value;
+    type.value = String(ISC_DYE_DATA.fiducials.types.findIndex(t => t.id === 'Gold'));
+    type.dispatchEvent(new Event('input', { bubbles: true }));
+    out.diamGold = +$('mv_fid-diameter-nm').value;
+    const agg = document.getElementById('mv_fid-aggregation-pct');
+    agg.value = 0; agg.dispatchEvent(new Event('input', { bubbles: true }));
+    const key = fidCache && fidCache.key;
+    for (let i = 0; i < 300 && !(fidCache && fidCache.key !== key && +hud.dataset.beads > 0); i++) { await new Promise(r => setTimeout(r, 100)); requestDraw(); }
+    out.beads0 = +hud.dataset.beads;
+    out.aggSpec = / fid-aggregation-pct=0( |$)/.test(movieSpec());
+    return out;
+  });
+  check(bs.dens === 0.3 && bs.cells === '' && bs.beads > 0 && bs.open && !bs.loading && bs.spec && bs.aggSpec &&
+    !bs.groups.some(g => /label$/.test(g)) && Math.abs(bs.beads0 / bs.beads - 1) < 0.3,
+    `bead sample: 0.3 beads/um^2 and 40 % set at the mount, ${bs.beads} beads, no cells or labels (groups ${bs.groups.join(' ')}), ` +
+    `aggregation 0 %: ${bs.beads0} beads, the movie spec has specimen=2 and the aggregation`);
+  check(bs.height === '0' && bs.onTopHidden, `bead sample: OnTop beads on the glass (height ${bs.height}), OnTop not offered`);
+  check(Object.entries(bs.lasers).every(([nm, kw]) => kw === (nm === '561' ? 0.1 : 0)),
+    `bead sample: 561 nm at 0.1 kW/cm^2, the others off (${JSON.stringify(bs.lasers)})`);
+  check(bs.basicRows && bs.diamRed === 200 && bs.diamGold === 100,
+    `bead sample: diameter and layer thickness Basic; a type pick sets the diameter (red ${bs.diamRed}, gold ${bs.diamGold} nm)`);
+  await set('mv_specimen', '0');
+  await page.waitForFunction(() => +document.getElementById('hud').dataset.cells > 0, null, { timeout: 120000 });
+  const back = await page.evaluate(() => ({ onTopHidden: document.querySelector('#mv_fid-height option[value="1"]').hidden,
+    adv: document.getElementById('mv_fid-diameter-nm').closest('.opt').classList.contains('t-advanced') }));
+  check(!back.onTopHidden && back.adv, `bead sample: back to the cell field, cells again, OnTop offered, the diameter Advanced`);
 
 });

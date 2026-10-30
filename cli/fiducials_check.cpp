@@ -210,6 +210,21 @@ void Movies()
    const double q = ok1 && ok2 ? sh.at(0) / s0.at(0) : 0;
    std::snprintf(b, sizeof b, "the bead signal halves after its half-time (%.4f after %.0f s at 640 nm)", q, std::log(2.0) / L);
    Check(L > 0 && std::fabs(q - 0.5) < 2e-3, b);
+   // The beads' depth: not the dyes' cut (z-range-um, 7: +-3.5 um), which once dropped every bead 3.5 um off focus;
+   // beyond their own stack (fid-psf-z-range-um) a Gaussian growing with the defocus, faded in (Fiducials.h
+   // kBeadFarFadeUm): no step at the stack's edge; fid-far-defocus 0 draws none there.
+   bool ok3 = false, ok4 = false, ok5 = false, ok6 = false, ok7 = false, ok8 = false, ok9 = false;
+   const std::string glass = base + " frames=1 start-sec=0 fid-height=Coverslip";
+   const std::string seven = glass + " fid-psf-z-range-um=7";
+   const double sIn = FrameSums(glass + " z=0.1", ok3).at(0), sDyeCut = FrameSums(glass + " z=0.1 z-range-um=1", ok4).at(0);
+   const double s5 = FrameSums(glass + " z=5.1", ok5).at(0);
+   const double sInside = FrameSums(seven + " z=3.06", ok6).at(0), sOutside = FrameSums(seven + " z=3.66", ok7).at(0);
+   const double sFar = FrameSums(seven + " z=8.1", ok8).at(0), sOff = FrameSums(seven + " z=5.1 fid-far-defocus=0", ok9).at(0);
+   std::snprintf(b, sizeof b, "the beads' depth: 5 um off focus %.3g photons (%.3g in focus), the dyes' z-range-um 1 leaves "
+                 "them (%.3g); a 7 um stack: %.4g / %.4g photons 0.5 um inside / beyond its edge, %.3g at 8 um, %.3g with "
+                 "fid-far-defocus 0", s5, sIn, sDyeCut, sInside, sOutside, sFar, sOff);
+   Check(ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && s5 > 0.01 * sIn && sDyeCut == sIn &&
+         std::fabs(sOutside / sInside - 1) < 0.15 && sFar > 0.01 * sIn && sOff == 0, b);
 }
 
 } // namespace

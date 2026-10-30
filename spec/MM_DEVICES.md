@@ -29,9 +29,9 @@ Renderer: how the images are computed (numerics only)     Hub: session state (se
 | `SampleHolder` | State | which specimen is mounted (its positions: `data/specimens.json`, engine option `specimen`); what belongs to the sample whatever it is: drift, background, the medium of the PSF | a specimen's geometry |
 | `CellField` | Generic | the cell field's geometry and optics (indices), its targets' labelling (`Microtubules_Label`: which dye, how dense) | photophysics of a dye |
 | `Nanorulers` | Generic | the DNA-origami nanorulers: design, density, strands per spot, bending (persistence length), landing; their target's labelling (`Docking_Label`) | photophysics of a dye |
-| `Fiducials` | Generic | fiducial beads on whatever specimen is mounted (an overlay, 2026-10-23): bead type, density, diameter and its spread, height (coverslip / on top / in a gel layer); Expert: bleach half-time, brightness, the filters' blocking floor for gold's scattered laser light | the specimen; the light path |
+| `Fiducials` | Generic | fiducial beads on whatever specimen is mounted (an overlay, 2026-10-23; the bead sample's only settings, 2026-10-30): bead type, density, height (coverslip / on top / in a gel layer; no "on top" on the bead sample), aggregation (clumps); Advanced: diameter (a type's pick sets its product size) and its spread, the gel's thickness, the beads' PSF z range; Expert: bleach half-time, brightness, the filters' blocking floor for gold's scattered laser light, the beads beyond their PSF stack (a growing blur or none) | the specimen; the light path |
 | `Fluorophores` | Generic | the dyes: the experiment's label `Mode`, the targets' photophysics readouts, custom dyes (Expert) | which target is labelled |
-| `Renderer` | Generic | numerics and machinery: `Quality`, PSF model/oversampling/interp, mean-field limits, BrightField sampling, GPU, caches, debugging | physics |
+| `Renderer` | Generic | numerics and machinery: `Quality`, PSF model/oversampling/interp, mean-field limits, BrightField sampling, bead clumps as one bead, GPU, caches, debugging | physics |
 
 The imaging follows the light: the open shutters decide what a frame shows (epi light: fluorescence; lamp alone:
 BrightField; none: a dark frame). There is no modality setting.
@@ -77,8 +77,10 @@ of an existing component. A new device needs, in one commit: its class (`Devices
 
 ## 4. Specimens and targets
 
-- One **specimen** device per kind of sample (`CellField`, `Nanorulers` (DNA-origami rods, 2026-10-12); a bead
-  slide later). `SampleHolder` mounts exactly one (`InSiliScopeHub::MountSpecimen`: the engine
+- One **specimen** device per kind of sample with settings of its own (`CellField`, `Nanorulers` (DNA-origami rods,
+  2026-10-12)); the bead sample (`Beads`, 2026-10-30: a bare coverslip with only the fiducial beads) has none, its
+  settings are the `Fiducials` overlay's, and mounting it with `Fiducials.DensityPerUm2` 0 sets its density (0.3 /um^2,
+  `data/specimens.json` `fiducials`). `SampleHolder` mounts exactly one (`InSiliScopeHub::MountSpecimen`: the engine
   option `specimen`); optional **overlays** (fiducial beads: the `Fiducials` device, 2026-10-23; later autofluorescence) add on top: not a
   new world (the illumination history stays), the same bead field on every specimen. Specimens do not overlap in
   space: one is mounted at a time. Mounting another is a new world (`BuildSampleSettings` carries the specimen and,
@@ -180,7 +182,7 @@ structure) and its `typicalLabels` per mode (with references); its engine option
 its label rows (`TargetLabel(device, s)` in the specimen's block of the registry).
 
 **A new specimen:** the core generator and ABI; its entry in `data/specimens.json` (the `SampleHolder` position and
-the viewer's choice come from it); a specimen device (section 3: `Devices/Peripherals.*`, `InSiliScopeHub::Peripherals`,
+the viewer's choice come from it); when it has settings of its own, a specimen device (section 3: `Devices/Peripherals.*`, `InSiliScopeHub::Peripherals`,
 `CreateDevice`, `tools/isc_mm.py` `ALL_DEVICES`) with its rows bound to its engine options; its params in
 `ScopeSpecimenParams` (so `BuildSampleSettings` sees them); its targets (above); a check in `tools/test_specimens.py`.
 

@@ -1,5 +1,5 @@
 """Fiducial beads page (docs/samples/fiducials.md): each bead type's spectra against a light path and what it detects
-(the cli's --setup-json `fiducials`), and beads at the three heights in one cell-field frame."""
+(the cli's --setup-json `fiducials`), beads at the three heights in one cell-field frame, and clumps on the bead sample."""
 import numpy as np
 
 from .common import COLORS, SPOT, figure, img, load, robust_range, register, sig, stack, table
@@ -105,3 +105,21 @@ def fid_heights(ctx):
         "equivalent dyes, so none saturates), at the three heights: on the glass (sharp at this focus, also under " \
         "the cells), on the sample's highest surface (the cells' tops several µm above the focus: wide rings, the " \
         "bare glass between them sharp) and anywhere in a 10 µm gel outside the cells (most far out of focus).\n"
+
+
+@register("fid-clumps", "fiducials")
+def fid_clumps(ctx):
+    base = dict(SPOT, size=256, frames=1, specimen="Beads")   # its defaults: gold, 0.3 per um^2, 561 nm at 0.1 kW/cm^2
+    cases = [("Aggregation 0 %", 0), ("30 %", 30), ("70 %", 70)]
+    arrays = []
+    for _, p in cases:
+        r = ctx.cli(dict(base, **{"fid-aggregation-pct": p}), tag="a%d" % p, out=True)
+        arrays.append(stack(r["out"])[0].astype(np.float64))
+    lo, hi = robust_range(np.concatenate([a.ravel() for a in arrays]), 1, 99.95)
+    tiles = [ctx.tile("a%d" % p, a, cmap="gray", vmin=lo, vmax=max(hi, lo + 1)) for (_, p), a in zip(cases, arrays)]
+    return table([c[0] for c in cases], [[img(t) for t in tiles]], label_col=False) + \
+        "\nThe bead sample at its defaults (a bare coverslip, 100 nm gold at 0.3 beads per µm², 561 nm at 0.1 kW/cm², " \
+        "focus on the beads' centres) but the aggregation, one 50 ms frame of 256 px of 100 nm, one contrast for all " \
+        "three. The density counts beads, so the more stick together, the fewer and brighter the spots: at 30 % " \
+        "half the beads are in clumps (mean 1.4 beads), at 70 % nearly all (mean 3.3); a clump is far smaller than " \
+        "the PSF, so it looks like one brighter bead.\n"

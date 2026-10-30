@@ -136,6 +136,8 @@ const char* PartOf(const std::string& n)
             "illum-profile", "illum-fwhm", "laser-custom-nm", "ex-lo-nm", "ex-hi-nm", "dichroic-edge-nm", "em-lo-nm",
             "em-hi-nm", "bf-condenser-na", "bf-wavelength-nm", "bf-aberrations", "fid-blocking-od" }))
       return "instrument";
+   if (n == "fid-psf-z-range-um" || n == "fid-far-defocus" || n == "fid-clumps-as-one")   // the beads' drawing, as psf-z-range-um
+      return "settings";
    // the sample: the specimen and its world, labels and dyes, beads, the medium and the chamber
    if (in({ "seed", "world-seed", "specimen", "mode", "chunk-um", "occupancy", "cell-diam-min-um", "cell-diam-max-um",
             "packing", "chamber-height-um", "background-per-sec", "bf-absorption-per-um", "psf-sample-index",
@@ -195,7 +197,7 @@ const OptionTable& Options()
          { "na", 1.4, "Objective.NA: numerical aperture" },
          { "focus-um", 0, "CellField.FocusHeightUm (focus offset added to z)" },
          { "z-range-um", 7.0, "CellField.ZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
-         { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField, 1 = Nanorulers; data/specimens.json; names accepted)" },
+         { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField, 1 = Nanorulers, 2 = Beads: only the fiducial beads; data/specimens.json; names accepted)" },
          { "mode", -1, "fallback label mode for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target's own; names accepted). Each target has its own mode (<prefix>-mode); Micro-Manager has no experiment-wide mode since issue 15" },
       };
       // Each target's label (data/specimens.json; Micro-Manager: the specimen device's <Row>_* rows, Fluorophores):
@@ -314,6 +316,10 @@ const OptionTable& Options()
          { "fid-diameter-cv-pct", FiducialDefaults().diameterCvPct, "Fiducials.DiameterCvPct: bead-to-bead diameter spread, % (normal; estimate)" },
          { "fid-height", static_cast<double>(IndexOf(ScopeFiducialHeightNames(), FiducialDefaults().height)), "Fiducials.Height: 0 Coverslip (on the glass), 1 OnTop (on the sample's surface), 2 Layer (anywhere in a gel layer of fid-layer-um, outside the cells; names accepted)" },
          { "fid-layer-um", FiducialDefaults().layerUm, "Fiducials.LayerUm: the gel layer's thickness, um (Layer)" },
+         { "fid-psf-z-range-um", 14.0, "Fiducials.PsfZRangeUm: span of the beads' PSF z stack, um (a bead far off focus, on top of the cells or in a gel, keeps its defocused image; the molecules': psf-z-range-um)" },
+         { "fid-clumps-as-one", 1, "Renderer.BeadClumpsAsOne: 1 = a clump of beads is drawn as one bead of their volume at their centre of mass with their light (Quality Fast, Realistic), 0 = each bead (Exhaustive)" },
+         { "fid-far-defocus", 1, "Fiducials.FarDefocus: 1 = a bead beyond its PSF stack is a blur growing with the defocus (a Gaussian matched to the stack's last plane, faded in over its last 0.5 um), 0 = not drawn (faster with many far beads)" },
+         { "fid-aggregation-pct", 0, "Fiducials.AggregationPct: the chance a bead is stuck to the next one, % (0-90): clumps of touching beads, n beads with probability (1 - p) p^(n-1), mean 1 / (1 - p); fid-density counts beads (estimate)" },
          { "fid-bleach-half-sec", FiducialDefaults().bleachHalfSec, "Fiducials.BleachHalfTimeSec: a bead's fluorescence half-time at fid-bleach-ref-kwcm2 at its dye's excitation peak, s (estimate: 288 s; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching)" },
          { "fid-bleach-ref-kwcm2", FiducialDefaults().bleachRefKWcm2, "Fiducials.BleachRefKWcm2: the intensity the half-time is given at, kW/cm^2" },
          { "fid-dyes", -1, "Fiducials.DyeCount: equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component (-1 = the type's, fitted to balinovic2019)" },
@@ -608,7 +614,19 @@ std::vector<std::pair<std::string, double>> ScopeFiducialParams(const ScopeSpec&
       { "fidDensity", O("fid-density") },
       { "fidDiameterNm", O("fid-diameter-nm") >= 0 || !known ? O("fid-diameter-nm") : FiducialTypeAt(t).refDiameterNm },
       { "fidDiameterCvPct", O("fid-diameter-cv-pct") }, { "fidHeight", O("fid-height") }, { "fidLayerUm", O("fid-layer-um") },
+      { "fidAggregationPct", O("fid-aggregation-pct") },
    };
+   // The bead sample with no density or aggregation given: its own (data/specimens.json fiducials; MM and the viewer
+   // set them at a mount).
+   const int sp = ScopeSpecimen(spec);
+   if (sp >= 0 && sp < static_cast<int>(SpecimenIds().size()))
+   {
+      const SpecimenData& d = SpecimenAt(sp);
+      if (spec.find("fid-density") == spec.end() && !std::isnan(d.fiducialDensity))
+         v[0].second = d.fiducialDensity;
+      if (spec.find("fid-aggregation-pct") == spec.end() && !std::isnan(d.fiducialAggregationPct))
+         v[5].second = d.fiducialAggregationPct;
+   }
    for (auto& kv : v)
    {
       auto it = spec.find("p." + kv.first);
@@ -624,7 +642,19 @@ double ScopeDefaultZ(const ScopeSpec& spec)
    for (const ScopeOption& o : Options().opts)
       if (!std::strcmp(o.name, "z"))
          z = o.value;
-   if (ScopeSpecimen(spec) != 1)
+   if (ScopeSpecimen(spec) == ISC_SPECIMEN_BEADS)
+   {
+      // The bead sample: the beads' centre on the glass (their mean radius; Layer: the layer's middle).
+      double d = 0, height = 0, layer = 0;
+      for (const auto& kv : ScopeFiducialParams(spec))
+      {
+         if (kv.first == "fidDiameterNm") d = kv.second;
+         if (kv.first == "fidHeight") height = kv.second;
+         if (kv.first == "fidLayerUm") layer = kv.second;
+      }
+      return static_cast<int>(height) == 2 ? layer / 2 : std::max(0.0, d) / 2000.0;
+   }
+   if (ScopeSpecimen(spec) != ISC_SPECIMEN_NANORULERS)
       return z;
    IscParams* p = isc_params_new();
    for (const auto& kv : ScopeSpecimenParams(spec))
@@ -936,10 +966,17 @@ static bool AutoLightPreset(const ScopeSpec& spec, std::vector<ResolvedLightPres
    }
    if (qs.empty())
    {
+      // None labelled: the specimen's (the bead sample: data/specimens.json lightPreset), else its first target's.
       const std::vector<int> mounted = ScopeMountedStructures(spec);
-      const LightPresetData* q = mounted.empty() ? nullptr : TargetLightPreset(spec, mounted[0], err);
+      const int sp = ScopeSpecimen(spec);
+      const char* own = sp >= 0 && sp < static_cast<int>(SpecimenIds().size()) ? SpecimenAt(sp).lightPreset : nullptr;
+      const LightPresetData* q = own ? FindLightPreset(own) : !mounted.empty() ? TargetLightPreset(spec, mounted[0], err) : nullptr;
       if (!q)
+      {
+         if (err.empty())
+            err = std::string("auto light preset: no labelled target and no light preset '") + (own ? own : "") + "'";
          return false;
+      }
       qs.push_back(q);
    }
    ResolvedLightPreset r(*qs[0]);
@@ -1628,6 +1665,19 @@ bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorReq
    req.maskModes = static_cast<int>(std::min(8.0, std::max(2.0, O("psf-mask-modes"))));
    req.maskWaist = O("psf-mask-waist");
    req.interpMode = static_cast<PsfInterpMode>(static_cast<int>(std::min(3.0, std::max(0.0, O("psf-interp")))));
+   return true;
+}
+
+// The beads' PSF request: the molecules' (ScopePsfRequest) over the beads' own z span, fid-psf-z-range-um, in a
+// window of at most kFiducialKernelHalfWidthNm (the halo beyond; false with no error: the Gaussian).
+static bool FiducialPsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorRequest& req, std::string& err)
+{
+   if (!ScopePsfRequest(spec, wavelengthNm, req, err))
+      return false;
+   if (req.zStepNm > 0)
+      req.nz = static_cast<int>(std::lround(std::max(0.0, ScopeSpecGet(spec, "fid-psf-z-range-um")) * 1000.0 / req.zStepNm)) + 1;
+   req.kernelHalfWidthPx = std::min(req.kernelHalfWidthPx, PsfKernelHalfWidthPx(kFiducialKernelHalfWidthNm, req.pixelSizeNm,
+                                                                                req.wavelengthNm, req.na));
    return true;
 }
 
@@ -4285,14 +4335,17 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          if (st.emits && st.detectedFraction >= kMinDetectedFraction && st.detectedPerSec > 0)
             wanted.push_back({ s, pre, &st });
       }
-   // The beads' components whose PSF no group's kernel serves need one of their own (at most).
+   // The beads' components whose PSF no group's kernel serves need one of their own (at most): a group's serves within
+   // kFiducialKernelReuseNm when its z span covers the beads' (fid-psf-z-range-um).
+   const bool groupSpanServes = ScopeSpecGet(spec, "psf-z-range-um") >= ScopeSpecGet(spec, "fid-psf-z-range-um");
    size_t ownKernels = 0;
    if (S.fidOn)
       for (const FiducialComponent& c : S.fidComps)
       {
          bool shared = false;
-         for (const Want& w : wanted)
-            shared = shared || std::fabs(KernelWavelengthNm(w.st->lambdaNm) - KernelWavelengthNm(c.lambdaNm)) <= kFiducialKernelReuseNm;
+         if (groupSpanServes)
+            for (const Want& w : wanted)
+               shared = shared || std::fabs(KernelWavelengthNm(w.st->lambdaNm) - KernelWavelengthNm(c.lambdaNm)) <= kFiducialKernelReuseNm;
          ownKernels += shared ? 0 : 1;
       }
    SetPsfKernelMemoEntries(wanted.size() + 1 + ownKernels);
@@ -4502,17 +4555,15 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          err = "fiducial query failed";
          return false;
       }
-      const double inf = std::numeric_limits<double>::infinity();
-      const double zMin = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm - S.q.zHalfRangeUm : -inf;
-      const double zMax = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm + S.q.zHalfRangeUm : inf;
+      // Every bead, at any depth (the dyes' cut, z-range-um, is the CellField's): beyond its PSF stack a bead is a
+      // growing blur or not drawn (fid-far-defocus; Fiducials.h kBeadFarFadeUm).
       std::unique_ptr<FiducialMovie> FM(new FiducialMovie());
       FM->type = S.fidType;
       FM->expSec = S.expSec;
       FM->N = S.N;
       std::vector<const double*> sites;
       for (size_t i = 0; i + ISC_FIDUCIAL_STRIDE <= rows.size(); i += ISC_FIDUCIAL_STRIDE)
-         if (rows[i + 5] >= zMin && rows[i + 5] < zMax)
-            sites.push_back(&rows[i]);
+         sites.push_back(&rows[i]);
       FM->sites = sites.size();
       // When each bead's decay starts: the movie's start-sec, or under a host's light history the bead's past light
       // as seconds of the light now (its dose there / the dose rate the light gives there; exact while the light's
@@ -4528,38 +4579,80 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             t0s[i] = rate > 0 ? history->DoseAt(sites[i][3], sites[i][4]) / rate + ahead : 0.0;
          }
       }
+      const bool clumpsAsOne = ScopeSpecGet(spec, "fid-clumps-as-one") != 0;
       for (const FiducialComponent& c : S.fidComps)
       {
          FiducialMovieComponent F;
          double maxRate = 0.0;
-         for (size_t i = 0; i < sites.size(); ++i)
+         for (size_t i = 0, j; i < sites.size(); i = j)
          {
-            const double* b = sites[i];
-            const double xUm = b[3] - S.q.originXUm, yUm = b[4] - S.q.originYUm, zNm = (b[5] - S.q.zRefUm) * 1000.0;
-            const double a = m.shaped ? m.ExciteAt(c.lineShares, xUm, yUm, zNm) : 1.0, rate = BeadRatePerSec(c, b[6]) * a;
-            if (!(rate > 0))
+            // A clump (its beads share their address, consecutive) is drawn as one bead (fid-clumps-as-one, the user's
+            // choice, 2026-10-30; Quality Exhaustive: each bead): a sphere of the beads' volume, d = (sum d^3)^(1/3), at
+            // their centre of mass, with their summed light (gold too: its scatter is not by volume), its bleaching and
+            // start the light-weighted means.
+            for (j = i + 1; clumpsAsOne && j < sites.size() && sites[j][0] == sites[i][0] && sites[j][1] == sites[i][1] &&
+                            sites[j][2] == sites[i][2]; ++j) {}
+            FiducialBeadSite e{ 0, 0, 0, 0, 0, 0, 0 };
+            double vol = 0.0;
+            for (size_t k = i; k < j; ++k)
+            {
+               const double* b = sites[k];
+               const double xUm = b[3] - S.q.originXUm, yUm = b[4] - S.q.originYUm, zNm = (b[5] - S.q.zRefUm) * 1000.0;
+               const double a = m.shaped ? m.ExciteAt(c.lineShares, xUm, yUm, zNm) : 1.0, rate = BeadRatePerSec(c, b[6]) * a;
+               if (!(rate > 0))
+                  continue;
+               if (j - i == 1)
+               {
+                  e = { xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, t0s[k] };
+                  break;
+               }
+               const double v = b[6] * b[6] * b[6];
+               e.xUm += v * xUm;
+               e.yUm += v * yUm;
+               e.zNm += v * zNm;
+               vol += v;
+               e.rate += rate;
+               e.lambda += rate * c.bleachPerSec * a;
+               e.t0Sec += rate * t0s[k];
+            }
+            if (!(e.rate > 0))
                continue;
-            F.beads.push_back({ xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, t0s[i] });
-            maxRate = std::max(maxRate, rate);
+            if (j - i > 1)
+            {
+               e.xUm /= vol;
+               e.yUm /= vol;
+               e.zNm /= vol;
+               e.d = std::cbrt(vol);
+               e.lambda /= e.rate;
+               e.t0Sec /= e.rate;
+            }
+            F.beads.push_back(e);
+            maxRate = std::max(maxRate, e.rate);
          }
          if (F.beads.empty() || maxRate * S.expSec < kFiducialMinPhotons)
             continue;
          F.c = c;
          F.lambdaNm = KernelWavelengthNm(c.lambdaNm);
-         double best = inf;
+         double best = std::numeric_limits<double>::infinity();
          for (const Group& g : m.groups)
          {
             const double dl = std::fabs(g.lambdaNm - F.lambdaNm);
-            if (g.kernel.valid && dl <= kFiducialKernelReuseNm && dl < best)
+            if (groupSpanServes && g.kernel.valid && dl <= kFiducialKernelReuseNm && dl < best)
             {
                best = dl;
                F.kernel = g.kernel;
             }
          }
-         if (!F.kernel.valid && !ScopePsfKernel(spec, F.lambdaNm, F.kernel, psfErr))
+         if (!F.kernel.valid)
          {
-            err = psfErr;
-            return false;
+            PsfGeneratorRequest fr;
+            psfErr.clear();
+            const bool diffraction = FiducialPsfRequest(spec, F.lambdaNm, fr, psfErr);
+            if (diffraction ? !ComputePsfKernelCache(fr, F.kernel, psfErr) : !psfErr.empty())
+            {
+               err = psfErr;
+               return false;
+            }
          }
          F.sigmaPx = GaussianSigmaPx(F.lambdaNm, ScopeSpecGet(spec, "na"), pixelNm);
          if (F.kernel.valid)
@@ -4572,6 +4665,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                err = psfErr;
                return false;
             }
+            hr.nz = F.kernel.nz;   // the bead kernel's planes (BeadKernel::Splat takes a halo of as many)
+            hr.zStepNm = F.kernel.zStepNm;
             hr.oversampling = 1;
             hr.kernelHalfWidthPx = BeadHaloHalfWidthPx(S.W, S.H, pixelNm,
                                                        F.kernel.halfWidthOversampled / std::max(1, F.kernel.oversampling));
@@ -4582,6 +4677,11 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                return false;
             }
             TimingLog("fl.fiducials-halo", TimingSince(tHalo));
+            // Beyond the span: a Gaussian growing with |dz| from the edge planes' spread (Fiducials.h kBeadFarFadeUm).
+            const double edgeUm = (F.kernel.nz - 1) / 2.0 * F.kernel.zStepNm / 1000.0;
+            if (ScopeSpecGet(spec, "fid-far-defocus") != 0 && F.kernel.nz > 1 && edgeUm > 0)
+               for (int s = 0; s < 2; ++s)
+                  F.farSigmaPxPerUm[s] = F.halo->SigmaPx(F.kernel.NearestZIndex(s ? edgeUm : -edgeUm)) / edgeUm;
          }
          FM->comps.push_back(std::move(F));
       }

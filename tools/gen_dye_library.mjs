@@ -138,6 +138,8 @@ const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 checkRefs('typicalLabels', library.typicalLabels.refs);
 const targets = specimens.specimens.flatMap(sp => sp.targets.map(t => ({ ...t, specimen: sp.id })));
 targets.forEach((t, i) => { if (t.structure !== i) throw new Error(`target ${t.id}: structure ${t.structure}, expected ${i} (the core's ISC_STRUCT_* order)`); });
+for (const sp of specimens.specimens)
+  if (sp.lightPreset && !lightPath.presets.some(q => q.id === sp.lightPreset)) throw new Error(`specimen ${sp.id}: unknown light preset '${sp.lightPreset}'`);
 targets.forEach(t => {
   const q = t.paint;
   if (!q || !(q.konPerMPerSec >= 0) || !(q.onSec > 0) || !(q.imagerNm >= 0))
@@ -254,7 +256,9 @@ const data = {
   dstormReference: library.dstormReference,
   dyes,
   dyeDefault: library.default,
-  specimens: specimens.specimens.map(sp => ({ id: sp.id, name: sp.name, targets: sp.targets, ...(sp.illumination ? { illumination: sp.illumination } : {}) })),
+  specimens: specimens.specimens.map(sp => ({ id: sp.id, name: sp.name, targets: sp.targets, ...(sp.illumination ? { illumination: sp.illumination } : {}),
+    ...(sp.fiducials ? { fiducials: { densityPerUm2: sp.fiducials.densityPerUm2, aggregationPct: sp.fiducials.aggregationPct } } : {}),
+    ...(sp.lightPreset ? { lightPreset: sp.lightPreset } : {}) })),
   specimenDefault: specimens.default,
   typicalLabels,
   linkagePresets,
@@ -403,9 +407,10 @@ ${linkagePresets.map(q => `   { ${str(q.id)}, ${str(q.name)}, ${q.structureDefau
 // The filters of the auto light preset when the targets' presets differ (light_path.json multiTarget).
 static const char* const kMultiTargetDichroic = ${str(data.lightPathMultiTarget.dichroic)};
 static const char* const kMultiTargetEmissionFilter = ${str(data.lightPathMultiTarget.emissionFilter)};
-// id, name, its targets (first, count), the BFP position in place of the light preset's (NaN = none).
+// id, name, its targets (first, count), the BFP position in place of the light preset's (NaN = none), the bead density and
+// aggregation a mount sets when none is (NaN = none), the light preset when no target is labelled (nullptr = none).
 static const SpecimenData kSpecimens[] = {
-${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length}, ${num(sp.illumination && sp.illumination.bfpPosition)} },`).join('\n')}
+${data.specimens.map(sp => `   { ${str(sp.id)}, ${str(sp.name)}, ${targets.findIndex(t => t.specimen === sp.id)}, ${sp.targets.length}, ${num(sp.illumination && sp.illumination.bfpPosition)}, ${num(sp.fiducials && sp.fiducials.densityPerUm2)}, ${num(sp.fiducials && sp.fiducials.aggregationPct)}, ${str(sp.lightPreset ?? null)} },`).join('\n')}
 };
 // Fiducial beads (data/fiducials/types.json): per component id, name, excitation and emission spectra, the excitation
 // peak (nm), the equivalent dyes at the type's reference diameter, whether it bleaches; per type id, name, reference
