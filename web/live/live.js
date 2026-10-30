@@ -21,6 +21,7 @@ function setLiveFrac(f, save) {
   if (save) store.set('liveWidth', f.toFixed(4));   // (was liveFrac, default 0.4: a new key so the new default shows)
 }
 setLiveFrac(+store.get('liveWidth', '0.5') || 0.5, false);
+resizeCanvas();   // the world view was measured at the default width (the main script ran first): measure it again
 splitter.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   e.preventDefault();
