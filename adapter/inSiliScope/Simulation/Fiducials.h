@@ -25,7 +25,13 @@
 //                with a halo the part in the point kernel's window is scaled
 //                to the halo's share there. Bead kernels are built per (point
 //                kernel, plane, diameter on a kBeadBinNm grid) and shared
-//                process-wide.
+//                process-wide (the last kBeadCoreCache), and only where the
+//                sphere matters: on a plane whose spread sigma^2 = 1 / (2 pi x
+//                its peak sample) is above (r^2 / 5) / kBeadSphereTol, the
+//                sphere's lateral variance being under kBeadSphereTol of it, the
+//                core is the point PSF's plane (the user's choice, 2026-10-30:
+//                beads through a gel layer built ~1 ms of core per bead per
+//                focus step).
 //
 //                Light per component (FiducialPhotophysics): an equivalent dye
 //                (data/fiducials, balinovic2019) through the light path, a bead
@@ -51,7 +57,8 @@
 
 namespace sim {
 
-constexpr double kBeadCoreUm = 1.0, kBeadFadeUm = 0.4, kBeadSlabNm = 10, kBeadBinNm = 10;
+constexpr double kBeadCoreUm = 1.0, kBeadFadeUm = 0.4, kBeadSlabNm = 10, kBeadBinNm = 10, kBeadSphereTol = 0.01;
+constexpr size_t kBeadCoreCache = 256;
 constexpr int kBeadLateralSub = 4;
 // A component whose brightest bead gives fewer detected photons per frame is left out (no kernel, no splat).
 constexpr double kFiducialMinPhotons = 1e-3;
@@ -125,7 +132,8 @@ private:
       PsfKernelCache geom;   // oversampling, size, half-width, block-sum width (SplatSetup's inputs)
       std::vector<float> blockSums;
    };
-   const Core& CoreAt(int k, double dBin);
+   // The bead kernel of plane k and diameter bin dBin, or null where the point PSF's plane serves (kBeadSphereTol).
+   std::shared_ptr<const Core> CoreAt(int k, double dBin);
    // With a halo, the point kernel's part ends at this camera radius: its window but the outermost ring, whose pixels
    // reach half a pixel beyond its samples (at least the core's).
    int InnerRadius() const { return std::max(rc_, K_.halfWidthOversampled / std::max(1, K_.oversampling) - 1); }
@@ -138,7 +146,9 @@ private:
    int rc_ = 0, h_ = 0;
    PsfInterpMode interp_;
    std::mutex mu_;
-   std::map<long long, std::unique_ptr<Core>> cores_;
+   std::vector<double> sigmaNm2_;   // per plane: 1 / (2 pi x the peak sample), nm^2 (kBeadSphereTol)
+   std::map<long long, std::shared_ptr<const Core>> cores_;
+   std::vector<long long> coreOrder_;   // cores_' keys, oldest first (kBeadCoreCache)
    std::map<uint64_t, std::vector<double>> scales_;   // per halo id, per plane (NaN: not yet)
 };
 // The bead kernels of K at pixelNm (memoized with the kernel's planes and interpolation; JS beadKernel).

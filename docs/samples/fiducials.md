@@ -89,8 +89,13 @@ middle in a gel layer).
 ## The image of a bead
 
 A bead is not a point: a 200 nm sphere holds dyes over its whole volume. Its image is the PSF averaged over the solid
-sphere (in z over 10 nm slabs, laterally over its projection), which matters within about a micrometre of the centre.
-Outside that the bead's halo is the point PSF. Each bead is **one** emitter per colour, never 10⁶ dyes. Beads do not
+sphere (in z over 10 nm slabs, laterally over its projection), which matters within about a micrometre of the centre
+and near the focus (where the PSF is not much wider than the bead; off focus the sphere changes it by under 1 % and the
+point PSF is used). Outside that the bead's halo is the point PSF. A clump is drawn as **one bead** of the clump's volume
+(a pair of 100 nm beads as one 126 nm bead) at its centre of mass with all its beads' light; `Renderer.Quality`
+Exhaustive (or `Renderer.BeadClumpsAsOne` Off, Expert; `--fid-clumps-as-one 0`) draws each bead. A touching pair is
+longer than that sphere, which shows only for large beads in focus; one splat per clump makes a clumpy sample's frames
+up to twice as fast. Each bead is **one** emitter per colour, never 10⁶ dyes. Beads do not
 blink.
 
 A bead is far brighter than a dye, and above or below the focus its light spreads into a disc several micrometres

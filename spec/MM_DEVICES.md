@@ -31,7 +31,7 @@ Renderer: how the images are computed (numerics only)     Hub: session state (se
 | `Nanorulers` | Generic | the DNA-origami nanorulers: design, density, strands per spot, bending (persistence length), landing; their target's labelling (`Docking_Label`) | photophysics of a dye |
 | `Fiducials` | Generic | fiducial beads on whatever specimen is mounted (an overlay, 2026-10-23; the bead sample's only settings, 2026-10-30): bead type, density, height (coverslip / on top / in a gel layer; no "on top" on the bead sample), aggregation (clumps); Advanced: diameter (a type's pick sets its product size) and its spread, the gel's thickness, the beads' PSF z range; Expert: bleach half-time, brightness, the filters' blocking floor for gold's scattered laser light, the beads beyond their PSF stack (a growing blur or none) | the specimen; the light path |
 | `Fluorophores` | Generic | the dyes: the experiment's label `Mode`, the targets' photophysics readouts, custom dyes (Expert) | which target is labelled |
-| `Renderer` | Generic | numerics and machinery: `Quality`, PSF model/oversampling/interp, mean-field limits, BrightField sampling, GPU, caches, debugging | physics |
+| `Renderer` | Generic | numerics and machinery: `Quality`, PSF model/oversampling/interp, mean-field limits, BrightField sampling, bead clumps as one bead, GPU, caches, debugging | physics |
 
 The imaging follows the light: the open shutters decide what a frame shows (epi light: fluorescence; lamp alone:
 BrightField; none: a dark frame). There is no modality setting.

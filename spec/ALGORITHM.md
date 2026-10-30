@@ -1032,7 +1032,11 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   point PSF over its outer 0.4 um, with the light the z average moved past the core given back in proportion to the
   point PSF (the bead keeps the point's photons, 0.9999). Beyond the core the halo is the point kernel at its nearest
   sub-sample (one tap per pixel: the halo varies over many pixels). Bead kernels are cached per (point kernel, plane,
-  diameter on a 10 nm grid). The Gaussian PSF: sigma^2 + r^2 / 5 per axis. This design came from the timing gate
+  diameter on a 10 nm grid; the last 256). Since 2026-10-30 (the user's choice) a plane gets one only where the sphere
+  matters: its lateral variance r^2 / 5 at least 1 % (`kBeadSphereTol`) of the plane's spread sigma^2 = 1 / (2 pi x its
+  peak sample); elsewhere the core is the point PSF's plane (for 100 nm beads beyond ~0.5-1 um of defocus). Beads
+  through a 10 um gel layer had built ~1 ms of kernel per bead at every focus step (150 -> 29 ms for a 256 px frame of
+  0.3 /um^2, one thread; the image moved ~1 % rms, its light < 0.2 %). The Gaussian PSF: sigma^2 + r^2 / 5 per axis. This design came from the timing gate
   (beads < 5 % of a movie): a full cubic point splat plus a correction kernel cost 10 % under drift.
 - **The bead's halo reaches over the whole frame** (2026-10-23, the user's request). A bead is ~1e3-1e6 times a dye,
   and a bead above or below the focus spreads into a disc of radius ~ defocus x tan(theta) (2.4 um per um at NA 1.4):
@@ -1082,7 +1086,14 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   8 tries per bead, each its own channel, take the first that overlaps no placed bead (centres >= 0.999 x the radii's
   sum) and stays within one tile (2 um) of the first bead in x and y; none: the bead is left out (rare: a crowded
   clump of large beads). The tile bound lets a query pad by one tile only (p > 0). A clump's beads share its address
-  (tx, ty, i). p = 0 draws nothing more: every output of before, bit for bit (goldens `f00`-`f03`).
+  (tx, ty, i). p = 0 draws nothing more: every output of before, bit for bit (goldens `f00`-`f03`). Drawing
+  (2026-10-30, the user's idea): a clump is **one bead** of the beads' volume, d = (sum d^3)^(1/3), at their centre of
+  mass (d^3 weights) with their summed light (gold too, whose scatter is not by volume) and their light-weighted
+  bleaching rate and start (`fid-clumps-as-one` 1, Quality Fast and Realistic; 0 = each bead, Exhaustive; MM
+  `Renderer.BeadClumpsAsOne`). Clumps of one bead are unchanged bit for bit. A pair is a 2d dumbbell, not a 1.26 d
+  sphere: below the PSF's width for 100 nm beads. 256 px, 10 um layer, one frame, one thread: 27 -> 19 ms (40 %), 16 ->
+  8 ms (70 %). First tried: one halo per clump at the beads' mean position with each bead's own window; it left square
+  seams (each window's square around its own pixel against the halo's hole around the mean).
 - **The bead sample** (2026-10-30, ABI 17): `specimen` 2 (`Beads`, `data/specimens.json`, no targets): a world with no
   cells (`World::NoCells`, as the nanorulers: no packing, block store or optical volume; surface 0) and no dye blocks,
   only `FiducialField`. Mounting it with fid-density 0 sets 0.3 /um^2 and with fid-aggregation-pct 0 sets 40 % (the

@@ -462,6 +462,7 @@ How the images are computed: quality, GPU, caches, numerics.
 | `BlinkBinnedMaxEmitters` | Expert | 1000000000 | 0 .. 1000000000 | And binned above this many ON emitters in the frame. |
 | `BlinkBinnedUpscale` | Expert | 2 | 1 .. 8 | Cells of the binned grid per pixel, per axis (a blink is snapped to +-half a cell). |
 | `BlinkMinPhotons` | Expert | 50 | 0 .. 1000000 | A blink with fewer detected photons than this in a frame is not splatted in that frame (Quality: Fast 100, Realistic 50, Exhaustive 0 = every blink); binned and mean-field frames and continuous dyes keep every one. |
+| `BeadClumpsAsOne` | Expert | On | `On`, `Off` | On: a clump of fiducial beads is drawn as one bead of their volume at their centre of mass with their light (faster; Quality Fast, Realistic). Off: each bead of a clump (Exhaustive). |
 | `BlinkMeanFieldDensityPerUm2` | Expert | 1000000000 | 0 .. 1000000000 | A frame's blinks render mean-field (no blinks drawn: each dye's expected ON time; the blinking itself is lost) above this many expected ON emitters per um^2 of the focal slab. 1e9 = never. |
 | `BlinkMeanFieldMaxEmitters` | Expert | 1000000000 | 0 .. 1000000000 | And mean-field above this many expected ON emitters in the z range. 1e9 = never. |
 | `WriteScopeSpecTo` | Expert |  |  | Set to a file path: writes the engine spec of the current settings and stage pose there (insiliscope_cli --spec reproduces the frames). |

@@ -66,6 +66,29 @@ void SplatRect(std::vector<float>& img, unsigned W, int rowLo, int rowHi, const 
    const int os = std::max(1, cache.oversampling), off = os - 1, bw = cache.blockSumWidth, NT = st.nTaps;
    const int yLo = std::max(dyLo, rowLo - st.y0), yHi = std::min(dyHi, rowHi - 1 - st.y0);
    const int xLo = std::max(dxLo, -st.x0), xHi = std::min(dxHi, static_cast<int>(W) - 1 - st.x0);
+   if (NT == 1 && st.wx[0] == 1.0 && st.wy[0] == 1.0)
+   {
+      // Nearest (the halo, the point kernel's ring): sum = 1 x (0 + 1 x b) = b, so one product per pixel, bit for bit
+      // the loop below (a bead's halo spans the frame: that loop's per-pixel bounds took ~4 ns a pixel).
+      // The columns whose sample lies in the block sums: 0 <= bx + off + dx os < bw.
+      auto floorDiv = [](int a, int b) { return a >= 0 ? a / b : -((-a + b - 1) / b); };
+      const int c = st.bx + off, xa = std::max(xLo, -floorDiv(c, os)), xb = std::min(xHi, floorDiv(bw - 1 - c, os));
+      for (int dy = yLo; dy <= yHi && xa <= xb; ++dy)
+      {
+         const int r0 = st.by + dy * os + off;
+         if (r0 < 0 || r0 >= bw)
+            continue;
+         const float* brow = B + static_cast<size_t>(r0) * bw + c;
+         float* rowOut = img.data() + static_cast<size_t>(st.y0 + dy) * W + st.x0;
+         if (os == 1)
+            for (int dx = xa; dx <= xb; ++dx)
+               rowOut[dx] += static_cast<float>(photons * static_cast<double>(brow[dx]));
+         else
+            for (int dx = xa; dx <= xb; ++dx)
+               rowOut[dx] += static_cast<float>(photons * static_cast<double>(brow[dx * os]));
+      }
+      return;
+   }
    for (int dy = yLo; dy <= yHi; ++dy)
    {
       const int r0 = st.by + dy * os + off, jLo = std::max(0, -r0), jHi = std::min(NT, bw - r0);
@@ -88,7 +111,8 @@ void SplatRect(std::vector<float>& img, unsigned W, int rowLo, int rowHi, const 
 }
 
 // A photon-conserving 2D Gaussian of any sign into the rows [rowLo, rowHi) (JS renderGaussian; RenderGaussianPSF takes
-// only positive photons).
+// only positive photons). Separable: one exp per column and per row (a far-defocus blur spans the frame: an exp per
+// pixel took the viewer's bead layer to ~110 ms a frame).
 void GaussianSigned(std::vector<float>& img, unsigned W, int rowLo, int rowHi, double xPx, double yPx, double sigmaPx,
                     double photons)
 {
@@ -99,15 +123,22 @@ void GaussianSigned(std::vector<float>& img, unsigned W, int rowLo, int rowHi, d
    const double amplitude = photons / (2.0 * kPiF * sigmaPx * sigmaPx), twoSigmaSq = 2.0 * sigmaPx * sigmaPx;
    const int yLo = std::max(rowLo, cy - rad), yHi = std::min(rowHi - 1, cy + rad);
    const int xLo = std::max(0, cx - rad), xHi = std::min(static_cast<int>(W) - 1, cx + rad);
+   if (xHi < xLo || yHi < yLo)
+      return;
+   thread_local std::vector<double> ex;
+   ex.resize(static_cast<size_t>(xHi - xLo + 1));
+   for (int px = xLo; px <= xHi; ++px)
+   {
+      const double ddx = px - xPx;
+      ex[static_cast<size_t>(px - xLo)] = std::exp(-(ddx * ddx) / twoSigmaSq);
+   }
    for (int py = yLo; py <= yHi; ++py)
    {
-      const double ddy = py - yPx;
-      float* row = img.data() + static_cast<size_t>(py) * W;
-      for (int px = xLo; px <= xHi; ++px)
-      {
-         const double ddx = px - xPx;
-         row[px] += static_cast<float>(amplitude * std::exp(-(ddx * ddx + ddy * ddy) / twoSigmaSq));
-      }
+      const double ddy = py - yPx, wy = amplitude * std::exp(-(ddy * ddy) / twoSigmaSq);
+      float* row = img.data() + static_cast<size_t>(py) * W + xLo;
+      const double* e = ex.data();
+      for (int i = 0, n = xHi - xLo + 1; i < n; ++i)
+         row[i] += static_cast<float>(wy * e[i]);
    }
 }
 
@@ -214,6 +245,19 @@ BeadKernel::BeadKernel(const PsfKernelCache& K, double pixelNm) : K_(K), pixelNm
    rc_ = std::min(camRad, static_cast<int>(std::ceil(kBeadCoreUm * 1000.0 / pixelNm)));
    h_ = std::min(K.halfWidthOversampled, (rc_ + 2) * os);
    interp_ = K.interpMode == PsfInterpMode::Fft ? PsfInterpMode::Cubic : K.interpMode;
+   const double sampleNm = pixelNm / os;
+   const std::vector<std::vector<float>>& planes = K.Planes();
+   sigmaNm2_.assign(planes.size(), 0.0);
+   for (size_t k = 0; k < planes.size(); ++k)
+   {
+      float peak = 0.0f;
+      for (float v : planes[k])
+         peak = std::max(peak, v);
+      double sum = 0.0;
+      for (float v : planes[k])
+         sum += v;
+      sigmaNm2_[k] = peak > 0.0f ? sum / (2.0 * kPiF * peak) * sampleNm * sampleNm : 0.0;
+   }
 }
 
 // The bead kernel's plane: a bead of diameter dNm at plane k, (2 h + 1)^2 samples (JS beadPlane).
@@ -316,22 +360,39 @@ std::vector<float> BeadKernel::Plane(int k, double dNm) const
    return out;
 }
 
-const BeadKernel::Core& BeadKernel::CoreAt(int k, double dBin)
+std::shared_ptr<const BeadKernel::Core> BeadKernel::CoreAt(int k, double dBin)
 {
+   const double r = dBin / 2.0;
+   if (r * r / 5.0 < kBeadSphereTol * sigmaNm2_[static_cast<size_t>(k)])
+      return nullptr;
    const long long key = static_cast<long long>(k) * 100000 + static_cast<long long>(dBin);
-   std::lock_guard<std::mutex> lock(mu_);
-   auto it = cores_.find(key);
-   if (it != cores_.end())
-      return *it->second;
+   {
+      std::lock_guard<std::mutex> lock(mu_);
+      auto it = cores_.find(key);
+      if (it != cores_.end())
+         return it->second;
+   }
+   // Built outside the lock (the other bands' beads go on; two threads may build the same core: the first kept).
    const int os = std::max(1, K_.oversampling), size = 2 * h_ + 1;
-   std::unique_ptr<Core> C(new Core());
+   std::shared_ptr<Core> C(new Core());
    const std::vector<float> plane = Plane(k, dBin);
    C->geom.oversampling = os;
    C->geom.halfWidthOversampled = h_;
    C->geom.sizeOversampled = size;
    C->geom.blockSumWidth = size + os - 1;
    C->blockSums = BuildBlockSums(plane.data(), size, os);
-   return *cores_.emplace(key, std::move(C)).first->second;
+   std::lock_guard<std::mutex> lock(mu_);
+   auto ins = cores_.emplace(key, C);
+   if (ins.second)
+   {
+      coreOrder_.push_back(key);
+      if (coreOrder_.size() > kBeadCoreCache)
+      {
+         cores_.erase(coreOrder_.front());
+         coreOrder_.erase(coreOrder_.begin());
+      }
+   }
+   return ins.first->second;
 }
 
 double BeadKernel::InnerScale(const BeadHalo& halo, int k)
@@ -368,18 +429,21 @@ void BeadKernel::Splat(std::vector<float>& img, unsigned W, unsigned H, int k, d
    if (photons == 0.0 || !K.valid || k < 0 || k >= K.nz)
       return;
    const int r0 = std::max(0, rowLo), r1 = rowHi < 0 ? static_cast<int>(H) : std::min(rowHi, static_cast<int>(H));
-   const Core& C = CoreAt(k, BeadBinNm(dNm));
    const int rc = rc_;
    int camRad = K.halfWidthOversampled / std::max(1, K.oversampling);
    // With a halo: the point kernel's window but its outermost ring of pixels (which its samples cover only half of)
    // scaled to the halo's share there, then the halo beyond it.
    const bool withHalo = halo && halo->Nz() == K.nz;
-   const double inner = withHalo ? photons * InnerScale(*halo, k) : photons;
    if (withHalo)
       camRad = InnerRadius();
-   SplatRect(img, W, r0, r1, C.geom, SplatSetup(C.geom, xPx, yPx, interp_), C.blockSums.data(), inner, -rc, rc, -rc, rc);
-   const SplatSetupResult st = SplatSetup(K, xPx, yPx, PsfInterpMode::Nearest);
+   const std::shared_ptr<const Core> C = CoreAt(k, BeadBinNm(dNm));
+   const double inner = withHalo ? photons * InnerScale(*halo, k) : photons;
    const float* P = K.BlockSums()[static_cast<size_t>(k)].data();
+   if (C)
+      SplatRect(img, W, r0, r1, C->geom, SplatSetup(C->geom, xPx, yPx, interp_), C->blockSums.data(), inner, -rc, rc, -rc, rc);
+   else
+      SplatRect(img, W, r0, r1, K, SplatSetup(K, xPx, yPx, interp_), P, inner, -rc, rc, -rc, rc);
+   const SplatSetupResult st = SplatSetup(K, xPx, yPx, PsfInterpMode::Nearest);
    SplatRect(img, W, r0, r1, K, st, P, inner, -camRad, camRad, -camRad, -rc - 1);
    SplatRect(img, W, r0, r1, K, st, P, inner, -camRad, camRad, rc + 1, camRad);
    SplatRect(img, W, r0, r1, K, st, P, inner, -camRad, -rc - 1, -rc, rc);

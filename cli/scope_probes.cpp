@@ -389,6 +389,7 @@ bool PresetsJson(const std::string& path, std::string& err)
       j.KNum("wf-upscale", q.wf);
       j.KNum("psf-halo-cut", q.halo);
       j.KNum("blink-min-photons", q.minPhotons);
+      j.KNum("fid-clumps-as-one", q.clumpsAsOne);
       j.Close('}');
    }
    j.Close(']');

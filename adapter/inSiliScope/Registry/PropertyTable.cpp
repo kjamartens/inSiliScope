@@ -1119,7 +1119,8 @@ std::vector<PropDef> BuildTable()
          for (const Q& q : qs)
             if (h.State().brightField[BF_QUALITY].load() == q.bf && h.State().psfOversampling.load() == q.os &&
                 h.State().wideField[WF_UPSCALING].load() == q.wf && h.State().psfHaloCut.load() == q.halo &&
-                h.State().Option("blink-min-photons") == q.minPhotons)
+                h.State().Option("blink-min-photons") == q.minPhotons &&
+                h.State().Option("fid-clumps-as-one") == q.clumpsAsOne)
                return std::string(q.name);
          return std::string("Custom");
       };
@@ -1134,11 +1135,13 @@ std::vector<PropDef> BuildTable()
                h.State().wideField[WF_UPSCALING] = q.wf;
                h.State().psfHaloCut = q.halo;
                h.State().SetOption("blink-min-photons", q.minPhotons);
+               h.State().SetOption("fid-clumps-as-one", q.clumpsAsOne);
                h.Notify("bf-quality");
                h.Notify("psf-oversampling");
                h.Notify("wf-upscale");
                h.Notify("psf-halo-cut");
                h.Notify("blink-min-photons");
+               h.Notify("fid-clumps-as-one");
                return true;
             }
          return false;
@@ -1240,6 +1243,11 @@ std::vector<PropDef> BuildTable()
               "100, Realistic 50, Exhaustive 0 = every blink); binned and mean-field frames and continuous dyes keep "
               "every one.");
       ThenNumber(d, quality);
+      add(d);
+      d = OnOffOpt(R, "BeadClumpsAsOne", Tier::Expert, "fid-clumps-as-one",
+                   "On: a clump of fiducial beads is drawn as one bead of their volume at their centre of mass with their "
+                   "light (faster; Quality Fast, Realistic). Off: each bead of a clump (Exhaustive).");
+      ThenText(d, quality);
       add(d);
       add(Opt(R, "BlinkMeanFieldDensityPerUm2", Tier::Expert, "blink-mean-field-density-per-um2", 0, 1e9,
               "A frame's blinks render mean-field (no blinks drawn: each dye's expected ON time; the blinking "

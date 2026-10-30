@@ -71,7 +71,11 @@ that finishes them.
   (Advanced, 14 um; part settings; `FiducialPsfRequest`: a group's kernel serves the beads only when its span covers
   it); no bead is culled by depth: beyond the stack `fid-far-defocus` / `Fiducials.FarDefocus` (Expert, on) draws a
   Gaussian growing with |dz| from the edge plane's spread (`BeadHalo::SigmaPx`), faded in over `kBeadFarFadeUm` 0.5 um
-  (not physical: the user's choice), off draws nothing there. Height is Basic. Checks: `world_checks.fiducials` (clump statistics, touching), golden f04-f06,
+  (not physical: the user's choice), off draws nothing there. Drawing speed (2026-10-30, beads in a gel layer took
+  focus steps to ~150 ms a frame): bead kernels only where the sphere matters (`kBeadSphereTol`, the rest the point
+  plane; cache capped `kBeadCoreCache`), separable far Gaussians, a one-tap `SplatRect` fast path (bit for bit);
+  a clump drawn as one bead of its volume (`fid-clumps-as-one` / `Renderer.BeadClumpsAsOne`, Expert; Quality Exhaustive:
+  each bead; one halo per clump was tried and dropped: square seams). Height is Basic. Checks: `world_checks.fiducials` (clump statistics, touching), golden f04-f06,
   `tools/test_specimens.py` (Beads), `tests/web/viewer_nanorulers.mjs` (bead sample); figure `fid-clumps`, gallery
   `beads-single`, `beads-sample`, `beads-20nm`.
 - **Save and load settings (2026-10-28, [docs/dev/SAVE_SETTINGS.md](docs/dev/SAVE_SETTINGS.md)):** `<name>.isc.json` in

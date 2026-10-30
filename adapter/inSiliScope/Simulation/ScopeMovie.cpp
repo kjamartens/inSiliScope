@@ -136,7 +136,7 @@ const char* PartOf(const std::string& n)
             "illum-profile", "illum-fwhm", "laser-custom-nm", "ex-lo-nm", "ex-hi-nm", "dichroic-edge-nm", "em-lo-nm",
             "em-hi-nm", "bf-condenser-na", "bf-wavelength-nm", "bf-aberrations", "fid-blocking-od" }))
       return "instrument";
-   if (n == "fid-psf-z-range-um" || n == "fid-far-defocus")   // the beads' PSF stack, as psf-z-range-um
+   if (n == "fid-psf-z-range-um" || n == "fid-far-defocus" || n == "fid-clumps-as-one")   // the beads' drawing, as psf-z-range-um
       return "settings";
    // the sample: the specimen and its world, labels and dyes, beads, the medium and the chamber
    if (in({ "seed", "world-seed", "specimen", "mode", "chunk-um", "occupancy", "cell-diam-min-um", "cell-diam-max-um",
@@ -317,6 +317,7 @@ const OptionTable& Options()
          { "fid-height", static_cast<double>(IndexOf(ScopeFiducialHeightNames(), FiducialDefaults().height)), "Fiducials.Height: 0 Coverslip (on the glass), 1 OnTop (on the sample's surface), 2 Layer (anywhere in a gel layer of fid-layer-um, outside the cells; names accepted)" },
          { "fid-layer-um", FiducialDefaults().layerUm, "Fiducials.LayerUm: the gel layer's thickness, um (Layer)" },
          { "fid-psf-z-range-um", 14.0, "Fiducials.PsfZRangeUm: span of the beads' PSF z stack, um (a bead far off focus, on top of the cells or in a gel, keeps its defocused image; the molecules': psf-z-range-um)" },
+         { "fid-clumps-as-one", 1, "Renderer.BeadClumpsAsOne: 1 = a clump of beads is drawn as one bead of their volume at their centre of mass with their light (Quality Fast, Realistic), 0 = each bead (Exhaustive)" },
          { "fid-far-defocus", 1, "Fiducials.FarDefocus: 1 = a bead beyond its PSF stack is a blur growing with the defocus (a Gaussian matched to the stack's last plane, faded in over its last 0.5 um), 0 = not drawn (faster with many far beads)" },
          { "fid-aggregation-pct", 0, "Fiducials.AggregationPct: the chance a bead is stuck to the next one, % (0-90): clumps of touching beads, n beads with probability (1 - p) p^(n-1), mean 1 / (1 - p); fid-density counts beads (estimate)" },
          { "fid-bleach-half-sec", FiducialDefaults().bleachHalfSec, "Fiducials.BleachHalfTimeSec: a bead's fluorescence half-time at fid-bleach-ref-kwcm2 at its dye's excitation peak, s (estimate: 288 s; ~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching)" },
@@ -4578,19 +4579,55 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             t0s[i] = rate > 0 ? history->DoseAt(sites[i][3], sites[i][4]) / rate + ahead : 0.0;
          }
       }
+      const bool clumpsAsOne = ScopeSpecGet(spec, "fid-clumps-as-one") != 0;
       for (const FiducialComponent& c : S.fidComps)
       {
          FiducialMovieComponent F;
          double maxRate = 0.0;
-         for (size_t i = 0; i < sites.size(); ++i)
+         for (size_t i = 0, j; i < sites.size(); i = j)
          {
-            const double* b = sites[i];
-            const double xUm = b[3] - S.q.originXUm, yUm = b[4] - S.q.originYUm, zNm = (b[5] - S.q.zRefUm) * 1000.0;
-            const double a = m.shaped ? m.ExciteAt(c.lineShares, xUm, yUm, zNm) : 1.0, rate = BeadRatePerSec(c, b[6]) * a;
-            if (!(rate > 0))
+            // A clump (its beads share their address, consecutive) is drawn as one bead (fid-clumps-as-one, the user's
+            // choice, 2026-10-30; Quality Exhaustive: each bead): a sphere of the beads' volume, d = (sum d^3)^(1/3), at
+            // their centre of mass, with their summed light (gold too: its scatter is not by volume), its bleaching and
+            // start the light-weighted means.
+            for (j = i + 1; clumpsAsOne && j < sites.size() && sites[j][0] == sites[i][0] && sites[j][1] == sites[i][1] &&
+                            sites[j][2] == sites[i][2]; ++j) {}
+            FiducialBeadSite e{ 0, 0, 0, 0, 0, 0, 0 };
+            double vol = 0.0;
+            for (size_t k = i; k < j; ++k)
+            {
+               const double* b = sites[k];
+               const double xUm = b[3] - S.q.originXUm, yUm = b[4] - S.q.originYUm, zNm = (b[5] - S.q.zRefUm) * 1000.0;
+               const double a = m.shaped ? m.ExciteAt(c.lineShares, xUm, yUm, zNm) : 1.0, rate = BeadRatePerSec(c, b[6]) * a;
+               if (!(rate > 0))
+                  continue;
+               if (j - i == 1)
+               {
+                  e = { xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, t0s[k] };
+                  break;
+               }
+               const double v = b[6] * b[6] * b[6];
+               e.xUm += v * xUm;
+               e.yUm += v * yUm;
+               e.zNm += v * zNm;
+               vol += v;
+               e.rate += rate;
+               e.lambda += rate * c.bleachPerSec * a;
+               e.t0Sec += rate * t0s[k];
+            }
+            if (!(e.rate > 0))
                continue;
-            F.beads.push_back({ xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, t0s[i] });
-            maxRate = std::max(maxRate, rate);
+            if (j - i > 1)
+            {
+               e.xUm /= vol;
+               e.yUm /= vol;
+               e.zNm /= vol;
+               e.d = std::cbrt(vol);
+               e.lambda /= e.rate;
+               e.t0Sec /= e.rate;
+            }
+            F.beads.push_back(e);
+            maxRate = std::max(maxRate, e.rate);
          }
          if (F.beads.empty() || maxRate * S.expSec < kFiducialMinPhotons)
             continue;

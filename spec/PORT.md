@@ -1272,12 +1272,13 @@ C++ only (the JS reference is retired). The model: spec/ALGORITHM.md "Fiducial b
 - Engine: options `fid-aggregation-pct` (`ScopeFiducialParams` -> `fidAggregationPct`), `fid-psf-z-range-um` (14,
   part settings; `FiducialPsfRequest`, its window capped at `kFiducialKernelHalfWidthNm` 3000 nm) and `fid-far-defocus`
   (1, part settings: beyond the beads' stack a Gaussian growing with |dz| from the edge plane's spread, faded in over
-  `kBeadFarFadeUm` 0.5 um; 0 = not drawn; no bead is culled by depth any more), `specimen` 2; the bead sample's `fid-density` and `fid-aggregation-pct` when the
+  `kBeadFarFadeUm` 0.5 um; 0 = not drawn; no bead is culled by depth any more), `fid-clumps-as-one` (1, part settings,
+  `kQualityPresets` Exhaustive 0: a clump as one bead of its volume at its centre of mass), `specimen` 2; the bead sample's `fid-density` and `fid-aggregation-pct` when the
   spec has none and its default z (`ScopeDefaultZ`); `AutoLightPreset` with no target takes the specimen's preset.
 - MM: `SampleHolder` position `Beads` (no device of its own: the `Fiducials` rows are its settings),
   `MountSpecimen` sets `fid-density` and `fid-aggregation-pct` from the specimen when 0, OnTop -> Coverslip, and
   refreshes `Fiducials.Height`'s choices (no OnTop on the bead sample); `Fiducials.AggregationPct` (Basic),
-  `Fiducials.Height` Advanced -> Basic, `Fiducials.PsfZRangeUm` (Advanced), `Fiducials.FarDefocus` (Expert, On/Off); a `Fiducials.Type` pick sets `DiameterNm`
+  `Fiducials.Height` Advanced -> Basic, `Fiducials.PsfZRangeUm` (Advanced), `Fiducials.FarDefocus` (Expert, On/Off), `Renderer.BeadClumpsAsOne` (Expert, On/Off, a `Renderer.Quality` member); a `Fiducials.Type` pick sets `DiameterNm`
   to its product size, which shows the engine's -1 as that size (10-2000); `BuildSampleSettings` sends the origami
   params only for the nanorulers. A row's tier is fixed when the hub starts, so the diameter and layer stay Advanced
   in MM on the bead sample.
