@@ -210,8 +210,8 @@ void Movies()
       Check(a && z && r0 > 1 && r1 < 0.9 * r0, b);
    }
    // A host's light history: t seconds of the same light = start-sec t (each pixel's past light as seconds of the light
-   // now), under a flat and a Gaussian beam.
-   for (const char* g : { " illum-profile=Flat", "" })
+   // now), under a flat and a Gaussian beam and in HILO (each height at its own excitation).
+   for (const char* g : { " illum-profile=Flat", "", " illum-bfp=0.9" })
    {
       bool a = false, z = false;
       const std::string gs = std::string("specimen=Slide size=48 background-per-sec=0 frames=3 slide-dye=Cy3B slide-bleach-half-sec=0.02") + g;
@@ -222,7 +222,8 @@ void Movies()
       for (size_t f = 0; a && z && f < 3; ++f)
          for (size_t i = 0; i < plain[f].size(); ++i)
             w = std::max(w, std::fabs(static_cast<double>(withH[f][i]) / plain[f][i] - 1));
-      std::snprintf(b, sizeof b, "light history%s: 0.7 s of light = start-sec 0.7 (worst %.2e)", *g ? " (flat)" : " (Gaussian)", w);
+      std::snprintf(b, sizeof b, "light history (%s): 0.7 s of light = start-sec 0.7 (worst %.2e)",
+                    !*g ? "Gaussian" : g[7] == 'p' ? "flat" : "HILO", w);
       Check(a && z && w < 1e-4, b);
    }
    // The past under another light (the user's report, 2026-10-30: HILO focused high after epi showed a step): 1 s of

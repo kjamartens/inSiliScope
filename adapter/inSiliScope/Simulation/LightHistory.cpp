@@ -1141,11 +1141,12 @@ double LightHistory::DoseAt(double xUm, double yUm, double* perSec) const
    return dose;
 }
 
-void LightHistory::DosesAt(const LightState& light, const std::vector<double>& xy, std::vector<double>& dose,
-                           std::vector<double>& rate, double& peakRate) const
+void LightHistory::DosesAt(const LightState& light, const std::vector<double>& xy, std::vector<double>& doseNow,
+                           std::vector<double>& doseOther, std::vector<double>& rate, double& peakRate) const
 {
    const size_t n = xy.size() / 2;
-   dose.assign(n, 0.0);
+   doseNow.assign(n, 0.0);
+   doseOther.assign(n, 0.0);
    rate.assign(n, 0.0);
    peakRate = 0.0;
    std::lock_guard<std::mutex> g(mutex_);
@@ -1156,7 +1157,10 @@ void LightHistory::DosesAt(const LightState& light, const std::vector<double>& x
          ref = c.refTotal;
          break;
       }
-   // DoseAt's sums, point by point.
+   // The chapter the light is in (DoseRate's): the last one if it is lit with this light.
+   const bool last = light.lit && light.ex && !chapters_.empty() && SameChapter(chapters_.back(), light) &&
+                     chapters_.back().lit;
+   // DoseAt's sums, point by point, the light now's chapter apart.
    if (ref > 0)
       for (size_t ci = 0; ci < chapters_.size(); ++ci)
       {
@@ -1173,13 +1177,12 @@ void LightHistory::DosesAt(const LightState& light, const std::vector<double>& x
                   v += r.mag * (r.t1 - r.t0) * FootprintAt(*r.fp, x, y, c.h);
             if (haveOpen_ && open_.chapter == ci && open_.lit && open_.fp)
                v += (T_ - open_.t0) * (open_.mag * FootprintAt(*open_.fp, x, y, c.h));
-            dose[k] += s * v;
+            (last && ci + 1 == chapters_.size() ? doseNow : doseOther)[k] += s * v;
          }
       }
    // DoseRate's, with one footprint, and at the beam's peak (footprint 1).
    if (!light.lit || !light.ex)
       return;
-   const bool last = !chapters_.empty() && SameChapter(chapters_.back(), light) && chapters_.back().lit;
    Chapter virt;
    if (!last)
       SetReference(virt, light);

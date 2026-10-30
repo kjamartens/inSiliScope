@@ -1069,10 +1069,12 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   else the component gets its own (a first-use PSF cost, memoized).
 - **Measured** (cli, 128 px, 200 frames, 15 beads, DNA-PAINT default scene): beads 0.07-0.11 s of 6.4-7.0 s (1-1.6 %);
   their setup is one extra PSF kernel (~1.1 s) when no dye group's wavelength serves them.
-- **Live bleaching** (MM, the viewer's live mode: a host's light history): a bead's decay starts at its past light in
-  seconds of the light now, `DoseAt / DoseRate` at its centre (exact while the light's spectrum stays the same; hours of
-  half-time make the rest negligible), plus the frames between the history's now and the movie's start-sec (a
-  render-ahead batch after queued frames); 0 where no light reaches now. A bead setting is not a new world for the
+- **Live bleaching** (MM, the viewer's live mode: a host's light history): a bead's decay starts at its past light
+  (`LightPastAt`, as the fluorescent slide's pixels, below: the light now's chapter as seconds of the light now where
+  it reaches the bead, exact while the light's spectrum stays the same, hours of half-time make the rest negligible;
+  where it does not and from lights of other geometries as excitation, the column alike; 2026-10-30, it was
+  `DoseAt / DoseRate` alone: 0 beyond the light now's footprint cut, an earlier light given the light now's heights),
+  plus the frames between the history's now and the movie's start-sec (a render-ahead batch after queued frames). A bead setting is not a new world for the
   history (`BuildSampleSettings` leaves `fid*` out).
 - **Clumps** (2026-10-30, ABI 17, the user's request: one setting that gives both the share of clumped beads and the
   clumps' sizes). `fidAggregationPct` p = the chance a bead is stuck to the next one, so a clump holds n beads with
@@ -1147,15 +1149,18 @@ fiducial beads as on any specimen); its light is the engine's (`Simulation/Slide
   e^(-k a_j T)) / (k a_j T) / sum_j a_j. Left out: the defocus blur of the bleached pattern (a fraction of the layer's
   thickness at its edges) and the drift's shift of it (the layer is the same everywhere; its bleached spot stays put).
 - **The past light**: a cli or viewer movie starts at `start-sec` of its own light (t = start-sec + f T everywhere);
-  under a host's light history (MM, the viewer's live view) each pixel's past is its dose on the coverslip as seconds
-  at excitation 1, the same for every height of its column (`LightHistory::DosesAt` on a 0.25 um grid, one footprint
-  for all, bilinear), then the frames between the history's now and start-sec at each height's own excitation. Where
-  the light now reaches the coverslip there (its rate >= 1 % of its peak): dose / that rate x the excitation there (as
-  the beads' seconds of the light now; exact under an unchanged light, the lattice's interpolation cancels); where it
-  does not (< 0.1 %): dose / the peak's rate x F; a smooth blend between (they differ by the lattice's ~0.2 %). Fixed
-  on purpose (the user's report, 2026-10-30): dose / the local rate alone, the beads' rule, jumped from huge to 0 at the
+  under a host's light history (MM, the viewer's live view) each pixel's past comes from its dose on the coverslip
+  (`LightHistory::DosesAt` on a 0.25 um grid, one footprint for all, bilinear), split by chapter (`LightPastAt`, the
+  beads' too): the light now's chapter (its geometry: its heights scale as the light now's) as seconds of the light now
+  where the light now reaches the coverslip there (rate >= 1 % of its peak; each height then at its own excitation,
+  exact under an unchanged light: the lattice's interpolation cancels), as seconds at excitation 1 (dose / the peak's
+  rate x F, the column alike) where it does not (< 0.1 %), a smooth blend between (they differ by the lattice's
+  ~0.2 %); the other chapters' dose as excitation, the column alike (their heights are not recorded: the per-column
+  model). Then the frames between the history's now and start-sec at each height's own excitation. Fixed on purpose
+  (the user's report, 2026-10-30): dose / the local rate alone (the beads' old rule) jumped from huge to 0 at the
   footprint's 1e-4 cut where the light now barely reaches (HILO focused high above the slide: its sheet meets the
-  coverslip tens of um aside), a sharp step across the image.
+  coverslip tens of um aside), a sharp step across the image, and gave an earlier light of another geometry the light
+  now's heights (epi's past under HILO came out over-bleached where the sheet is bright).
 - **Light preset** (the auto preset with no target, `SlideLightPresetId`): the Mix's `Slide-561`, a library dye's the
   `Slide-*` preset with the filters of its WideField preset (its default mode's without one): each one line at
   0.02 kW/cm^2 (the user's choice), the WF presets' filters. At the defaults the beam's centre gives ~8800 photons per

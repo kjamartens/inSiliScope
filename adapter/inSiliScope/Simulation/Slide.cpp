@@ -129,6 +129,20 @@ std::string SlideLightPresetId(int dye)
    return fallback;
 }
 
+LightPast LightPastAt(double doseNow, double doseOther, double rate, double peakRate, double F)
+{
+   LightPast p;
+   if (!(peakRate > 0))
+      return p;   // dark now: nothing shows, no past needed
+   const double r = rate / peakRate, bl = std::min(1.0, std::max(0.0, (r - 1e-3) / (1e-2 - 1e-3)));
+   if (bl > 0)
+      p.sec = bl * (doseNow / rate);
+   const double other = (bl < 1 ? (1 - bl) * doseNow : 0.0) + doseOther;
+   if (other > 0)
+      p.exc = other * F / peakRate;
+   return p;
+}
+
 void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f)
 {
    const size_t n = static_cast<size_t>(M.W) * M.H;
@@ -147,7 +161,8 @@ void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f)
             if (k > 0)
             {
                // The column's mean survival over [t, t + T], each height weighted by its excitation (its emission).
-               const double t = M.t0Sec + tf, past = M.pastExc.empty() ? 0.0 : k * M.pastExc[i];
+               const double t = M.t0Sec + tf + (M.pastSec.empty() ? 0.0 : M.pastSec[i]);
+               const double past = M.pastExc.empty() ? 0.0 : k * M.pastExc[i];
                double num = 0.0, den = 0.0;
                for (int j = 0; j < G.nodes; ++j)
                {

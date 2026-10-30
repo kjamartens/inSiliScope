@@ -89,13 +89,26 @@ struct SlideMovie
    double expSec = 0.05;
    std::vector<Geometry> geos;
    std::vector<Comp> comps;
-   // The past light: none (pastExc empty): t0Sec of the movie's own light at every height; under a light history per
-   // pixel its past as seconds at excitation 1 (the dose on the coverslip in units of the light now, the column's every
-   // height alike), the frames from t0Sec on at each height's own excitation.
-   std::vector<float> pastExc;
+   // The past light: none (empty): t0Sec of the movie's own light at every height; under a light history per pixel
+   // (LightPast) seconds of the light now (each height at its own excitation) plus seconds at excitation 1 (every
+   // height alike), then the frames from t0Sec on at each height's own excitation.
+   std::vector<float> pastSec, pastExc;
    double t0Sec = 0;
    double sec = 0;               // render time, s
 };
+// A place's past light under a host's light history (LightHistory::DosesAt: its dose there from the light now's
+// chapter and from the others, the dose rate the light now gives there and at its beam's peak; the light now's F), as
+// seconds of the light now (sec: x the excitation at any height) plus seconds at excitation 1 (exc: every height
+// alike). The light now's chapter (its geometry: its heights scale as the light now's) as seconds of the light now
+// where it reaches the place (rate >= 1 % of the peak's: exact under an unchanged light, the history lattice's
+// interpolation cancels), as excitation where it does not (< 0.1 %: dose / the peak's rate x F), a smooth blend
+// between (they differ by the lattice's ~0.2 %); the other chapters as excitation (their heights unknown here: the
+// column alike, the per-column model). Seconds of the light now alone (dose / rate) jumped from huge to 0 at the
+// footprint's 1e-4 cut where the light now barely reaches (HILO focused high: its sheet meets the coverslip tens of um
+// aside; a step across the image, the user's report, 2026-10-30), and gave an earlier light of another geometry the
+// light now's heights (epi's past under HILO: over-bleached where the sheet is bright).
+struct LightPast { double sec = 0, exc = 0; };
+LightPast LightPastAt(double doseNow, double doseOther, double rate, double peakRate, double F);
 // The slide's photons of frame f into img: each pixel's base x the mean survival of its column over the frame.
 void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f);
 

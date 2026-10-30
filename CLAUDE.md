@@ -88,9 +88,11 @@ that finishes them.
   `Excitation::ImagerMap` over [0, h] (`BlendedBgSlice`, `BgMapCache`), on a finer node grid (`kSlideNodesPerScale`
   12; the background's 3 left ~1.4 % kinks); bleaching deterministic and **per pixel column** (the user's choice: the
   pixel's light x its column's survival, heights at their own excitation, `kSlideNodes` 8 in HILO/TIRF; the defocus
-  blur of the bleached pattern left out), the past from the light history (`LightHistory::DosesAt` on a 0.25 um grid:
-  dose / the local rate x the excitation where the light now reaches, dose / the peak's rate x F where it does not, a
-  blend between; dose / the local rate alone made a step at the footprint's cut, HILO focused high) or `start-sec`. Light presets `Slide-405/488/561/640` (one line at 0.02 kW/cm^2, the WF presets' filters; the user's
+  blur of the bleached pattern left out), the past from the light history (`LightHistory::DosesAt` on a 0.25 um grid, split
+  by chapter; `LightPastAt`, the beads' too: the light now's chapter as seconds of the light now where it reaches,
+  as excitation where it does not, a blend between; other chapters as excitation, the column alike; dose / the local
+  rate alone, the beads' old rule, made a step at the footprint's cut, HILO focused high, and gave epi's past HILO's
+  heights) or `start-sec`. Light presets `Slide-405/488/561/640` (one line at 0.02 kW/cm^2, the WF presets' filters; the user's
   choice), the auto preset with no target (`SlideLightPresetId`: Mix -> `Slide-561`). Defaults give ~8800 photons per
   px per 50 ms frame at the Gaussian beam's centre. MM device `FluorescentSlide` (all rows Basic; a `Dye` pick with the
   slide mounted applies `Lasers.Preset` Auto; a mount keeps the lasers); viewer group `slide` (the mount and a dye pick

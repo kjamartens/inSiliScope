@@ -4628,19 +4628,31 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          sites.push_back(&rows[i]);
       FM->sites = sites.size();
       // When each bead's decay starts: the movie's start-sec, or under a host's light history the bead's past light
-      // as seconds of the light now (its dose there / the dose rate the light gives there; exact while the light's
-      // spectrum stays the same, ample for hours of half-time), plus the frames between the history's now and the
-      // movie's start-sec (a render-ahead batch after queued frames: the map's clocks run on to it as well).
-      std::vector<double> t0s(sites.size(), S.t0Sec);
+      // (LightPastAt, from its dose there: seconds of the light now where that light reaches, exact while the light's
+      // spectrum stays the same, ample for hours of half-time; seconds at excitation 1 where it does not, as seconds of
+      // its own excitation now: the bead's a), plus the frames between the history's now and the movie's start-sec (a
+      // render-ahead batch after queued frames: the map's clocks run on to it as well).
+      std::vector<LightPast> pasts;
+      double ahead = 0.0;
       if (history && light)
       {
-         const double ahead = std::max(0.0, S.t0Sec - history->T());
+         ahead = std::max(0.0, S.t0Sec - history->T());
+         std::vector<double> xy(2 * sites.size()), dose, doseOther, rate;
          for (size_t i = 0; i < sites.size(); ++i)
          {
-            const double rate = history->DoseRate(*light, sites[i][3], sites[i][4]);
-            t0s[i] = rate > 0 ? history->DoseAt(sites[i][3], sites[i][4]) / rate + ahead : 0.0;
+            xy[2 * i] = sites[i][3];
+            xy[2 * i + 1] = sites[i][4];
          }
+         double peak = 0.0;
+         history->DosesAt(*light, xy, dose, doseOther, rate, peak);
+         pasts.resize(sites.size());
+         for (size_t i = 0; i < sites.size(); ++i)
+            pasts[i] = LightPastAt(dose[i], doseOther[i], rate[i], peak, S.excite.F());
       }
+      // site k's start for an excitation a > 0 now
+      auto T0 = [&](size_t k, double a) {
+         return pasts.empty() ? S.t0Sec : pasts[k].sec + (pasts[k].exc > 0 ? pasts[k].exc / a : 0.0) + ahead;
+      };
       const bool clumpsAsOne = ScopeSpecGet(spec, "fid-clumps-as-one") != 0;
       for (const FiducialComponent& c : S.fidComps)
       {
@@ -4665,7 +4677,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                   continue;
                if (j - i == 1)
                {
-                  e = { xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, t0s[k] };
+                  e = { xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, T0(k, a) };
                   break;
                }
                const double v = b[6] * b[6] * b[6];
@@ -4675,7 +4687,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                vol += v;
                e.rate += rate;
                e.lambda += rate * c.bleachPerSec * a;
-               e.t0Sec += rate * t0s[k];
+               e.t0Sec += rate * T0(k, a);
             }
             if (!(e.rate > 0))
                continue;
@@ -5036,14 +5048,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // The fluorescent slide (Slide.h): per excitation geometry (a set of line shares) the layer's collected light, the
    // background's imager model over the layer's thickness (a slice of its focus grid at rate 1, BlendedBgSlice), and
    // each pixel's excitation at kSlideNodes heights (one in epi: the same at every height); per dye its unbleached
-   // photons; under a light history each pixel's past light as seconds at excitation 1 (the column's every height
-   // alike), then the frames between the history's now and start-sec at each height's own excitation. The past: where
-   // the light now reaches (its rate on the coverslip >= 1 % of its peak) the dose / that rate x the excitation there
-   // (exact under the same light: the lattice's interpolation cancels, as the beads' seconds of the light now); where it
-   // does not (< 0.1 %) the dose / the peak's rate x F (dose / the local rate alone jumped from huge to 0 at the
-   // footprint's 1e-4 cut: HILO focused high, its sheet meeting the coverslip tens of um aside, showed a step; the
-   // user's report, 2026-10-30); between, a smooth blend (they differ by the lattice's ~0.2 %). DosesAt on a 0.25 um
-   // grid, bilinear (the history's lattice).
+   // photons; under a light history each pixel's past light (LightPastAt: seconds of the light now where it reaches,
+   // seconds at excitation 1 where it does not; DosesAt on a 0.25 um grid, bilinear: the history's lattice), then the
+   // frames between the history's now and start-sec at each height's own excitation.
    m.slide.reset();
    if (!S.slideComps.empty())
    {
@@ -5138,7 +5145,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          const double h = 0.25, x0 = S.q.originXUm, y0 = S.q.originYUm;
          const int nx = static_cast<int>(std::ceil((S.W - 1) * um / h)) + 2;
          const int ny = static_cast<int>(std::ceil((S.H - 1) * um / h)) + 2;
-         std::vector<double> xy(static_cast<size_t>(nx) * ny * 2), dose, rate;
+         std::vector<double> xy(static_cast<size_t>(nx) * ny * 2), dose, doseOther, rate;
          for (int j = 0; j < ny; ++j)
             for (int i = 0; i < nx; ++i)
             {
@@ -5146,29 +5153,31 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                xy[2 * (static_cast<size_t>(j) * nx + i) + 1] = y0 + j * h;
             }
          double peak = 0.0;
-         history->DosesAt(*light, xy, dose, rate, peak);
+         history->DosesAt(*light, xy, dose, doseOther, rate, peak);
          SM->t0Sec = std::max(0.0, S.t0Sec - history->T());
          if (peak > 0)   // dark now: nothing shows, no past needed
          {
-            const double toExc = S.excite.F() / peak;
+            std::vector<double> sec(dose.size()), exc(dose.size());
+            for (size_t k = 0; k < dose.size(); ++k)
+            {
+               const LightPast lp = LightPastAt(dose[k], doseOther[k], rate[k], peak, S.excite.F());
+               sec[k] = lp.sec;
+               exc[k] = lp.exc;
+            }
             auto Lerp = [&](const std::vector<double>& v, double u, double w) {
                const int i = std::min(nx - 2, static_cast<int>(u)), j = std::min(ny - 2, static_cast<int>(w));
                const double fu = u - i, fw = w - j;
                auto V = [&](int a, int b) { return v[static_cast<size_t>(b) * nx + a]; };
                return (1 - fw) * ((1 - fu) * V(i, j) + fu * V(i + 1, j)) + fw * ((1 - fu) * V(i, j + 1) + fu * V(i + 1, j + 1));
             };
-            std::vector<double> t0(dose.size());
-            for (size_t k = 0; k < dose.size(); ++k)
-               t0[k] = rate[k] > 1e-3 * peak ? dose[k] / rate[k] : 0.0;
+            SM->pastSec.resize(n);
             SM->pastExc.resize(n);
             for (unsigned y = 0; y < S.H; ++y)
                for (unsigned x = 0; x < S.W; ++x)
                {
                   const double u = x * um / h, w = y * um / h;
-                  const double r = Lerp(rate, u, w) / peak, far = toExc * Lerp(dose, u, w);
-                  const double bl = std::min(1.0, std::max(0.0, (r - 1e-3) / (1e-2 - 1e-3)));
-                  const double near = bl > 0 ? Lerp(t0, u, w) * S.excite.F() * S.excite.Lateral(x * um - m.axisX, y * um - m.axisY, 0.0) : 0.0;
-                  SM->pastExc[static_cast<size_t>(y) * S.W + x] = static_cast<float>(bl * near + (1 - bl) * far);
+                  SM->pastSec[static_cast<size_t>(y) * S.W + x] = static_cast<float>(Lerp(sec, u, w));
+                  SM->pastExc[static_cast<size_t>(y) * S.W + x] = static_cast<float>(Lerp(exc, u, w));
                }
          }
       }
