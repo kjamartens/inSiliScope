@@ -157,6 +157,59 @@ What it does to a frame, with the free DNA-PAINT imager's background:
 
 <!-- fig:light-geometry-images -->
 
+## Structured illumination (SIM)
+
+The light can also be several coherent **beams**, each a spot in the objective's back focal plane, interfering in the
+sample to a fringe pattern that steps with the frame (`sim-type`, MM `Lasers.Pattern`; the physics in full:
+`spec/ALGORITHM.md`, "Structured illumination"):
+
+| type | beams | frames per cycle | after |
+|---|---|---|---|
+| `SIM2D` | two at ±r | 3 phases × 3 orientations (60° apart) | [[gustafsson2000](../references.md#gustafsson2000)] |
+| `SIM3D` | two at ±r and the centre | 5 phases × 3 orientations | [[gustafsson2008](../references.md#gustafsson2008)] |
+| `LatticeSIM2D` | ±x and ±y | 9 phases, one orientation | a four-beam lattice |
+| `LatticeSIM3D` | ±x, ±y and the centre | 13 phases (the x and y pairs stepping 2 : 3) | the five-beam lattice of Zeiss's Lattice SIM |
+| `Custom` | the beam matrix alone | `sim-phases` × `sim-angles` | |
+
+The beams sit at radius r = `illum-bfp` in the pupil: the BFP slider is the beams' radius, so past 1 the beams are
+evanescent and the pattern is **TIRF-SIM** [[kner2009](../references.md#kner2009)]; a type pick sets it to the type's
+default (2D 0.95, 3D and the lattices 0.9; *estimates*). Two beams at ±u make a fringe of period λ / (2 n u) in the
+medium (180 nm at u = 0.95 and 640 nm): near the resolution limit, so the raw frames show little of the fringe itself
+and mostly its moiré with the sample, which is what a reconstruction uses. Every beam's field is the single beam's
+physics above at the beam's own angle (the Fresnel amplitudes below the critical angle, Axelrod's evanescent field
+components with their phases above it [[axelrod1984](../references.md#axelrod1984)]), the pattern their coherent sum
+squared [[frohn2001](../references.md#frohn2001)]; the polarization (`sim-polarization`, Advanced) is S for every
+type unless changed (each beam linearly polarized across its plane of incidence: full fringe contrast; for the lattice
+the x and y pairs then do not interfere), or P, Circular, LinearX or Unpolarized.
+
+Each beam is a **spot** in the pupil: a Gaussian spot of radius w<sub>b</sub> is exactly a Gaussian beam of 1/e²
+radius λ f / (π w<sub>b</sub>) in the sample (f the objective's focal length, `tube-length-mm` / `magnification`), so
+a spot size sets the envelope's width (and `illum-fwhm` is the same knob the other way round: the readouts give the
+equivalent spot radius), and a bundle entering the pupil at an angle lands its envelope off-axis by f tan(tilt). The
+Expert beam matrix (MM `Lasers.Beams`, cli `--sim-beams`) holds every beam of the illumination path in every mode, one
+row per beam, `ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm`: position in u units, the spot's radius in µm
+(0: from `illum-fwhm`), the entry tilt in degrees (two axes), the field amplitude, the phase in turns, the polarization
+angle in degrees (0 s, 90 p) and the ellipticity phase in turns (0.25 circular), the phase step per phase index in
+1/`sim-phases` turns, and the laser line the beam carries (0: every line). A row over the type's beam j replaces the
+columns given; a row beyond them adds a beam; `Custom` is the matrix alone. For example the 2D SIM pair at 0.95 is
+`0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0`, and a lattice whose centre beam the fibre bundle delivers 0.5°
+off is its five rows with `tiltX 0.5` in the first.
+
+**The frame program.** Frame f of the sample's frame sequence takes the phase index f mod nPhases and the orientation
+index f / nPhases (every phase of an orientation, then the next; `sim-order` PhaseMajor swaps them); the orientation
+rotates every beam by 180° / `sim-angles`, the phase adds phaseStep × phase / nPhases turns to each beam. A cli stack
+starts at frame 0 and writes the state per frame to `<out>.pattern.csv`; the viewer's live sample counts its frames
+(every frame, dark ones too; a fresh sample starts at 0). A phase drift (Expert) makes each beam's phase walk per frame
+(`sim-phase-drift-turns-per-sqrt-sec`) or slide (`sim-phase-drift-turns-per-sec`).
+
+**What the dyes see.** The emission of every frame uses that frame's exact pattern: each blink's photons at its site,
+the mean-field image under the pattern (one scene per pattern state), the background at the coverslip. The kinetics
+(dSTORM switching, PALM activation, bleaching, the background fade) run on the **cycle mean** of the pattern, the
+beams' incoherent sum, which the pattern summed over a full phase cycle equals exactly: a dye's dose within a cycle is
+off by at most one frame's modulation, and the light history keeps one chapter per beam set (one component per beam
+of the cycle) instead of a fringe it could not resolve. The DNA-PAINT imager background uses the cycle mean too (the
+defocused column blurs the fringes).
+
 ## The DNA-PAINT imager background
 
 Unbound imager in the illuminated volume adds an offset per pixel and second of

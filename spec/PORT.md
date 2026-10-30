@@ -1293,3 +1293,45 @@ C++ only (the JS reference is retired). The model: spec/ALGORITHM.md "Fiducial b
   Layer clumps in 3D in the gel), golden `f04`-`f06` (new lines; `f00`-`f03` unchanged), `tools/test_specimens.py`
   and `tools/test_fiducials.py` (MM), physics figure `fid-clumps`.
 
+## 28. Structured illumination: beams in the back focal plane, the frame program (2026-10-30)
+
+C++ only. The model: spec/ALGORITHM.md "Structured illumination".
+
+- **Engine.** `Simulation/SimPattern.*` (pure): `Beam` (the matrix columns, `BeamColumnNames`, `BeamColumn` /
+  `SetBeamColumn`), `BeamSet` (`MakeBeams(type, radius u, polarization, centreAmp)`, `ApplyBeamRow`, the program:
+  phases, angles, order, angle0, phase0, the phase drift), `ParseBeamMatrix` / `FormatBeamMatrix`, `FrameLight` /
+  `FrameLightAt`, `PatternState` / `PatternStateAt` (rotated, phased beams; `PhaseDriftTurns`), `BeamFieldOf` (Fresnel
+  / Axelrod fields over t0, the polarization state), `Pattern` / `CompilePattern` (the DC and fringe terms per line,
+  `At` over the envelopes, `PeriodsUm`), `OrdersSeparate`. `Excitation`: `ExcitationSpec` gains `beams`, `fObjUm`,
+  `lambdaRefNm`, `lineNm`, `seed`, `expSec`, `frame`; a beam set makes one `Component` per beam of the cycle (angle x
+  beam: u, cosI, tanS, F, the shear (sx, sy), the envelope's centre (ox, oy) and width, tirf) and a legacy spec the one
+  old component with the old arithmetic (`MakeLegacy`); `Patterned`, `Varies`, `SetFrame` (the state and the per-line
+  terms), `At` (the frame's pattern x envelopes per line share), `MeanAt` (the components' sum), `PlaneMean` /
+  `MeanPlaneMean` (the exact means over a cell and a plane), `ComponentLateral` / `ComponentDepth` /
+  `ComponentDepthMean` / `ComponentDecayUm`, `SpotRadiusUm` / `EnvelopeFwhmUm` (the Fourier pair), `Column` /
+  `ImagerMap` on the mean. `ScopeMovie`: options `sim-type`, `sim-polarization`, `sim-phases`, `sim-angles`,
+  `sim-order`, `sim-angle0-deg`, `sim-phase0` (part settings), `sim-centre-amp`, `sim-phase-drift-turns-per-sqrt-sec`,
+  `sim-phase-drift-turns-per-sec`, `tube-length-mm`, `magnification` (instrument), `frame0` (measurement, internal),
+  the `beam.<j>.<column>` keys (instrument; `BeamKeyIndex`, `ScopeSpecSet`, `ScopeOptionPart`), `ScopeBeamSet`,
+  `ScopeBeamMeanKey` (the chapter key's part), `ScopeExcitationSpec` resolving them (the strongest line at the sample
+  as `lambdaRefNm`); `ScopeSetup::frame0`. `FluorescenceMovie::Impl`: `varies`, `period`, `StateOf(f)`, `ExciteFor`
+  (an `Excitation` per state, memoized), `ExciteAtFrame`, `MeanExciteAt`, `PatternStates`, `NodeOf`, `BgMapFor`
+  (the imager part + the flat background x the frame's pattern); the frame loop sets each frame's events' `excite`,
+  the per-dye windows' per frame (`accFrame` -1, no carry), the beads' `FiducialMovie::frameScale`; one `MeanFieldNode`
+  per state (`patternState`, `sceneZ`, `anchor`, `anchored` moved from `Population`), `BuildMeanFieldNode`, the slot
+  key (population x `kPatternSlots` 64 + state), `ExcitePlaneFactor::pitchUm` and the `PlaneMean` path; `SimplePlan`
+  empty under a varying pattern; `ScopeMovieInfo::patternStates`. `LightHistory`: `Chapter::Comp` / `grids` per
+  component, `Record::fps`, `MakeFootprints` (the legacy component's footprint in the old arithmetic, the others
+  `ComponentLateral` in sheared coordinates), terms per component in DOSE, ACTIVATION and the bleach fields, `DoseAt`
+  / `DoseRate` summed; `MakeLightState`'s `lightKey` + `ScopeBeamMeanKey`. `LiveScope`: `FrameCounter` /
+  `SetFrameCounter` (every frame counts; `frame0` per call; `Advance` counts; `Reset` 0), `LiveFrameInfo::frame`,
+  `patternAngle`, `patternPhase`, `patternPeriod`. `Fiducials`: `FiducialMovie::frameScale`.
+- **cli.** `--sim-beams "<rows>"` (one argument, the matrix), `<out>.pattern.csv`; `--setup-json` and the viewer's
+  setup JSON: `excitation.beams[]` and `excitation.pattern` (`ExcitationBeamsJson`), the probes' `pattern_xy`.
+- **Checks.** ctest `sim_pattern` (`cli/sim_pattern_check.cpp`, ~8 s: the fringe, the fields, the cycle, the orders,
+  the program, the matrix, the drift, the movie's `frame0`, mean field vs per dye, Off bit for bit), `history_check`
+  (SIM3D Gaussian, TIRF-SIM2D: the dose = the brute sum of `MeanAt`, components and terms), `live_scope` (a SIM mode
+  in the recording and replay tests, the frame counter), the reference TIFFs of the Off path unchanged.
+- **Not in this round:** the MM adapter's rows and counter (M2), the viewer's rows, readout and preview (M3), the
+  GPU mean field under a pattern (the CPU scenes serve; a job cannot see per-frame plane factors yet), the exact
+  per-frame dose, stroboscopic programs.

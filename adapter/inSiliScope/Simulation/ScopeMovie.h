@@ -98,6 +98,8 @@ struct ScopeMovieInfo
    double querySec = 0, totalSec = 0;
    std::string description;   // one line of the settings, for file metadata
    std::vector<double> driftNm; // sample drift: x, y, z per frame (empty: none)
+   // A structured pattern: per frame its angle index, phase index and rotation (degrees), 3 per frame (empty: none).
+   std::vector<double> patternStates;
 };
 
 struct PsfGeneratorRequest;
@@ -265,6 +267,16 @@ double ScopePresetBfpPosition(const ScopeSpec& spec, double presetBfp);
 // position, the objective and the medium; the HILO sheet pivots at the focal plane (focus-um + z).
 struct ExcitationSpec;
 ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec);
+// The beams of a spec (SimPattern.h; spec/ALGORITHM.md "Structured illumination"): sim-type's beams at illum-bfp,
+// polarized per sim-polarization, with the program (sim-phases, sim-angles, sim-order, sim-angle0-deg, sim-phase0, the
+// phase drift) and the matrix's rows (beam.<j>.<column>) over them; empty beams = the legacy single beam.
+struct BeamSet;
+BeamSet ScopeBeamSet(const ScopeSpec& spec);
+// The part of a beam set the kinetics' light depends on (the cycle mean: beams, polarization, angles), for a light
+// history's chapter key; empty for the legacy beam.
+std::string ScopeBeamMeanKey(const ExcitationSpec& e);
+// "beam.<j>.<column>" keys (SimPattern.h BeamColumnNames): j, and the column; -1 for another name.
+int BeamKeyIndex(const std::string& name, int* column);
 // A host's view of a spec's excitation (the adapter's illumination history and readouts): the geometry and the line
 // shares of the first mounted label's main state (empty when no label emits); lightKinetics (optional): whether a
 // mounted label's kinetics follow the light (any mode but DNA-PAINT, whose binding needs none). False (err) when the

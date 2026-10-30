@@ -25,6 +25,7 @@ void LiveScope::Reset()
    haveWorld_ = false;
    tSec_ = 0;
    noiseCounter_ = 0;
+   frameCounter_ = 0;
 }
 
 bool LiveScope::Frame(const ScopeSpec& spec, bool countLight, std::vector<uint16_t>& adu, LiveFrameInfo& info,
@@ -85,12 +86,14 @@ int LiveScope::Begin(const ScopeSpec& specIn, long n, bool countLight, Step& st,
    if (!MakeLightState(spec, st.lit, st.light, err))
       return -1;
    spec["start-sec"] = history_.T();
+   spec["frame0"] = static_cast<double>(frameCounter_);   // the frame program: where in its cycle these frames are
    return 1;
 }
 
 void LiveScope::Finish(const Step& st, long n)
 {
    noiseCounter_ += static_cast<uint32_t>(n);
+   frameCounter_ += n;
    // The frames' light goes into the history (the next frame sees it), one frame at a time as live mode adds it; the
    // sample's time runs from its first light on (the adapter's rule: before it every dye is fresh and DNA-PAINT's
    // binding stationary), and the drift moves on.
@@ -208,6 +211,13 @@ bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::ve
    }
    info.tSec = tSec_;
    info.drift = st.d;
+   info.frame = frameCounter_;
+   if (!mi.patternStates.empty())
+   {
+      info.patternAngle = static_cast<int>(mi.patternStates[0]);
+      info.patternPhase = static_cast<int>(mi.patternStates[1]);
+      info.patternPeriod = std::max(1, ScopeBeamSet(spec).Period());
+   }
    Finish(st, n);
    info.width = R.W;
    info.height = R.H;

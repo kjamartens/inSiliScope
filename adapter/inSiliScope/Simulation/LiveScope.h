@@ -47,6 +47,9 @@ struct LiveFrameInfo
    size_t blinks = 0;
    long dyes = 0;
    DriftNm drift;            // the sample's drift at the frame (nm)
+   long long frame = 0;      // the frame's index in the sample's frame sequence (the frame program's input)
+   // A structured pattern (sim-type): the frame's angle and phase indices and the program's period (0: none).
+   int patternAngle = 0, patternPhase = 0, patternPeriod = 0;
    double renderMs = 0;
    // How the frame's fluorescence was drawn (FluorescenceMovie::Render's "frames" progress): a JSON array of
    // strings, e.g. ["SMLM: 120 blinks (splat)", "initial ON: mean-field (FFT)"]; [] for a lamp-only or dark frame.
@@ -75,6 +78,10 @@ public:
    void Reset();
    double TimeSec() const { return tSec_; }
    const LightHistory& History() const { return history_; }
+   // The sample's frame counter: the index the next frame takes in the frame program (every frame rendered or
+   // advanced counts, dark ones too); 0 on a fresh sample. A host may set it (a stack that restarts the program).
+   long long FrameCounter() const { return frameCounter_; }
+   void SetFrameCounter(long long f) { frameCounter_ = f; }
 
 private:
    struct Step;
@@ -90,6 +97,7 @@ private:
    bool haveWorld_ = false;
    double tSec_ = 0;
    uint32_t noiseCounter_ = 0;
+   long long frameCounter_ = 0;
    // the camera's fixed-pattern maps (a function of the seed and the camera settings) and their key
    PixelOffsetMap offsetMap_;
    PixelGainMap gainMap_;

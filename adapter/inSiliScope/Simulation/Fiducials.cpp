@@ -635,6 +635,8 @@ void RenderFiducials(std::vector<float>& img, unsigned W, unsigned H, FiducialMo
                      double pixelNm, bool staticFocus, double dx, double dy)
 {
    const double exp = FM.expSec, tm = (FM.N - 1) * exp / 2;
+   if (FM.frameScale)
+      staticFocus = false;   // (a per-frame light: no Taylor images)
    for (FiducialMovieComponent& F : FM.comps)
    {
       if (staticFocus && F.taylorState < 0)
@@ -681,7 +683,8 @@ void RenderFiducials(std::vector<float>& img, unsigned W, unsigned H, FiducialMo
       }
       SplatFiducials(img, W, H, F, zf, pixelNm, dx, dy, [&](const FiducialBeadSite& e) {
          const double tf = e.t0Sec + f * exp;
-         return MeanPhotonsOf(e.rate, e.lambda, tf, tf + exp);
+         const double v = MeanPhotonsOf(e.rate, e.lambda, tf, tf + exp);
+         return FM.frameScale ? v * FM.frameScale(f, F, e) : v;
       });
    }
 }

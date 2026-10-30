@@ -928,6 +928,107 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   supercritical-angle emission (TIRF's collection gain near the interface) and the beam's angular spread in the BFP
   are not modelled; the incidence plane is the camera x axis.
 
+## Structured illumination: beams in the back focal plane, the frame program (2026-10-30)
+
+The light as a set of coherent beams, each a spot in the objective's back focal plane (BFP), interfering in the sample
+(`Simulation/SimPattern.*`, `Excitation.*`; options `sim-type` and the beam matrix, spec/PORT.md 28). The single beam
+of "Excitation geometry" above is the one-beam case and stays its old arithmetic bit for bit (no beam set: `sim-type`
+Off and no matrix).
+
+- **A beam is a spot in the BFP.** Position (ux, uy) in u units (sin theta_s = |u| in the medium: the plane wave's
+  direction; |u| > 1 evanescent, beyond NA / n_s clipped, as the single beam), **spot size** (the Gaussian spot's 1/e^2
+  radius in the pupil, um; 0 = the legacy width `illum-fwhm`), **entry tilt** (the bundle's angle into the BFP, two
+  axes), amplitude, phase (turns), polarization (an angle a: 0 s, perpendicular to the plane of incidence, 90 p; an
+  ellipticity phase, 0.25 = circular), a phase step per phase index and the laser line it carries (0 = every line;
+  reserved: the powers stay the lines'). The pupil's physical radius is f_obj NA with f_obj = `tube-length-mm` /
+  `magnification` (200 mm / 100). Pupil and sample are a Fourier pair: a Gaussian spot of radius w_b is exactly a
+  Gaussian beam of 1/e^2 radius w_s = lambda f_obj / (pi w_b) in the sample (the Rayleigh range of a beam wider than
+  ~5 um is far beyond the sample's height, so the envelope does not change over it), so **the spot size sets the
+  envelope's width** (`illum-profile` stays the envelope's *shape*: Gaussian, FlatTop -- the SMLM Challenge's soft
+  disc, whose pupil field is not Gaussian but whose width follows the same pair -- or Flat; a beam with no spot size
+  takes the width from `illum-fwhm` through the pair, the same sigma as before; the readouts give the equivalent spot
+  radius); **the tilt moves the envelope's centre** by f_obj tan(tilt) (a ray through the BFP at an angle lands
+  off-axis: the measured central-beam offsets of a fibre-bundle lattice-SIM setup are this). The envelope widths of a
+  spot size are made at the strongest line at the sample (a 488 nm beam through the same spot is 24 % narrower:
+  left out, *estimate*).
+- **The field of a beam** in the sample, over the epi amplitude t0 (so |E|^2 = the single beam's F): below the
+  critical angle the Fresnel amplitudes t_s, t_p (bornwolf1999 1.5.2) on the vectors s = (-sin phi, cos phi, 0) and
+  p = (cos theta_s cos phi, cos theta_s sin phi, -sin theta_s); above it Axelrod's evanescent components with their
+  phases (axelrod1984: E_y for s, E_x and E_z a quarter turn apart for p, delta_s and delta_p; their |.|^2 are
+  axelrod2001's I_s and I_p of the single beam), the amplitude decaying as exp(-z / 2 d). The polarization state is
+  cos a E_s + sin a e^{i 2 pi ellip} E_p; the LinearX choice puts the pupil field along the lab x axis (its s part
+  -sin phi, p part cos phi, signed: a beam and its opposite carry opposite p signs, as x-polarized light does);
+  Unpolarized is the mean of the all-s and the all-p patterns (the single beam's "mean of s and p"). Each beam's
+  envelope is stretched by 1 / cos theta_i along its azimuth and moves with height as the single beam's does.
+- **The pattern** I(r) = |sum_j sqrt(P_j(r)) E_j(r)|^2 is compiled per laser line into terms (`CompilePattern`): the
+  DC terms (per beam: its |E|^2, envelope and decay -- the single-beam physics) and one fringe per pair (j, l): 2 |E_j
+  . E_l*| sqrt(P_j P_l) exp(-z / d_jl) cos(q . r + kz z + phi_j - phi_l + arg(E_j . E_l*)), lateral q = k0 n_s (u_j -
+  u_l), axial kz = k0 n_s (cos theta_j - cos theta_l) for propagating beams, 1 / d_jl = 1 / 2 d_j + 1 / 2 d_l over the
+  evanescent ones. Two beams at +-u make a fringe of period lambda / (2 n_s u), contrast 1 when s-polarized and |cos 2
+  theta_s| when p-polarized (the p vectors' lateral parts oppose); beyond the critical angle the fringe stays and decays
+  (TIRF-SIM, kner2009). ctest `sim_pattern`: the compiled terms equal the explicit field sum written out independently
+  (the user's pattern_at_z / pattern_at_z_with_polarization3 in physical units) for every type, polarization and a
+  tilted, phased custom set, 4320 points to 1e-9.
+- **The types.** `sim-type` SIM2D: two beams at +-r, 3 phases x 3 orientations (gustafsson2000; the orientations 180 /
+  3 degrees apart); SIM3D: + the centre beam (`sim-centre-amp`, 1, *estimate*), 5 phases x 3 orientations
+  (gustafsson2008); LatticeSIM2D: +-x and +-y, 9 phases, one orientation; LatticeSIM3D: + the centre, 13 phases (the
+  five-beam lattice of Zeiss's Lattice SIM, whose phase count is published; the x and y pairs step 2 : 3, the user's
+  scheme); Custom: the matrix alone. r = `illum-bfp` (the BFP slider is the beams' radius: past 1 TIRF-SIM, the
+  Illumination group's Epi / HILO / TIRF presets apply to the pattern); a type pick sets it to the type's default (2D
+  0.95; 3D and the lattices 0.9; *estimates*) and the polarization to S (every type's proper one; the lattice's
+  "orthogonal pairs" = S: the x pair and the y pair do not interfere; Circular is the alternative one picks).
+- **The frame program** (`FrameLightAt`, `PatternStateAt`): frame f (the sample's frame counter: the movie's f plus
+  `frame0`, which a live producer passes from its counter -- not a user setting; a stack starts at 0) -> (angle index,
+  phase index) in AngleMajor order (every phase of an orientation, then the next: gustafsson2008) or PhaseMajor. The
+  orientation rotates every beam (position, tilt) by angle x 180 / nAngles + `sim-angle0-deg`; the phase adds
+  phaseStep_j x (phase + `sim-phase0`) / nPhases turns to beam j. **phaseStep** is the per-beam column that moves the
+  pattern between phase frames: a pair with steps +s / -s moves its fringe by 2 s / nPhases of a period per frame.
+  Steps: SIM2D +1 / -1 (3 phases), SIM3D +1 / -1, centre 0 (5), LatticeSIM2D +1 / -1, +2 / -2 (9), LatticeSIM3D
+  +2 / -2, +3 / -3 (13). Each set makes every order's phase shift distinct mod nPhases -- the orders are the distinct
+  lateral q up to sign, a fringe between beams j, l shifting by (step_j - step_l) / nPhases of a turn -- which is what
+  a reconstruction needs to separate them (`OrdersSeparate`, ctest; the lattice ratios are *estimates* that satisfy
+  it). The program is a general mechanism (`FrameLight` carries a `scale` reserved for a stroboscopic light): a light
+  that depends on the frame number goes through it.
+- **Phase drift** (Expert): each beam's phase takes a random walk, sigma turns per sqrt s (counter-based pcg4d on
+  seed ^ "SIMP", frame, beam: one path per seed on every consumer, as the sample drift), plus a linear drift of
+  phaseStep_j x rate x t (the pattern slides along its stepping direction). The walk is a sum over the frames before
+  (O(f), once per movie).
+- **The kinetics run on the cycle mean (the user's choice, 2026-10-30).** The pattern summed over a full phase cycle is
+  nPhases x nAngles x the beams' incoherent sum (the fringes cancel exactly; ctest: 1e-10), so the dose a dye takes
+  over a cycle is the mean light's. The light history records that mean: one chapter per beam set with **one
+  component per beam of the cycle** (every orientation's beams, each at 1 / nAngles) -- the single beam's physics at
+  the beam's own azimuth, angle, F (by its polarization) and envelope (its own grid and footprint, sheared along its
+  azimuth, stretched, centred by its tilt; `Chapter::Comp`, a clock-map term per component and record: no core ABI
+  change, the terms' (sx, sy) shears were there) -- and the dyes' clocks (bleaching, dSTORM switching, PALM
+  activation, the background fade) run on it; ctest `history_check` (SIM3D: 9 components; TIRF-SIM). Fixed on purpose:
+  the history's lattice (0.25 um, 15.6 nm at the finest) cannot hold a 200 nm fringe (~3 nm nodes, ~30 MB per frame,
+  and every dye's dose recomputed every frame), and a chapter per phase state would grow without bound. The
+  **emission** uses the exact pattern of each frame: a blink's photons x the pattern at its site in its frame
+  (`CollectFrameEmitters`' events carry the frame's factor), a per-dye population's windows re-splatted every frame
+  (no running-image carry under a varying pattern), the mean field one scene per pattern state the movie's frames
+  take (each under its state's plane factor: the pattern's exact mean over the cell (sinc over the cell) and the
+  plane (the damped cosine's integral), `Excitation::PlaneMean`; the state's plane spectra and bleach basis stay
+  cached while the pattern steps; `MovieCache::meanField` slots per (population, state), a phase drift giving every
+  frame its own state), the background's flat part x the frame's pattern on the coverslip (memoized per state), the
+  beads at the frame's pattern over the mean (their rate and bleaching on the mean). Known approximations
+  (documented): a dye's dose within a cycle is off by at most one frame's modulation; the DNA-PAINT imager background
+  and the TIRF collected column use the cycle mean (the fringes blur over the defocused column); the beam set's
+  components in the imager column share component 0's depth intervals; the pattern is read at the undrifted site; a
+  mean-field cell of 100 nm averages a 200 nm fringe to 0.64 (set `wf-upscale` 2 or more for fine fringes); the
+  adapter's GPU splat is off under a varying pattern (the engine splats the blinks). `sim-type` Off = the legacy beam
+  bit for bit (ctest `sim_pattern`, the reference TIFFs); a one-row matrix renders through the pattern path.
+- **The matrix** (`Lasers.Beams`, `beam.<j>.<column>` keys, cli `--sim-beams`): the resolved description of the light
+  in every mode -- Off shows its one row, a type its 2-5 rows -- one row per beam, columns `ux uy spot tiltX tiltY amp
+  phase pol ellip phaseStep nm` (u, u, um in the pupil (0 = from `illum-fwhm`), deg, deg, 1, turns, deg (signed;
+  below -180 unpolarized), turns, 1 / nPhases turns, nm (0 = every line)), rows separated by `;`, values by spaces. A
+  row j < count overrides the columns given of the type's beam j; j >= count adds a beam; Custom = the matrix alone
+  (the program from `sim-phases` / `sim-angles` and the phaseStep column). A beam with `nm` set enters only that
+  line's pattern (beams interfere within a line): boilerplate for two-colour patterns, the powers still the lines'.
+- **Readouts:** the setup JSON's `excitation.beams[]` (each beam's u, regime, angle, F, depth per line, spot) and
+  `pattern` (type, polarization, phases, angles, order, period, the frame's state, the fringe periods per line, the
+  pupil's radius, the legacy width's spot radius); the cli writes `<out>.pattern.csv` (frame, angle, phase, rotation,
+  each beam's phase) beside the drift csv; `LiveFrameInfo` carries the frame's index and state.
+
 ## Exact light history (2026-10-15/16)
 
 Every dye's kinetics run at the dose at its own (x, y, z): one core query per movie (core ABI 14, the **clock map**;

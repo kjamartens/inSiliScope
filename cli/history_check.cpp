@@ -154,7 +154,8 @@ public:
          for (const StatePhysics::LineShare& l : m.lineShares)
             sh.push_back({ l.nm, l.share });
          const LightPose& p = it.L.poses[0];
-         s += m.excitationPerSec * it.L.ex->At(x - p.ax, y - p.ay, z, sh) * it.dt;
+         // (A beam set: the cycle mean, the light the history records; one beam: At, bit for bit.)
+         s += m.excitationPerSec * it.L.ex->MeanAt(x - p.ax, y - p.ay, z, sh) * it.dt;
          sc += m.excitationPerSec * it.L.ex->F() * it.dt;
       }
       if (scale)
@@ -291,7 +292,7 @@ std::vector<Frame> Acquisition(const std::string& base, double x, double y, int 
    return fr;
 }
 
-void Dose(IscWorld* w, const char* name, const std::string& geo, const std::vector<double>& zs)
+void Dose(IscWorld* w, const char* name, const std::string& geo, const std::vector<double>& zs, bool pattern = false)
 {
    const std::string base = std::string(kDstorm) + " " + geo;
    const double X = 10, Y = -5;
@@ -312,7 +313,10 @@ void Dose(IscWorld* w, const char* name, const std::string& geo, const std::vect
    {
       const double want = b.Dose(p[0], p[1], p[2], &scale);
       const double got = m->ClockAt(0, p[0], p[1], p[2], h.T());
-      worst = std::max(worst, std::fabs(got - want) / (1e-9 * std::fabs(want) + 1.5e-4 * scale));
+      // (A beam set's components are sheared each its own way: no point is a node of every grid, so the lattice's
+      // bilinear tolerance applies there too.)
+      const double tol = pattern ? (kLightLatticeErr + 1.5e-4) * scale : 1e-9 * std::fabs(want) + 1.5e-4 * scale;
+      worst = std::max(worst, std::fabs(got - want) / tol);
       top = std::max(top, want);
       ++n;
    }
@@ -320,6 +324,10 @@ void Dose(IscWorld* w, const char* name, const std::string& geo, const std::vect
          std::string(name) + Fmt(": the dose at %.0f nodes = the frames' sum (worst %.3f of the tolerance 1e-9 + the "
                                  "reach; most %.3f s); map %.1f ms",
                                  static_cast<double>(n), worst, top, ms));
+   if (pattern)
+      Check(L.ex->Patterned() && L.ex->ComponentCount() > 1 && c.total.size() >= 2 * static_cast<size_t>(L.ex->ComponentCount()),
+            std::string(name) + Fmt(": a beam set's %.0f components, a term per component and record (%.0f terms)",
+                                    static_cast<double>(L.ex->ComponentCount()), static_cast<double>(c.total.size())));
    // Between nodes: the bilinear error, at most kLightLatticeErr of each record's peak (their sum: scale).
    std::mt19937 rng(11);
    std::uniform_real_distribution<double> ux(bx.x0, bx.x1), uy(bx.y0, bx.y1);
@@ -604,9 +612,68 @@ void Drag()
 
 } // namespace
 
+void SimDebug()
+{
+   const std::string base = std::string(kDstorm) + " sim-type=SIM3D illum-profile=Gaussian illum-fwhm=60 illum-bfp=0.7";
+   {
+      // The acquisition block by block: the brute sum so far against the map after each block.
+      const std::vector<Frame> fr = Acquisition(base, 10, -5);
+      const int blocks[5] = { 6, 4, 5, 5, 6 };
+      LightHistory h;
+      Brute b(fr.back().spec, 0);
+      size_t k = 0;
+      for (int bl = 0; bl < 5; ++bl)
+      {
+         for (int i = 0; i < blocks[bl]; ++i, ++k)
+         {
+            h.Advance(fr[k].dt, Light(fr[k].spec, fr[k].on));
+            b.Add(fr[k]);
+         }
+         const ScopeSpec cur = fr[k - 1].spec;
+         const LightState L = Light(cur, fr[k - 1].on);
+         const auto m = Map(h, cur, L, QueryBox(cur, 0, 8));
+         std::printf("after block %d (%zu frames, chapters %zu records %zu, terms %zu):\n", bl, k, h.Chapters(), h.Records(),
+                     m->s[0].total.size());
+         for (double x : { 6.7, 8.2, 10.0, 12.5 })
+            std::printf("   (%.2f, -5.06, 0): brute %.5f map %.5f\n", x, b.Dose(x, -5.06, 0.0), m->ClockAt(0, x, -5.06, 0.0, h.T()));
+      }
+   }
+   for (const char* pose : { " x=10 y=-5 z=0.5", " x=10 y=-5 z=1.7", " x=8.5 y=-4 z=1.7" })
+   {
+      const ScopeSpec sp = Spec(base + pose);
+      const LightState L = Light(sp);
+      LightHistory h;
+      for (int f = 0; f < 6; ++f)
+         h.Advance(0.05, L);
+      const Box bx = QueryBox(sp, 0, 8);
+      const auto m = Map(h, sp, L, bx);
+      const LightPose& P = L.poses[0];
+      std::printf("pose %s: comps %d, terms %zu\n", pose, L.ex->ComponentCount(), m->s[0].total.size());
+      for (double z : { 0.0, 1.7, 3.0 })
+         for (double x : { 6.7, 10.0, 12.5 })
+         {
+            const double y = -8.06;
+            double want = 0;
+            for (int j = 0; j < L.ex->ComponentCount(); ++j)
+            {
+               const Excitation::Component& c = L.ex->ComponentAt(j);
+               const ExcitationShares sh = { { 640.0, 1.0 } };
+               want += c.F * L.ex->ComponentLateral(j, x - P.ax, y - P.ay, z) * L.ex->ComponentDepth(j, z, sh);
+            }
+            want *= 0.3;
+            std::printf("   (%.2f, %.2f, %.1f): mean %.5f map %.5f\n", x, y, z, want, m->ClockAt(0, x, y, z, h.T()));
+         }
+   }
+}
+
 int main(int argc, char** argv)
 {
    std::setvbuf(stdout, nullptr, _IONBF, 0);   // progress shows as it runs (ctest, pipes)
+   if (argc > 1 && std::string(argv[1]) == "--sim-debug")
+   {
+      SimDebug();
+      return 0;
+   }
    const double t0 = Now();
    if (argc > 1 && std::string(argv[1]) == "--bench")
    {
@@ -619,6 +686,10 @@ int main(int argc, char** argv)
    Dose(w, "FlatTop epi", "illum-profile=FlatTop illum-bfp=0", { 0.0, 2.5 });
    Dose(w, "Gaussian HILO", "illum-profile=Gaussian illum-fwhm=60 illum-bfp=0.8", { 0.0, 1.2, 3.7 });
    Dose(w, "FlatTop TIRF", "na=1.49 illum-profile=FlatTop illum-bfp=1.05", { 0.0, 0.05, 0.1, 0.25 });
+   // Structured illumination: the history records the cycle mean of the beams (SIM3D: 9 components, three angles'
+   // three beams each, their own shears), the dose their sum.
+   Dose(w, "SIM3D Gaussian", "sim-type=SIM3D illum-profile=Gaussian illum-fwhm=60 illum-bfp=0.7", { 0.0, 1.2, 3.7 }, true);
+   Dose(w, "TIRF-SIM2D", "na=1.49 sim-type=SIM2D illum-profile=FlatTop illum-bfp=1.05", { 0.0, 0.05, 0.1, 0.25 }, true);
    Chapters();
    OpenRecord();
    Averaged();

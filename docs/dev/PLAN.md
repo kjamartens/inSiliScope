@@ -197,3 +197,13 @@ Upcoming ideas:
   `BrightfieldRender.cpp`; >= 99.5% identical ADU, intensity within 1e-4 relative: complex float32 FFTs), the
   optical-volume query (`World.opticalVolume`, bit-identical), the fractal cells' reach, the PRNU 0.5% default and the
   `bf-*` options; the lab shows BrightField.
+- 2026-10-30 (branch `claude/sim-illumination`): [x] structured illumination in the engine: the light as coherent beams
+  in the back focal plane (`Simulation/SimPattern.*`: position, spot size, tilt, amplitude, phase, polarization,
+  phase step, line per beam; the types SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D, Custom), the frame program (phase
+  and orientation per frame), the kinetics on the cycle mean (the light history's components), the emission on each
+  frame's pattern (blinks, per-dye windows, one mean-field scene per state, the background, the beads), cli
+  `--sim-beams` and `<out>.pattern.csv`, the setup JSON's beams and pattern; ctest `sim_pattern`, `history_check`,
+  `live_scope`. Next: [ ] MM `Lasers.Pattern*` rows, the frame counter and `tools/test_sim.py`, [ ] the viewer's
+  rows, readout and the illumination preview (also as an interactive docs figure), figures `sim-patterns`,
+  `sim-cycle`, `sim-spot`, gallery `sim-*`, [ ] the GPU mean field under a pattern, [ ] the exact per-frame dose,
+  [ ] stroboscopic / every-n-th-frame programs on `FrameLight.scale`.

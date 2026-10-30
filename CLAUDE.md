@@ -393,6 +393,28 @@ regime / depth readout (the JS `scopeExcitation`; helpers the main script needs 
 the schema's consts are not in its scope); cli `--setup-json` `excitation` (section and axis of the factor), figures
 `light-geometry`, `light-geometry-images`.
 
+**Structured illumination (2026-10-30, branch `claude/sim-illumination`, spec/ALGORITHM.md "Structured illumination",
+spec/PORT.md 28, docs/physics/dyes-and-light-path.md "Structured illumination"):** the light as coherent beams in the
+BFP (`Simulation/SimPattern.*`: `Beam` = position in u, spot size, entry tilt, amplitude, phase, polarization,
+phaseStep, line; `BeamSet`, `MakeBeams`, the frame program `FrameLightAt` / `PatternStateAt`, `BeamFieldOf` (Fresnel /
+Axelrod fields over t0), `CompilePattern` (DC + fringe terms per line), `OrdersSeparate`, `ParseBeamMatrix` /
+`FormatBeamMatrix`). `Excitation` with a beam set: one `Component` per beam of the cycle (angle x beam), `At` = the
+frame's pattern x envelopes, `MeanAt` = the components' sum (the cycle mean), `PlaneMean` (the exact mean over a cell
+and a plane), `SetFrame`; without one the legacy single beam, bit for bit. Options `sim-type` (Off, SIM2D 3x3, SIM3D 5x3,
+LatticeSIM2D 9, LatticeSIM3D 13 stepped 2:3, Custom), `sim-polarization` (S default; P, Circular, LinearX, Unpolarized),
+`sim-phases`, `sim-angles`, `sim-order`, `sim-angle0-deg`, `sim-phase0`, `sim-centre-amp`, `sim-phase-drift-*`,
+`tube-length-mm`, `magnification`, the matrix keys `beam.<j>.<column>` (cli `--sim-beams "<rows>"`), `frame0`
+(internal: the live producers' counter; `LiveScope::FrameCounter`, `LiveFrameInfo::frame/patternAngle/patternPhase`).
+The BFP slider `illum-bfp` is the beams' radius (past 1 TIRF-SIM). **The kinetics run on the cycle mean** (the user's
+choice): the light history records one chapter per beam set with a grid per component (`Chapter::Comp`, `Record::fps`,
+terms with (sx, sy) shears; no core ABI change); the emission uses each frame's exact pattern (the events' `excite` per
+frame, the per-dye windows re-splatted, one mean-field scene per pattern state (`MeanFieldNode::patternState`, slots
+per state), the background's flat part per state, the beads' `FiducialMovie::frameScale`); the adapter's GPU splat is
+off under a varying pattern. cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
+`pattern_xy`. Checks: ctest `sim_pattern` (~8 s), `history_check` (SIM3D, TIRF-SIM), `live_scope` (the counter, a SIM
+mode). Not yet (M2/M3): the MM rows and counter, the viewer's rows, readout and illumination preview, the figures and
+gallery, the GPU mean field under a pattern.
+
 **Exact light history (2026-10-15/16, core ABI 14, spec/ALGORITHM.md "Exact light history", spec/PORT.md 23; branch
 `claude/exact-dose`):** every dye of every consumer reads its kinetics at the dose at its own (x, y, z), smooth in all
 three, one core query per movie. It replaced the stepped history (two lateral levels per 0.25 um tile, 12 z bands,

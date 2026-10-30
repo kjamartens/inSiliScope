@@ -88,6 +88,89 @@ void PhysicsJson(Json& j, const sim::StatePhysics& st)
 
 } // namespace
 
+void ExcitationBeamsJson(Json& j, const sim::Excitation& ex)
+{
+   const sim::ExcitationSpec& es = ex.Spec();
+   const sim::BeamSet& set = es.beams;
+   const bool patterned = ex.Patterned();
+   // The beams: a set's (the frame's state: rotated, phased), or the legacy beam as one row.
+   std::vector<sim::Beam> beams = patterned ? ex.State().beams : std::vector<sim::Beam>();
+   if (!patterned)
+   {
+      sim::Beam b;
+      b.ux = es.bfp;
+      b.polDeg = sim::kUnpolarizedDeg;   // unpolarized: the mean of s and p
+      beams.push_back(b);
+   }
+   j.Key("beams");
+   j.Open('[');
+   for (size_t k = 0; k < beams.size(); ++k)
+   {
+      const sim::Beam& b = beams[k];
+      j.Open('{');
+      j.KNum("ux", b.ux);
+      j.KNum("uy", b.uy);
+      j.KNum("spot_um", b.spotUm > 0 ? b.spotUm : ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovWidthUm));
+      j.KBool("spot_from_fwhm", !(b.spotUm > 0));
+      j.KNum("tilt_x_deg", b.tiltXDeg);
+      j.KNum("tilt_y_deg", b.tiltYDeg);
+      j.KNum("amp", b.amp);
+      j.KNum("phase_turns", b.phaseTurns);
+      j.KNum("pol_deg", b.polDeg);
+      j.KNum("ellip_turns", b.ellipTurns);
+      j.KNum("phase_step", b.phaseStep);
+      j.KNum("nm", b.nm);
+      const sim::BeamField f = sim::BeamFieldOf(b, es.lambdaRefNm, es.nMed, es.nImm, es.na, set.polarization);
+      j.KNum("u", f.u);
+      j.KStr("regime", sim::IlluminationRegimeNames()[f.clipped ? sim::REGIME_CLIPPED
+                                                        : f.evanescent ? sim::REGIME_TIRF
+                                                        : f.u > 0 ? sim::REGIME_HILO : sim::REGIME_EPI]);
+      j.KNum("field_factor", patterned ? f.Intensity() : ex.F());
+      j.KNum("angle_deg", f.evanescent ? 90.0 : std::asin(std::min(1.0, f.u)) * 180.0 / 3.14159265358979323846);
+      j.Key("depth_nm");
+      j.Open('{');
+      for (int nm : sim::LaserLines())
+      {
+         double d = -1.0;
+         if (f.evanescent)
+            d = 1e-3 * nm / (4.0 * 3.14159265358979323846 * es.nMed * std::sqrt(f.u * f.u - 1.0)) * 1000.0;
+         j.KNum(std::to_string(nm).c_str(), d);
+      }
+      j.Close('}');
+      j.Close('}');
+   }
+   j.Close(']');
+   j.Key("pattern");
+   j.Open('{');
+   j.KStr("type", sim::SimTypeNames()[static_cast<size_t>(patterned ? set.type : 0)]);
+   j.KStr("polarization", sim::SimPolarizationNames()[static_cast<size_t>(set.polarization)]);
+   j.KNum("phases", patterned ? set.phases : 1);
+   j.KNum("angles", patterned ? set.angles : 1);
+   j.KStr("order", sim::SimOrderNames()[static_cast<size_t>(set.order)]);
+   j.KNum("period", patterned ? set.Period() : 1);
+   j.KNum("frame0", static_cast<double>(es.frame));
+   j.KNum("angle", patterned ? ex.State().light.angle : 0);
+   j.KNum("phase", patterned ? ex.State().light.phase : 0);
+   j.KNum("rotation_deg", patterned ? ex.State().rotDeg : 0.0);
+   j.KBool("varies", ex.Varies());
+   j.KNum("f_obj_um", es.fObjUm);
+   j.KNum("pupil_radius_um", es.fObjUm * es.na);
+   j.KNum("lambda_ref_nm", es.lambdaRefNm);
+   j.KNum("spot_radius_um", ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovWidthUm));
+   j.Key("period_nm");
+   j.Open('{');
+   for (int nm : sim::LaserLines())
+   {
+      std::vector<double> per = ex.PeriodsUm(nm);
+      for (double& v : per)
+         v *= 1000.0;
+      j.Key(std::to_string(nm).c_str());
+      j.Array(per.data(), per.size());
+   }
+   j.Close('}');
+   j.Close('}');
+}
+
 bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& err)
 {
    sim::ScopeResolved R;
@@ -137,6 +220,7 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
       for (int nm : sim::LaserLines())
          j.KNum(std::to_string(nm).c_str(), ex.DepthNm(nm));
       j.Close('}');
+      ExcitationBeamsJson(j, ex);
       j.Close('}');
    }
 

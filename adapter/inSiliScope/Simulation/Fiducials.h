@@ -50,6 +50,7 @@
 #include "PsfGeneratorBridge.h"
 
 #include <map>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -210,6 +211,9 @@ struct FiducialMovie
    double expSec = 0.05;
    long N = 0;
    double sec = 0;
+   // A light that changes per frame (a structured pattern stepping with the frame): each bead's photons of frame f x
+   // this (the frame's excitation over the cycle mean at the bead); set: no Taylor images (splatted per frame).
+   std::function<double(long f, const FiducialMovieComponent& c, const FiducialBeadSite& e)> frameScale;
 };
 // The beads' photons of frame f into img (JS renderFiducials): per component, each bead's rate x the integral of its
 // survival over the frame. staticFocus: no drift and the focus zf the same in every frame: through the Taylor images

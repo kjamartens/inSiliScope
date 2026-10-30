@@ -124,7 +124,7 @@ const char* PartOf(const std::string& n)
    };
    if (in({ "disk-cache", "prepare", "illum-geometry" }))
       return "host";
-   if (in({ "x", "y", "z", "focus-um", "frames", "exposure-ms", "start-sec" }) || starts("drift-"))
+   if (in({ "x", "y", "z", "focus-um", "frames", "exposure-ms", "start-sec", "frame0" }) || starts("drift-"))
       return "measurement";
    for (int s = 0; s < TargetCount(); ++s)
       if (starts((std::string(TargetAt(s).prefix) + "-").c_str()))
@@ -134,7 +134,8 @@ const char* PartOf(const std::string& n)
             "psf-mask-waist", "psf-working-distance-um", "camera-preset", "qe-curve", "qe", "camera-type", "dark-per-sec",
             "gain", "offset", "offset-std", "read-noise", "gain-std-pct", "read-noise-std-pct", "cic", "bit-depth",
             "illum-profile", "illum-fwhm", "laser-custom-nm", "ex-lo-nm", "ex-hi-nm", "dichroic-edge-nm", "em-lo-nm",
-            "em-hi-nm", "bf-condenser-na", "bf-wavelength-nm", "bf-aberrations", "fid-blocking-od" }))
+            "em-hi-nm", "bf-condenser-na", "bf-wavelength-nm", "bf-aberrations", "fid-blocking-od", "sim-centre-amp",
+            "sim-phase-drift-turns-per-sqrt-sec", "sim-phase-drift-turns-per-sec", "tube-length-mm", "magnification" }))
       return "instrument";
    if (n == "fid-psf-z-range-um" || n == "fid-far-defocus" || n == "fid-clumps-as-one")   // the beads' drawing, as psf-z-range-um
       return "settings";
@@ -147,7 +148,7 @@ const char* PartOf(const std::string& n)
       return "sample";
    // how the instrument is driven: the light, the filters in place, the camera's settings, the render quality
    if (starts("laser-") || starts("wf-") || starts("mean-field-") || starts("blink-") || starts("bf-") ||
-       (starts("psf-") && !starts("psf-sample-")) ||
+       starts("sim-") || (starts("psf-") && !starts("psf-sample-")) ||
        in({ "light-preset", "ex-filter", "dichroic", "em-filter", "illum-bfp", "modality", "light-epi", "light-trans",
             "size", "em-gain", "z-range-um" }))
       return "settings";
@@ -275,6 +276,19 @@ const OptionTable& Options()
          { "illum-fwhm", 100, "Lasers.IlluminationFwhmPct: the FWHM of the beam (Gaussian, FlatTop), % of the width of the field of view" },
          { "illum-bfp", 0, "Lasers.BfpPosition: the laser spot in the back focal plane, from its centre (0, epi) to the critical angle (1); between: HILO, above: TIRF up to the pupil edge NA / n_medium (beyond it no light reaches the sample). Unset: that of the light preset (DNA-PAINT: HILO; the nanorulers: TIRF)" },
          { "illum-geometry", 0, "deprecated, ignored (was Lasers.IlluminationGeometry: Epi; illum-bfp replaces it)" },
+         { "sim-type", 0, "Lasers.Pattern: structured illumination, the light as coherent beams in the back focal plane (spec/ALGORITHM.md \"Structured illumination\"): 0 Off (one beam at illum-bfp), 1 SIM2D (two beams at +-illum-bfp, 3 phases x 3 angles), 2 SIM3D (+ the centre beam, 5 phases x 3 angles), 3 LatticeSIM2D (+-x, +-y, 9 phases), 4 LatticeSIM3D (+ the centre, 13 phases stepped 2:3), 5 Custom (the beam matrix alone); names accepted. The pattern's phase and angle step with the frame (the frame program); the kinetics run on the cycle mean (the beams' incoherent sum)" },
+         { "sim-polarization", 0, "Lasers.PatternPolarization: every beam's polarization, 0 S (perpendicular to its plane of incidence: full fringe contrast, the lattice's orthogonal pairs), 1 P, 2 Circular, 3 LinearX (the pupil field along the lab x axis), 4 Unpolarized (the mean of the S and P patterns); names accepted" },
+         { "sim-phases", 0, "Lasers.PatternPhases: phase steps per angle (0 = the type's: 3, 5, 9, 13)" },
+         { "sim-angles", 0, "Lasers.PatternAngles: pattern orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D/SIM3D, 1 for the lattices)" },
+         { "sim-order", 0, "Lasers.PatternOrder: the frame program's order, 0 AngleMajor (every phase of an angle, then the next angle), 1 PhaseMajor; names accepted" },
+         { "sim-angle0-deg", 0, "Lasers.PatternAngle0Deg: the first orientation, degrees from the x axis" },
+         { "sim-phase0", 0, "Lasers.PatternPhase0: added to the phase index (fractional allowed): the pattern's starting phase" },
+         { "sim-centre-amp", 1, "Lasers.PatternCentreAmp: the centre beam's field amplitude over the side beams' (SIM3D, LatticeSIM3D; estimate)" },
+         { "sim-phase-drift-turns-per-sqrt-sec", 0, "Lasers.PatternPhaseDriftTurnsPerSqrtSec: each beam's phase takes a random walk, this its RMS after 1 s (turns; per seed and frame, as the sample drift)" },
+         { "sim-phase-drift-turns-per-sec", 0, "Lasers.PatternPhaseDriftTurnsPerSec: each beam's phase drifts at its phase step x this (turns/s): the pattern slides along its stepping direction" },
+         { "tube-length-mm", 200, "Objective.TubeLengthMm: the tube lens' focal length; the objective's focal length is it over the magnification, the pupil's radius that x NA (a beam's spot size and tilt map to the sample through it)" },
+         { "magnification", 100, "Objective.Magnification: the objective's (the pupil geometry; the pixel size stays pixel-nm)" },
+         { "frame0", 0, "the movie's first frame's index in the sample's frame sequence (the frame program: a live producer passes its running counter here; a stack starts at 0). Not a user setting" },
          { "chamber-height-um", 100, "Lasers.ChamberHeightUm: depth of the imager solution over the coverslip (estimate: a tape/flow chamber), um; the DNA-PAINT free-imager background is its column integral of the excitation (epi: all of it; HILO: the sheet; TIRF: ~ the penetration depth)" },
          { "ex-filter", idx(ExcitationFilterIds(), DefaultExcitationFilter()), "ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)" },
          { "ex-lo-nm", 635, "ExcitationFilter Custom band pass, low edge" },
@@ -434,6 +448,9 @@ const std::vector<std::string>* OptionNames(const std::string& name)
       m["camera-type"] = { "sCMOS", "EMCCD" };
       m["illum-geometry"] = { "Epi" };
       m["illum-profile"] = IlluminationProfileNames();
+      m["sim-type"] = SimTypeNames();
+      m["sim-polarization"] = SimPolarizationNames();
+      m["sim-order"] = SimOrderNames();
       return m;
    }();
    auto it = names.find(name);
@@ -455,6 +472,36 @@ int ZernikeKeyIndex(const std::string& name)
    }
    return j < static_cast<int>(kNumZernike) ? j : -1;
 }
+
+} // namespace
+
+// "beam.<j>.<column>", j = 0..63, column one of BeamColumnNames (ux uy spot tiltX tiltY amp phase pol ellip phaseStep
+// nm): the beam matrix's entry (Lasers.Beams), laid over the type's beam j. Returns j (and the column), or -1.
+int BeamKeyIndex(const std::string& name, int* column)
+{
+   if (name.compare(0, 5, "beam.") != 0)
+      return -1;
+   const size_t dot = name.find('.', 5);
+   if (dot == std::string::npos || dot == 5 || dot + 1 >= name.size())
+      return -1;
+   int j = 0;
+   for (size_t i = 5; i < dot; ++i)
+   {
+      if (name[i] < '0' || name[i] > '9')
+         return -1;
+      j = j * 10 + (name[i] - '0');
+   }
+   if (j > 63)
+      return -1;
+   const int c = IndexOf(BeamColumnNames(), name.substr(dot + 1));
+   if (c < 0)
+      return -1;
+   if (column)
+      *column = c;
+   return j;
+}
+
+namespace {
 
 // A dye override key `<prefix>-dye.<field>` (structure = its index) or
 // `dye<N>.<field>` (slot N - 1, structure -1). JS DYE_OVERRIDE.
@@ -517,7 +564,7 @@ const char* ScopeOptionPart(const std::string& name)
 {
    if (name.compare(0, 2, "p.") == 0 && name.size() > 2)
       return "sample";
-   if (ZernikeKeyIndex(name) >= 0)
+   if (ZernikeKeyIndex(name) >= 0 || BeamKeyIndex(name, nullptr) >= 0)
       return "instrument";
    OverrideKey ok;
    if (!IsNamedOption(name) && ParseOverrideKey(name, ok) && (ok.slot >= 0 || ok.structure >= 0) &&
@@ -528,7 +575,8 @@ const char* ScopeOptionPart(const std::string& name)
 
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value)
 {
-   if ((name.compare(0, 2, "p.") == 0 && name.size() > 2) || ZernikeKeyIndex(name) >= 0 || IsNamedOption(name))
+   if ((name.compare(0, 2, "p.") == 0 && name.size() > 2) || ZernikeKeyIndex(name) >= 0 ||
+       BeamKeyIndex(name, nullptr) >= 0 || IsNamedOption(name))
    {
       spec[name] = value;
       return true;
@@ -1117,6 +1165,50 @@ double ScopePresetBfpPosition(const ScopeSpec& spec, double presetBfp)
    return std::max(0.0, !std::isnan(own) ? own : presetBfp);
 }
 
+BeamSet ScopeBeamSet(const ScopeSpec& spec)
+{
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   const int type = std::max(0, std::min(static_cast<int>(SimTypeNames().size()) - 1, static_cast<int>(O("sim-type"))));
+   const int pol = std::max(0, std::min(static_cast<int>(SimPolarizationNames().size()) - 1,
+                                        static_cast<int>(O("sim-polarization"))));
+   // The matrix's rows: beam j's columns given.
+   std::map<int, std::vector<std::pair<int, double>>> rows;
+   for (const auto& kv : spec)
+   {
+      int c = -1;
+      const int j = BeamKeyIndex(kv.first, &c);
+      if (j >= 0)
+         rows[j].push_back({ c, kv.second });
+   }
+   if (type == SIM_OFF && rows.empty())
+      return BeamSet();   // the legacy single beam (Excitation::Make's old path)
+   BeamSet set = MakeBeams(type, ScopeBfpPosition(spec), pol, O("sim-centre-amp"));
+   if (O("sim-phases") > 0)
+      set.phases = static_cast<int>(O("sim-phases"));
+   if (O("sim-angles") > 0)
+      set.angles = static_cast<int>(O("sim-angles"));
+   set.order = O("sim-order") != 0 ? SIM_ORDER_PHASE_MAJOR : SIM_ORDER_ANGLE_MAJOR;
+   set.angle0Deg = O("sim-angle0-deg");
+   set.phase0 = O("sim-phase0");
+   set.driftTurnsPerSqrtSec = std::max(0.0, O("sim-phase-drift-turns-per-sqrt-sec"));
+   set.driftTurnsPerSec = O("sim-phase-drift-turns-per-sec");
+   for (const auto& r : rows)
+      ApplyBeamRow(set, r.first, r.second);
+   return set;
+}
+
+// The beam set's key for the light that the kinetics run on (the cycle mean): what changes the components -- the
+// beams, their polarization, the angles -- not the phases, the order or the drift.
+std::string ScopeBeamMeanKey(const ExcitationSpec& e)
+{
+   if (e.beams.beams.empty())
+      return std::string();
+   char b[96];
+   std::snprintf(b, sizeof b, ";beams[pol%d;a%d;a0%.10g;f%.10g;l%.10g]", e.beams.polarization, e.beams.angles,
+                 e.beams.angle0Deg, e.fObjUm, e.lambdaRefNm);
+   return std::string(b) + FormatBeamMatrix(e.beams.beams);
+}
+
 ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
@@ -1132,6 +1224,31 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
    e.nImm = O("immersion-index");
    e.nMed = O("bf-n-medium");
    e.pivotUm = O("focus-um") + O("z");
+   e.beams = ScopeBeamSet(spec);
+   if (!e.beams.beams.empty())
+   {
+      // A beam set: the pupil's geometry, the lines the pattern is made for (the strongest at the sample sets the
+      // envelope widths of a spot size), the phase drift's seed and frame time, the first frame.
+      e.fObjUm = std::max(1.0, O("tube-length-mm")) * 1000.0 / std::max(1.0, O("magnification"));
+      for (int nm : LaserLines())
+         e.lineNm.push_back(nm);
+      if (O("laser-custom-nm") > 0)
+         e.lineNm.push_back(O("laser-custom-nm"));
+      std::vector<LaserLine> lines;
+      std::string err;
+      double best = -1.0;
+      e.lambdaRefNm = 640;
+      if (ScopeSampleLines(spec, lines, err))
+         for (const LaserLine& l : lines)
+            if (l.kWPerCm2 > best)
+            {
+               best = l.kWPerCm2;
+               e.lambdaRefNm = l.nm;
+            }
+      e.seed = static_cast<uint32_t>(static_cast<long>(O("seed")));
+      e.expSec = std::max(1e-6, O("exposure-ms") / 1000.0);
+      e.frame = static_cast<long long>(O("frame0"));
+   }
    return e;
 }
 
@@ -1329,6 +1446,7 @@ struct ScopeSetup
    long N = 0;
    long seed = 0;
    double expSec = 0.05, t0Sec = 0.0;
+   long frame0 = 0;   // the first frame's index in the sample's frame sequence (the frame program)
    // Sample drift: the per-frame displacement (nm, zero at frame 0) and its range.
    std::vector<DriftNm> drift;
    DriftBounds driftRange;
@@ -1376,6 +1494,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
        !MakeScopeLabels(spec, S.lp, S.labels, err))
       return false;
    S.excite.Make(ScopeExcitationSpec(spec));
+   S.frame0 = static_cast<long>(O("frame0"));
    {
       // The fiducial beads' light (JS scopeFiducials).
       const int t = static_cast<int>(O("fid-type"));
@@ -2598,6 +2717,12 @@ struct MeanFieldNode
 {
    MeanFieldSlot* slot = nullptr;
    WidefieldSceneSpec ws;
+   // A structured pattern stepping with the frame: the node's pattern state (Impl::StateOf; one node per state the
+   // movie's frames take, its scene under that state's plane factor), the scene's focus, and wb0 in its basis.
+   long patternState = 0;
+   double sceneZ = 0;
+   WidefieldScene::DecayAnchor anchor;
+   bool anchored = false;
    std::vector<float> image;                       // W x H photons per (photon per dye), at the spec's z
    std::map<double, std::vector<float>> imageAt;   // ... at other z (a host's z sequence)
    // Drift: the mean-field images (with spectra) at the focus-grid foci, by world focus; a weighted scene's basis at
@@ -2653,9 +2778,6 @@ struct Population
    std::vector<float> wb0;
    std::shared_ptr<const std::vector<float>> rates;
    double decay = 0;
-   // wb0 in its scene's Chebyshev basis (AnchorDecay): frames f > 0 render from the basis' decay (RenderDecayed).
-   WidefieldScene::DecayAnchor anchor;
-   bool anchored = false;
    std::vector<double> lam;
    std::vector<BlinkEvent> wins;
    // Its mean-field image (meanFieldAt0): one node.
@@ -2673,7 +2795,6 @@ struct Population
    int mode = 0;
    std::vector<BlinkKineticsSegment> blinkSegs;
    double blinkClock = 0, blinkRate = 1;
-   double sceneZ = 0;
    // A weighted blink population: the weight entries its scene's dye cells read (WidefieldScene::UsedWeights; the
    // others stay 0: each costs a Markov chain per frame).
    std::vector<uint8_t> used;
@@ -3000,16 +3121,23 @@ struct ExcitePlaneFactor : WidefieldPlaneFactor
    Excitation ex;
    ExcitationShares shares;
    double offX = 0, offY = 0;   // the beam's axis from the scene's (AnchorMeanField), um
+   double pitchUm = 0;          // a beam set: the pattern's exact mean over the cell (0: at the cell's centre)
    float At(long, double z0, double z1, double x, double y) const override
    {
       if (ex.Clipped())
          return 0.0f;
       x += offX;
       y += offY;
+      if (ex.Patterned())
+         return static_cast<float>(ex.PlaneMean(x, y, z0, z1, pitchUm, shares));
       const double dm = ex.DepthMean(z0, z1, shares), zc = std::max(0.0, (z0 + z1) / 2);
       return static_cast<float>(std::min(ex.F(), ex.F() * ex.Lateral(x, y, zc) * dm));
    }
 };
+
+// The pattern states' mean-field slots per population (MovieCache::meanField): a frame's slot by its pattern state,
+// states beyond this many sharing (a phase drift: every frame its own state; a slot a state takes over rebuilds).
+constexpr int kPatternSlots = 64;
 
 // ---- the fluorescence movie (JS fluorescence.js renderFluorescenceMovie) ----
 struct FluorescenceMovie::Impl
@@ -3038,6 +3166,91 @@ struct FluorescenceMovie::Impl
    {
       return S.excite.At(xUm - axisX, yUm - axisY, zNm / 1000.0 + S.q.zRefUm, sh);
    }
+   // A structured pattern stepping with the frame (Excitation::Varies): each frame's state (the program's index, or
+   // every frame its own under a phase drift), its Excitation (memoized per state) and the factor at a site in it.
+   bool varies = false;
+   bool driftsPhase = false;
+   long period = 1;
+   std::map<long, std::shared_ptr<const Excitation>> excStates;
+   long StateOf(long f) const
+   {
+      if (!varies)
+         return 0;
+      const long long fr = static_cast<long long>(S.frame0) + f;
+      return driftsPhase ? f : static_cast<long>(((fr % period) + period) % period);
+   }
+   const Excitation& ExciteFor(long state)
+   {
+      if (!varies)
+         return S.excite;
+      auto it = excStates.find(state);
+      if (it != excStates.end())
+         return *it->second;
+      auto ex = std::make_shared<Excitation>(S.excite);
+      ex->SetFrame(driftsPhase ? static_cast<long long>(S.frame0) + state : static_cast<long long>(state));
+      excStates[state] = ex;
+      return *ex;
+   }
+   double ExciteAtFrame(long f, const ExcitationShares& sh, double xUm, double yUm, double zNm)
+   {
+      return ExciteFor(StateOf(f)).At(xUm - axisX, yUm - axisY, zNm / 1000.0 + S.q.zRefUm, sh);
+   }
+   double MeanExciteAt(const ExcitationShares& sh, double xUm, double yUm, double zNm) const
+   {
+      return S.excite.MeanAt(xUm - axisX, yUm - axisY, zNm / 1000.0 + S.q.zRefUm, sh);
+   }
+   // The pattern states the movie's frames take (distinct, in order of first use), and a population's mean-field
+   // node of frame f.
+   std::vector<long> PatternStates() const
+   {
+      std::vector<long> v;
+      for (long f = 0; f < S.N; ++f)
+      {
+         const long st = StateOf(f);
+         if (std::find(v.begin(), v.end(), st) == v.end())
+            v.push_back(st);
+      }
+      if (v.empty())
+         v.push_back(0);
+      return v;
+   }
+   size_t NodeOf(const Population& p, long f) const
+   {
+      if (p.mf.size() <= 1)
+         return 0;
+      const long st = StateOf(f);
+      for (size_t j = 0; j < p.mf.size(); ++j)
+         if (p.mf[j].patternState == st)
+            return j;
+      return 0;
+   }
+   // The background map of frame f: the excitation's (a varying pattern: the imager part, and the flat background x
+   // the frame's pattern on the coverslip, memoized per state).
+   std::vector<float> bgIm;
+   std::map<long, std::vector<float>> bgStates;
+   const std::vector<float>& BgMapFor(long f)
+   {
+      if (!varies || bgMap.empty())
+         return bgMap;
+      const long st = StateOf(f);
+      auto it = bgStates.find(st);
+      if (it != bgStates.end())
+         return it->second;
+      if (bgStates.size() > static_cast<size_t>(kPatternSlots) + 64)
+         bgStates.clear();
+      const Excitation& ex = ExciteFor(st);
+      const double um = S.p.pixelSizeNm / 1000.0;
+      const ExcitationShares sh = { { ex.Spec().lambdaRefNm, 1.0 } };
+      std::vector<float>& out = bgStates[st];
+      out.resize(bgMap.size());
+      for (unsigned y = 0; y < S.H; ++y)
+         for (unsigned x = 0; x < S.W; ++x)
+         {
+            const size_t k = static_cast<size_t>(y) * S.W + x;
+            out[k] = static_cast<float>(bgIm[k] + S.p.backgroundPhotons * ex.At(x * um - axisX, y * um - axisY, 0.0, sh));
+         }
+      return out;
+   }
    std::chrono::steady_clock::time_point t0;
    double setupSec = 0;
    bool gpuMode = false;
@@ -3063,6 +3276,7 @@ struct FluorescenceMovie::Impl
       return p.nSlab * P / fovArea > S.meanFieldDensityPerUm2 || p.nZLit * P > S.meanFieldMaxEmitters;
    }
    bool BuildMeanField(Population& p, std::string& err);
+   bool BuildMeanFieldNode(Population& p, size_t ni, std::string& err);
    // The binned blink regime (spec/ALGORITHM.md "Blink render regimes"): main
    // group gi's frame f renders binned when its ON emitters (overlap-weighted:
    // what the splat would draw) per um^2 of the FOV, or in all, pass the
@@ -3134,8 +3348,8 @@ struct FluorescenceMovie::Impl
    {
       if (p.mf.empty())
          return;
-      MeanFieldNode& nd = p.mf[0];
-      if (z != p.sceneZ)
+      MeanFieldNode& nd = p.mf[NodeOf(p, f)];
+      if (z != nd.sceneZ)
       {
          WidefieldSceneSpec ws = nd.ws;
          ws.focusWorldUm = ws.slabCentreUm = S.q.zRefUm + z;
@@ -3145,7 +3359,7 @@ struct FluorescenceMovie::Impl
          nd.slot->scene.SetDeferImages(false);
          if (!nd.slot->scene.Update(cache.source, ill, ws, *nd.slot->psf, err))
             return;
-         p.sceneZ = z;
+         nd.sceneZ = z;
          nd.slot->scene.UsedWeights(p.used);   // (the slab moved with the focus)
       }
       std::vector<float> wb, frame(static_cast<size_t>(S.W) * S.H, 0.0f);
@@ -3164,15 +3378,15 @@ struct FluorescenceMovie::Impl
    {
       if (p.mf.empty() || !p.rates || p.rates->size() != p.wb0.size())
          return;
-      MeanFieldNode& nd = p.mf[0];
-      if (f == 0 && z == p.sceneZ)
+      MeanFieldNode& nd = p.mf[NodeOf(p, f)];
+      if (f == 0 && z == nd.sceneZ)
       {
          for (size_t i = 0; i < img.size(); ++i)
             img[i] += nd.image[i];
          return;
       }
       const auto tR = TimingClock::now();
-      if (z != p.sceneZ)
+      if (z != nd.sceneZ)
       {
          WidefieldSceneSpec ws = nd.ws;
          ws.focusWorldUm = ws.slabCentreUm = S.q.zRefUm + z;
@@ -3182,13 +3396,13 @@ struct FluorescenceMovie::Impl
          nd.slot->scene.SetDeferImages(false);
          if (!nd.slot->scene.Update(cache.source, ill, ws, *nd.slot->psf, err))
             return;
-         p.sceneZ = z;
+         nd.sceneZ = z;
       }
       const std::vector<float>& rate = *p.rates;
       const double k = f * S.expSec;
       std::vector<float> frame(static_cast<size_t>(S.W) * S.H, 0.0f);
       // (The basis' coefficients at the decay, without a pass over the weights; else the weights.)
-      if (!(p.anchored && nd.slot->scene.RenderDecayed(p.anchor, k, nd.shifted, nd.shiftX, nd.shiftY, frame)))
+      if (!(nd.anchored && nd.slot->scene.RenderDecayed(nd.anchor, k, nd.shifted, nd.shiftX, nd.shiftY, frame)))
       {
          std::vector<float> wb(p.wb0.size());
          for (size_t i = 0; i < wb.size(); ++i)
@@ -3203,8 +3417,8 @@ struct FluorescenceMovie::Impl
       TimingLog("fl.mean-field-rate-frame", TimingSince(tR));
    }
    void TakeImage(Population& p, size_t j);
-   // Weighted (clock) mean-field: frame 0's photons of the scene's grid.
-   void WeightedImage(Population& p, std::vector<float>& img);
+   // Weighted (clock) mean-field: frame 0's photons of the scene's grid (node j's).
+   void WeightedImage(Population& p, size_t j, std::vector<float>& img);
    // The mean-field image at another stage z (refocused scene; cached).
    const std::vector<float>& ImageAt(Population& p, size_t j, double z);
    // An unweighted population's photons per dye in frame f (a blink population: on its clock at the FOV centre).
@@ -3559,13 +3773,29 @@ void FluorescenceMovie::Impl::Survey(Population& p, double zMin, double zMax)
 // ComputeCpuImages.
 bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
 {
+   // One node per pattern state the movie's frames take (one without a varying pattern): each its own scene under
+   // that state's plane factor, so a state's plane spectra and bleach basis stay cached while the pattern steps.
+   p.mfBuilt = true;
+   const std::vector<long> states = PatternStates();
+   p.mf.assign(states.size(), MeanFieldNode());
+   for (size_t j = 0; j < states.size(); ++j)
+   {
+      p.mf[j].patternState = states[j];
+      if (!BuildMeanFieldNode(p, j, err))
+         return false;
+   }
+   return true;
+}
+
+bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::string& err)
+{
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    const Group& g = groups[p.group];
    const double um = S.p.pixelSizeNm / 1000.0;
-   p.mfBuilt = true;
-   p.mf.assign(1, MeanFieldNode());
-   MeanFieldNode& nd = p.mf[0];
-   std::unique_ptr<MeanFieldSlot>& slotPtr = cache.meanField[p.structure * 4 + p.state];
+   MeanFieldNode& nd = p.mf[ni];
+   const long stateIdx = nd.patternState;
+   std::unique_ptr<MeanFieldSlot>& slotPtr =
+      cache.meanField[(p.structure * 4 + p.state) * kPatternSlots + static_cast<int>(stateIdx % kPatternSlots)];
    if (!slotPtr)
       slotPtr.reset(new MeanFieldSlot());
    MeanFieldSlot& slot = *slotPtr;
@@ -3666,8 +3896,9 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    if (shaped)
    {
       auto pf = std::make_shared<ExcitePlaneFactor>();
-      pf->ex = S.excite;
+      pf->ex = ExciteFor(stateIdx);
       pf->shares = g.shares;
+      pf->pitchUm = um / ws.grid.upscale;
       if (anchor)
       {
          // The beam stays with the FOV: its axis is the scene's + (anchor - origin), in 0.25 um steps (a step re-weights
@@ -3683,6 +3914,8 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          pf->key[kExciteKeyPivot] = 0.0;
       pf->key.push_back(pf->offX);
       pf->key.push_back(pf->offY);
+      pf->key.push_back(static_cast<double>(stateIdx));
+      pf->key.push_back(pf->pitchUm);
       for (const ExcitationLine& l : g.shares)
       {
          pf->key.push_back(l.nm);
@@ -3711,7 +3944,7 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       const MapClock& mc = map->s[static_cast<size_t>(p.structure)];
       slot.scene.SetWeightBands(E.edges);
       slot.scene.SetWeightMap(slot.cellMap);
-      p.sceneZ = zStage;
+      nd.sceneZ = zStage;
       if (p.state == ISC_STATE_BLINK)
       {
          slot.scene.UsedWeights(p.used);
@@ -3742,19 +3975,19 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
          // Several frames (or the GPU's images): the whole basis at once, anchored at frame 0 -- a frame it holds
          // renders from its images, one it does not anchors a new one --, unless the scene's holds frame 0 already (a
          // host's next movie at the same pose).
-         p.anchored = false;
+         nd.anchored = false;
          if (S.N > 1 || nd.deferred)
          {
             slot.scene.TakeAsyncBasis(false);   // (one made: taken)
-            p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
+            nd.anchored = slot.scene.AnchorDecay(p.wb0, nd.anchor);
             std::vector<double> a;
             // (One being made: waited for, not made again.)
-            if (!p.anchored && !slot.scene.BleachCoefficients(p.wb0, a) && slot.scene.TakeAsyncBasis(true))
-               p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
-            if (!p.anchored && !slot.scene.BleachCoefficients(p.wb0, a))
+            if (!nd.anchored && !slot.scene.BleachCoefficients(p.wb0, a) && slot.scene.TakeAsyncBasis(true))
+               nd.anchored = slot.scene.AnchorDecay(p.wb0, nd.anchor);
+            if (!nd.anchored && !slot.scene.BleachCoefficients(p.wb0, a))
             {
                slot.scene.SetBleachWeights(p.wb0, false);
-               p.anchored = slot.scene.AnchorDecay(p.wb0, p.anchor);
+               nd.anchored = slot.scene.AnchorDecay(p.wb0, nd.anchor);
             }
          }
       }
@@ -3762,19 +3995,19 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       if (!nd.deferred)
       {
          tW = TimingClock::now();
-         WeightedImage(p, nd.image);
+         WeightedImage(p, ni, nd.image);
          TimingLog("fl.mean-field-render", TimingSince(tW));
       }
    }
    else if (!gpuMode || anchor)
-      TakeImage(p, 0);
+      TakeImage(p, ni);
    return true;
 }
 
-void FluorescenceMovie::Impl::WeightedImage(Population& p, std::vector<float>& img)
+void FluorescenceMovie::Impl::WeightedImage(Population& p, size_t j, std::vector<float>& img)
 {
    img.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
-   const MeanFieldNode& nd = p.mf[0];
+   const MeanFieldNode& nd = p.mf[j];
    if (nd.shifted)
       nd.slot->scene.RenderFrameShifted(p.wb0, nd.shiftX, nd.shiftY, img);
    else
@@ -3809,7 +4042,7 @@ const std::vector<float>& FluorescenceMovie::Impl::ImageAt(Population& p, size_t
    if (nd.slot->scene.Update(cache.source, ill, ws, *nd.slot->psf, err))
    {
       if (p.weighted)
-         WeightedImage(p, img);
+         WeightedImage(p, j, img);
       else if (nd.shifted && nd.slot->scene.Images().HasSpectra())
          RenderShiftedImages(nd.slot->scene.Images(), nullptr, 0.0, {}, nd.shiftX, nd.shiftY, img);
       else
@@ -3887,7 +4120,7 @@ void FluorescenceMovie::Impl::TakeImage(Population& p, size_t j)
    nd.slot->scene.SetDeferImages(false);   // (its images are in: what follows is the CPU's)
    if (p.weighted)
    {
-      WeightedImage(p, nd.image);
+      WeightedImage(p, j, nd.image);
       return;
    }
    nd.image.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
@@ -3965,7 +4198,7 @@ void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z, double
       // dyes that entered or left it.
       std::vector<uint64_t> key;
       MovieCache::RunningImage* run = nullptr;
-      if (carry)
+      if (carry && !varies)
       {
          auto bits = [&](double v) {
             uint64_t b;
@@ -4097,7 +4330,10 @@ BgSlice MakeBgSlice(const BgJob& j)
          double im = imMap[k];
          im *= j.expSec;
          s.im[k] = im;
-         s.lat[k] = j.backgroundPhotons * ex.Lateral(dx, dy, 0.0);
+         // (A beam set: its first frame's pattern on the coverslip; the movie makes the other frames' itself.)
+         s.lat[k] = j.backgroundPhotons *
+                    (ex.Patterned() ? ex.At(dx, dy, 0.0, ExcitationShares{ { ex.Spec().lambdaRefNm, 1.0 } })
+                                    : ex.Lateral(dx, dy, 0.0));
       }
    });
    return s;
@@ -4395,6 +4631,23 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       // (The pivot at kExciteKeyPivot, the focus last: the plane factor's key leaves the focus out.)
       m.exciteKey = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
                       es.pivotUm, m.axisX, m.axisY, S.q.zRefUm };
+      // A beam set: its program and beams (before the focus, which stays last).
+      if (!es.beams.beams.empty())
+      {
+         const BeamSet& b = es.beams;
+         std::vector<double> k = { static_cast<double>(b.type), static_cast<double>(b.polarization),
+                                   static_cast<double>(b.phases), static_cast<double>(b.angles),
+                                   static_cast<double>(b.order), b.angle0Deg, b.phase0, b.driftTurnsPerSqrtSec,
+                                   b.driftTurnsPerSec, es.fObjUm, es.lambdaRefNm, static_cast<double>(es.seed),
+                                   es.expSec, static_cast<double>(es.frame) };
+         for (const Beam& bm : b.beams)
+            for (int c = 0; c < kBeamColumns; ++c)
+               k.push_back(BeamColumn(bm, c));
+         m.exciteKey.insert(m.exciteKey.end() - 1, k.begin(), k.end());
+      }
+      m.varies = S.excite.Varies();
+      m.driftsPhase = es.beams.driftTurnsPerSqrtSec > 0 || es.beams.driftTurnsPerSec != 0;
+      m.period = std::max(1, es.beams.Period());
    }
    m.map.reset();
    if (hostMap || m.shaped)
@@ -4598,7 +4851,10 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             {
                const double* b = sites[k];
                const double xUm = b[3] - S.q.originXUm, yUm = b[4] - S.q.originYUm, zNm = (b[5] - S.q.zRefUm) * 1000.0;
-               const double a = m.shaped ? m.ExciteAt(c.lineShares, xUm, yUm, zNm) : 1.0, rate = BeadRatePerSec(c, b[6]) * a;
+               const double a = m.shaped ? (m.varies ? m.MeanExciteAt(c.lineShares, xUm, yUm, zNm)
+                                                     : m.ExciteAt(c.lineShares, xUm, yUm, zNm))
+                                         : 1.0,
+                            rate = BeadRatePerSec(c, b[6]) * a;
                if (!(rate > 0))
                   continue;
                if (j - i == 1)
@@ -4688,6 +4944,13 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       FM->sec = TimingSince(tFid);
       TimingLog("fl.fiducials-setup", FM->sec);
       m.fid = std::move(FM);
+      // A pattern stepping with the frame: each bead's frame x the frame's excitation over the cycle mean (its rate
+      // and bleaching run on the mean).
+      if (m.varies && m.fid)
+         m.fid->frameScale = [&m](long f, const FiducialMovieComponent& c, const FiducialBeadSite& e) {
+            const double mean = m.MeanExciteAt(c.c.lineShares, e.xUm, e.yUm, e.zNm);
+            return mean > 0 ? m.ExciteAtFrame(f, c.c.lineShares, e.xUm, e.yUm, e.zNm) / mean : 0.0;
+         };
    }
    // The binned blink regime (its kernel spectra are made on first use).
    const bool binnedPossible = S.blinkBinnedDensityPerUm2 < 1e9 || S.blinkBinnedMaxEmitters < 1e9;
@@ -4921,6 +5184,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    if (m.shaped)
    {
       m.bgMap.resize(static_cast<size_t>(S.W) * S.H);
+      if (m.varies)
+         m.bgIm.assign(static_cast<size_t>(S.W) * S.H, 0.0f);
       const double H0 = S.lp.chamberHeightUm;
       std::vector<const LabelPhysics*> imagers;
       for (size_t s = 0; s < S.labels.size(); ++s)
@@ -4954,6 +5219,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
                   m.axisX, m.axisY, static_cast<double>(S.W), static_cast<double>(S.H), um, H0, S.expSec,
                   S.p.backgroundPhotons };
+      for (size_t i = 11; i + 1 < m.exciteKey.size(); ++i)   // a beam set's program and beams (none: nothing)
+         job.key.push_back(m.exciteKey[i]);
       for (const ImagerSource& src : job.sources)
       {
          job.key.push_back(src.rate);
@@ -4982,6 +5249,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          const double lat = B ? (1.0 - t) * A->lat[k] + t * B->lat[k] : A->lat[k];
          sum += im;
          m.bgMap[k] = static_cast<float>(lat + im);
+         if (m.varies)
+            m.bgIm[k] = static_cast<float>(im);
       }
       m.imagerMean = sum / (S.W * S.H);
    }
@@ -5062,8 +5331,8 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
       blinks += m.byGroup[gi].size();
       sp.groups.push_back(std::move(sg));
    }
-   if (sp.groups.empty() || blinks != m.events.size())
-      return FluorescenceSimplePlan();   // no blinks, blinks of another group (none should be)
+   if (sp.groups.empty() || blinks != m.events.size() || m.varies)
+      return FluorescenceSimplePlan();   // no blinks, blinks of another group (none should be), or a pattern per frame
    sp.ok = true;
    sp.backgroundPhotons = m.bg;
    sp.backgroundMap = m.bgMap.empty() ? nullptr : &m.bgMap;
@@ -5104,6 +5373,15 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    info.width = W;
    info.height = H;
    info.frames = N;
+   info.patternStates.clear();
+   if (S.excite.Patterned())
+      for (long f = 0; f < N; ++f)
+      {
+         const PatternState& ps = m.ExciteFor(m.StateOf(f)).State();
+         info.patternStates.push_back(ps.light.angle);
+         info.patternStates.push_back(ps.light.phase);
+         info.patternStates.push_back(ps.rotDeg);
+      }
    info.blinks = m.events.size();
    info.dyes = 0;
    for (const Population& p : m.pops)
@@ -5220,6 +5498,13 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
+      // A varying pattern: the batch's states and background maps made here, before the frames render in parallel.
+      if (m.varies)
+         for (long k = 0; k < nb; ++k)
+         {
+            m.ExciteFor(m.StateOf(f0 + k));
+            m.BgMapFor(f0 + k);
+         }
       tBlinks.Start();
       // The blinks: frame per core, or -- fewer frames than cores (a live
       // frame, a render-ahead batch) -- one frame after the other, each in
@@ -5235,16 +5520,17 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          if (popsOnly)
             photons[k].assign(n, 0.0f);   // the host splats the background and the SMLM frames' blinks
          else if (!m.bgMap.empty() && !shaped && bgScale == 1.0)
-            photons[k] = m.bgMap;   // the excitation's background map
+            photons[k] = m.BgMapFor(f);   // the excitation's background map (a varying pattern: the frame's)
          else if (!shaped && bgScale == 1.0)
             photons[k].assign(n, static_cast<float>(m.bg));
          else
          {
             // The adapter's shaped background: x the illumination field, x the fade.
             photons[k].resize(n);
+            const std::vector<float>& bgm = m.BgMapFor(f);
             for (size_t i = 0; i < n; ++i)
             {
-               double b = m.bgMap.empty() ? m.bg : m.bgMap[i];
+               double b = bgm.empty() ? m.bg : bgm[i];
                if (shaped)
                   b *= (*opt.illumField)[i];
                photons[k][i] = static_cast<float>(b * bgScale);
@@ -5276,6 +5562,9 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             fe[k].clear();
             for (uint32_t i : m.buckets[gi][static_cast<size_t>(f)])
                fe[k].push_back(m.byGroup[gi][i]);
+            if (m.varies)
+               for (BlinkEvent& e : fe[k])
+                  e.excite = m.ExciteAtFrame(f, g.shares, e.xUm, e.yUm, e.zNm);
             frameBlinks[k] += static_cast<long>(fe[k].size());
             if (binnedFrame)
             {
@@ -5312,10 +5601,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             auto unweighted = [&]() -> const std::vector<float>* {
                if (p.mf.empty())
                   return nullptr;
+               const size_t nj = m.NodeOf(p, f);
                if (!drift)
-                  return &m.ImageAt(p, 0, zf);
+                  return &m.ImageAt(p, nj, zf);
                driftImage.assign(n, 0.0f);
-               m.DriftMeanField(p, 0, f, zBaseAt(f), S.drift[static_cast<size_t>(f)], driftImage);
+               m.DriftMeanField(p, nj, f, zBaseAt(f), S.drift[static_cast<size_t>(f)], driftImage);
                return &driftImage;
             };
             if (p.state == ISC_STATE_BLINK)
@@ -5375,6 +5665,13 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                {
                   ddx = S.drift[static_cast<size_t>(f)].x / pixelNm;
                   ddy = S.drift[static_cast<size_t>(f)].y / pixelNm;
+               }
+               if (m.varies)
+               {
+                  // The pattern of this frame at every dye: the running image made afresh.
+                  for (BlinkEvent& e : p.wins)
+                     e.excite = m.ExciteAtFrame(f, g.shares, e.xUm, e.yUm, e.zNm);
+                  p.accFrame = -1;
                }
                m.AdvanceAcc(p, f, zf, ddx, ddy);
                const double perFrame = p.rate * S.expSec;
