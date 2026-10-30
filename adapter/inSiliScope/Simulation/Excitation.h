@@ -105,9 +105,12 @@ public:
                          int dirs = kCollectDirs, double ratio = kCollectRatio, int tirfSteps = kCollectTirfSteps,
                          bool fresnel = true) const;
    // Its map over a W x H camera (pixel (i, j) at (i um - axisX, j um - axisY); JS imagerMap): on a node grid,
-   // interpolated bilinearly; a Flat beam: the plain columns. Nodes on threads (each its own slot).
+   // interpolated bilinearly; a Flat beam: the plain columns. Nodes on threads (each its own slot). The grid: nodesPerScale
+   // nodes per beam scale (the Gaussian's sigma, the FlatTop's edge), at most one per pixel and kCollectNodes per axis;
+   // bilinear between them is within ~1 / (8 nodesPerScale^2) of the peak (3: ~1.4 %, the background's; 12: ~0.1 %,
+   // the fluorescent slide's, whose whole image this is).
    std::vector<double> ImagerMap(unsigned W, unsigned H, double um, double axisX, double axisY, double Hc,
-                                 const std::vector<ImagerSource>& imagers) const;
+                                 const std::vector<ImagerSource>& imagers, double nodesPerScale = 3.0) const;
    // TIRF's 1/e depth at lambdaNm; HILO's sheet thickness on the axis; -1 otherwise (nm).
    double DepthNm(double lambdaNm = 640) const;
    // TIRF's decay length at lambdaNm, um.

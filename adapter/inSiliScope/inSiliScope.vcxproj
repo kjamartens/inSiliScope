@@ -131,6 +131,7 @@
     <ClCompile Include="Simulation\Fft2d.cpp" />
     <ClCompile Include="Simulation\BinnedBlinks.cpp" />
     <ClCompile Include="Simulation\Fiducials.cpp" />
+    <ClCompile Include="Simulation\Slide.cpp" />
     <ClCompile Include="Simulation\BlinkExpectation.cpp" />
     <ClCompile Include="Simulation\Illumination.cpp" />
     <ClCompile Include="Simulation\BrightfieldRender.cpp" />
@@ -190,6 +191,7 @@
     <ClInclude Include="Simulation\Fft2d.h" />
     <ClInclude Include="Simulation\BinnedBlinks.h" />
     <ClInclude Include="Simulation\Fiducials.h" />
+    <ClInclude Include="Simulation\Slide.h" />
     <ClInclude Include="Simulation\BlinkExpectation.h" />
     <ClInclude Include="Simulation\Parallel.h" />
     <ClInclude Include="Simulation\Timing.h" />

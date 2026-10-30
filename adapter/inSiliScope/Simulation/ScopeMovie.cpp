@@ -9,6 +9,7 @@
 
 #include "ScopeMovie.h"
 #include "Fiducials.h"
+#include "Slide.h"
 #include "ScopeResolved.h"
 
 #include "CacheDir.h"
@@ -142,7 +143,7 @@ const char* PartOf(const std::string& n)
    if (in({ "seed", "world-seed", "specimen", "mode", "chunk-um", "occupancy", "cell-diam-min-um", "cell-diam-max-um",
             "packing", "chamber-height-um", "background-per-sec", "bf-absorption-per-um", "psf-sample-index",
             "psf-sample-depth-nm", "dye1.source", "dye2.source", "dye3.source" }) ||
-       starts("origami-") || starts("fid-") || starts("bf-n-") || (starts("dye") && n.find('.') != std::string::npos) ||
+       starts("origami-") || starts("fid-") || starts("slide-") || starts("bf-n-") || (starts("dye") && n.find('.') != std::string::npos) ||
        (n.size() > 8 && n.compare(n.size() - 8, 8, "-density") == 0))
       return "sample";
    // how the instrument is driven: the light, the filters in place, the camera's settings, the render quality
@@ -197,7 +198,7 @@ const OptionTable& Options()
          { "na", 1.4, "Objective.NA: numerical aperture" },
          { "focus-um", 0, "CellField.FocusHeightUm (focus offset added to z)" },
          { "z-range-um", 7.0, "CellField.ZRangeUm: dyes within +/- z-range/2 of the focal plane are rendered (0 = all)" },
-         { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField, 1 = Nanorulers, 2 = Beads: only the fiducial beads; data/specimens.json; names accepted)" },
+         { "specimen", 0, "SampleHolder: the mounted specimen (0 = CellField, 1 = Nanorulers, 2 = Beads: only the fiducial beads, 3 = Slide: a fluorescent slide, the slide-* options; data/specimens.json; names accepted)" },
          { "mode", -1, "fallback label mode for every target whose <prefix>-mode is -2 (Global): 0 dSTORM, 1 PALM, 2 DNA-PAINT, 3 WideField; -1 None (each target's own; names accepted). Each target has its own mode (<prefix>-mode); Micro-Manager has no experiment-wide mode since issue 15" },
       };
       // Each target's label (data/specimens.json; Micro-Manager: the specimen device's <Row>_* rows, Fluorophores):
@@ -324,6 +325,18 @@ const OptionTable& Options()
          { "fid-bleach-ref-kwcm2", FiducialDefaults().bleachRefKWcm2, "Fiducials.BleachRefKWcm2: the intensity the half-time is given at, kW/cm^2" },
          { "fid-dyes", -1, "Fiducials.DyeCount: equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component (-1 = the type's, fitted to balinovic2019)" },
          { "fid-blocking-od", 8, "Fiducials.BlockingOD: the emission path (dichroic ~OD 2 x emission filter ~OD 6 at the laser line; estimate) blocks a laser line by at least this optical density: gold's scattered laser light (ideal filters would block it fully)" },
+         // ---- the fluorescent slide (specimen 3; Micro-Manager: FluorescentSlide; Slide.h) ----
+         { "slide-thickness-um", 5, "FluorescentSlide.ThicknessUm: the dye layer's thickness on the coverslip, um" },
+         { "slide-dye", 0, keep([] {
+              std::string h = "FluorescentSlide.Dye: the layer's dye (names accepted): 0 Mix (TetraSpeck's four components, "
+                              "blue, green, orange and dark red, each at slide-conc-micromolar as equivalent dyes: eps 1e5, QY 0.5), "
+                              "then a library dye's main state:";
+              for (size_t i = 1; i < SlideDyeNames().size(); ++i)
+                 h += (i > 1 ? ", " : " ") + std::to_string(i) + " " + SlideDyeNames()[i];
+              return h;
+           }()) },
+         { "slide-conc-micromolar", 10, "FluorescentSlide.ConcentrationMicroMolar: each dye's concentration in the layer, uM (estimate)" },
+         { "slide-bleach-half-sec", 900, "FluorescentSlide.BleachHalfTimeSec: the layer's fluorescence half-time at 1 kW/cm^2 at its dye's excitation peak, s (~ 1 / the excitation; 0 = no bleaching; estimate)" },
          { "camera-preset", idx(CameraIds(), DefaultCamera()), "Camera.CameraPreset: Kinetix22, iXonUltra897, Custom (names accepted; data/dyes/cameras.json)" },
          { "qe-curve", -1, "Camera.QeCurve: QE(lambda) of a camera (index/name), -1 = the preset's, Custom = flat at qe" },
          { "qe", 0.85, "Camera.QuantumEfficiency (the flat QE of the Custom curve)" },
@@ -423,6 +436,7 @@ const std::vector<std::string>* OptionNames(const std::string& name)
       m["origami-roll"] = { "Uniform", "Fixed" };
       m["fid-type"] = FiducialTypeIds();
       m["fid-height"] = ScopeFiducialHeightNames();
+      m["slide-dye"] = SlideDyeNames();
       for (const char* k : { "dye1.source", "dye2.source", "dye3.source" })
          m[k] = DyeIds();
       m["ex-filter"] = ExcitationFilterIds();
@@ -966,10 +980,13 @@ static bool AutoLightPreset(const ScopeSpec& spec, std::vector<ResolvedLightPres
    }
    if (qs.empty())
    {
-      // None labelled: the specimen's (the bead sample: data/specimens.json lightPreset), else its first target's.
+      // None labelled: the specimen's (the bead sample: data/specimens.json lightPreset; the slide: its dye's,
+      // SlideLightPresetId), else its first target's.
       const std::vector<int> mounted = ScopeMountedStructures(spec);
       const int sp = ScopeSpecimen(spec);
-      const char* own = sp >= 0 && sp < static_cast<int>(SpecimenIds().size()) ? SpecimenAt(sp).lightPreset : nullptr;
+      const std::string slide = sp == ISC_SPECIMEN_SLIDE ? SlideLightPresetId(static_cast<int>(ScopeSpecGet(spec, "slide-dye"))) : "";
+      const char* own = !slide.empty() ? slide.c_str()
+                        : sp >= 0 && sp < static_cast<int>(SpecimenIds().size()) ? SpecimenAt(sp).lightPreset : nullptr;
       const LightPresetData* q = own ? FindLightPreset(own) : !mounted.empty() ? TargetLightPreset(spec, mounted[0], err) : nullptr;
       if (!q)
       {
@@ -1350,6 +1367,9 @@ struct ScopeSetup
    bool fidOn = false;
    int fidType = 0;
    std::vector<FiducialComponent> fidComps;
+   // The fluorescent slide (specimen 3): its thickness and dyes through the light path (none: off).
+   double slideThicknessUm = 0;
+   std::vector<SlideComponent> slideComps;
 };
 
 // JS scopeSetup: frame-equivalent parameters, world settings, the FOV query,
@@ -1393,6 +1413,19 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
       fo.blockingOD = O("fid-blocking-od");
       if (S.fidOn && !FiducialPhotophysics(t, S.lp, fo, S.fidComps, err))
          return false;
+   }
+   if (specimen == ISC_SPECIMEN_SLIDE)
+   {
+      SlideOptions so;
+      so.dye = static_cast<int>(O("slide-dye"));
+      so.thicknessUm = std::max(0.0, O("slide-thickness-um"));
+      so.concMicroM = std::max(0.0, O("slide-conc-micromolar"));
+      so.halfSec = std::max(0.0, O("slide-bleach-half-sec"));
+      S.slideThicknessUm = so.thicknessUm;
+      if (!SlidePhotophysics(so, S.lp, O("pixel-nm") / 1000.0, S.slideComps, err))
+         return false;
+      if (!(so.thicknessUm > 0) || !(so.concMicroM > 0))
+         S.slideComps.clear();
    }
    bool epi = false, trans = false;
    ScopeLights(spec, epi, trans);
@@ -3026,6 +3059,7 @@ struct FluorescenceMovie::Impl
    bool anyBlinks = false;
    double imagerPerFrame = 0, bg = 0, fovArea = 0, zStage = 0;
    std::unique_ptr<FiducialMovie> fid;   // the beads (none: nullptr)
+   std::unique_ptr<SlideMovie> slide;    // the fluorescent slide (none: nullptr)
    // A shaped excitation (not Uniform): the factor of a dye state at (xUm,
    // yUm, zNm) in the FOV frame, the per-pixel background (empty: m.bg) and
    // its imager part's mean.
@@ -4079,12 +4113,13 @@ struct BgJob
    unsigned W = 0, H = 0;
    double um = 0, axisX = 0, axisY = 0, H0 = 0, expSec = 0, backgroundPhotons = 0;
    std::vector<ImagerSource> sources;
+   double nodesPerScale = 3;   // Excitation::ImagerMap's grid (the background's; the slide's finer)
 };
 
 BgSlice MakeBgSlice(const BgJob& j)
 {
    const Excitation ex(j.es);
-   const std::vector<double> imMap = ex.ImagerMap(j.W, j.H, j.um, j.axisX, j.axisY, j.H0, j.sources);
+   const std::vector<double> imMap = ex.ImagerMap(j.W, j.H, j.um, j.axisX, j.axisY, j.H0, j.sources, j.nodesPerScale);
    BgSlice s;
    const size_t n = static_cast<size_t>(j.W) * j.H;
    s.lat.resize(n);
@@ -4266,6 +4301,33 @@ private:
 #endif
    bool prefetch_ = false, stop_ = false;
 };
+
+// The background map of job at its focus (job.es.pivotUm): the grid's foci around it (kBackgroundFocusStepUm apart; on a
+// grid focus: that one alone), blended linearly, the neighbours prefetched. A focus move reuses the grid's maps (and the
+// prefetched neighbours) instead of making a new map (~0.2 s at 256 px). The blend is exact on the grid; in between it is
+// the linear interpolation of smooth maps (the defocused imager; HILO's sheet moving tan theta_s um per um of focus).
+void BlendedBgSlice(const BgJob& job, std::vector<double>& im, std::vector<double>& lat)
+{
+   const double step = kBackgroundFocusStepUm, pivot = job.es.pivotUm;
+   const double k0 = std::floor(pivot / step), t = (pivot - k0 * step) / step;
+   auto at = [&](double k) {
+      BgJob jk = job;
+      jk.es.pivotUm = k * step;
+      jk.key.push_back(k);
+      return jk;
+   };
+   const std::shared_ptr<const BgSlice> A = BgMapCache::Get().Slice(at(k0));
+   const std::shared_ptr<const BgSlice> B = t > 0.0 ? BgMapCache::Get().Slice(at(k0 + 1)) : nullptr;
+   BgMapCache::Get().Prefetch({ at(k0 + 1), at(k0 - 1), at(k0 + 2) });
+   const size_t n = A->im.size();
+   im.resize(n);
+   lat.resize(n);
+   for (size_t k = 0; k < n; ++k)
+   {
+      im[k] = B ? (1.0 - t) * A->im[k] + t * B->im[k] : A->im[k];
+      lat[k] = B ? (1.0 - t) * A->lat[k] + t * B->lat[k] : A->lat[k];
+   }
+}
 } // namespace
 
 void SetLiveAsyncBasis(bool on)
@@ -4566,19 +4628,31 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          sites.push_back(&rows[i]);
       FM->sites = sites.size();
       // When each bead's decay starts: the movie's start-sec, or under a host's light history the bead's past light
-      // as seconds of the light now (its dose there / the dose rate the light gives there; exact while the light's
-      // spectrum stays the same, ample for hours of half-time), plus the frames between the history's now and the
-      // movie's start-sec (a render-ahead batch after queued frames: the map's clocks run on to it as well).
-      std::vector<double> t0s(sites.size(), S.t0Sec);
+      // (LightPastAt, from its dose there: seconds of the light now where that light reaches, exact while the light's
+      // spectrum stays the same, ample for hours of half-time; seconds at excitation 1 where it does not, as seconds of
+      // its own excitation now: the bead's a), plus the frames between the history's now and the movie's start-sec (a
+      // render-ahead batch after queued frames: the map's clocks run on to it as well).
+      std::vector<LightPast> pasts;
+      double ahead = 0.0;
       if (history && light)
       {
-         const double ahead = std::max(0.0, S.t0Sec - history->T());
+         ahead = std::max(0.0, S.t0Sec - history->T());
+         std::vector<double> xy(2 * sites.size()), dose, doseOther, rate;
          for (size_t i = 0; i < sites.size(); ++i)
          {
-            const double rate = history->DoseRate(*light, sites[i][3], sites[i][4]);
-            t0s[i] = rate > 0 ? history->DoseAt(sites[i][3], sites[i][4]) / rate + ahead : 0.0;
+            xy[2 * i] = sites[i][3];
+            xy[2 * i + 1] = sites[i][4];
          }
+         double peak = 0.0;
+         history->DosesAt(*light, xy, dose, doseOther, rate, peak);
+         pasts.resize(sites.size());
+         for (size_t i = 0; i < sites.size(); ++i)
+            pasts[i] = LightPastAt(dose[i], doseOther[i], rate[i], peak, S.excite.F());
       }
+      // site k's start for an excitation a > 0 now
+      auto T0 = [&](size_t k, double a) {
+         return pasts.empty() ? S.t0Sec : pasts[k].sec + (pasts[k].exc > 0 ? pasts[k].exc / a : 0.0) + ahead;
+      };
       const bool clumpsAsOne = ScopeSpecGet(spec, "fid-clumps-as-one") != 0;
       for (const FiducialComponent& c : S.fidComps)
       {
@@ -4603,7 +4677,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                   continue;
                if (j - i == 1)
                {
-                  e = { xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, t0s[k] };
+                  e = { xUm, yUm, zNm, b[6], rate, c.bleachPerSec * a, T0(k, a) };
                   break;
                }
                const double v = b[6] * b[6] * b[6];
@@ -4613,7 +4687,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                vol += v;
                e.rate += rate;
                e.lambda += rate * c.bleachPerSec * a;
-               e.t0Sec += rate * t0s[k];
+               e.t0Sec += rate * T0(k, a);
             }
             if (!(e.rate > 0))
                continue;
@@ -4934,10 +5008,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             sh.push_back({ l.nm, l.share });
          imagerShares.push_back(sh);
       }
-      // The map at the grid's foci around this one (kBackgroundFocusStepUm apart; on a grid focus: that one alone),
-      // blended linearly: a focus move reuses the grid's maps (and the prefetched neighbours) instead of making a
-      // new map (~0.2 s at 256 px). The blend is exact on the grid; in between it is the linear interpolation of
-      // smooth maps (the defocused imager; HILO's sheet moving tan theta_s um per um of focus).
+      // The map at the grid's foci around this one, blended (BlendedBgSlice).
       BgJob job;
       job.es = ScopeExcitationSpec(spec);
       job.W = S.W;
@@ -4963,27 +5034,155 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             job.key.push_back(l.share);
          }
       }
-      const double step = kBackgroundFocusStepUm, pivot = es.pivotUm;
-      const double k0 = std::floor(pivot / step), t = (pivot - k0 * step) / step;
-      auto at = [&](double k) {
-         BgJob jk = job;
-         jk.es.pivotUm = k * step;
-         jk.key.push_back(k);
-         return jk;
-      };
-      const std::shared_ptr<const BgSlice> A = BgMapCache::Get().Slice(at(k0));
-      const std::shared_ptr<const BgSlice> B = t > 0.0 ? BgMapCache::Get().Slice(at(k0 + 1)) : nullptr;
-      BgMapCache::Get().Prefetch({ at(k0 + 1), at(k0 - 1), at(k0 + 2) });
+      std::vector<double> im, lat;
+      BlendedBgSlice(job, im, lat);
       const size_t n = static_cast<size_t>(S.W) * S.H;
       double sum = 0.0;
       for (size_t k = 0; k < n; ++k)
       {
-         const double im = B ? (1.0 - t) * A->im[k] + t * B->im[k] : A->im[k];
-         const double lat = B ? (1.0 - t) * A->lat[k] + t * B->lat[k] : A->lat[k];
-         sum += im;
-         m.bgMap[k] = static_cast<float>(lat + im);
+         sum += im[k];
+         m.bgMap[k] = static_cast<float>(lat[k] + im[k]);
       }
       m.imagerMean = sum / (S.W * S.H);
+   }
+   // The fluorescent slide (Slide.h): per excitation geometry (a set of line shares) the layer's collected light, the
+   // background's imager model over the layer's thickness (a slice of its focus grid at rate 1, BlendedBgSlice), and
+   // each pixel's excitation at kSlideNodes heights (one in epi: the same at every height); per dye its unbleached
+   // photons; under a light history each pixel's past light (LightPastAt: seconds of the light now where it reaches,
+   // seconds at excitation 1 where it does not; DosesAt on a 0.25 um grid, bilinear: the history's lattice), then the
+   // frames between the history's now and start-sec at each height's own excitation.
+   m.slide.reset();
+   if (!S.slideComps.empty())
+   {
+      const auto tSlide = TimingClock::now();
+      std::unique_ptr<SlideMovie> SM(new SlideMovie());
+      SM->W = S.W;
+      SM->H = S.H;
+      SM->expSec = S.expSec;
+      SM->t0Sec = S.t0Sec;
+      const size_t n = static_cast<size_t>(S.W) * S.H;
+      const double Hl = S.slideThicknessUm;
+      const bool oneNode = !m.shaped || (!S.excite.Tilted() && !S.excite.Tirf());
+      std::vector<std::vector<double>> maps;   // per geometry: photons per pixel per second at rate 1 per um
+      auto same = [](const ExcitationShares& a, const ExcitationShares& b) {
+         if (a.size() != b.size())
+            return false;
+         for (size_t i = 0; i < a.size(); ++i)
+            if (a[i].nm != b[i].nm || a[i].share != b[i].share)
+               return false;
+         return true;
+      };
+      for (const SlideComponent& c : S.slideComps)
+      {
+         size_t g = 0;
+         while (g < SM->geos.size() && !same(SM->geos[g].shares, c.lineShares))
+            ++g;
+         if (g == SM->geos.size())
+         {
+            SlideMovie::Geometry G;
+            G.shares = c.lineShares;
+            std::vector<double> map(n, Hl);   // a uniform beam: the column
+            if (m.shaped)
+            {
+               BgJob job;
+               job.es = ScopeExcitationSpec(spec);
+               job.W = S.W;
+               job.H = S.H;
+               job.um = um;
+               job.axisX = m.axisX;
+               job.axisY = m.axisY;
+               job.H0 = Hl;
+               job.expSec = 1.0;
+               job.sources.push_back({ 1.0, c.lineShares });
+               job.nodesPerScale = kSlideNodesPerScale;
+               const ExcitationSpec& es = job.es;
+               job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
+                           m.axisX, m.axisY, static_cast<double>(S.W), static_cast<double>(S.H), um, Hl, 1.0, 0.0,
+                           kSlideNodesPerScale, 1.0 };
+               for (const ExcitationLine& l : c.lineShares)
+               {
+                  job.key.push_back(l.nm);
+                  job.key.push_back(l.share);
+               }
+               std::vector<double> lat;
+               BlendedBgSlice(job, map, lat);
+            }
+            // The heights: TIRF's within 10 decay lengths of the glass, else the whole layer.
+            double zTop = Hl;
+            if (S.excite.Tirf())
+            {
+               double d = 0.0;
+               for (const ExcitationLine& l : c.lineShares)
+                  d = std::max(d, S.excite.DecayUm(l.nm));
+               zTop = std::min(Hl, 10.0 * d);
+            }
+            G.nodes = oneNode ? 1 : kSlideNodes;
+            G.a.assign(static_cast<size_t>(G.nodes) * n, 1.0f);
+            if (m.shaped)
+               ParallelFor(S.H, [&](unsigned y) {
+                  for (unsigned x = 0; x < S.W; ++x)
+                     for (int j = 0; j < G.nodes; ++j)
+                     {
+                        const double z = oneNode ? Hl / 2 : (j + 0.5) / G.nodes * zTop;
+                        G.a[static_cast<size_t>(j) * n + static_cast<size_t>(y) * S.W + x] =
+                           static_cast<float>(m.ExciteAt(G.shares, x * um, y * um, (z - S.q.zRefUm) * 1000.0));
+                     }
+               });
+            SM->geos.push_back(std::move(G));
+            maps.push_back(std::move(map));
+         }
+         SlideMovie::Comp C;
+         C.c = c;
+         C.geo = g;
+         C.base.resize(n);
+         for (size_t k = 0; k < n; ++k)
+            C.base[k] = static_cast<float>(c.perPxUmSec * maps[g][k] * S.expSec);
+         SM->comps.push_back(std::move(C));
+      }
+      if (history && light)
+      {
+         // The grid: 0.25 um nodes over the FOV (world um), one beyond its far edges.
+         const double h = 0.25, x0 = S.q.originXUm, y0 = S.q.originYUm;
+         const int nx = static_cast<int>(std::ceil((S.W - 1) * um / h)) + 2;
+         const int ny = static_cast<int>(std::ceil((S.H - 1) * um / h)) + 2;
+         std::vector<double> xy(static_cast<size_t>(nx) * ny * 2), dose, doseOther, rate;
+         for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i)
+            {
+               xy[2 * (static_cast<size_t>(j) * nx + i)] = x0 + i * h;
+               xy[2 * (static_cast<size_t>(j) * nx + i) + 1] = y0 + j * h;
+            }
+         double peak = 0.0;
+         history->DosesAt(*light, xy, dose, doseOther, rate, peak);
+         SM->t0Sec = std::max(0.0, S.t0Sec - history->T());
+         if (peak > 0)   // dark now: nothing shows, no past needed
+         {
+            std::vector<double> sec(dose.size()), exc(dose.size());
+            for (size_t k = 0; k < dose.size(); ++k)
+            {
+               const LightPast lp = LightPastAt(dose[k], doseOther[k], rate[k], peak, S.excite.F());
+               sec[k] = lp.sec;
+               exc[k] = lp.exc;
+            }
+            auto Lerp = [&](const std::vector<double>& v, double u, double w) {
+               const int i = std::min(nx - 2, static_cast<int>(u)), j = std::min(ny - 2, static_cast<int>(w));
+               const double fu = u - i, fw = w - j;
+               auto V = [&](int a, int b) { return v[static_cast<size_t>(b) * nx + a]; };
+               return (1 - fw) * ((1 - fu) * V(i, j) + fu * V(i + 1, j)) + fw * ((1 - fu) * V(i, j + 1) + fu * V(i + 1, j + 1));
+            };
+            SM->pastSec.resize(n);
+            SM->pastExc.resize(n);
+            for (unsigned y = 0; y < S.H; ++y)
+               for (unsigned x = 0; x < S.W; ++x)
+               {
+                  const double u = x * um / h, w = y * um / h;
+                  SM->pastSec[static_cast<size_t>(y) * S.W + x] = static_cast<float>(Lerp(sec, u, w));
+                  SM->pastExc[static_cast<size_t>(y) * S.W + x] = static_cast<float>(Lerp(exc, u, w));
+               }
+         }
+      }
+      m.slide = std::move(SM);
+      TimingLog("fl.slide-setup", TimingSince(tSlide));
    }
    m.setupSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
    TimingLog("fl.setup", m.setupSec);
@@ -5039,7 +5238,7 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
    // The blink groups: the main groups of the blinking labels (a WideField
    // label's main group only lights its population), in Render's order.
    size_t blinks = 0;
-   sp.populations = !m.pops.empty() || (m.fid && !m.fid->comps.empty());   // the beads come in that image too
+   sp.populations = !m.pops.empty() || (m.fid && !m.fid->comps.empty()) || m.slide;   // the beads, the slide too
    for (size_t gi = 0; gi < m.groups.size(); ++gi)
    {
       const Group& g = m.groups[gi];
@@ -5159,6 +5358,20 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             for (const FiducialBeadSite& e : F.beads)
                mean += e.rate / F.beads.size();
             std::snprintf(b, sizeof b, ":%s:%gnm:%.4g_photons_per_sec", F.c.id.c_str(), F.lambdaNm, mean);
+            d += b;
+         }
+      }
+      if (m.slide)
+      {
+         std::snprintf(b, sizeof b, " slide=%gum", S.slideThicknessUm);
+         d += b;
+         for (const SlideMovie::Comp& C : m.slide->comps)
+         {
+            double mean = 0;
+            for (float v : C.base)
+               mean += v / C.base.size();
+            std::snprintf(b, sizeof b, ":%s:%gnm:%.4g_photons_per_px_per_frame:%.4g_bleach_per_sec", C.c.id.c_str(),
+                          C.c.lambdaNm, mean, C.c.bleachPerSec);
             d += b;
          }
       }
@@ -5414,6 +5627,16 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                path += (c ? ", " : "") + std::to_string(m.fid->comps[c].beads.size()) + " " + m.fid->comps[c].c.id;
             paths[static_cast<size_t>(k)].push_back(path);
          }
+         // The fluorescent slide (no drift: the layer is the same everywhere; its bleached pattern stays put).
+         if (m.slide)
+         {
+            const auto ts = TimingClock::now();
+            RenderSlide(img, *m.slide, f);
+            m.slide->sec += TimingSince(ts);
+            paths[static_cast<size_t>(k)].push_back("slide: " + std::to_string(m.slide->comps.size()) + " dyes, " +
+                                                    std::to_string(m.slide->geos.empty() ? 0 : m.slide->geos[0].nodes) +
+                                                    " heights");
+         }
       }
       tPops.Stop();
       tNoise.Start();
@@ -5463,6 +5686,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    tWrite.Log("fl.frame.onFrame");
    if (m.fid)
       TimingLog("fl.fiducials", tFid, (std::to_string(m.fid->sites) + " beads").c_str());
+   if (m.slide)
+      TimingLog("fl.slide", m.slide->sec);
    if (TimingEnabled())
    {
       char b[160];

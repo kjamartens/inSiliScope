@@ -35,7 +35,7 @@ import traceback
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from physics_figures import common  # noqa: E402
-from physics_figures import (world, structures, nanorulers, fiducials, light, photophysics, optics, quality, camera)  # noqa: E402,F401
+from physics_figures import (world, structures, nanorulers, fiducials, slide, light, photophysics, optics, quality, camera)  # noqa: E402,F401
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MARKER = re.compile(r"^<!-- fig:([a-z0-9-]+) -->[ \t]*$", re.M)

@@ -80,7 +80,9 @@ of an existing component. A new device needs, in one commit: its class (`Devices
 - One **specimen** device per kind of sample with settings of its own (`CellField`, `Nanorulers` (DNA-origami rods,
   2026-10-12)); the bead sample (`Beads`, 2026-10-30: a bare coverslip with only the fiducial beads) has none, its
   settings are the `Fiducials` overlay's, and mounting it with `Fiducials.DensityPerUm2` 0 sets its density (0.3 /um^2,
-  `data/specimens.json` `fiducials`). `SampleHolder` mounts exactly one (`InSiliScopeHub::MountSpecimen`: the engine
+  `data/specimens.json` `fiducials`); the fluorescent slide (`Slide`, 2026-10-30: a uniform dye layer) has its
+  device `FluorescentSlide` (thickness, dye, concentration, bleach half-time; changing them is not a new world).
+  `SampleHolder` mounts exactly one (`InSiliScopeHub::MountSpecimen`: the engine
   option `specimen`); optional **overlays** (fiducial beads: the `Fiducials` device, 2026-10-23; later autofluorescence) add on top: not a
   new world (the illumination history stays), the same bead field on every specimen. Specimens do not overlap in
   space: one is mounted at a time. Mounting another is a new world (`BuildSampleSettings` carries the specimen and,

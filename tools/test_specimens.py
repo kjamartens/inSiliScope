@@ -1,10 +1,10 @@
-"""Smoke test of the specimens in Micro-Manager (pymmcore-plus): SampleHolder mounts the cell field, the nanorulers or
-the bead sample.
+"""Smoke test of the specimens in Micro-Manager (pymmcore-plus): SampleHolder mounts the cell field, the nanorulers,
+the bead sample or the fluorescent slide.
 
     ADAPTER_DIR=<dir with mmgr_dal_inSiliScope.dll> python tools/test_specimens.py
 
 Precomputed 10-frame stacks at 128 px (Camera Test rows, ISC_TEST=1); docs/samples/index.md, spec/MM_DEVICES.md.
-- SampleHolder: its positions are data/specimens.json's (CellField, Nanorulers, Beads), CellField mounted at start.
+- SampleHolder: its positions are data/specimens.json's (CellField, Nanorulers, Beads, Slide), CellField mounted at start.
 - The Nanorulers device: its label (Docking_*), design and strands rows; Fluorophores resolves the docking strands'
   Typical label in DNA-PAINT to ATTO 655.
 - Nanorulers mounted, focus on the docking strands (0.02 um), Docking_Mode dSTORM (the docking strands' Typical
@@ -19,6 +19,9 @@ Precomputed 10-frame stacks at 128 px (Camera Test rows, ISC_TEST=1); docs/sampl
   others off); focused on the beads a stack shows spots; AggregationPct 0 is another sample (the same number of beads,
   single); a Type pick sets DiameterNm to its product size; a density set by hand stays at a mount; back on the cell
   field OnTop is offered again.
+- The fluorescent slide: the FluorescentSlide device's defaults (5 um, Mix, 10 uM, 900 s); the Lasers' Auto preset is
+  its Slide-561 (561 nm at 0.02 kW/cm^2, the others off); a stack is bright and smooth (no spots), its signal linear in
+  the concentration; a short half-time bleaches it from frame to frame; a Dye pick of AF647 sets 640 nm at 0.02.
 """
 
 import os
@@ -73,7 +76,7 @@ def main():
     core.setExposure(50.0)
 
     labels = list(core.getStateLabels("SampleHolder"))
-    assert labels == ["CellField", "Nanorulers", "Beads"], f"SampleHolder positions: {labels}"
+    assert labels == ["CellField", "Nanorulers", "Beads", "Slide"], f"SampleHolder positions: {labels}"
     assert core.getProperty("SampleHolder", "Label") == "CellField", "the cell field should be mounted at start"
     for p in ("Docking_Label", "Design", "SpacingNm", "StrandsPerSpot", "PersistenceLengthNm", "Bending"):
         assert core.hasProperty("Nanorulers", p), f"missing Nanorulers.{p}"
@@ -190,6 +193,39 @@ def main():
     core.setProperty("SampleHolder", "State", "0")
     print(f"Bead sample OK: 0.3 beads/um^2 and 40 % at the mount, Coverslip, 561 nm at 0.1 kW/cm^2, spots at "
           f"{s_beads:.0f} sigma, single beads another sample, the diameter follows the type")
+
+    # The fluorescent slide: a uniform dye layer, its light the engine's.
+    core.setProperty("SampleHolder", "Label", "Slide")
+    rows = {k: core.getProperty("FluorescentSlide", k)
+            for k in ("ThicknessUm", "Dye", "ConcentrationMicroMolar", "BleachHalfTimeSec")}
+    assert (float(rows["ThicknessUm"]), rows["Dye"], float(rows["ConcentrationMicroMolar"]),
+            float(rows["BleachHalfTimeSec"])) == (5, "Mix", 10, 900), f"the slide's defaults: {rows}"
+    core.setProperty("Lasers", "Preset", "Auto")
+    lasers = {nm: float(core.getProperty("Lasers", f"Laser{nm}KWcm2")) for nm in (405, 488, 561, 640)}
+    assert lasers == {405: 0, 488: 0, 561: 0.02, 640: 0}, f"the slide's light (561 nm at 0.02 kW/cm^2): {lasers}"
+    focus(core, 2.0)
+    offset = float(core.getProperty("Camera", "OffsetADU"))
+    c = slice(54, 74)   # the beam's centre
+    full = np.mean(stack(core), axis=0) - offset
+    s_slide = spots(stack(core))
+    assert full[c, c].mean() > 10000 and s_slide < 8, \
+        f"the slide should be bright and smooth: {full[c, c].mean():.0f} ADU, spots at {s_slide:.1f} sigma"
+    core.setProperty("FluorescentSlide", "ConcentrationMicroMolar", "5")
+    half = np.mean(stack(core), axis=0) - offset
+    ratio = half[c, c].mean() / full[c, c].mean()
+    assert abs(ratio - 0.5) < 0.01, f"the signal should be linear in the concentration: 5 / 10 uM = {ratio:.4f}"
+    core.setProperty("FluorescentSlide", "BleachHalfTimeSec", "0.01")
+    frames = stack(core)
+    drop = (frames[-1][c, c].mean() - offset) / (frames[0][c, c].mean() - offset)
+    assert drop < 0.9, f"a 0.01 s half-time should bleach the slide within {N} frames: last / first {drop:.3f}"
+    core.setProperty("FluorescentSlide", "Dye", "AF647")
+    lasers = {nm: float(core.getProperty("Lasers", f"Laser{nm}KWcm2")) for nm in (405, 488, 561, 640)}
+    assert lasers == {405: 0, 488: 0, 561: 0, 640: 0.02}, f"an AF647 pick should set 640 nm at 0.02 kW/cm^2: {lasers}"
+    for k, v in rows.items():
+        core.setProperty("FluorescentSlide", k, v)
+    core.setProperty("SampleHolder", "State", "0")
+    print(f"Fluorescent slide OK: defaults, Slide-561, {full[c, c].mean():.0f} ADU at the centre (spots "
+          f"{s_slide:.1f} sigma), 5 / 10 uM = {ratio:.4f}, bleached to {drop:.2f} in {N} frames, AF647 -> 640 nm")
     print(f"All specimen checks passed in {time.time() - t_start:.1f} s")
 
 

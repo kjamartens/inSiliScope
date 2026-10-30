@@ -19,6 +19,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/BinnedBlinks.cpp
   ${ISC_SIM}/Fiducials.cpp
+  ${ISC_SIM}/Slide.cpp
   ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp
   ${ISC_SIM}/LiveScope.cpp
@@ -166,6 +167,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(fiducials_check fiducials_check.cpp)
   target_link_libraries(fiducials_check PRIVATE insiliscope_sim)
   add_test(NAME fiducials COMMAND fiducials_check)
+
+  # The fluorescent slide's light, bleaching and light history (Simulation/Slide.h).
+  add_executable(slide_check slide_check.cpp)
+  target_link_libraries(slide_check PRIVATE insiliscope_sim)
+  add_test(NAME slide COMMAND slide_check)
 
   # The C++ GibsonLanniZernike PSF against webSMLM's JS (tests/psf/zernike_ref.bin).
   add_executable(zernike_psf_check zernike_psf_check.cpp)

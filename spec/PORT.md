@@ -1214,7 +1214,8 @@ Iteration mode (JS first, `PORT_PENDING.md`, commits 4a95ac6 data, df05e91 JS), 
   continuous pass, so a GPU host's `populationsOnly` image has them too. Timing phases `fl.fiducials-setup`,
   `fl.fiducials`; the description gains `fiducials=<type>:<beads>_beads:<component>:<nm>:<photons/s>...`. Each bead's
   decay starts at `t0Sec` (the movie's start-sec); under a host's light history (MM, `LiveScope`) at its past light,
-  `DoseAt / DoseRate` at the bead, + (start-sec - T) for a render-ahead batch (2026-10-23). The bead halo
+  `DoseAt / DoseRate` at the bead (2026-10-23; since 2026-10-30 `LightPastAt` from `DosesAt`, the slide's rule, section
+  27), + (start-sec - T) for a render-ahead batch. The bead halo
   (2026-10-23, spec/ALGORITHM.md): `BeadHalo` / `BeadHaloFor` (its own memo of 6, `BuildZernikePsfKernelCache` at
   oversampling 1 and `BeadHaloHalfWidthPx`), `BeadKernel::InnerRadius` / `InnerScale`, `BeadHalo::Extent`
   (`kFiducialHaloMinPhotons` 0.1), `PsfRequestsSameKernel`; JS `beadHaloFor`, `beadHaloHalfWidthPx`, `haloExtent`,
@@ -1292,4 +1293,36 @@ C++ only (the JS reference is retired). The model: spec/ALGORITHM.md "Fiducial b
   counts beads, singles 1 - p, mean 1 / (1 - p), touching without overlap, Coverslip heights, one query = its pieces;
   Layer clumps in 3D in the gel), golden `f04`-`f06` (new lines; `f00`-`f03` unchanged), `tools/test_specimens.py`
   and `tools/test_fiducials.py` (MM), physics figure `fid-clumps`.
+
+## 27. The fluorescent slide (2026-10-30)
+
+C++ only. The model: spec/ALGORITHM.md "Fluorescent slide".
+
+- **ABI 18.** `ISC_SPECIMEN_SLIDE` 3 (core `SPECIMEN_SLIDE`, `SPECIMEN_COUNT` 4): a world with no cells and no dyes
+  (`World::NoCells`), fiducial beads as on any. No params of its own (the layer is the engine's); goldens and
+  `ISC_WORLD_VERSION` unchanged. Consumers: the viewer's ABI check and the block read 18.
+- Registry: `data/specimens.json` `Slide` (`targets: []`, `lightPreset` `Slide-561`), presets `Slide-405/488/561/640`
+  in `data/dyes/light_path.json` (one line at 0.02 kW/cm^2, the WF presets' filters).
+- Engine: `Simulation/Slide.*` (`SlideDyeNames` Mix + `DyeIds()`, `SlidePhotophysics`, `SlideLightPresetId`,
+  `SlideMovie`, `RenderSlide`); options `slide-thickness-um` 5, `slide-dye` 0 (Mix; names accepted),
+  `slide-conc-micromolar` 10, `slide-bleach-half-sec` 900 (part sample); `ScopeSetup::slideComps`;
+  `FluorescenceMovie::Begin` builds the slide after the background map (`BlendedBgSlice`, factored out of it, the
+  background's arithmetic unchanged; `BgJob::nodesPerScale`, `Excitation::ImagerMap(..., nodesPerScale)` default 3 =
+  before), `Render` adds it after the beads (`SimplePlan::populations`: a GPU host gets it in the populations image);
+  `AutoLightPreset` with no target: the slide's dye's preset. `LightHistory::DosesAt` (DoseAt split into the light now's chapter
+  and the others, DoseRate at many points, one footprint, and the rate at the beam's peak), `LightPastAt` (Slide.h: the
+  past as seconds of the light now + excitation; the beads use it too). Timing phases `fl.slide-setup`, `fl.slide`.
+- MM: device `FluorescentSlide` (Basic; rows `ThicknessUm`, `Dye`, `ConcentrationMicroMolar`, `BleachHalfTimeSec`,
+  all Basic; a `Dye` pick with the slide mounted applies `Lasers.Preset` `Auto`), `SampleHolder` position `Slide`; its
+  rows change no world (`BuildSampleSettings` sends only the specimen), so the light history stays.
+- Viewer: the Sample select's fourth entry, `SLIDE()` (`BEADS()` is now the bead sample's id, not "no targets"), the
+  group `slide` (shown while mounted; opened at the mount), `params().specimen` 3, the scene its layer and the beads
+  (layer `slide.layer`, rep `layer`, 2D: a translucent tint from above, a band 0..h in the x-z view, `fitXZ` counts it;
+  `#hud` `data-slide`; the mount zooms the camera's field to ~60 % of the view),
+  `autoLightPreset` -> `slideLightPreset` (= `SlideLightPresetId`); the mount and a dye pick set the light.
+- Checks: ctest `slide` (`cli/slide_check.cpp`, ~1 s: the half-time and photons per pixel against their formulas, the
+  Mix's components, the presets; flat epi = the column, linear in h; bleaching frame by frame and at one half-time;
+  TIRF's bottom only; the Gaussian beam's and HILO's centre bleaching first; a light history = start-sec),
+  `world_checks.fiducials` (a slide world: no cells or dyes, the bead sample's beads), `tools/test_specimens.py`
+  (Slide), `tests/web/viewer_nanorulers.mjs` (the slide), physics figure `slide-bleach`.
 

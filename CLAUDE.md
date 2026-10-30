@@ -78,6 +78,28 @@ that finishes them.
   each bead; one halo per clump was tried and dropped: square seams). Height is Basic. Checks: `world_checks.fiducials` (clump statistics, touching), golden f04-f06,
   `tools/test_specimens.py` (Beads), `tests/web/viewer_nanorulers.mjs` (bead sample); figure `fid-clumps`, gallery
   `beads-single`, `beads-sample`, `beads-20nm`.
+- **Fluorescent slide (2026-10-30, branch `fluorescent-slide`, spec/ALGORITHM.md "Fluorescent slide", spec/PORT.md 27,
+  docs/samples/slide.md):** a fourth specimen `Slide` (`specimen` 3, ABI 18 `ISC_SPECIMEN_SLIDE`; `World::NoCells()`,
+  no core geometry, goldens unchanged): a uniform dye layer on the coverslip, its light the engine's
+  (`Simulation/Slide.*`, built in `FluorescenceMovie::Begin` after the background map). Options (part sample)
+  `slide-thickness-um` 5, `slide-dye` (`Mix` default = TetraSpeck's four components as equivalent dyes, eps 1e5 QY 0.5;
+  or a library dye's main state), `slide-conc-micromolar` 10 (each dye; *estimate*), `slide-bleach-half-sec` 900 (at
+  1 kW/cm^2 at the dye's excitation peak; *estimate*). The collected light = the free DNA-PAINT imager's
+  `Excitation::ImagerMap` over [0, h] (`BlendedBgSlice`, `BgMapCache`), on a finer node grid (`kSlideNodesPerScale`
+  12; the background's 3 left ~1.4 % kinks); bleaching deterministic and **per pixel column** (the user's choice: the
+  pixel's light x its column's survival, heights at their own excitation, `kSlideNodes` 8 in HILO/TIRF; the defocus
+  blur of the bleached pattern left out), the past from the light history (`LightHistory::DosesAt` on a 0.25 um grid, split
+  by chapter; `LightPastAt`, the beads' too: the light now's chapter as seconds of the light now where it reaches,
+  as excitation where it does not, a blend between; other chapters as excitation, the column alike; dose / the local
+  rate alone, the beads' old rule, made a step at the footprint's cut, HILO focused high, and gave epi's past HILO's
+  heights) or `start-sec`. Light presets `Slide-405/488/561/640` (one line at 0.02 kW/cm^2, the WF presets' filters; the user's
+  choice), the auto preset with no target (`SlideLightPresetId`: Mix -> `Slide-561`). Defaults give ~8800 photons per
+  px per 50 ms frame at the Gaussian beam's centre. MM device `FluorescentSlide` (all rows Basic; a `Dye` pick with the
+  slide mounted applies `Lasers.Preset` Auto; a mount keeps the lasers); viewer group `slide` (the mount and a dye pick
+  set the light; the mount zooms to the camera's field), world-view layer `slide.layer` (a translucent slab, the x-z
+  view a band up to the thickness; `#hud` `data-slide`). Checks: ctest `slide` (`cli/slide_check.cpp`, ~1 s), `world_checks.fiducials` (a slide world),
+  `tools/test_specimens.py` (Slide), `tests/web/viewer_nanorulers.mjs` (the slide); figure `slide-bleach`, gallery
+  `slide-sample`, `slide-af647`, `slide-tirf`, `slide-bleached`. Timing phases `fl.slide-setup`, `fl.slide`.
 - **Save and load settings (2026-10-28, [docs/dev/SAVE_SETTINGS.md](docs/dev/SAVE_SETTINGS.md)):** `<name>.isc.json` in
   mixable parts -- instrument, settings, sample, measurement (with the sample's light history), view (viewer only).
   Every engine option has a part (`PartOf` in `ScopeMovie.cpp`, `ScopeOptionPart`; `Options()` throws on a new option
@@ -317,7 +339,7 @@ PSF models, not "vectorial" (old `docs/dev/vectorial-psf-*` file names are histo
 **Hub + devices (2026-10-06, spec/MM_DEVICES.md; branch `claude/mm-devices`):** the module offers the hub `inSiliScope`
 (pre-init `Detail` Basic/Advanced/Expert, `RandomSeed`) and its peripherals `Camera`, `XYStage`, `ZStage`, `Objective`,
 `EmissionPath`, `FilterCube`, `ExcitationFilter`/`Dichroic`/`EmissionFilter` (Advanced wheels), `Lasers`,
-`TransmittedLamp`, `SampleHolder`, `CellField`, `Fluorophores`, `Renderer`. Every property is one row of
+`TransmittedLamp`, `SampleHolder`, `CellField`, `Nanorulers`, `Fiducials`, `FluorescentSlide`, `Fluorophores`, `Renderer`. Every property is one row of
 `Registry/PropertyTable.cpp` with a tier; rows above `Detail` are never created. Users get live acquisition only (snap,
 live, sequences, hardware z stacks); the precomputed seeded stack is the Test tier (`Camera.Test_AcqMode`,
 `Test_GenerateStack`, `Test_StackLength`, with `ISC_TEST=1`; `tools/isc_mm.py` sets it). The light comes from the

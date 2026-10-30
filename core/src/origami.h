@@ -29,7 +29,8 @@ namespace isc {
 constexpr int SPECIMEN_CELLFIELD = 0;
 constexpr int SPECIMEN_NANORULERS = 1;
 constexpr int SPECIMEN_BEADS = 2;   // ABI 17: a bare coverslip with only the fiducial beads (fiducials.h)
-constexpr int SPECIMEN_COUNT = 3;
+constexpr int SPECIMEN_SLIDE = 3;   // ABI 18: a fluorescent slide, a uniform dye layer (its light is the host's)
+constexpr int SPECIMEN_COUNT = 4;
 // The field is tiled in ORIGAMI_TILE_UM squares; a tile holds Poisson(density
 // x area) candidates (capped), thinned against the 3x3 tiles around it
 // (Matern type II): a candidate is dropped when one of higher priority lies

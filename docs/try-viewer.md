@@ -124,10 +124,14 @@ through it step by step.
   cookies: [Privacy](privacy.md) lists what is counted and how to turn it off.
   A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the
   mouse wheel, one step per notch.
-- **Specimen** (Sample): **Cell field**, **Nanorulers** or **Bead sample** ([Samples](samples/index.md); the bead sample
+- **Specimen** (Sample): **Cell field**, **Nanorulers**, **Bead sample** or **Fluorescent Slide** ([Samples](samples/index.md); the bead sample
   is a bare coverslip with only the fiducial beads: switching to it with no beads set puts 0.3 per µm² down in clumps
   (40 % aggregation), turns the 561 nm laser to 0.1 kW/cm² and the others off, draws the beads and opens the Fiducial
-  beads group, where the diameter and the gel layer's thickness are Basic). Switching shows that sample's
+  beads group, where the diameter and the gel layer's thickness are Basic; the [fluorescent slide](samples/slide.md) is
+  a uniform dye layer, its group **Fluorescent slide** holds its thickness, dye (default a mix of TetraSpeck's four
+  colours), concentration and bleach half-time; switching to it, or picking its dye, sets the dye's channel at
+  0.02 kW/cm², 561 nm for the mix; the world view shows its layer as a translucent slab, in the x-z view from the
+  glass up to its thickness, and zooms to the camera's field). Switching shows that sample's
   groups and its label, and zooms to a scale that suits it (the nanorulers: 150 px/µm and closer, with their dyes on;
   zoomed further out, the dyes inside the camera's field are still all drawn, the others not). **Seed** (default 42,
   **Random** draws a new one) is the one seed of the simulation, as in Micro-Manager (`inSiliScope.RandomSeed`) and the

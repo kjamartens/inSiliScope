@@ -76,6 +76,7 @@ Micro-Manager's own properties (`Exposure`, `Binning`, `State`, `Label`, `Positi
 | `CellField` | Generic | Basic | Specimen: a field of cells with their labelled structures |
 | `Nanorulers` | Generic | Basic | Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder) |
 | `Fiducials` | Generic | Basic | Fiducial beads on the sample (any specimen): type, density, size, height |
+| `FluorescentSlide` | Generic | Basic | Specimen: a fluorescent slide, a uniform dye layer (mount it with SampleHolder) |
 | `Fluorophores` | Generic | Basic | The dyes: label mode, photophysics readouts, custom dyes |
 | `Renderer` | Generic | Basic | How the images are computed: quality, GPU, caches, numerics |
 
@@ -184,7 +185,7 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `Laser561KWcm2` | Basic | 1 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser640KWcm2` | Basic | 1 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Laser730KWcm2` | Basic | 0 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
-| `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640`, `Beads-561` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies. A preset by name: one dye mode's. None = as set. |
+| `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640`, `Beads-561`, `Slide-405`, `Slide-488`, `Slide-561`, `Slide-640` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies. A preset by name: one dye mode's. None = as set. |
 | `IlluminationProfile` | Basic | Gaussian | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge). |
 | `IlluminationFwhmPct` | Basic | 100 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
 | `BfpPosition` | Basic | 0.95 | 0 .. 1.2 | Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge NA / medium index (beyond it no light reaches the sample). |
@@ -366,6 +367,17 @@ Fiducial beads on the sample (any specimen): type, density, size, height.
 | `BleachRefKWcm2` | Expert | 1 | 1e-06 .. 1000 | The intensity the half-time is given at, kW/cm^2. |
 | `DyeCount` | Expert | -1 | -1 .. 1000000000 | Equivalent dyes (eps 1e5, QY 0.5) per bead of the type's reference diameter, every component; -1 = the type's (fitted to balinovic2019). |
 | `BlockingOD` | Expert | 8 | 0 .. 12 | The emission path blocks a laser line by at least this optical density (gold's scattered laser light; ideal filters would block it fully). |
+
+### FluorescentSlide
+
+Specimen: a fluorescent slide, a uniform dye layer (mount it with SampleHolder).
+
+| Property | Tier | Default | Values | Description |
+|---|---|---|---|---|
+| `ThicknessUm` | Basic | 5 | 0 .. 1000 | The dye layer's thickness on the coverslip, um (5 um: the light of every height reaches the camera, collected defocused). |
+| `Dye` | Basic | Mix | `Mix`, `AF647`, `AF532`, `Cy5`, `ATTO655`, `ATTO542`, `Cy3B`, `mEos3.2`, `Dendra2`, `PAmCherry2`, `mEGFP`, `mScarlet`, `DAPI`, `Hoechst33342`, `Custom` | The layer's dye: Mix (TetraSpeck's four components, blue, green, orange and dark red, each at ConcentrationMicroMolar, as equivalent dyes) or a library dye. With the slide mounted, a pick applies the Lasers' Auto preset: the dye's channel at 0.02 kW/cm^2 (Mix: 561 nm). |
+| `ConcentrationMicroMolar` | Basic | 10 | 0 .. 10000 | Each dye's concentration in the layer, uM (an estimate: 10 uM, ~8800 photons per pixel per 50 ms frame at the centre of the default 561 nm beam, 0.02 kW/cm^2, 5 um). |
+| `BleachHalfTimeSec` | Basic | 900 | 0 .. 1000000000 | The layer's fluorescence half-time at 1 kW/cm^2 at its dye's excitation peak, s (an estimate: 900 s; ~ 1 / the excitation, so 12.5 h at 0.02 kW/cm^2; 0 = no bleaching). The bleaching follows the sample's light history pixel by pixel. |
 
 ### Fluorophores
 

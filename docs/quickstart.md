@@ -32,8 +32,9 @@ A first tour, about five minutes:
    camera.
 5. **Change the sample.** The settings under the image hold the sample and its labels: the microtubules and the
    nuclear pores each have a mode and a dye (**None** switches a target off). **Specimen** mounts DNA-origami
-   **Nanorulers** instead of cells (set the focus to about 0.02 µm, their dyes lie on the glass), or a **Bead sample**:
-   fiducial beads alone on the glass (focus about 0.05 µm). **Basic / Advanced /
+   **Nanorulers** instead of cells (set the focus to about 0.02 µm, their dyes lie on the glass), a **Bead sample**:
+   fiducial beads alone on the glass (focus about 0.05 µm), or a **Fluorescent Slide**: a uniform dye layer that shows
+   the beam's profile and bleaches where it is brightest. **Basic / Advanced /
    Expert** (top right) shows more settings; the search box finds any of them, and every name has a help text on hover (a long press on a phone).
 6. **Record a movie.** **● Record** asks for a number of frames, renders them and plays them back. **Save .tif**
    writes a 16-bit TIFF stack that opens in ImageJ/Fiji with its pixel size and frame interval, ready for your SMLM

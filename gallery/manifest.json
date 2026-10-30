@@ -173,6 +173,18 @@
     { "id": "beads-20nm", "title": "20 nm beads",
       "text": "The bead sample with orange FluoSpheres of 20 nm (fid-type FluoSpheresOrange, fid-diameter-nm 20): a bead type at another size keeps its spectra, its dyes scaled with the volume, (20/200)^3 of the 200 nm beads' 100000, so 100 equivalent dyes. Even so they are far brighter than the gold under the bead sample's 0.1 kW/cm^2.",
       "options": {"specimen": "Beads", "fid-type": "FluoSpheresOrange", "fid-diameter-nm": 20} },
+    { "id": "slide-sample", "title": "The fluorescent slide",
+      "text": "specimen Slide at its defaults: a 5 um layer of TetraSpeck's four colours at 10 uM each on the coverslip, under its light, 561 nm at 0.02 kW/cm^2 (the others off) with the 600/37 filter set. The image is the Gaussian beam's profile; the layer looks the same at any focus.",
+      "options": {"specimen": "Slide"} },
+    { "id": "slide-af647", "title": "An AF647 slide",
+      "text": "The slide with one library dye, slide-dye AF647, under its light (the auto preset: Slide-640, 640 nm at 0.02 kW/cm^2, 676/37).",
+      "options": {"specimen": "Slide", "slide-dye": "AF647"} },
+    { "id": "slide-tirf", "title": "The slide in TIRF",
+      "text": "The same slide in TIRF (illum-bfp 1.03): the evanescent field lights only the bottom 100-200 nm of the 5 um layer, so it glows about ten times dimmer, and a thicker layer would add nothing.",
+      "options": {"specimen": "Slide", "illum-bfp": 1.03} },
+    { "id": "slide-bleached", "title": "A bleached slide",
+      "text": "The slide after 30 min of 561 nm at 0.5 kW/cm^2 at the beam's peak (start-sec 1800, laser-561 0.5): at 1800 s, the dye's half-time at that light, the centre is down to half, the flanks less, so the beam's profile flattens.",
+      "options": {"specimen": "Slide", "laser-561": 0.5, "start-sec": 1800} },
     { "id": "light-epi", "title": "Epi illumination",
       "text": "illum-bfp 0: the laser spot at the centre of the back focal plane, the beam straight up through the sample. The default DNA-PAINT movie is HILO (0.95); in epi the free imager in the whole lit column adds its background.",
       "options": {"illum-bfp": 0} },
@@ -270,6 +282,13 @@
       "rows": [
         {"panels": [["beads-single", "aggregation 0 %"], ["beads-sample", "aggregation 40 % (default)"]], "shared": true, "caption": "The same number of beads per um^2: clumped, they make fewer and brighter spots."},
         {"panels": [["beads-sample", "100 nm gold (default)"], ["beads-20nm", "20 nm orange FluoSpheres"]], "caption": "The bead type and its size: the diameter scales the dyes with the volume."}
+      ] },
+    { "title": "A fluorescent slide",
+      "story": "The fourth sample: a uniform layer of dye on the coverslip, as used to see the beam's profile or to flat-field a camera. It has no structure; what it shows is the light: the beam, how deep it reaches and where it has bleached the dye.",
+      "rows": [
+        {"panels": [["slide-sample", "TetraSpeck mix, 561 nm (default)"], ["slide-af647", "AF647, 640 nm"]], "caption": "The default mix has a colour for every channel; one library dye has its own."},
+        {"panels": [["slide-sample", "epi (default)"], ["slide-tirf", "TIRF"]], "shared": true, "caption": "Epi lights the whole 5 um column; TIRF only its bottom."},
+        {"panels": [["slide-sample", "fresh (default)"], ["slide-bleached", "after 30 min at 0.5 kW/cm^2"]], "caption": "Bleaching follows the light: the bright centre fades first."}
       ] },
     { "title": "Render quality",
       "story": "A few switches trade accuracy for speed. At the defaults the difference should be invisible under the noise; that is how the defaults were chosen. Each panel is one of those switches turned all the way up (or down), with the time it takes per frame (this machine's cli, measured when the gallery was built).",
