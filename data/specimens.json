@@ -33,6 +33,12 @@
       "lightPreset": "Beads-561",
       "notes": "A bare coverslip with only the fiducial beads (their type, density, size, height and clumping: the Fiducials settings; core/src/fiducials.*). No targets: nothing to label; the automatic light preset is lightPreset (data/dyes/light_path.json).",
       "targets": []
+    },
+    {
+      "id": "Slide", "name": "Fluorescent Slide",
+      "lightPreset": "Slide-561",
+      "notes": "A uniform layer of dye on the coverslip (the user's choice, 2026-10-30): its thickness (default 5 um), its dye (default Mix: TetraSpeck's four components, data/fiducials, as equivalent dyes; or a library dye), each dye's concentration (default 10 uM, an estimate) and its bleach half-time at 1 kW/cm^2 at the dye's excitation peak (default 900 s, an estimate): the FluorescentSlide settings, the engine's slide-* options (adapter/inSiliScope/Simulation/Slide.*). No geometry in the core and no targets. The automatic light preset: lightPreset (the Mix's: 561 nm at 0.02 kW/cm^2), a library dye's the Slide preset with its WideField preset's filters.",
+      "targets": []
     }
   ],
   "default": "CellField"

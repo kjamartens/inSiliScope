@@ -105,6 +105,7 @@ const REPS = {
   locs:     { label: 'SMLM localizations', prim: 'points', group: 'data', needs: 'events' },
   bfSlice:  { label: 'BrightField slice', prim: 'slice', group: 'data', needs: 'stack:bf', followsPlane: true },
   beads:    { label: 'beads', prim: 'points', group: 'geometry' },
+  layer:    { label: 'layer', prim: 'slab', group: 'geometry' },
   points:   { label: 'points', prim: 'points', group: 'geometry' },
 };
 const DYE_REPS = ['dyes', 'wfSlice', 'wfIso', 'srFrames', 'srFramesLoc', 'locs'];
@@ -116,10 +117,11 @@ const STRUCTURES = [
   { id: 'ruler', label: 'Nanorulers', reps: ['outline'] },   // DNA-origami rods (a nanoruler world; drawn in 2D, no GL kind)
   { id: 'npc', label: 'Nuclear pores', reps: ['lines'] },     // the pores' two 8-fold rings on the nuclear envelope
   { id: 'fid', label: 'Fiducial', reps: ['beads'] },          // fiducial beads on either specimen (drawn in 2D, no GL kind)
+  { id: 'slide', label: 'Fluorescent slide', reps: ['layer'] }, // the slide's dye layer, a translucent slab (drawn in 2D, no GL kind)
   { id: 'lamin', label: 'Nuclear lamina', reps: ['surface'] }, // the nuclear envelope the lamina points lie on, as a surface
 ];
 // Representations the renderer draws today; the other layers are listed but marked not available yet.
-const IMPLEMENTED = new Set(['surface', 'outline', 'contours', 'lines', 'dyes', 'wfSlice', 'srFrames', 'srFramesLoc', 'bfSlice', 'wfIso', 'locs', 'beads', 'points']);
+const IMPLEMENTED = new Set(['surface', 'outline', 'contours', 'lines', 'dyes', 'wfSlice', 'srFrames', 'srFramesLoc', 'bfSlice', 'wfIso', 'locs', 'beads', 'points', 'layer']);
 // GL kinds: the index of a layer in the renderer's clip tables (mesh kinds 0-3 share one draw per cell).
 const KIND = { 'cyto.surface': 0, 'nucleus.surface': 1, 'cyto.outline': 2, 'cyto.contours': 3, 'mt.lines': 4, 'mt.dyes': 5,
   'mt.wfIso': 6, 'mt.locs': 7, 'npc.lines': 8, 'lamin.surface': 9 };
@@ -162,6 +164,7 @@ const THEMES = {
     'cell.bfSlice': { color: [255, 255, 255], opacity: 0.85, blend: 'alpha', gamma: 1 },
     'ruler.outline': { color: [90, 169, 230], opacity: 0.55 },
     'fid.beads': { color: [255, 215, 120], opacity: 0.85 },
+    'slide.layer': { color: [255, 145, 30], opacity: 0.5 },
     'mt.wfIso': { color: [120, 200, 255], opacity: 0.55, level: 1 },
     'mt.locs': { color: [255, 170, 60], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },
     'npc.lines': { color: [255, 190, 235], opacity: 1 },
@@ -180,6 +183,7 @@ const THEMES = {
     'cell.bfSlice': { color: [235, 235, 235], opacity: 0.85, blend: 'alpha', gamma: 1 },
     'ruler.outline': { color: [110, 170, 255], opacity: 0.45 },
     'fid.beads': { color: [255, 240, 200], opacity: 0.9 },
+    'slide.layer': { color: [255, 135, 20], opacity: 0.5 },
     'mt.wfIso': { color: [255, 90, 200], opacity: 0.5, level: 1 },
     'mt.locs': { color: [255, 200, 80], opacity: 0.9, size: 1.5, colorBy: 'z', spread: false },
     'npc.lines': { color: [255, 90, 140], opacity: 1 },

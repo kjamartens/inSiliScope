@@ -553,6 +553,46 @@
       "dichroic": "LP570",
       "emissionFilter": "BP600-37",
       "notes": "The bead sample's light (data/specimens.json lightPreset): the 561 nm line at 0.1 kW/cm^2, the others off (the user's choice, 2026-10-30)."
+    },
+    {
+      "id": "Slide-405",
+      "name": "Fluorescent slide, violet (405 nm 20 W/cm², 447/60)",
+      "lasers": {
+        "405": 0.02
+      },
+      "dichroic": "LP425",
+      "emissionFilter": "BP447-60",
+      "notes": "The fluorescent slide's light (data/specimens.json Slide; the engine's SlideLightPresetId): the 405 nm line at 0.02 kW/cm^2, the others off (the user's choice, 2026-10-30), WF-405's filters."
+    },
+    {
+      "id": "Slide-488",
+      "name": "Fluorescent slide, green (488 nm 20 W/cm², 525/45)",
+      "lasers": {
+        "488": 0.02
+      },
+      "dichroic": "LP505",
+      "emissionFilter": "BP525-45",
+      "notes": "The fluorescent slide's light (data/specimens.json Slide; the engine's SlideLightPresetId): the 488 nm line at 0.02 kW/cm^2, the others off (the user's choice, 2026-10-30), WF-488's filters."
+    },
+    {
+      "id": "Slide-561",
+      "name": "Fluorescent slide, orange (561 nm 20 W/cm², 600/37)",
+      "lasers": {
+        "561": 0.02
+      },
+      "dichroic": "LP570",
+      "emissionFilter": "BP600-37",
+      "notes": "The fluorescent slide's light (data/specimens.json Slide; the engine's SlideLightPresetId): the 561 nm line at 0.02 kW/cm^2, the others off (the user's choice, 2026-10-30), WF-561's filters."
+    },
+    {
+      "id": "Slide-640",
+      "name": "Fluorescent slide, red (640 nm 20 W/cm², 676/37)",
+      "lasers": {
+        "640": 0.02
+      },
+      "dichroic": "LP650",
+      "emissionFilter": "BP676-37",
+      "notes": "The fluorescent slide's light (data/specimens.json Slide; the engine's SlideLightPresetId): the 640 nm line at 0.02 kW/cm^2, the others off (the user's choice, 2026-10-30), WF-640's filters."
     }
   ]
 }

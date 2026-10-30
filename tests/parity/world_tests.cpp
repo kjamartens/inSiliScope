@@ -1882,6 +1882,27 @@ void Fiducials()
                w.SurfaceHeightAt(0.5, 0.5) == 0,
             "fiducials: bead sample, no cells or dyes", Fmt("%zu cells, %zu dyes, %zu blinks", cells.size(), dyes.size(), ev.size()));
    }
+   // ABI 18: the fluorescent slide (specimen 3): no cells or dyes (the layer's light is the host's), beads as on any.
+   {
+      World w(1249, CheapWith({ { "specimen", SPECIMEN_SLIDE }, { "fidDensity", 0.3 }, { "fidHeight", 0 } }));
+      World beads(1249, CheapWith({ { "specimen", SPECIMEN_BEADS }, { "fidDensity", 0.3 }, { "fidHeight", 0 } }));
+      std::vector<FiducialBead> b, b2;
+      w.FiducialsInRect(-10, -10, 10, 10, b);
+      beads.FiducialsInRect(-10, -10, 10, 10, b2);
+      bool same = b.size() == b2.size();
+      for (size_t i = 0; same && i < b.size(); ++i) same = b[i].x == b2[i].x && b[i].y == b2[i].y && b[i].z == b2[i].z && b[i].d == b2[i].d;
+      std::vector<Cell> cells;
+      std::vector<WorldDye> dyes;
+      std::vector<WorldEvent> ev;
+      w.CellsInRect(-10, -10, 10, 10, cells);
+      w.SitesInWindow(-10, -10, 10, 10, -1, 50, dyes);
+      w.EventsInWindow(-10, -10, 10, 10, -1, 50, 0, 10, ev);
+      Cell c;
+      Check(cells.empty() && dyes.empty() && ev.empty() && !w.FindCell(0, 0, c) && w.BlockCells(0, 0).empty() &&
+               w.SurfaceHeightAt(0.5, 0.5) == 0 && !b.empty() && same && w.Specimen() == SPECIMEN_SLIDE,
+            "fiducials: slide, no cells or dyes, the bead sample's beads",
+            Fmt("%zu cells, %zu dyes, %zu blinks, %zu beads (bead sample %zu)", cells.size(), dyes.size(), ev.size(), b.size(), b2.size()));
+   }
    // ABI 17: clumps. The density counts beads; a clump's size is geometric with ratio p (its singles 1 - p, mean
    // 1 / (1 - p)); each later bead touches an earlier one and overlaps none; Coverslip keeps every centre at its
    // radius; one query = the union of its pieces; p = 0 = the beads of before (the determinism block above).

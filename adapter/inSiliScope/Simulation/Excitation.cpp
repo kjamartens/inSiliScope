@@ -712,7 +712,7 @@ double Excitation::ImagerColumnAt(double x, double y, double Hc, const std::vect
 }
 
 std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, double axisX, double axisY, double Hc,
-                                          const std::vector<ImagerSource>& imagers) const
+                                          const std::vector<ImagerSource>& imagers, double nodesPerScale) const
 {
    std::vector<double> out(static_cast<size_t>(W) * H, 0.0);
    if (clipped_ || !(Hc > 0.0) || imagers.empty())
@@ -732,7 +732,7 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
    double scaleUm = profile_ == ILLUM_GAUSSIAN ? envs_[0].sig : envs_[0].edge;
    for (const Envelope& e : envs_)
       scaleUm = std::min(scaleUm, profile_ == ILLUM_GAUSSIAN ? e.sig : e.edge);
-   const double g = std::max(um, scaleUm / 3.0);
+   const double g = std::max(um, scaleUm / nodesPerScale);
    auto axis = [&](unsigned n) -> unsigned {
       if (n <= 1)
          return 1;

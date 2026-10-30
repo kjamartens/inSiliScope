@@ -217,6 +217,12 @@ public:
    // The dose per second light gives at (x, y) on the coverslip, in DoseAt's units, were it on from now (a movie's
    // background fade): 0 when it is dark.
    double DoseRate(const LightState& light, double xUm, double yUm) const;
+   // DoseAt at each (xy[2 i], xy[2 i + 1]) split into the dose of the light now's chapter (doseNow: its geometry, so its
+   // heights scale as the light now's) and of the other chapters (doseOther), DoseRate there, one footprint for them
+   // all, and the dose per second the light gives at its beam's peak (footprint 1; 0 when it is dark): a dose /
+   // peakRate x the light's F is that past light as seconds at excitation 1 of the light now (Slide.h LightPastAt).
+   void DosesAt(const LightState& light, const std::vector<double>& xy, std::vector<double>& doseNow,
+                std::vector<double>& doseOther, std::vector<double>& rate, double& peakRate) const;
    void Reset();
    // For the checks and the logs: memory held (bytes), chapters, recent records (the open one too), chunks.
    size_t Bytes() const;

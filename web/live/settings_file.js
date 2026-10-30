@@ -86,8 +86,9 @@ function summary(part, values, viewer, history) {
       const m = v[t.prefix + '-mode'], mode = typeof m === 'string' && m !== 'DyeDefault' ? ' ' + m : '';
       return t.name + ' ' + (d === -1 || d === 'Typical' ? 'typical dye' : d) + mode;
     }).filter(Boolean);
-    // (the bead sample has no targets: its beads)
-    if (!sp.targets.length) labels.push(`${v['fid-type']} beads, ${f(v['fid-density'], 2)} /µm²`);
+    // (the bead sample has no targets: its beads; the slide: its layer)
+    if (sp.id === 'Beads') labels.push(`${v['fid-type']} beads, ${f(v['fid-density'], 2)} /µm²`);
+    if (sp.id === 'Slide') labels.push(`${v['slide-dye']} layer, ${f(v['slide-thickness-um'], 1)} µm, ${f(v['slide-conc-micromolar'], 1)} µM`);
     return `${sp.name || sp.id} · ${labels.join(', ') || 'unlabelled'} · seed ${v.seed}`;
   }
   if (part === 'measurement') {

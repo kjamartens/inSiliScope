@@ -73,6 +73,7 @@ nav:
       - Nanorulers:
           - DNA-origami nanorulers: samples/nanorulers/index.md
       - Fiducial beads: samples/fiducials.md
+      - Fluorescent slide: samples/slide.md
   - Physics:
       - Dyes and light path: physics/dyes-and-light-path.md
       - Photophysics: physics/photophysics.md

@@ -3,7 +3,8 @@
 // The viewer's Sample select in headless Chromium: the DNA-origami nanorulers (a nanoruler world: no cells, the rods
 // drawn from above with their docking-strand dyes; a movie spec carries the specimen; zoomed out, the dyes in the
 // camera's field of view all drawn, and only those), then back to the cell field; then the bead sample (only the
-// fiducial beads, their aggregation, light, height, diameter) and back.
+// fiducial beads, their aggregation, light, height, diameter) and back; then the fluorescent slide (its group, light,
+// dye pick) and back.
 //   node tests/web/viewer_nanorulers.mjs [--channel=chrome] [--swiftshader]
 import { runViewer } from './browser.mjs';
 
@@ -87,5 +88,36 @@ await runViewer('viewer nanorulers', { watchdogSec: 120 }, async ({ page, check 
   const back = await page.evaluate(() => ({ onTopHidden: document.querySelector('#mv_fid-height option[value="1"]').hidden,
     adv: document.getElementById('mv_fid-diameter-nm').closest('.opt').classList.contains('t-advanced') }));
   check(!back.onTopHidden && back.adv, `bead sample: back to the cell field, cells again, OnTop offered, the diameter Advanced`);
+  // The fluorescent slide (2026-10-30): no cells or labels, its layer drawn (a translucent slab, 5 um in the x-z view),
+  // its group shown and opened at the mount, its light set (the
+  // mix: 561 nm at 0.02 kW/cm^2, the others off); the movie spec carries specimen=3; an AF647 pick sets 640 nm.
+  await set('mv_specimen', '3');
+  await page.waitForFunction(() => document.getElementById('hud').dataset.cells === '' && document.getElementById('hud').dataset.slide, null, { timeout: 120000 });
+  const sl = await page.evaluate(() => {
+    const $ = id => document.getElementById(id);
+    const lasers = () => Object.fromEntries([...document.querySelectorAll('[id^="mv_laser-"]')].filter(e => /^mv_laser-\d+$/.test(e.id)).map(e => [e.id.slice(9), +e.value]));
+    const grp = document.querySelector('details.grp[data-group="slide"]');
+    const groups = [...document.querySelectorAll('details.grp')].filter(g => g.style.display !== 'none').map(g => g.dataset.group);
+    const out = { shown: grp && grp.style.display !== 'none', open: grp && grp.open, groups, lasers: lasers(),
+      spec: /(^| )specimen=3( |$)/.test(movieSpec()), thick: +$('mv_slide-thickness-um').value, conc: +$('mv_slide-conc-micromolar').value,
+      layer: +$('hud').dataset.slide, legend: $('legend').textContent.includes('fluorescent slide'), scale: view.scale };
+    const dye = $('mv_slide-dye');
+    dye.value = String(ISC_DYE_DATA.dyes.findIndex(d => d.id === 'AF647') + 1);
+    dye.dispatchEvent(new Event('input', { bubbles: true }));
+    out.lasers647 = lasers();
+    dye.value = '0';
+    dye.dispatchEvent(new Event('input', { bubbles: true }));
+    return out;
+  });
+  check(sl.shown && sl.open && sl.spec && sl.thick === 5 && sl.conc === 10 && !sl.groups.some(g => /label$/.test(g)),
+    `slide: its group shown and open (5 um, 10 uM), no labels (groups ${sl.groups.join(' ')}), the movie spec has specimen=3`);
+  check(sl.layer === 5 && sl.legend && sl.scale > 9 && sl.scale < 150,
+    `slide: its layer drawn (${sl.layer} um in the x-z view, in the legend: ${sl.legend}), the view at ${sl.scale.toFixed(1)} px/um (the camera's field)`);
+  check(Object.entries(sl.lasers).every(([nm, kw]) => kw === (nm === '561' ? 0.02 : 0)) &&
+    Object.entries(sl.lasers647).every(([nm, kw]) => kw === (nm === '640' ? 0.02 : 0)),
+    `slide: the mix 561 nm at 0.02 kW/cm^2 (${JSON.stringify(sl.lasers)}), AF647 640 nm (${JSON.stringify(sl.lasers647)})`);
+  await set('mv_specimen', '0');
+  await page.waitForFunction(() => +document.getElementById('hud').dataset.cells > 0, null, { timeout: 120000 });
+  check(true, 'slide: back to the cell field, cells again');
 
 });

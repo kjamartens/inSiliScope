@@ -84,6 +84,8 @@ MODULE_API MM::Device* CreateDevice(const char* deviceName)
       return new isc::NanorulersDevice();
    if (n == "Fiducials")
       return new isc::FiducialsDevice();
+   if (n == "FluorescentSlide")
+      return new isc::FluorescentSlideDevice();
    if (n == "Fluorophores")
       return new isc::FluorophoresDevice();
    if (n == "Renderer")

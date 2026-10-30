@@ -85,7 +85,9 @@ with \(c\) the imager concentration (`mt-imager-nm`, MM `CellField.Microtubules_
 
 `data/dyes/light_path.json` defines the lasers (405, 488, 561, 640, 730 nm and a custom line), dichroics, emission
 filters and presets: `dSTORM-640/561/488` (Dempsey's conditions [[dempsey2011](../references.md#dempsey2011)]),
-`PAINT-640/561/488`, `PALM-561`, `PALM-primed`, `WF-405/488/561/640`. Intensities without a source are *estimates*.
+`PAINT-640/561/488`, `PALM-561`, `PALM-primed`, `WF-405/488/561/640`, and the samples' own: `Beads-561` (the bead
+sample) and `Slide-405/488/561/640` (the [fluorescent slide](../samples/slide.md): a line at 0.02 kW/cm² with the WF
+preset's filters). Intensities without a source are *estimates*.
 Every dye mode names its preset. `light-preset=auto` (the default, cli/viewer; MM `Lasers.Preset` `Auto`) combines
 the presets of the labelled targets of the mounted sample: each laser at its largest power among them, the dichroic and
 filter where they all agree, else a multi-band set (Chroma ZT405/488/561/640rpc dichroic and ZET405/488/561/640m

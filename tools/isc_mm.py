@@ -16,8 +16,8 @@ from pymmcore_plus._util import USER_DATA_DIR
 HUB = "Hub"
 ALL_DEVICES = ["Camera", "XYStage", "ZStage", "Objective", "EmissionPath", "FilterCube", "ExcitationFilter", "Dichroic",
                "EmissionFilter",
-               "Lasers", "TransmittedLamp", "SampleHolder", "CellField", "Nanorulers", "Fiducials", "Fluorophores",
-               "Renderer"]
+               "Lasers", "TransmittedLamp", "SampleHolder", "CellField", "Nanorulers", "Fiducials", "FluorescentSlide",
+               "Fluorophores", "Renderer"]
 
 
 def find_mm_dir() -> str:

@@ -41,7 +41,9 @@ The viewer (live in your browser): **https://kjamartens.github.io/inSiliScope/**
   CLI's `--specimen` ([Samples](https://kjamartens.github.io/inSiliScope/docs/samples/)); optional fiducial beads on
   either (gold, TetraSpeck, FluoSpheres, nanodiamonds; spectra and brightness after Balinovic et al. 2019; on the
   coverslip, on the sample or in a gel; slow bleaching), for drift correction
-  ([Fiducial beads](https://kjamartens.github.io/inSiliScope/docs/samples/fiducials/)).
+  ([Fiducial beads](https://kjamartens.github.io/inSiliScope/docs/samples/fiducials/)), or alone (the bead sample); a
+  fluorescent slide, a uniform dye layer that bleaches where the beam is brightest
+  ([Fluorescent slide](https://kjamartens.github.io/inSiliScope/docs/samples/slide/)).
 - **Cell field**: jittered-grid cell placement with relaxation packing, wobbly cell outlines, a shaped 3D nucleus, a cytoplasm height
   field, 3D microtubules from the nucleus to the cell edge, a 13_3 protofilament dye lattice, nuclear pore complexes
   (Nup96, 64 sites) over the whole nuclear envelope; each target labelled on its own (two colours at once by default)

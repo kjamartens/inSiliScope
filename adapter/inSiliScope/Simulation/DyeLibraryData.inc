@@ -223,6 +223,10 @@ static const LightPresetData kLightPresets[] = {
    { "WF-561", "Widefield, orange (561 nm 10 W/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 0.01, 0.0, 0.0 }, "None", "LP570", "BP600-37", kNaN },
    { "WF-640", "Widefield, red (640 nm 10 W/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 0.01, 0.0 }, "None", "LP650", "BP676-37", kNaN },
    { "Beads-561", "Bead sample (561 nm 100 W/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 0.1, 0.0, 0.0 }, "None", "LP570", "BP600-37", kNaN },
+   { "Slide-405", "Fluorescent slide, violet (405 nm 20 W/cm\xC2\xB2, 447/60)", { 0.02, 0.0, 0.0, 0.0, 0.0 }, "None", "LP425", "BP447-60", kNaN },
+   { "Slide-488", "Fluorescent slide, green (488 nm 20 W/cm\xC2\xB2, 525/45)", { 0.0, 0.02, 0.0, 0.0, 0.0 }, "None", "LP505", "BP525-45", kNaN },
+   { "Slide-561", "Fluorescent slide, orange (561 nm 20 W/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 0.02, 0.0, 0.0 }, "None", "LP570", "BP600-37", kNaN },
+   { "Slide-640", "Fluorescent slide, red (640 nm 20 W/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 0.02, 0.0 }, "None", "LP650", "BP676-37", kNaN },
 };
 
 // quantumEfficiency, readNoiseElectrons, gainElectronsPerAdu, preampElectronsPerAdu, cicElectrons, offsetAdu, offsetStdAdu, darkCurrentElectronsPerSec, gainStdPct, readNoiseStdPct, bitDepth, gainElectronsPerAduWideField, physicalPixelUm
@@ -367,6 +371,7 @@ static const SpecimenData kSpecimens[] = {
    { "CellField", "Cell field", 0, 3, kNaN, kNaN, kNaN, nullptr },
    { "Nanorulers", "DNA-origami nanorulers", 3, 1, 1.03, kNaN, kNaN, nullptr },
    { "Beads", "Bead sample", -1, 0, kNaN, 0.3, 40.0, "Beads-561" },
+   { "Slide", "Fluorescent Slide", -1, 0, kNaN, kNaN, kNaN, "Slide-561" },
 };
 // Fiducial beads (data/fiducials/types.json): per component id, name, excitation and emission spectra, the excitation
 // peak (nm), the equivalent dyes at the type's reference diameter, whether it bleaches; per type id, name, reference

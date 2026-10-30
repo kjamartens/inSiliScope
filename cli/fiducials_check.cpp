@@ -10,6 +10,7 @@
 //   fiducials_check          exit code 0 = all checks passed
 #include "DyeLibrary.h"
 #include "Fiducials.h"
+#include "LightHistory.h"
 #include "PsfGeneratorBridge.h"
 #include "ScopeMovie.h"
 #include "ScopeResolved.h"
@@ -164,6 +165,46 @@ std::vector<double> FrameSums(const std::string& text, bool& ok)
    return sums;
 }
 
+// The photon images of a spec's movie (no noise), on a host's light history (its light: the spec's).
+std::vector<std::vector<float>> HistoryPhotons(const std::string& text, LightHistory& h, bool& ok)
+{
+   ScopeSpec spec;
+   std::string err;
+   std::vector<std::vector<float>> out;
+   LightState L;
+   ok = ParseScopeSpec(text, spec, err) && MakeLightState(spec, true, L, err);
+   spec["start-sec"] = h.T();
+   FluorescenceMovie fm;
+   FluorescenceFrameOptions opt;
+   opt.onPhotons = [&](long, const std::vector<float>& ph) {
+      out.push_back(ph);
+      return true;
+   };
+   ScopeMovieInfo info;
+   ok = ok && fm.Begin(spec, false, err, nullptr, &h, &L) &&
+        fm.Render([](long, const std::vector<uint16_t>&) { return true; }, info, err, nullptr, &opt);
+   if (!ok)
+      std::printf("  %s: %s\n", text.c_str(), err.c_str());
+   return out;
+}
+
+// The photon image of a spec's movie's first frame (no history).
+std::vector<float> FirstPhotons(const std::string& text, bool& ok)
+{
+   ScopeSpec spec;
+   ScopeMovieInfo info;
+   std::string err;
+   std::vector<float> first;
+   ok = ParseScopeSpec(text, spec, err) && RenderScopePhotons(spec, [&](long f, const std::vector<float>& ph) {
+           if (f == 0)
+              first = ph;
+           return true;
+        }, info, err);
+   if (!ok)
+      std::printf("  %s: %s\n", text.c_str(), err.c_str());
+   return first;
+}
+
 // The bead's bleach rate in a movie's light (the half-time option at the reference, x the excitation at the line).
 double BleachPerSec(const std::string& text, double halfSec)
 {
@@ -225,6 +266,41 @@ void Movies()
                  "fid-far-defocus 0", s5, sIn, sDyeCut, sInside, sOutside, sFar, sOff);
    Check(ok3 && ok4 && ok5 && ok6 && ok7 && ok8 && ok9 && s5 > 0.01 * sIn && sDyeCut == sIn &&
          std::fabs(sOutside / sInside - 1) < 0.15 && sFar > 0.01 * sIn && sOff == 0, b);
+   // The past under another light (Slide.h LightPastAt; the slide's step, the user's report, 2026-10-30): 1 s of epi
+   // under a Gaussian beam, then HILO near the critical angle focused at 1.5 um, its sheet ~15 um aside at the
+   // coverslip, the field on its flank (~3 % of its peak). A bead keeps the epi's bleaching, its column alike (dose /
+   // the local rate gave the epi's past the HILO's heights: the bead 0.1 um up, where the tilted sheet is several times
+   // brighter, came out too bleached; beyond the 1e-4 cut, fresh): at the brightest pixel of the HILO movie, its ratio
+   // to a fresh one = the epi movie's after 1 s to a fresh one there (within ~2 %: the lattice, the beads' overlap).
+   {
+      bool a = false, z = false, e = false, f = false, lit = false;
+      const std::string gb = "size=64 psf-kernel-half-width-nm=3000 mt-dye=None npc-dye=None light-preset=-1 laser-640=1 "
+                             "background-per-sec=0 fid-density=0.05 fid-type=FluoSpheresDarkRed fid-height=Coverslip "
+                             "fid-bleach-half-sec=0.5 frames=1";
+      const std::string epi = gb + " illum-bfp=0 z=0.1", hilo = gb + " illum-bfp=0.995 z=1.5";
+      LightHistory h1, h2;
+      for (LightHistory* h : { &h1, &h2 })
+      {
+         ScopeSpec sp;
+         std::string err;
+         LightState L;
+         lit = ParseScopeSpec(epi, sp, err) && MakeLightState(sp, true, L, err);
+         if (lit)
+            h->Advance(1.0, L);
+      }
+      const std::vector<std::vector<float>> hWith = HistoryPhotons(hilo, h1, a), eWith = HistoryPhotons(epi, h2, e);
+      const std::vector<float> hFresh = FirstPhotons(hilo + " start-sec=0", z), eFresh = FirstPhotons(epi + " start-sec=0", f);
+      double rh = 0, re = 0;
+      const bool all = lit && a && z && e && f && !hWith.empty() && !eWith.empty() && !hFresh.empty() && !eFresh.empty();
+      if (all)
+      {
+         const size_t i = static_cast<size_t>(std::max_element(hFresh.begin(), hFresh.end()) - hFresh.begin());
+         rh = hWith[0][i] / hFresh[i];
+         re = eWith[0][i] / eFresh[i];
+      }
+      std::snprintf(b, sizeof b, "epi's past under HILO: the brightest bead %.4f of fresh (the epi's %.4f)", rh, re);
+      Check(all && re < 0.8 && std::fabs(rh / re - 1) < 2e-2, b);
+   }
 }
 
 } // namespace

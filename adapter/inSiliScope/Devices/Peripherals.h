@@ -83,6 +83,14 @@ public:
    FiducialsDevice();
 };
 
+// The fluorescent slide (spec/MM_DEVICES.md): its layer's thickness, dye, concentration and bleaching; the image shows
+// it when SampleHolder mounts it.
+class FluorescentSlideDevice : public GenericPeripheral<FluorescentSlideDevice>
+{
+public:
+   FluorescentSlideDevice();
+};
+
 class FluorophoresDevice : public GenericPeripheral<FluorophoresDevice>
 {
 public:
