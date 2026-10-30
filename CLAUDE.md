@@ -45,7 +45,7 @@ that finishes them.
   new event or counted control: add it to the table in docs/privacy.md in the same commit. The docs count page views and
   `data-umami-event` link clicks (download buttons). Release download counts: `python tools/download_stats.py`.
 - **Fiducial beads (2026-10-22/23, branch `claude/fiducials`, spec/ALGORITHM.md "Fiducial beads", spec/PORT.md 24,
-  docs/samples/fiducials.md):** on either specimen, off by default (`fid-density` 0). Core ABI 15
+  docs/samples/fiducials.md):** on any specimen, off by default (`fid-density` 0). Core ABI 15
   `isc_fiducials_in_window` (`core/src/fiducials.*`, params `fid*` outside the packing fingerprint), engine
   `Simulation/Fiducials.*` (one bead kernel splat per bead and component, Taylor static images, gold Mie scatter,
   bleaching from the light history in MM; 2026-10-23: the bead halo, a second PSF window twice the FOV at one sample per
@@ -55,6 +55,25 @@ that finishes them.
   `showFids` (layer `fid.beads`, drawn in the x-z view too, `#hud` `data-beads-xz`; a `fiducials` job on a cell worker
   on a world of its own); cli `--setup-json` `fiducials`; figures `fid-spectra`, `fid-heights`. Checks: ctest `fiducials`
   (`cli/fiducials_check.cpp`: the light, the bead kernel, bleaching movies) and `world_checks.fiducials` (the field).
+  **The bead sample, clumps, bead size, the beads' PSF range (2026-10-30, spec/PORT.md 26):** a third specimen `Beads`
+  (`specimen` 2, ABI 17 `ISC_SPECIMEN_BEADS`; `World::NoCells()`: no cells, dyes or blinks, only the fiducials), no
+  device or targets of its own (`data/specimens.json`: `fiducials.densityPerUm2` 0.3 and `aggregationPct` 40, set at a
+  mount when 0 (MM `Couplings` `MountSpecimen`, the viewer's specimen switch, the engine when the spec has neither),
+  OnTop moved to Coverslip and not offered there (MM `Fiducials.Height` choices, `RefreshChoices`; viewer
+  `syncSpecimen`); `lightPreset` `Beads-561` (561 nm at 0.1 kW/cm^2, others off) = its Auto light preset;
+  `gen_mm_configs.py` `MOUNT_EFFECTS` keeps these out of the Specimen presets). Clumps: `fid-aggregation-pct` /
+  `Fiducials.AggregationPct` (Basic, 0..90) = p, a clump of n beads with chance (1-p) p^(n-1) (*estimate*), placed at
+  density (1-p) so the density counts beads, each bead touching an earlier one (3D; up to 8 tries, salt "CLUM", the
+  query padded one tile); 0 = the old field bit for bit. Size: a `Fiducials.Type` pick sets `DiameterNm` to its product
+  size (MM and viewer; the engine's -1 stays the type's size), any other size (20 nm beads) keeps the spectra with the
+  dyes x d^3; the viewer's diameter and layer-thickness rows are Basic on the bead sample (`basicWhen` rows, `sync`; MM
+  tiers are fixed at hub start: Advanced). The beads' own PSF z stack `fid-psf-z-range-um` / `Fiducials.PsfZRangeUm`
+  (Advanced, 14 um; part settings; `FiducialPsfRequest`: a group's kernel serves the beads only when its span covers
+  it); no bead is culled by depth: beyond the stack `fid-far-defocus` / `Fiducials.FarDefocus` (Expert, on) draws a
+  Gaussian growing with |dz| from the edge plane's spread (`BeadHalo::SigmaPx`), faded in over `kBeadFarFadeUm` 0.5 um
+  (not physical: the user's choice), off draws nothing there. Height is Basic. Checks: `world_checks.fiducials` (clump statistics, touching), golden f04-f06,
+  `tools/test_specimens.py` (Beads), `tests/web/viewer_nanorulers.mjs` (bead sample); figure `fid-clumps`, gallery
+  `beads-single`, `beads-sample`, `beads-20nm`.
 - **Save and load settings (2026-10-28, [docs/dev/SAVE_SETTINGS.md](docs/dev/SAVE_SETTINGS.md)):** `<name>.isc.json` in
   mixable parts -- instrument, settings, sample, measurement (with the sample's light history), view (viewer only).
   Every engine option has a part (`PartOf` in `ScopeMovie.cpp`, `ScopeOptionPart`; `Options()` throws on a new option

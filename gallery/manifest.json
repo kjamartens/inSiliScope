@@ -164,6 +164,15 @@
     { "id": "nr-paint-epi", "title": "DNA-PAINT nanorulers, epi",
       "text": "The same in epi (illum-bfp 0): the imager in the whole lit column raises the background about ninefold.",
       "options": {"specimen": "Nanorulers", "exposure-ms": 100, "frames": 100, "illum-bfp": 0} },
+    { "id": "beads-sample", "title": "The bead sample",
+      "text": "specimen Beads at its defaults: a bare coverslip with only fiducial beads, 100 nm gold (the default bead type) at 0.3 per um^2 with an aggregation of 40 % (each bead stuck to the next with a chance of 40 %: clumps of 1.7 beads on average), under the bead sample's light, 561 nm at 0.1 kW/cm^2 with the other lasers off, the focus on the beads' centres.",
+      "options": {"specimen": "Beads"} },
+    { "id": "beads-single", "title": "Single beads",
+      "text": "The same bead sample with fid-aggregation-pct 0: as many beads per um^2, each on its own, so more and dimmer spots.",
+      "options": {"specimen": "Beads", "fid-aggregation-pct": 0} },
+    { "id": "beads-20nm", "title": "20 nm beads",
+      "text": "The bead sample with orange FluoSpheres of 20 nm (fid-type FluoSpheresOrange, fid-diameter-nm 20): a bead type at another size keeps its spectra, its dyes scaled with the volume, (20/200)^3 of the 200 nm beads' 100000, so 100 equivalent dyes. Even so they are far brighter than the gold under the bead sample's 0.1 kW/cm^2.",
+      "options": {"specimen": "Beads", "fid-type": "FluoSpheresOrange", "fid-diameter-nm": 20} },
     { "id": "light-epi", "title": "Epi illumination",
       "text": "illum-bfp 0: the laser spot at the centre of the back focal plane, the beam straight up through the sample. The default DNA-PAINT movie is HILO (0.95); in epi the free imager in the whole lit column adds its background.",
       "options": {"illum-bfp": 0} },
@@ -255,6 +264,12 @@
       "rows": [
         {"panels": [["nr-paint-tirf", "DNA-PAINT, TIRF (default)"], ["nr-paint-hilo", "HILO"], ["nr-paint-epi", "epi"]], "shared": true, "caption": "The three spots of a rod fall within one pixel; only the localisations resolve them. The deeper the light reaches into the imager solution, the brighter its background."},
         {"panels": [["nr-widefield", "rods, widefield"], ["nr-logo-widefield", "TU Delft logos, 320 nm spacing"]], "caption": "In widefield every strand glows at once: one diffraction-limited spot per rod. Flat origami with the strands spread wider than the PSF: the logo reads without super-resolution."}
+      ] },
+    { "title": "Fiducial beads alone",
+      "story": "The third sample: a coverslip with nothing but fluorescent beads, as used to measure the PSF or the drift. Beads in a suspension stick together; one setting, the aggregation, gives both how many are in clumps and how big the clumps are.",
+      "rows": [
+        {"panels": [["beads-single", "aggregation 0 %"], ["beads-sample", "aggregation 40 % (default)"]], "shared": true, "caption": "The same number of beads per um^2: clumped, they make fewer and brighter spots."},
+        {"panels": [["beads-sample", "100 nm gold (default)"], ["beads-20nm", "20 nm orange FluoSpheres"]], "caption": "The bead type and its size: the diameter scales the dyes with the volume."}
       ] },
     { "title": "Render quality",
       "story": "A few switches trade accuracy for speed. At the defaults the difference should be invisible under the noise; that is how the defaults were chosen. Each panel is one of those switches turned all the way up (or down), with the time it takes per frame (this machine's cli, measured when the gallery was built).",

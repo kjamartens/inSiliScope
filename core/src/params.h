@@ -91,13 +91,15 @@ struct Params {
    double origamiRollDeg = 0;
    double origamiHeights = 0;           // 0 = 2D (every site at the axis height), 1 = the ring's heights
 
-   // Fiducial beads on either specimen (ABI 15; fiducials.h; JS fiducials.js FIDUCIAL_DEFAULTS). Sites only: their
+   // Fiducial beads on every specimen (ABI 15; fiducials.h; JS fiducials.js FIDUCIAL_DEFAULTS). Sites only: their
    // light is the engine's.
    double fidDensity = 0;               // beads per um^2 of coverslip (0 = none)
    double fidDiameterNm = 200;          // mean diameter, nm
    double fidDiameterCvPct = 12;        // diameter spread, % (estimate)
    double fidHeight = 1;                // 0 Coverslip, 1 OnTop (default), 2 Layer
    double fidLayerUm = 10;              // Layer: the gel's thickness, um
+   // Clumps (ABI 17): the chance, %, that a bead is stuck to the next one; clump sizes geometric (fiducials.h).
+   double fidAggregationPct = 0;
 };
 
 // params() in the prototype clamps every "max" to at least its "min",

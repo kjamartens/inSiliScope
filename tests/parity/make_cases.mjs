@@ -112,6 +112,10 @@ out.push('fiducials f00 1249 0 0 10 10 fidDensity=0.5 fidHeight=0');
 out.push('fiducials f01 -7 -5 -5 5 5 fidDensity=2 fidDiameterNm=150 fidDiameterCvPct=30 fidHeight=1');
 out.push('fiducials f02 90210 100000 -100000 100006 -99994 fidDensity=1 fidHeight=2 fidLayerUm=4');
 out.push('fiducials f03 5 -3 -3 3 3 fidDensity=20 fidDiameterNm=2000 fidDiameterCvPct=50 fidHeight=2 fidLayerUm=1');
+// ABI 17: clumps (fidAggregationPct): on the coverslip, on the step's top, in a layer (3D).
+out.push('fiducials f04 1249 0 0 8 8 fidDensity=2 fidAggregationPct=50 fidHeight=0');
+out.push('fiducials f05 -7 -4 -4 4 4 fidDensity=3 fidDiameterNm=150 fidDiameterCvPct=30 fidAggregationPct=80 fidHeight=1');
+out.push('fiducials f06 90210 100000 -100000 100006 -99994 fidDensity=2 fidHeight=2 fidLayerUm=4 fidAggregationPct=65');
 
 fs.writeFileSync(process.argv[2], out.join('\n') + '\n');
 console.log(`wrote ${out.length} lines to ${process.argv[2]}`);

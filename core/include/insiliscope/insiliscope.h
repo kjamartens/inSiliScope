@@ -38,7 +38,10 @@
  * sites only, no label or structure (their light is the host's). ABI 16: the
  * nuclear lamina, a third cell-field target (structure ISC_STRUCT_LAMIN 2, so
  * the docking strands move to 3 and ISC_STRUCT_COUNT is 4; params lamin*:
- * points on the nuclear envelope, none at the pores), isc_cell_lamin.
+ * points on the nuclear envelope, none at the pores), isc_cell_lamin. ABI 17:
+ * the bead sample (specimen ISC_SPECIMEN_BEADS 2: a bare coverslip with only
+ * the fiducial beads) and bead clumps (param fidAggregationPct: the chance a
+ * bead is stuck to the next; a clump's beads share its address).
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -59,7 +62,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 16
+#define ISC_ABI_VERSION 17
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -104,9 +107,11 @@ ISC_API int32_t isc_pack_window(uint32_t seed, int32_t cx0, int32_t cy0, int32_t
  * nanoruler world has no cells (the cell calls return 0 rows or -1, its
  * optical volume is empty, isc_world_set_cache_dir keeps nothing) and only
  * ISC_STRUCT_ORIGAMI_SITES dyes; a cell field ISC_STRUCT_MICROTUBULE, _NPC and
- * _LAMIN. */
+ * _LAMIN. ABI 17: a bead world has no cells (as a nanoruler world) and no
+ * dyes: only its fiducial beads (isc_fiducials_in_window). */
 #define ISC_SPECIMEN_CELLFIELD 0
 #define ISC_SPECIMEN_NANORULERS 1
+#define ISC_SPECIMEN_BEADS 2
 typedef struct IscWorld IscWorld;
 ISC_API IscWorld* isc_world_new(uint32_t seed, const IscParams* p);
 ISC_API void isc_world_free(IscWorld* w);
@@ -471,11 +476,12 @@ ISC_API int32_t isc_origami_outline(IscWorld* w, int32_t tx, int32_t ty, int32_t
  * Same cap/return convention, -1 when there is no such molecule. */
 #define ISC_ORIGAMI_SITE_STRIDE 11
 ISC_API int32_t isc_origami_sites(IscWorld* w, int32_t tx, int32_t ty, int32_t i, double* out, int32_t cap);
-/* ---- Fiducial beads (ABI 15; either specimen, params fid*) ----
+/* ---- Fiducial beads (ABI 15; every specimen, params fid*) ----
  * Beads whose centre lies in the window, ISC_FIDUCIAL_STRIDE doubles each: tx,
- * ty, i (the bead's address: 2 um tile, candidate index), x, y, z (um, the
- * centre; z above the coverslip), d (diameter, nm). Order: tile x, tile y,
- * index. Same cap/return convention; 0 rows at fidDensity 0. */
+ * ty, i (the bead's address: 2 um tile, candidate index; ABI 17: the beads of
+ * a clump share their candidate's), x, y, z (um, the centre; z above the
+ * coverslip), d (diameter, nm). Order: tile x, tile y, index, the clump's
+ * beads in their order. Same cap/return convention; 0 rows at fidDensity 0. */
 #define ISC_FIDUCIAL_STRIDE 7
 ISC_API int32_t isc_fiducials_in_window(IscWorld* w, double x0, double y0, double x1, double y1, double* out,
                                         int32_t cap);

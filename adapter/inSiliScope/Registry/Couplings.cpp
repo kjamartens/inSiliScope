@@ -17,8 +17,11 @@
 #include "../Simulation/DyeLibrary.h"
 #include "../Simulation/RenderPresets.h"
 #include "../Simulation/SMLMZernike.h"
+#include "../Simulation/ScopeMovie.h"
 
 #include "SceneSettings.h"
+
+#include "insiliscope/insiliscope.h"
 
 #include <algorithm>
 #include <cmath>
@@ -68,6 +71,26 @@ void InSiliScopeHub::MountSpecimen(int index)
       return;
    state_.SetOption("specimen", index);
    Notify("specimen");
+   // The bead sample with no beads set: its density and, unclumped, its aggregation (data/specimens.json fiducials).
+   const sim::SpecimenData& sp = sim::SpecimenAt(index);
+   if (!std::isnan(sp.fiducialDensity) && !(state_.Option("fid-density") > 0))
+   {
+      state_.SetOption("fid-density", sp.fiducialDensity);
+      Notify("fid-density");
+   }
+   if (!std::isnan(sp.fiducialAggregationPct) && !(state_.Option("fid-aggregation-pct") > 0))
+   {
+      state_.SetOption("fid-aggregation-pct", sp.fiducialAggregationPct);
+      Notify("fid-aggregation-pct");
+   }
+   // No sample to sit on: the bead sample offers no OnTop (it is the glass there), so OnTop beads move to Coverslip.
+   const std::vector<std::string>& heights = sim::ScopeFiducialHeightNames();
+   if (index == ISC_SPECIMEN_BEADS && static_cast<int>(state_.Option("fid-height")) == sim::IndexOf(heights, "OnTop"))
+   {
+      state_.SetOption("fid-height", sim::IndexOf(heights, "Coverslip"));
+      Notify("fid-height");
+   }
+   RefreshChoices("fid-height");
    // The camera's mode gain follows the mounted label (the lasers stay as set).
    ApplyModeGain();
 }

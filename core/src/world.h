@@ -45,7 +45,8 @@ constexpr int PACK_BLOCK_CHUNKS = 8;
 // the microtubules, the nuclear pores (CellField, issue 15) and the nuclear
 // lamina (CellField, 2026-10-27), and the docking strands (Nanorulers). A new structure (nucleus DNA, ...) adds a target there
 // and its site generator here. A world holds one specimen (Params::specimen):
-// its geometry -- the cell field, or an OrigamiField -- yields the dye blocks;
+// its geometry -- the cell field, or an OrigamiField -- yields the dye blocks (the
+// bead sample, specimen 2, has none: only its fiducial beads);
 // labels, schedules and the queries are shared, and a world never yields a
 // structure of another specimen.
 constexpr int STRUCTURE_MT = 0;
@@ -154,15 +155,17 @@ public:
 
    const Params& GetParams() const { return p_; }
    int Specimen() const { return (int)p_.specimen; }
+   // A world without cells: the nanorulers and the bead sample (only the fiducial beads; ABI 17).
+   bool NoCells() const { return (int)p_.specimen != SPECIMEN_CELLFIELD; }
    // The origami field of a Nanorulers world (nullptr in a cell field).
    OrigamiField* Origami() { return origami_.get(); }
-   // The fiducial beads whose centre lies in [x0,x1) x [y0,y1) (fiducials.h; either specimen; none at fidDensity 0).
+   // The fiducial beads whose centre lies in [x0,x1) x [y0,y1) (fiducials.h; every specimen; none at fidDensity 0).
    void FiducialsInRect(double x0, double y0, double x1, double y1, std::vector<FiducialBead>& out)
    {
       fiducials_->InRect(x0, y0, x1, y1, out);
    }
    // The sample's surface height at (x, y), um: the highest cytoplasm over that point (the cells' mesh height, as
-   // OpticalVolumeInWindow samples it), 0 on bare glass and in a nanoruler world (JS world.js surfaceHeightAt).
+   // OpticalVolumeInWindow samples it), 0 on bare glass and in a nanoruler or bead world (JS world.js surfaceHeightAt).
    double SurfaceHeightAt(double x, double y);
    // Dye cache cap (dyes); a smaller one takes effect at the next query.
    void SetDyeCacheCap(size_t dyes) { dyeCap_ = dyes; }
@@ -474,7 +477,7 @@ private:
    uint32_t seed_;
    Params p_;
    std::unique_ptr<OrigamiField> origami_;   // specimen 1
-   std::unique_ptr<FiducialField> fiducials_;   // either specimen
+   std::unique_ptr<FiducialField> fiducials_;   // every specimen
    size_t assetCap_;
    size_t dyeCap_;
    std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> blocks_;

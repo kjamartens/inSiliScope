@@ -27,6 +27,8 @@
 #include "../Simulation/SMLMZernike.h"
 #include "SceneSettings.h"
 
+#include "insiliscope/insiliscope.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -1016,21 +1018,62 @@ std::vector<PropDef> BuildTable()
    // spec/ALGORITHM.md "Fiducial beads"). Off at density 0.
    {
       const char* D = "Fiducials";
-      add(OptNames(D, "Type", Tier::Basic, "fid-type", sim::FiducialTypeIds(), 0,
-                   "The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered laser light), "
-                   "TetraSpeck (100 nm, four dyes), FluoSpheres Orange 540/560 (200 nm, for a 488 channel), Red "
-                   "580/605 (200 nm), DarkRed 660/680 (200 nm; very bright at 640 nm), Infrared (100 nm), red Nanodiamond (100 nm)."));
+      {
+         PropDef d = OptNames(D, "Type", Tier::Basic, "fid-type", sim::FiducialTypeIds(), 0,
+                              "The bead (data/fiducials, balinovic2019): Gold (100 nm, photoluminescence + scattered "
+                              "laser light), TetraSpeck (100 nm, four dyes), FluoSpheres Orange 540/560 (200 nm, for a "
+                              "488 channel), Red 580/605 (200 nm), DarkRed 660/680 (200 nm; very bright at 640 nm), "
+                              "Infrared (100 nm), red Nanodiamond (100 nm). A pick sets DiameterNm to its product size.");
+         // The diameter follows the type: its product size (other sizes: DiameterNm after the pick).
+         ThenText(d, [](H& h) {
+            const int t = static_cast<int>(h.State().Option("fid-type"));
+            if (t >= 0 && t < static_cast<int>(sim::FiducialTypeIds().size()))
+               h.State().SetOption("fid-diameter-nm", sim::FiducialTypeAt(t).refDiameterNm);
+            h.Notify("fid-diameter-nm");
+         });
+         add(d);
+      }
       add(Opt(D, "DensityPerUm2", Tier::Basic, "fid-density", 0, 100,
               "Beads per um^2 of coverslip, placed at random (Poisson: doublets happen); 0 = no beads."));
-      add(Opt(D, "DiameterNm", Tier::Advanced, "fid-diameter-nm", -1, 2000,
-              "Mean bead diameter, nm (brightness ~ d^3; the image is the PSF of the solid sphere); -1 = the type's "
-              "product size."));
+      {
+         PropDef d = Opt(D, "DiameterNm", Tier::Advanced, "fid-diameter-nm", 10, 2000,
+                         "Mean bead diameter, nm (brightness ~ d^3: the dyes scale with the volume; the image is the "
+                         "PSF of the solid sphere); a Type pick sets its product size (100 or 200 nm; 20 nm beads: 20).");
+         // The engine's -1 (the type's size) shown as that size.
+         d.get = [](H& h) {
+            const double v = h.State().Option("fid-diameter-nm");
+            const int t = static_cast<int>(h.State().Option("fid-type"));
+            return v >= 0 || t < 0 || t >= static_cast<int>(sim::FiducialTypeIds().size()) ? v : sim::FiducialTypeAt(t).refDiameterNm;
+         };
+         add(d);
+      }
       add(Opt(D, "DiameterCvPct", Tier::Advanced, "fid-diameter-cv-pct", 0, 50,
               "Bead-to-bead diameter spread, % (normal; an estimate)."));
-      add(OptNames(D, "Height", Tier::Advanced, "fid-height", sim::ScopeFiducialHeightNames(), 0,
-                   "Where the beads sit: Coverslip (on the glass, also under cells), OnTop (on the sample's surface), "
-                   "Layer (anywhere in a gel layer of LayerUm, outside the cells)."));
+      {
+         PropDef d = OptNames(D, "Height", Tier::Basic, "fid-height", sim::ScopeFiducialHeightNames(), 0,
+                              "Where the beads sit: Coverslip (on the glass, also under cells), OnTop (on the sample's "
+                              "surface; not on the bead sample, where it is the glass), Layer (anywhere in a gel layer of "
+                              "LayerUm, outside the cells).");
+         d.choices = [](H& h) {
+            std::vector<std::string> v = sim::ScopeFiducialHeightNames();
+            if (h.State().MountedSpecimen() == ISC_SPECIMEN_BEADS)
+               v.erase(std::remove(v.begin(), v.end(), std::string("OnTop")), v.end());
+            return v;
+         };
+         add(d);
+      }
       add(Opt(D, "LayerUm", Tier::Advanced, "fid-layer-um", 0, 1000, "The gel layer's thickness (Height = Layer), um."));
+      add(Opt(D, "PsfZRangeUm", Tier::Advanced, "fid-psf-z-range-um", 0.1, 40,
+              "Span of the beads' PSF z stack, um (Objective.PsfZRangeUm is the molecules'): a bead far off focus, on "
+              "top of the cells or in a gel layer, keeps its defocused image."));
+      add(OnOffOpt(D, "FarDefocus", Tier::Expert, "fid-far-defocus",
+                   "On: a bead beyond its PSF z stack is a blur growing with the defocus (a Gaussian matched to the "
+                   "stack's last plane, faded in over its last 0.5 um; not physical). Off: such beads are not drawn "
+                   "(faster with many beads far off focus)."));
+      add(Opt(D, "AggregationPct", Tier::Basic, "fid-aggregation-pct", 0, 90,
+              "The chance a bead is stuck to the next one, %: clumps of touching beads, n beads with probability "
+              "(1 - p) p^(n-1) (mean 1 / (1 - p); at 10 %, 81 % of the beads are single); DensityPerUm2 counts beads "
+              "(an estimate)."));
       add(Opt(D, "BleachHalfTimeSec", Tier::Expert, "fid-bleach-half-sec", 0, 1e9,
               "A bead's fluorescence half-time at BleachRefKWcm2 at its dye's excitation peak, s (an estimate: 288 s; "
               "~ 1 / the excitation; gold and nanodiamonds do not bleach; 0 = no bleaching)."));

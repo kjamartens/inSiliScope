@@ -147,6 +147,21 @@ BeadHalo::BeadHalo(const PsfKernelCache& wide) : geom_(wide), sums_(wide.BlockSu
    }
 }
 
+double BeadHalo::SigmaPx(int k) const
+{
+   const int n = geom_.sizeOversampled, c = geom_.halfWidthOversampled;
+   const float* p = sums_[static_cast<size_t>(k)].data();
+   double s = 0.0, s2 = 0.0;
+   for (int y = 0; y < n; ++y)
+      for (int x = 0; x < n; ++x)
+      {
+         const double v = p[static_cast<size_t>(y) * n + x];
+         s += v;
+         s2 += v * ((x - c) * (x - c) + (y - c) * (y - c));
+      }
+   return s > 0.0 ? std::sqrt(s2 / s / 2.0) : 0.0;
+}
+
 int BeadHalo::Extent(int k, double photons) const
 {
    const std::vector<float>& b = beyond_[static_cast<size_t>(k)];
@@ -516,7 +531,19 @@ void SplatFiducial(std::vector<float>& img, unsigned W, unsigned H, int r0, int 
       GaussianSigned(img, W, r0, r1, xPx, yPx, std::sqrt(F.sigmaPx * F.sigmaPx + rPx * rPx / 5.0), photons);
       return;
    }
-   F.B->Splat(img, W, H, F.kernel.NearestZIndex(e.zNm / 1000.0 - zf), e.d, xPx, yPx, photons, F.halo.get(), r0, r1);
+   // Off the kernel's z span (half-width edgeUm): the growing Gaussian, faded in over its last kBeadFarFadeUm, or
+   // nothing (fid-far-defocus off).
+   const double dz = e.zNm / 1000.0 - zf, adz = std::fabs(dz);
+   const double edgeUm = (F.kernel.nz - 1) / 2.0 * F.kernel.zStepNm / 1000.0, sigmaPerUm = F.farSigmaPxPerUm[dz > 0];
+   if (F.kernel.nz > 1 && adz > edgeUm && !(sigmaPerUm > 0))
+      return;
+   const double w = F.kernel.nz > 1 && sigmaPerUm > 0
+                       ? std::min(1.0, std::max(0.0, (adz - (edgeUm - kBeadFarFadeUm)) / kBeadFarFadeUm))
+                       : 0.0;
+   if (w < 1.0)
+      F.B->Splat(img, W, H, F.kernel.NearestZIndex(dz), e.d, xPx, yPx, photons * (1.0 - w), F.halo.get(), r0, r1);
+   if (w > 0.0)
+      GaussianSigned(img, W, r0, r1, xPx, yPx, adz * sigmaPerUm, photons * w);
 }
 
 // The beads of F into img with photons(e) each (0: skipped), in bands of rows on all cores: every pixel adds the beads

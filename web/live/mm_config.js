@@ -446,6 +446,13 @@ self.ISC_MM_CONFIG = {
     "name": "Specimen",
     "presets": [
      {
+      "name": "Beads",
+      "set": {
+       "blink-min-photons": 50.0,
+       "specimen": 2.0
+      }
+     },
+     {
       "name": "CellField",
       "set": {
        "blink-min-photons": 50.0,
@@ -954,6 +961,13 @@ self.ISC_MM_CONFIG = {
    {
     "name": "Specimen",
     "presets": [
+     {
+      "name": "Beads",
+      "set": {
+       "blink-min-photons": 50.0,
+       "specimen": 2.0
+      }
+     },
      {
       "name": "CellField",
       "set": {
@@ -1465,6 +1479,13 @@ self.ISC_MM_CONFIG = {
     "name": "Specimen",
     "presets": [
      {
+      "name": "Beads",
+      "set": {
+       "blink-min-photons": 50.0,
+       "specimen": 2.0
+      }
+     },
+     {
       "name": "CellField",
       "set": {
        "blink-min-photons": 50.0,
@@ -1662,6 +1683,10 @@ self.ISC_MM_TIERS = {
 "tier": "Expert",
 "prop": "ExcitationFilter.CustomLoNm"
 },
+"fid-aggregation-pct": {
+"tier": "Basic",
+"prop": "Fiducials.AggregationPct"
+},
 "fid-bleach-half-sec": {
 "tier": "Expert",
 "prop": "Fiducials.BleachHalfTimeSec"
@@ -1690,13 +1715,21 @@ self.ISC_MM_TIERS = {
 "tier": "Expert",
 "prop": "Fiducials.DyeCount"
 },
+"fid-far-defocus": {
+"tier": "Expert",
+"prop": "Fiducials.FarDefocus"
+},
 "fid-height": {
-"tier": "Advanced",
+"tier": "Basic",
 "prop": "Fiducials.Height"
 },
 "fid-layer-um": {
 "tier": "Advanced",
 "prop": "Fiducials.LayerUm"
+},
+"fid-psf-z-range-um": {
+"tier": "Advanced",
+"prop": "Fiducials.PsfZRangeUm"
 },
 "fid-type": {
 "tier": "Basic",
@@ -2347,6 +2380,7 @@ self.ISC_MM_TIERS = {
 "EmissionPath.EmissionMagnification": "Basic",
 "ExcitationFilter.CustomHiNm": "Expert",
 "ExcitationFilter.CustomLoNm": "Expert",
+"Fiducials.AggregationPct": "Basic",
 "Fiducials.BleachHalfTimeSec": "Expert",
 "Fiducials.BleachRefKWcm2": "Expert",
 "Fiducials.BlockingOD": "Expert",
@@ -2354,8 +2388,10 @@ self.ISC_MM_TIERS = {
 "Fiducials.DiameterCvPct": "Advanced",
 "Fiducials.DiameterNm": "Advanced",
 "Fiducials.DyeCount": "Expert",
-"Fiducials.Height": "Advanced",
+"Fiducials.FarDefocus": "Expert",
+"Fiducials.Height": "Basic",
 "Fiducials.LayerUm": "Advanced",
+"Fiducials.PsfZRangeUm": "Advanced",
 "Fiducials.Type": "Basic",
 "Fluorophores.Docking_DetectedPct": "Advanced",
 "Fluorophores.Docking_EffectiveDye": "Advanced",

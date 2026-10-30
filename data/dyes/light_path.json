@@ -543,6 +543,16 @@
       "dichroic": "LP650",
       "emissionFilter": "BP676-37",
       "notes": "estimate"
+    },
+    {
+      "id": "Beads-561",
+      "name": "Bead sample (561 nm 100 W/cm², 600/37)",
+      "lasers": {
+        "561": 0.1
+      },
+      "dichroic": "LP570",
+      "emissionFilter": "BP600-37",
+      "notes": "The bead sample's light (data/specimens.json lightPreset): the 561 nm line at 0.1 kW/cm^2, the others off (the user's choice, 2026-10-30)."
     }
   ]
 }

@@ -32,7 +32,8 @@ A first tour, about five minutes:
    camera.
 5. **Change the sample.** The settings under the image hold the sample and its labels: the microtubules and the
    nuclear pores each have a mode and a dye (**None** switches a target off). **Specimen** mounts DNA-origami
-   **Nanorulers** instead of cells (set the focus to about 0.02 µm, their dyes lie on the glass). **Basic / Advanced /
+   **Nanorulers** instead of cells (set the focus to about 0.02 µm, their dyes lie on the glass), or a **Bead sample**:
+   fiducial beads alone on the glass (focus about 0.05 µm). **Basic / Advanced /
    Expert** (top right) shows more settings; the search box finds any of them, and every name has a help text on hover (a long press on a phone).
 6. **Record a movie.** **● Record** asks for a number of frames, renders them and plays them back. **Save .tif**
    writes a 16-bit TIFF stack that opens in ImageJ/Fiji with its pixel size and frame interval, ready for your SMLM
@@ -61,7 +62,7 @@ older builds refuse the DLL.
       and `BrightField`;
     - `Objective`, `Camera` (Kinetix22 with a 0.667x relay: 97.45 nm pixels at 100x; iXon Ultra 897 with 1.6x: 100 nm),
       `Quality` (Fast / Realistic / Exhaustive), `Drift` (Off / Low / Medium / High / Extreme) and `Specimen`
-      (`CellField` / `Nanorulers`, the `SampleHolder` position);
+      (`CellField` / `Nanorulers` / `Beads`, the `SampleHolder` position);
     - `Illumination` (`Epi` / `HILO` / `TIRF`: where the laser spot sits in the objective's back focal plane,
       `Lasers.BfpPosition` 0 / 0.95 / 1.03) and `BfpPosition` (the same as an editable field, 0 = epi, 1 = the critical
       angle). The channels' light presets set it too: the DNA-PAINT channel HILO, the nanorulers TIRF, the others epi

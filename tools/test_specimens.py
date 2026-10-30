@@ -1,9 +1,10 @@
-"""Smoke test of the specimens in Micro-Manager (pymmcore-plus): SampleHolder mounts the cell field or the nanorulers.
+"""Smoke test of the specimens in Micro-Manager (pymmcore-plus): SampleHolder mounts the cell field, the nanorulers or
+the bead sample.
 
     ADAPTER_DIR=<dir with mmgr_dal_inSiliScope.dll> python tools/test_specimens.py
 
 Precomputed 10-frame stacks at 128 px (Camera Test rows, ISC_TEST=1); docs/samples/index.md, spec/MM_DEVICES.md.
-- SampleHolder: its positions are data/specimens.json's (CellField, Nanorulers), CellField mounted at start.
+- SampleHolder: its positions are data/specimens.json's (CellField, Nanorulers, Beads), CellField mounted at start.
 - The Nanorulers device: its label (Docking_*), design and strands rows; Fluorophores resolves the docking strands'
   Typical label in DNA-PAINT to ATTO 655.
 - Nanorulers mounted, focus on the docking strands (0.02 um), Docking_Mode dSTORM (the docking strands' Typical
@@ -13,6 +14,11 @@ Precomputed 10-frame stacks at 128 px (Camera Test rows, ISC_TEST=1); docs/sampl
 - Live and BrightField frames of the nanorulers render (BrightField: no contrast, DNA this thin is invisible).
 - Back to CellField at the old focus: its stack is the first one, pixel for pixel (a specimen switch is a new world:
   the illumination history starts afresh, nothing of the nanorulers is left).
+- The bead sample: mounting it with no beads sets Fiducials.DensityPerUm2 to 0.3 and AggregationPct to 40, moves OnTop
+  beads to Coverslip and offers no OnTop; the Lasers' Auto preset is the bead sample's (561 nm at 0.1 kW/cm^2, the
+  others off); focused on the beads a stack shows spots; AggregationPct 0 is another sample (the same number of beads,
+  single); a Type pick sets DiameterNm to its product size; a density set by hand stays at a mount; back on the cell
+  field OnTop is offered again.
 """
 
 import os
@@ -67,7 +73,7 @@ def main():
     core.setExposure(50.0)
 
     labels = list(core.getStateLabels("SampleHolder"))
-    assert labels == ["CellField", "Nanorulers"], f"SampleHolder positions: {labels}"
+    assert labels == ["CellField", "Nanorulers", "Beads"], f"SampleHolder positions: {labels}"
     assert core.getProperty("SampleHolder", "Label") == "CellField", "the cell field should be mounted at start"
     for p in ("Docking_Label", "Design", "SpacingNm", "StrandsPerSpot", "PersistenceLengthNm", "Bending"):
         assert core.hasProperty("Nanorulers", p), f"missing Nanorulers.{p}"
@@ -150,6 +156,40 @@ def main():
     assert all(np.array_equal(a, b) for a, b in zip(again, cells)), \
         "CellField again should be the first stack (a new world: the illumination history starts afresh)"
     print("CellField again OK: its stack is the first one, pixel for pixel")
+
+    # The bead sample: no targets, only the fiducial beads (gold by default).
+    assert float(core.getProperty("Fiducials", "DensityPerUm2")) == 0
+    core.setProperty("Fiducials", "Height", "OnTop")
+    core.setProperty("SampleHolder", "Label", "Beads")
+    dens, agg = float(core.getProperty("Fiducials", "DensityPerUm2")), float(core.getProperty("Fiducials", "AggregationPct"))
+    assert dens == 0.3 and agg == 40, f"mounting the bead sample should set 0.3 beads/um^2 and 40 % aggregation: {dens}, {agg}"
+    heights = list(core.getAllowedPropertyValues("Fiducials", "Height"))
+    assert core.getProperty("Fiducials", "Height") == "Coverslip" and "OnTop" not in heights, \
+        f"the bead sample: OnTop beads on the glass, no OnTop offered ({core.getProperty('Fiducials', 'Height')}, {heights})"
+    core.setProperty("Lasers", "Preset", "Auto")
+    lasers = {nm: float(core.getProperty("Lasers", f"Laser{nm}KWcm2")) for nm in (405, 488, 561, 640)}
+    assert lasers == {405: 0, 488: 0, 561: 0.1, 640: 0}, f"the bead sample's light (561 nm at 0.1 kW/cm^2): {lasers}"
+    focus(core, 0.05)
+    beads = stack(core)
+    s_beads = spots(beads)
+    assert s_beads > 8, f"bead sample: {s_beads:.1f} sigma"
+    core.setProperty("Fiducials", "AggregationPct", "0")
+    single = stack(core)
+    assert not all(np.array_equal(a, b) for a, b in zip(single, beads)), "AggregationPct 0 should be another sample"
+    for t, d in (("FluoSpheresRed", 200), ("Gold", 100)):
+        core.setProperty("Fiducials", "Type", t)
+        got = float(core.getProperty("Fiducials", "DiameterNm"))
+        assert got == d, f"a {t} pick should set DiameterNm {d}, got {got}"
+    core.setProperty("SampleHolder", "State", "0")
+    assert "OnTop" in core.getAllowedPropertyValues("Fiducials", "Height"), "the cell field offers OnTop again"
+    core.setProperty("Fiducials", "DensityPerUm2", "0.05")
+    core.setProperty("SampleHolder", "Label", "Beads")
+    assert float(core.getProperty("Fiducials", "DensityPerUm2")) == 0.05, "a density set by hand should stay at a mount"
+    core.setProperty("Fiducials", "DensityPerUm2", "0")
+    core.setProperty("Fiducials", "AggregationPct", "0")
+    core.setProperty("SampleHolder", "State", "0")
+    print(f"Bead sample OK: 0.3 beads/um^2 and 40 % at the mount, Coverslip, 561 nm at 0.1 kW/cm^2, spots at "
+          f"{s_beads:.0f} sigma, single beads another sample, the diameter follows the type")
     print(f"All specimen checks passed in {time.time() - t_start:.1f} s")
 
 

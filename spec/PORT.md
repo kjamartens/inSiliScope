@@ -1254,3 +1254,41 @@ Branch `lamin_network`, JS and the port together (no `PORT_PENDING.md`). The mod
   (Advanced) and `NuclearLaminaPoreExclusionNm` (Expert); the shipped configs leave the lamina unlabelled.
 - Checks: `world_checks.lamin`, golden `lamin` cases (`lam` / `lmd`
   lines), `label_parity` (a lamina world, ABI 16); every default output unchanged (cli reference TIFFs incl. the nanorulers, `adapter_pixel_hash`).
+
+## 26. The bead sample, bead clumps, bead size and PSF range (2026-10-30)
+
+C++ only (the JS reference is retired). The model: spec/ALGORITHM.md "Fiducial beads" (Clumps, The bead sample).
+
+- **ABI 17.** `ISC_SPECIMEN_BEADS` 2 (core `SPECIMEN_BEADS`, `SPECIMEN_COUNT` 3): `World::NoCells()` (specimen !=
+  CellField) replaces the `origami_` tests on the cell paths (`CellsInRectPtr`, `FindCell`, `BlockCells`,
+  `SetPackedBlock`, `SetCacheDir`, `SurfaceHeightAt`); `ForEachDyeBlock` yields nothing in a bead world. Param
+  `fidAggregationPct` (0; 0-90), the clumps in `FiducialField::Tile` (`FID_CLUMP_SALT` 'CLUM', `FID_MAX_CLUMP` 64,
+  `FID_TRIES` 8), `InRect` pads one tile when on; `isc_fiducials_in_window` unchanged (stride 7, a clump's beads share
+  `i`). `ISC_WORLD_VERSION` unchanged (no cell moves). Consumers: the viewer's ABI check and the block read 17.
+- Registry: `data/specimens.json` specimen `Beads` (`targets: []`, `fiducials.densityPerUm2` 0.3 and
+  `aggregationPct` 40, `lightPreset` `Beads-561`, a new preset of `data/dyes/light_path.json`), `SpecimenData`
+  `firstTarget` -1 / `targetCount` 0, `fiducialDensity`, `fiducialAggregationPct`, `lightPreset`. (A first round had
+  20 nm bead types and a per-type light preset; replaced the same day by the diameter and the specimen's preset.)
+- Engine: options `fid-aggregation-pct` (`ScopeFiducialParams` -> `fidAggregationPct`), `fid-psf-z-range-um` (14,
+  part settings; `FiducialPsfRequest`, its window capped at `kFiducialKernelHalfWidthNm` 3000 nm) and `fid-far-defocus`
+  (1, part settings: beyond the beads' stack a Gaussian growing with |dz| from the edge plane's spread, faded in over
+  `kBeadFarFadeUm` 0.5 um; 0 = not drawn; no bead is culled by depth any more), `specimen` 2; the bead sample's `fid-density` and `fid-aggregation-pct` when the
+  spec has none and its default z (`ScopeDefaultZ`); `AutoLightPreset` with no target takes the specimen's preset.
+- MM: `SampleHolder` position `Beads` (no device of its own: the `Fiducials` rows are its settings),
+  `MountSpecimen` sets `fid-density` and `fid-aggregation-pct` from the specimen when 0, OnTop -> Coverslip, and
+  refreshes `Fiducials.Height`'s choices (no OnTop on the bead sample); `Fiducials.AggregationPct` (Basic),
+  `Fiducials.Height` Advanced -> Basic, `Fiducials.PsfZRangeUm` (Advanced), `Fiducials.FarDefocus` (Expert, On/Off); a `Fiducials.Type` pick sets `DiameterNm`
+  to its product size, which shows the engine's -1 as that size (10-2000); `BuildSampleSettings` sends the origami
+  params only for the nanorulers. A row's tier is fixed when the hub starts, so the diameter and layer stay Advanced
+  in MM on the bead sample.
+- Viewer: the Sample select's third entry; `BEADS()`, `curTarget()` (the default specimen's first target when the
+  mounted one has none), `params().specimen` 2, no packing or cells in a bead world (`noCells`), the scene the beads
+  only; the specimen switch sets the density, the aggregation, Coverslip for OnTop, the specimen's light preset, the
+  Fiducial beads checkbox and opens the group; the OnTop option hidden there (`syncSpecimen`); rows with `basicWhen`
+  (the diameter, the layer thickness: `BEADS`) are Basic in that state (`sync`); a type pick sets the diameter;
+  `autoLightPreset` takes the specimen's; the Aggregation slider, the PSF z range.
+- Checks: `world_checks.fiducials` (the bead sample: no cells or dyes, OnTop at the radius; clumps: the density
+  counts beads, singles 1 - p, mean 1 / (1 - p), touching without overlap, Coverslip heights, one query = its pieces;
+  Layer clumps in 3D in the gel), golden `f04`-`f06` (new lines; `f00`-`f03` unchanged), `tools/test_specimens.py`
+  and `tools/test_fiducials.py` (MM), physics figure `fid-clumps`.
+

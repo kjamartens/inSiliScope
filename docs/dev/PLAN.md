@@ -105,6 +105,11 @@ Upcoming ideas:
   port (ABI 15 `isc_fiducials_in_window`, `Simulation/Fiducials.*`, `fid-*` options; spec/PORT.md 24; golden,
   `world_checks.fiducials`, `scope_parity` 100 %; cli beads 1-1.6 % of a movie), [x] MM `Fiducials` device (live
   bleaching from the light history's dose per bead; `tools/test_fiducials.py`), [x] viewer (Sample group, beads in the world view, `tests/web/viewer_fiducials.mjs`), [x] docs (`docs/samples/fiducials.md`), figures (`fid-spectra`, `fid-heights`; cli `--setup-json` `fiducials`), gallery (`fid-drift`).
+- Bead sample (2026-10-30, spec/PORT.md 26): [x] a third specimen of fiducial beads only (ABI 17, density 0.3 and
+  aggregation 40 % at a mount, 561 nm at 0.1 kW/cm^2, no OnTop), [x] bead clumps (`fid-aggregation-pct`, one slider:
+  the chance a bead sticks to the next), [x] bead size apart from the type (a pick sets its product size; 20 nm beads:
+  dyes x d^3; Basic on the bead sample in the viewer), [x] the beads' PSF z range (14 um), [x] Height Basic, [x] MM,
+  viewer, docs, figure `fid-clumps`, gallery.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

@@ -222,6 +222,7 @@ static const LightPresetData kLightPresets[] = {
    { "WF-488", "Widefield, green (488 nm 10 W/cm\xC2\xB2, 525/45)", { 0.0, 0.01, 0.0, 0.0, 0.0 }, "None", "LP505", "BP525-45", kNaN },
    { "WF-561", "Widefield, orange (561 nm 10 W/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 0.01, 0.0, 0.0 }, "None", "LP570", "BP600-37", kNaN },
    { "WF-640", "Widefield, red (640 nm 10 W/cm\xC2\xB2, 676/37)", { 0.0, 0.0, 0.0, 0.01, 0.0 }, "None", "LP650", "BP676-37", kNaN },
+   { "Beads-561", "Bead sample (561 nm 100 W/cm\xC2\xB2, 600/37)", { 0.0, 0.0, 0.1, 0.0, 0.0 }, "None", "LP570", "BP600-37", kNaN },
 };
 
 // quantumEfficiency, readNoiseElectrons, gainElectronsPerAdu, preampElectronsPerAdu, cicElectrons, offsetAdu, offsetStdAdu, darkCurrentElectronsPerSec, gainStdPct, readNoiseStdPct, bitDepth, gainElectronsPerAduWideField, physicalPixelUm
@@ -360,10 +361,12 @@ static const LinkagePresetData kLinkagePresets[] = {
 // The filters of the auto light preset when the targets' presets differ (light_path.json multiTarget).
 static const char* const kMultiTargetDichroic = "ChromaZT405-488-561-640rpc";
 static const char* const kMultiTargetEmissionFilter = "ChromaZET405-488-561-640m";
-// id, name, its targets (first, count), the BFP position in place of the light preset's (NaN = none).
+// id, name, its targets (first, count), the BFP position in place of the light preset's (NaN = none), the bead density and
+// aggregation a mount sets when none is (NaN = none), the light preset when no target is labelled (nullptr = none).
 static const SpecimenData kSpecimens[] = {
-   { "CellField", "Cell field", 0, 3, kNaN },
-   { "Nanorulers", "DNA-origami nanorulers", 3, 1, 1.03 },
+   { "CellField", "Cell field", 0, 3, kNaN, kNaN, kNaN, nullptr },
+   { "Nanorulers", "DNA-origami nanorulers", 3, 1, 1.03, kNaN, kNaN, nullptr },
+   { "Beads", "Bead sample", -1, 0, kNaN, 0.3, 40.0, "Beads-561" },
 };
 // Fiducial beads (data/fiducials/types.json): per component id, name, excitation and emission spectra, the excitation
 // peak (nm), the equivalent dyes at the type's reference diameter, whether it bleaches; per type id, name, reference

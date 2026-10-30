@@ -166,8 +166,11 @@ struct SpecimenData
 {
    const char* id;
    const char* name;
-   int firstTarget, targetCount;   // its targets in TargetAt order
+   int firstTarget, targetCount;   // its targets in TargetAt order (-1, 0: none, the bead sample)
    double bfpPosition;             // illumination.bfpPosition: in place of the light preset's (NaN = none)
+   double fiducialDensity;         // fiducials.densityPerUm2: the bead density mounting it sets when none is (NaN = none)
+   double fiducialAggregationPct;  // fiducials.aggregationPct: the aggregation mounting it sets when it is 0 (NaN = none)
+   const char* lightPreset;        // the auto light preset when no target is labelled (nullptr: the first target's)
 };
 int TargetCount();
 const TargetData& TargetAt(int i);

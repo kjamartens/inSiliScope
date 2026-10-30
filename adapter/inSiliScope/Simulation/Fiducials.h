@@ -57,6 +57,14 @@ constexpr int kBeadLateralSub = 4;
 constexpr double kFiducialMinPhotons = 1e-3;
 // A bead component takes a dye group's kernel within this of its wavelength, else a kernel of its own.
 constexpr double kFiducialKernelReuseNm = 10;
+// Beyond the bead kernel's z span (fid-far-defocus on) a bead is a Gaussian of all its photons whose sigma grows with
+// |dz|, matched at the span's edge to that plane's spread (BeadHalo::SigmaPx: the halo's second moment); over the last
+// kBeadFarFadeUm of the span the kernel's plane fades into it (not physical, no defocus shape: the user's choice,
+// 2026-10-30). Off: the beads beyond the span are not drawn.
+constexpr double kBeadFarFadeUm = 0.5;
+// A bead kernel of its own spans at most this half-width (the halo, one sample per pixel, takes the light beyond):
+// over the beads' 14 um z stack Micro-Manager's 7 um window took ~1.2 GB per colour (the viewer's window is 3 um).
+constexpr double kFiducialKernelHalfWidthNm = 3000;
 // The static (no drift) images: a Taylor series of each bead's decay about the movie's middle, of the lowest order
 // whose remainder is below kFiducialTaylorTol, at most kFiducialTaylorMaxOrder (else splats per frame).
 constexpr double kFiducialTaylorTol = 1e-9;
@@ -80,6 +88,8 @@ public:
    const std::vector<float>& Plane(int k) const { return sums_[static_cast<size_t>(k)]; }
    int Nz() const { return geom_.nz; }
    uint64_t Id() const { return id_; }
+   // Plane k's spread per axis, camera pixels: sqrt(<r^2> / 2) over its window.
+   double SigmaPx(int k) const;
    // The camera half-width a splat of `photons` at plane k needs: beyond it every sample x |photons| is below
    // kFiducialHaloMinPhotons (+ 1 for the interpolation's second tap), at most the window's.
    int Extent(int k, double photons) const;
@@ -174,6 +184,7 @@ struct FiducialMovieComponent
    FiducialComponent c;
    std::vector<FiducialBeadSite> beads;
    double lambdaNm = 0, sigmaPx = 1;
+   double farSigmaPxPerUm[2] = { 0, 0 };  // beyond the kernel's span, dz < 0 / > 0: sigma per um (kBeadFarFadeUm; 0 off)
    PsfKernelCache kernel;                 // !valid: the Gaussian of sigmaPx (+ the sphere)
    std::shared_ptr<BeadKernel> B;
    std::shared_ptr<const BeadHalo> halo;  // the wide halo (with a kernel)

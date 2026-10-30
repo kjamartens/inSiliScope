@@ -11,8 +11,9 @@ light.
 |---|---|---|---|
 | **Cell field** (`CellField`, the default) | Adherent cells packed on the coverslip: cell outline, cytoplasm height, nucleus, microtubules, nuclear pores | Microtubules (`mt-*`), nuclear pores (`npc-*`), imaged together; the nuclear lamina (`lamin-*`), unlabelled by default | [World model](cell-field/world-model.md), [Structures](cell-field/structures.md) |
 | **Nanorulers** (`Nanorulers`) | DNA-origami rods lying on the coverslip, each with three spots of docking strands 80 nm apart; bent in the plane as a worm-like chain | Docking strands (`ruler-*`) | [DNA-origami nanorulers](nanorulers/index.md) |
+| **Bead sample** (`Beads`) | A bare coverslip with only the fiducial beads (single or in clumps) | none: the beads' settings | [Fiducial beads](fiducials.md#the-bead-sample) |
 
-On top of either sample, optional **fiducial beads** (gold, TetraSpeck, FluoSpheres, nanodiamonds) mark the drift: on
+On top of the cell field or the nanorulers, optional **fiducial beads** (gold, TetraSpeck, FluoSpheres, nanodiamonds) mark the drift: on
 the coverslip, on the sample or in a gel layer, off by default ([Fiducial beads](fiducials.md); viewer: Fiducial beads,
 Micro-Manager: `Fiducials`, CLI: `--fid-*`). Changing them is not a new sample: the illumination history stays.
 
@@ -24,8 +25,8 @@ The registry of samples and targets is `data/specimens.json`: each target's opti
 | Where | How |
 |---|---|
 | Viewer | **Specimen** select (Sample section). Switching shows that sample's option groups and label, and zooms to a scale that suits it. |
-| Micro-Manager | `SampleHolder` (a state device: `CellField`, `Nanorulers`), or the `Specimen` config group of the shipped configurations. Each sample has its own device for its geometry and label (`CellField`, `Nanorulers`). |
-| CLI | `--specimen CellField` (default) or `--specimen Nanorulers` (or 0 / 1); the nanorulers' options are `--origami-*` and their label's `--ruler-*`. |
+| Micro-Manager | `SampleHolder` (a state device: `CellField`, `Nanorulers`, `Beads`), or the `Specimen` config group of the shipped configurations. Each sample with settings of its own has its own device for its geometry and label (`CellField`, `Nanorulers`); the bead sample's settings are the `Fiducials` device's. |
+| CLI | `--specimen CellField` (default), `--specimen Nanorulers` or `--specimen Beads` (or 0 / 1 / 2); the nanorulers' options are `--origami-*` and their label's `--ruler-*`, the beads' `--fid-*` (the bead sample without `--fid-density`: 0.3 per µm²). |
 | webSMLM block | `CellField.buildWindow(w, h, { specimen: 'Nanorulers', params: { origamiDensity: 0.5, ... } })`. |
 
 What a switch does:
@@ -34,11 +35,16 @@ What a switch does:
   activated) and the sample's drift start afresh, the same as after a new seed. Switching back gives the first sample
   again, as it was before it was ever lit.
 - **The focus stays.** The cell field's start focus is 0.5 µm above the coverslip; the nanorulers' dyes lie 13.5 nm
-  above it, so set the `ZStage` (the viewer's Focus height) to about 0 - 0.02 µm for them. The CLI focuses on the
-  docking strands by itself when `--z` is not given.
+  above it, so set the `ZStage` (the viewer's Focus height) to about 0 - 0.02 µm for them, and the bead sample's beads
+  a radius above it (0.05-0.1 µm). The CLI focuses on the docking strands, or the beads, by itself when `--z` is not
+  given.
+- **The bead sample brings beads.** Mounting it while no beads are set (density 0) sets 0.3 per µm², while the
+  aggregation is 0 sets 40 %, and moves beads set to sit on top of the sample to the coverslip (Micro-Manager and the
+  viewer; the CLI when `--fid-density` or `--fid-aggregation-pct` is not given). Its light is 561 nm at 0.1 kW/cm², the
+  other lasers off.
 - **Each sample keeps its settings.** The cell field's and the nanorulers' properties and labels exist side by side;
   switching changes none of them. The camera's gain preset and the light path follow the mounted sample's labels (the
-  light path: every labelled target's preset combined, `light-preset` auto).
+  light path: every labelled target's preset combined, `light-preset` auto; the bead sample: its own, `Beads-561`).
 - **BrightField** shows only what the sample's geometry gives it ([optics](../physics/optics.md#brightfield-imaging)): the
   cells' refractive index. DNA origami 13 nm thick gives no contrast at these NAs, so the nanorulers' BrightField
   frames hold the lamp and the camera noise only.
