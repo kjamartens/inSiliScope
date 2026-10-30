@@ -25,6 +25,7 @@
 #include "../Simulation/RenderPresets.h"
 #include "../Simulation/ScopeMovie.h"
 #include "../Simulation/SMLMZernike.h"
+#include "../Simulation/Slide.h"
 #include "SceneSettings.h"
 
 #include "insiliscope/insiliscope.h"
@@ -1085,6 +1086,34 @@ std::vector<PropDef> BuildTable()
       add(Opt(D, "BlockingOD", Tier::Expert, "fid-blocking-od", 0, 12,
               "The emission path blocks a laser line by at least this optical density (gold's scattered laser light; "
               "ideal filters would block it fully)."));
+   }
+
+   // =========================== FluorescentSlide ===========================
+   // The fluorescent slide (specimen 3, data/specimens.json Slide; the engine's slide-* options, Simulation/Slide.h): a
+   // uniform dye layer on the coverslip. Its settings change no world (the light history stays).
+   {
+      const char* D = "FluorescentSlide";
+      add(Opt(D, "ThicknessUm", Tier::Basic, "slide-thickness-um", 0, 1000,
+              "The dye layer's thickness on the coverslip, um (5 um: the light of every height reaches the camera, "
+              "collected defocused)."));
+      {
+         PropDef d = OptNames(D, "Dye", Tier::Basic, "slide-dye", sim::SlideDyeNames(), 0,
+                              "The layer's dye: Mix (TetraSpeck's four components, blue, green, orange and dark red, each at "
+                              "ConcentrationMicroMolar, as equivalent dyes) or a library dye. With the slide mounted, a pick "
+                              "applies the Lasers' Auto preset: the dye's channel at 0.02 kW/cm^2 (Mix: 561 nm).");
+         ThenText(d, [](H& h) {
+            if (h.State().MountedSpecimen() == ISC_SPECIMEN_SLIDE)
+               h.ApplyLightPreset("Auto");
+         });
+         add(d);
+      }
+      add(Opt(D, "ConcentrationMicroMolar", Tier::Basic, "slide-conc-micromolar", 0, 1e4,
+              "Each dye's concentration in the layer, uM (an estimate: 10 uM, ~8800 photons per pixel per 50 ms frame "
+              "at the centre of the default 561 nm beam, 0.02 kW/cm^2, 5 um)."));
+      add(Opt(D, "BleachHalfTimeSec", Tier::Basic, "slide-bleach-half-sec", 0, 1e9,
+              "The layer's fluorescence half-time at 1 kW/cm^2 at its dye's excitation peak, s (an estimate: 900 s; "
+              "~ 1 / the excitation, so 12.5 h at 0.02 kW/cm^2; 0 = no bleaching). The bleaching follows the sample's "
+              "light history pixel by pixel."));
    }
 
    // =========================== Fluorophores ===========================

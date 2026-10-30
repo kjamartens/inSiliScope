@@ -76,7 +76,8 @@ struct Params {
    // params since issue 16 (ABI 10): World::SetLabel, isc_world_set_label.
 
    // Specimen (ABI 12; data/specimens.json): 0 the cell field above, 1 the
-   // DNA-origami nanorulers (origami.h; JS origami.js ORIGAMI_DEFAULTS).
+   // DNA-origami nanorulers (origami.h; JS origami.js ORIGAMI_DEFAULTS), 2 the bead sample, 3 the fluorescent slide
+   // (no geometry: the layer's light is the host's).
    double specimen = 0;
    double origamiDesign = 0;            // index into data/origami/designs.json
    double origamiSpacingNm = 80;        // lattice step between neighbouring spots, nm

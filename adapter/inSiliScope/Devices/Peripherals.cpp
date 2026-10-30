@@ -35,6 +35,11 @@ FiducialsDevice::FiducialsDevice()
 {
 }
 
+FluorescentSlideDevice::FluorescentSlideDevice()
+   : GenericPeripheral("FluorescentSlide", "Specimen: a fluorescent slide, a uniform dye layer (mount it with SampleHolder)")
+{
+}
+
 FluorophoresDevice::FluorophoresDevice()
    : GenericPeripheral("Fluorophores", "The dyes: label mode, photophysics readouts, custom dyes")
 {

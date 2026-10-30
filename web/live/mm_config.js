@@ -503,6 +503,14 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "specimen": 1.0
       }
+     },
+     {
+      "name": "Slide",
+      "set": {
+       "blink-min-photons": 50.0,
+       "fid-clumps-as-one": 1.0,
+       "specimen": 3.0
+      }
      }
     ]
    }
@@ -1057,6 +1065,14 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "specimen": 1.0
+      }
+     },
+     {
+      "name": "Slide",
+      "set": {
+       "blink-min-photons": 50.0,
+       "fid-clumps-as-one": 1.0,
+       "specimen": 3.0
       }
      }
     ]
@@ -1613,6 +1629,14 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "specimen": 1.0
+      }
+     },
+     {
+      "name": "Slide",
+      "set": {
+       "blink-min-photons": 50.0,
+       "fid-clumps-as-one": 1.0,
+       "specimen": 3.0
       }
      }
     ]
@@ -2363,6 +2387,22 @@ self.ISC_MM_TIERS = {
 "tier": "Expert",
 "prop": "Nanorulers.Docking_WobbleConeDeg"
 },
+"slide-bleach-half-sec": {
+"tier": "Basic",
+"prop": "FluorescentSlide.BleachHalfTimeSec"
+},
+"slide-conc-micromolar": {
+"tier": "Basic",
+"prop": "FluorescentSlide.ConcentrationMicroMolar"
+},
+"slide-dye": {
+"tier": "Basic",
+"prop": "FluorescentSlide.Dye"
+},
+"slide-thickness-um": {
+"tier": "Basic",
+"prop": "FluorescentSlide.ThicknessUm"
+},
 "wf-kernel-um": {
 "tier": "Advanced",
 "prop": "Objective.PsfKernelHalfWidthNm"
@@ -2513,6 +2553,10 @@ self.ISC_MM_TIERS = {
 "Fiducials.LayerUm": "Advanced",
 "Fiducials.PsfZRangeUm": "Advanced",
 "Fiducials.Type": "Basic",
+"FluorescentSlide.BleachHalfTimeSec": "Basic",
+"FluorescentSlide.ConcentrationMicroMolar": "Basic",
+"FluorescentSlide.Dye": "Basic",
+"FluorescentSlide.ThicknessUm": "Basic",
 "Fluorophores.Docking_DetectedPct": "Advanced",
 "Fluorophores.Docking_EffectiveDye": "Advanced",
 "Fluorophores.Docking_EmissionNm": "Advanced",

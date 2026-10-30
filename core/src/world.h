@@ -46,7 +46,7 @@ constexpr int PACK_BLOCK_CHUNKS = 8;
 // lamina (CellField, 2026-10-27), and the docking strands (Nanorulers). A new structure (nucleus DNA, ...) adds a target there
 // and its site generator here. A world holds one specimen (Params::specimen):
 // its geometry -- the cell field, or an OrigamiField -- yields the dye blocks (the
-// bead sample, specimen 2, has none: only its fiducial beads);
+// bead sample, specimen 2, and the fluorescent slide, 3, have none: only their fiducial beads);
 // labels, schedules and the queries are shared, and a world never yields a
 // structure of another specimen.
 constexpr int STRUCTURE_MT = 0;
@@ -155,7 +155,7 @@ public:
 
    const Params& GetParams() const { return p_; }
    int Specimen() const { return (int)p_.specimen; }
-   // A world without cells: the nanorulers and the bead sample (only the fiducial beads; ABI 17).
+   // A world without cells: the nanorulers, the bead sample (only the fiducial beads; ABI 17) and the slide (ABI 18).
    bool NoCells() const { return (int)p_.specimen != SPECIMEN_CELLFIELD; }
    // The origami field of a Nanorulers world (nullptr in a cell field).
    OrigamiField* Origami() { return origami_.get(); }

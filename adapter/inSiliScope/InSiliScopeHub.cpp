@@ -43,6 +43,7 @@ const std::vector<DeviceInfo>& Peripherals()
       { "CellField", "Specimen: a field of cells with their labelled structures", Tier::Basic },
       { "Nanorulers", "Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)", Tier::Basic },
       { "Fiducials", "Fiducial beads on the sample (any specimen): type, density, size, height", Tier::Basic },
+      { "FluorescentSlide", "Specimen: a fluorescent slide, a uniform dye layer (mount it with SampleHolder)", Tier::Basic },
       { "Fluorophores", "The dyes: label mode, photophysics readouts, custom dyes", Tier::Basic },
       { "Renderer", "How the images are computed: quality, GPU, caches, numerics", Tier::Basic },
    };

@@ -110,6 +110,10 @@ Upcoming ideas:
   the chance a bead sticks to the next), [x] bead size apart from the type (a pick sets its product size; 20 nm beads:
   dyes x d^3; Basic on the bead sample in the viewer), [x] the beads' PSF z range (14 um), [x] Height Basic, [x] MM,
   viewer, docs, figure `fid-clumps`, gallery.
+- Fluorescent slide (2026-10-30, spec/PORT.md 27): [x] a fourth specimen, a uniform dye layer (ABI 18; thickness 5 um,
+  a TetraSpeck-colour mix or a library dye at 10 uM, bleach half-time 900 s at 1 kW/cm^2; its light 0.02 kW/cm^2),
+  [x] its light the free imager's collected column, bleaching per pixel column from the light history, [x] MM
+  `FluorescentSlide`, viewer group, docs (`docs/samples/slide.md`), figure `slide-bleach`, gallery, ctest `slide`.
 - more targets
 - deliniation of dstorm, palm, dna-paint, spt.
 - addition of regular fluorescence -- WideField modality done (2026-09-27: core ABI 5 density3d, CPU FFT

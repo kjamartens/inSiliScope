@@ -97,6 +97,9 @@
     <ClCompile Include="Simulation\Fiducials.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\Slide.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\BlinkExpectation.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -244,6 +247,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Fiducials.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\Slide.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\BlinkExpectation.h">

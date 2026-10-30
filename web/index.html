@@ -587,7 +587,8 @@ const TARGETS = DD.specimens.flatMap(sp => sp.targets.map(t => Object.assign({ s
 // The mounted specimen's (first) target: the dye in use; the bead sample has none: the default specimen's (unused).
 const curTarget = () => mounted().targets[0] || DD.specimens[SPECIMEN_DEFAULT].targets[0];
 const curPrefix = () => curTarget().prefix;
-const BEADS = () => mounted().targets.length === 0;   // the bead sample: only the fiducial beads
+const BEADS = () => mounted().id === 'Beads';   // the bead sample: only the fiducial beads
+const SLIDE = () => mounted().id === 'Slide';   // the fluorescent slide: a uniform dye layer (engine options slide-*)
 const ND = DD.dyes.length, MODE_NAMES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 const dyeIndex = id => DD.dyes.findIndex(d => d.id === id);
 const sourceOf = n => DD.dyes[+($('mv_dye' + n + '.source') ? $('mv_dye' + n + '.source').value : 0)];
@@ -712,10 +713,11 @@ const combineLightPresets = ids => {
 };
 // The engine's auto light preset (light-preset 0) as the panel has it, with vals (a pick in progress) in place of the
 // panel's values: the presets of the mounted specimen's labelled targets' dyes in their modes, combined (a target is
-// off with dye None, 0 % labelled or density 0); none labelled: the first target's; the bead sample (no targets): the
-// bead type's (the WF preset its beads are brightest under, as the engine's).
+// off with dye None, 0 % labelled or density 0); none labelled: the first target's; the bead sample (no targets): its own
+// (specimens.json lightPreset); the slide: its dye's (slideLightPreset).
 const autoLightPreset = (vals = {}) => {
   const get = k => (k in vals ? vals[k] : $(k) ? $(k).value : undefined);
+  if (SLIDE()) return combineLightPresets([slideLightPreset(get('mv_slide-dye'))]);
   const presetOf = t => {
     const P = t.prefix, v = get('mv_' + P + '-dye') ?? choiceOf(P), m = get('mv_' + P + '-mode');
     const mode = m !== undefined && +m >= 0 ? MODE_NAMES[+m] : modeOf(P);
@@ -729,6 +731,14 @@ const autoLightPreset = (vals = {}) => {
   const ts = mounted().targets, ids = ts.filter(on).map(presetOf);
   if (!ts.length) return combineLightPresets([mounted().lightPreset]);   // the bead sample's own (specimens.json)
   return combineLightPresets(ids.length ? ids : [presetOf(ts[0])]);
+};
+// The slide's light preset (the engine's SlideLightPresetId): Mix (0) the specimen's (Slide-561); a library dye the
+// Slide-* preset with the filters of its WideField preset (its default mode's without one), else the specimen's.
+const slideLightPreset = v => {
+  const own = mounted().lightPreset, d = +v > 0 ? DD.dyes[+v - 1] : null;
+  const m = d && (d.modes.WideField || d.modes[d.defaultMode]), q = m && DD.lightPresets.find(p => p.id === m.lightPreset);
+  const s = q && DD.lightPresets.find(p => p.id.startsWith('Slide-') && p.dichroic === q.dichroic && p.emissionFilter === q.emissionFilter);
+  return s ? s.id : own;
 };
 // The laser lines shown at the Basic level: those the labelled targets' dyes use in their modes (the auto light
 // preset's lines), with 405 + 488 + 561 for PALM (activation, the pre state, the converted state); a line that is on
@@ -944,7 +954,7 @@ const UI_GROUPS = [
   ] },
 
   { sect: 'Sample', id: 'field', title: 'Specimen', open: true, items: [
-    select('mv_specimen', 'Specimen', 'The mounted specimen (data/specimens.json; the Samples pages of the docs): the cell field (adherent cells with microtubules), DNA-origami nanorulers on the coverslip, or a bead sample (a bare coverslip with only the fiducial beads: Fiducial beads below; mounting it with no beads set puts 0.3 /µm² down). Switching zooms to a scale that suits it. <code>SampleHolder</code>',
+    select('mv_specimen', 'Specimen', 'The mounted specimen (data/specimens.json; the Samples pages of the docs): the cell field (adherent cells with microtubules), DNA-origami nanorulers on the coverslip, a bead sample (a bare coverslip with only the fiducial beads: Fiducial beads below; mounting it with no beads set puts 0.3 /µm² down) or a fluorescent slide (a uniform dye layer: Fluorescent slide below; mounting it sets its dye\'s channel at 0.02 kW/cm²). Switching zooms to a scale that suits it. <code>SampleHolder</code>',
       DD.specimens.map((sp, i) => [String(i), sp.name]), String(SPECIMEN_DEFAULT)),
     num('seed', 'Seed', 'integer', 'One seed for the whole simulation, as Micro-Manager\'s <code>inSiliScope.RandomSeed</code> and the cli\'s <code>seed</code>: the world (every cell, microtubule, ruler and dye, a pure function of (seed, position)) is drawn from seed ^ 0x43454C4C, the blinking, drift and camera noise from the seed itself. 42 is the default of Micro-Manager, the cli and the gallery.', null, null, 1, 42),
     button('reseed', 'Randomize seed', 'Draw a new random seed.'),
@@ -1059,6 +1069,15 @@ const UI_GROUPS = [
   ] },
 
   ...TARGETS.map(labelGroup),
+  // The fluorescent slide (Sample: Fluorescent slide; engine options slide-*, Simulation/Slide.h; Micro-Manager:
+  // FluorescentSlide): a uniform dye layer on the coverslip, its only settings.
+  { id: 'slide', title: 'Fluorescent slide', show: SLIDE, items: [
+    num('mv_slide-thickness-um', 'Thickness', 'µm', 'The dye layer\'s thickness on the coverslip. The light of every height reaches the camera, collected out of focus (the free DNA-PAINT imager\'s model): a uniform layer looks the same at any focus, only the beam\'s profile shows. <code>FluorescentSlide.ThicknessUm</code>', 0, 1000, 0.5, 5),
+    select('mv_slide-dye', 'Dye', 'The layer\'s dye: a mix of TetraSpeck\'s four colours (blue, green, orange, dark red; each at the concentration, as equivalent dyes of ε 10⁵, QY 0.5), so every channel sees it, or one library dye. A pick loads its channel at 0.02 kW/cm² (the mix: 561 nm). <code>FluorescentSlide.Dye</code>',
+      [['0', 'Mix (TetraSpeck colours)'], ...DD.dyes.map((d, i) => [String(i + 1), d.name])], '0'),
+    num('mv_slide-conc-micromolar', 'Concentration', 'µM', 'Each dye\'s concentration in the layer (10 µM; an estimate). The brightness scales with it and with the thickness: at the defaults ~8800 photons per pixel per 50 ms frame at the centre of the 561 nm beam at 0.02 kW/cm². <code>FluorescentSlide.ConcentrationMicroMolar</code>', 0, 1e4, 1, 10),
+    num('mv_slide-bleach-half-sec', 'Bleach half-time', 's', 'The layer\'s fluorescence half-time at 1 kW/cm² at its dye\'s excitation peak (900 s; an estimate); slower off the peak and at less light (~ 1 / the excitation: 12.5 h at 0.02 kW/cm²). Each pixel bleaches with the light its column has had (the sample\'s light history: a bright beam centre fades first); 0 = no bleaching. <code>FluorescentSlide.BleachHalfTimeSec</code>', 0, 1e9, 60, 900),
+  ] },
   // Fiducial beads on any specimen (engine options fid-*: the core params fid* and the beads' light; spec/ALGORITHM.md
   // "Fiducial beads"; Micro-Manager: Fiducials). Off at density 0; opened by mounting the bead sample (its only settings).
   { id: 'fiducials', title: 'Fiducial beads', items: [
@@ -1263,7 +1282,7 @@ const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus
 // The structure's dye and mode as the panel has them, for the data layers (dataModeOv in the main script).
 const dyeNameOf = P => isNone(choiceOf(P)) ? 'None' : USER_DYES.isUser(choiceOf(P)) ? USER_DYES.name(USER_DYES.slot(choiceOf(P))) : choiceDye(choiceOf(P)).name;
 const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, autoLightPreset, brightField: BF, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
-  structure: () => curTarget().structure, specimen: () => mounted().id, beads: BEADS, isNone, noneValue: DYE_NONE_V, dyeNameOf,
+  structure: () => curTarget().structure, specimen: () => mounted().id, beads: BEADS, slide: SLIDE, isNone, noneValue: DYE_NONE_V, dyeNameOf,
   dyeName: () => dyeNameOf(curPrefix()), refreshUserDyes };
 return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
 })();
@@ -1972,8 +1991,8 @@ function params() {
     laminNpcExclNm: Math.max(0, +els.laminNpcExclNm.value),
     // The DNA-origami nanorulers (the Sample select at 1 = data/specimens.json's Nanorulers = core param specimen 1):
     // their core params, only then, so a cell field's params (and every cache keyed on them) stay as they were.
-    // The bead sample (2): no cells, no origami; only the specimen param.
-    ...(+els.mv_specimen.value === 2 ? { specimen: 2 } : {}),
+    // The bead sample (2) and the fluorescent slide (3): no cells, no origami; only the specimen param.
+    ...(+els.mv_specimen.value >= 2 ? { specimen: +els.mv_specimen.value } : {}),
     ...(+els.mv_specimen.value === 1 ? {
       specimen: 1,
       origamiDesign: +els.origamiDesign.value,
@@ -2139,7 +2158,9 @@ function stateFromUI() {
   const v = viewParams(), p = params(), layers = {};
   if (els.showDyes.checked) layers['mt.dyes'] = {};   // the mounted target's dyes
   if (els.showFids.checked && +document.getElementById('mv_fid-density').value > 0) layers['fid.beads'] = {};   // on every specimen
-  if (DYE_UI.beads()) return sceneState(v, layers);   // the bead sample: the beads only
+  // The slide: its dye layer, a translucent slab from the coverslip up to its thickness (and the beads).
+  if (DYE_UI.slide()) layers['slide.layer'] = { h: Math.max(0, +document.getElementById('mv_slide-thickness-um').value || 0) };
+  if (DYE_UI.beads() || DYE_UI.slide()) return sceneState(v, layers);   // the bead sample, the slide: the beads only
   if (DYE_UI.nanorulers()) {   // a nanoruler world: the rods (the cell layers and the data layers need cells)
     if (els.showDyes.checked) layers['mt.dyes'] = { style: { size: 3 } };   // a few dozen dyes per µm²: bigger dots
     if (els.showRulers.checked) layers['ruler.outline'] = {};
@@ -2180,8 +2201,9 @@ function xzHeightFor(avail) {
   return Math.round(Math.min(avail * XZ_MAX_FRAC, Math.max(XZ_MIN_PX, xzWantPx || avail * XZ_FRAC)));
 }
 function fitXZ(visCells, st, cam) {
-  if (!visCells.length) return;
-  let top = 0;
+  const slideH = st.layers['slide.layer'] ? st.layers['slide.layer'].h || 0 : 0;   // the slide's layer (no cells)
+  if (!visCells.length && !slideH) return;
+  let top = slideH;
   for (const c of visCells) top = Math.max(top, c.height);
   const sz = xzSliceZ(st);
   if (sz !== null) top = Math.max(top, sz);
@@ -3506,6 +3528,10 @@ function updateLegend(Z, st, nr) {
     const c = IscScene.resolveStyle(st.theme, 'fid.beads', st.layers['fid.beads'].style).color || [255, 255, 255];
     items.push([`rgb(${c[0]},${c[1]},${c[2]})`, 'fiducial beads']);
   }
+  if (st.layers['slide.layer']) {
+    const c = IscScene.resolveStyle(st.theme, 'slide.layer', st.layers['slide.layer'].style).color || [255, 255, 255];
+    items.push([`rgb(${c[0]},${c[1]},${c[2]})`, 'fluorescent slide']);
+  }
   if (st.grid && !nr) items.push(['#4a5668', 'chunk grid']);
     const html = items.map(([c, t], i) => `<span style="white-space:nowrap${i ? ';margin-left:10px' : ''}"><span class="sw" style="background:${c}${c === depth || c === poreDepth || c === mtDepth || c === laminDepth ? ';width:18px' : ''}"></span>${t}</span>`).join(' ');
   if (html === legendKey) return;
@@ -3741,7 +3767,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 17) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 17');
+  if (M._isc_abi_version() !== 18) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 18');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -4965,6 +4991,7 @@ function renderFrame(st, target) {
     if (wantDyes) labelNote = drawDyes2D(F) || labelNote;
   }
   ctx = ctxTop;
+  if (!off) drawSlideLayer(F, ctxTop);   // the slide's layer under its beads
   let nBeads = 0;
   if (st.layers['fid.beads']) {   // over the scene (the top canvas)
     const o = updateFiducials(seed, p, F, noCells);
@@ -5633,6 +5660,23 @@ function updateFiducials(seed, p, F, nr) {
     else if (mainEngine) fidCache = mainEngine.handle(job)[0];
   }
   return fidPending ? 'loading fiducial beads…' : '';
+}
+// The fluorescent slide's dye layer (layer 'slide.layer', its thickness h): uniform and unbounded, so from above a
+// translucent tint over the whole view, in the x-z view a band from the coverslip to h; within the Z clip only.
+// #hud data-slide = the band's thickness drawn (um; a test reads it).
+function drawSlideLayer(F, g) {
+  const L = F.st.layers['slide.layer'];
+  if (!L || !(L.h > 0)) { hud.dataset.slide = ''; return; }
+  const z0 = Math.max(0, F.zc[0]), z1 = Math.min(L.h, F.zc[1]);
+  if (!(z1 > z0)) { hud.dataset.slide = '0'; return; }
+  const s = IscScene.resolveStyle(F.st.theme, 'slide.layer', L.style), col = s.color || [255, 255, 255];
+  const fill = rgba([...col, s.opacity === undefined ? 0.25 : s.opacity]);
+  g.save(); g.fillStyle = fill; g.fillRect(0, 0, g.canvas.width, g.canvas.height); g.restore();
+  if (F.st.xz) {
+    const S = F.cam.S, base = cvXZ.height - XZ_FLOOR_PX * devicePixelRatio;
+    ctxXZ.save(); ctxXZ.fillStyle = fill; ctxXZ.fillRect(0, base - z1 * S, cvXZ.width, (z1 - z0) * S); ctxXZ.restore();
+  }
+  hud.dataset.slide = String(+(z1 - z0).toFixed(3));
 }
 // The cached beads in view and in the z clip, one path, one fill (the theme's fid.beads style); returns how many.
 function drawFiducials(F, g, seed, p) {
@@ -6783,6 +6827,11 @@ document.getElementById('mv_fid-type').addEventListener('input', () => {
   const t = ISC_DYE_DATA.fiducials.types[+document.getElementById('mv_fid-type').value];
   if (t && !self.ISC_QUIET) setById('mv_fid-diameter-nm', t.refDiameterNm);
 });
+// A slide dye pick loads its channel (the auto light preset; a settings file brings its own).
+document.getElementById('mv_slide-dye').addEventListener('input', () => {
+  if (!DYE_UI.slide() || DYE_UI.brightField() || self.ISC_QUIET) return;
+  for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
+});
 els.mv_specimen.addEventListener('input', () => {
   const nr = DYE_UI.nanorulers();
   // The bead sample (data/specimens.json fiducials, lightPreset): with no beads set its density, unclumped its
@@ -6796,6 +6845,13 @@ els.mv_specimen.addEventListener('input', () => {
     if (document.getElementById('mv_fid-height').value === '1') setById('mv_fid-height', 0);
     if (!DYE_UI.brightField()) for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
   }
+  // The fluorescent slide: its light (its dye's channel at 0.02 kW/cm^2), its group open.
+  if (DYE_UI.slide() && !quiet && !DYE_UI.brightField())
+    for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
+  if (DYE_UI.slide()) {
+    const g = document.querySelector('details.grp[data-group="slide"]');
+    if (g && !g.open) g.open = true;
+  }
   if (DYE_UI.beads()) {
     if (!els.showFids.checked) { els.showFids.checked = true; els.showFids.dispatchEvent(new Event('input', { bubbles: true })); }
     const g = document.querySelector('details.grp[data-group="fiducials"]');
@@ -6806,7 +6862,11 @@ els.mv_specimen.addEventListener('input', () => {
     b.value = DYE_UI.lightPresetValues(DYE_UI.autoLightPreset())['mv_illum-bfp'];
     b.dispatchEvent(new Event('input', { bubbles: true }));
   }
-  view.scale = nr ? Math.max(view.scale, 150) : Math.min(view.scale, 9);
+  // the nanorulers close up, the slide at its camera field (~60 % of the view; its layer fills the view, nothing
+  // else to see), cells out
+  const fieldUm = (+document.getElementById('mv_size').value || 128) * ((+document.getElementById('mv_pixel-nm').value || 100) / 1000);
+  const viewPx = Math.min(host.getBoundingClientRect().width, cv.clientHeight || host.getBoundingClientRect().height);
+  view.scale = nr ? Math.max(view.scale, 150) : DYE_UI.slide() ? Math.max(5, 0.6 * viewPx / fieldUm) : Math.min(view.scale, 9);
   if (nr && !els.showDyes.checked) { els.showDyes.checked = true; els.showDyes.dispatchEvent(new Event('input', { bubbles: true })); }
   syncSpecimen();
   requestDraw();

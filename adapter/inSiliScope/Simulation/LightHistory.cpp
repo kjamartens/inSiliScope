@@ -1141,6 +1141,69 @@ double LightHistory::DoseAt(double xUm, double yUm, double* perSec) const
    return dose;
 }
 
+void LightHistory::DosesAt(const LightState& light, const std::vector<double>& xy, std::vector<double>& dose,
+                           std::vector<double>& rate, double& peakRate) const
+{
+   const size_t n = xy.size() / 2;
+   dose.assign(n, 0.0);
+   rate.assign(n, 0.0);
+   peakRate = 0.0;
+   std::lock_guard<std::mutex> g(mutex_);
+   double ref = 0;
+   for (const Chapter& c : chapters_)
+      if (c.lit)
+      {
+         ref = c.refTotal;
+         break;
+      }
+   // DoseAt's sums, point by point.
+   if (ref > 0)
+      for (size_t ci = 0; ci < chapters_.size(); ++ci)
+      {
+         const Chapter& c = chapters_[ci];
+         if (!c.lit)
+            continue;
+         const double s = c.F * (c.refTotal / ref);
+         for (size_t k = 0; k < n; ++k)
+         {
+            const double x = xy[2 * k], y = xy[2 * k + 1];
+            double v = c.grid.Empty() ? 0.0 : Bilinear([&](long i, long j) { return c.grid.G(i, j); }, x, y, c.h);
+            for (const Record& r : recent_)
+               if (r.chapter == ci && r.lit && r.fp)
+                  v += r.mag * (r.t1 - r.t0) * FootprintAt(*r.fp, x, y, c.h);
+            if (haveOpen_ && open_.chapter == ci && open_.lit && open_.fp)
+               v += (T_ - open_.t0) * (open_.mag * FootprintAt(*open_.fp, x, y, c.h));
+            dose[k] += s * v;
+         }
+      }
+   // DoseRate's, with one footprint, and at the beam's peak (footprint 1).
+   if (!light.lit || !light.ex)
+      return;
+   const bool last = !chapters_.empty() && SameChapter(chapters_.back(), light) && chapters_.back().lit;
+   Chapter virt;
+   if (!last)
+      SetReference(virt, light);
+   const Chapter& c = last ? chapters_.back() : virt;
+   double rref = c.refTotal;
+   for (const Chapter& ch : chapters_)
+      if (ch.lit)
+      {
+         rref = ch.refTotal;
+         break;
+      }
+   const double mag = light.total / c.refTotal;
+   std::shared_ptr<const Footprint> fp;
+   if (last && haveOpen_ && open_.chapter == chapters_.size() - 1 && open_.lit && open_.mag == mag &&
+       SamePoses(c, open_.poses, light.poses))
+      fp = open_.fp;
+   else
+      fp = MakeFootprint(c, light.poses);
+   const double s = c.F * (c.refTotal / rref);
+   for (size_t k = 0; k < n; ++k)
+      rate[k] = s * (mag * FootprintAt(*fp, xy[2 * k], xy[2 * k + 1], c.h));
+   peakRate = s * mag;
+}
+
 bool LightHistory::Lit() const
 {
    std::lock_guard<std::mutex> g(mutex_);

@@ -1122,6 +1122,47 @@ from balinovic2019). Off by default (`fidDensity` 0): every other output is unch
   shipped-config tiers in one process ran out of memory), the halo on its planes.
 - **Not modelled**: aggregate blinking, single-dye steps, BrightField contrast of the beads.
 
+## Fluorescent slide (2026-10-30)
+
+A fourth specimen, `Slide` (`specimen` 3, ABI 18 `ISC_SPECIMEN_SLIDE`; `data/specimens.json`; the user's request,
+2026-10-30): a uniform layer of dye on the coverslip, `slide-thickness-um` thick (5 um), at `slide-conc-micromolar`
+(10 uM, *estimate*) of each of its dyes. The core has no geometry for it (`World::NoCells`: no cells, no dye blocks;
+fiducial beads as on any specimen); its light is the engine's (`Simulation/Slide.*`, `FluorescenceMovie::Begin`).
+
+- **Dyes** (`slide-dye`): `Mix` (default; the user's choice: a mix across the range, like TetraSpeck) = TetraSpeck's
+  four components of `data/fiducials/types.json` (their spectra, as equivalent dyes: eps 1e5, QY 0.5), each at the
+  concentration; or one library dye's main state. Per dye through the light path (`StatePhotophysics`): its detected
+  photons per second at excitation 1; per pixel per um of layer c N_A a^2 x that.
+- **The collected light**: the free DNA-PAINT imager's model, `Excitation::ImagerMap` over the layer [0, h] at rate 1
+  (every height lit by the beam there, its light collected defocused onto the pixel), one map per set of line shares
+  (the dyes one laser line excites share it), a slice of the background map's focus grid (`BgMapCache`,
+  `BlendedBgSlice`). Its node grid is finer than the background's (`kSlideNodesPerScale` 12 nodes per beam scale, not
+  3: bilinear between nodes is within ~1 / (8 n^2) of the peak; the background's ~1.4 % kinks showed in a profile of
+  the slide, whose whole image this is). A uniform beam: the column, h, everywhere. Exact for an unbleached layer.
+- **Bleaching** (`slide-bleach-half-sec`, 900 s, *estimate*): deterministic, as the fiducial beads: the hazard (kEm /
+  kEm at 1 kW/cm^2 at the dye's excitation peak) x ln 2 / the half-time. **Per pixel column** (the user's choice,
+  2026-10-30, over a full 3D model): the pixel's collected light x the mean survival of the column under it over the
+  frame, each height j at its own excitation a_j (`kSlideNodes` 8 heights over the layer in HILO, over 10 decay lengths
+  in TIRF; one in epi, where every height has the same), weighted by a_j (its emission): sum_j a_j e^(-k a_j t) (1 -
+  e^(-k a_j T)) / (k a_j T) / sum_j a_j. Left out: the defocus blur of the bleached pattern (a fraction of the layer's
+  thickness at its edges) and the drift's shift of it (the layer is the same everywhere; its bleached spot stays put).
+- **The past light**: a cli or viewer movie starts at `start-sec` of its own light (t = start-sec + f T everywhere);
+  under a host's light history (MM, the viewer's live view) each pixel's past is its dose on the coverslip as seconds
+  at excitation 1, the same for every height of its column (`LightHistory::DosesAt` on a 0.25 um grid, one footprint
+  for all, bilinear), then the frames between the history's now and start-sec at each height's own excitation. Where
+  the light now reaches the coverslip there (its rate >= 1 % of its peak): dose / that rate x the excitation there (as
+  the beads' seconds of the light now; exact under an unchanged light, the lattice's interpolation cancels); where it
+  does not (< 0.1 %): dose / the peak's rate x F; a smooth blend between (they differ by the lattice's ~0.2 %). Fixed
+  on purpose (the user's report, 2026-10-30): dose / the local rate alone, the beads' rule, jumped from huge to 0 at the
+  footprint's 1e-4 cut where the light now barely reaches (HILO focused high above the slide: its sheet meets the
+  coverslip tens of um aside), a sharp step across the image.
+- **Light preset** (the auto preset with no target, `SlideLightPresetId`): the Mix's `Slide-561`, a library dye's the
+  `Slide-*` preset with the filters of its WideField preset (its default mode's without one): each one line at
+  0.02 kW/cm^2 (the user's choice), the WF presets' filters. At the defaults the beam's centre gives ~8800 photons per
+  100 nm pixel per 50 ms frame (the orange component; 561 nm excites the others too little to pass 600/37).
+- **Not modelled**: the layer's own refractive index (a slab of the medium's), autofluorescence of the glass, dye
+  saturation and triplet blinking, BrightField contrast.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

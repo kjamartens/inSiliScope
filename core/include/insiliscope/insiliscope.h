@@ -41,7 +41,9 @@
  * points on the nuclear envelope, none at the pores), isc_cell_lamin. ABI 17:
  * the bead sample (specimen ISC_SPECIMEN_BEADS 2: a bare coverslip with only
  * the fiducial beads) and bead clumps (param fidAggregationPct: the chance a
- * bead is stuck to the next; a clump's beads share its address).
+ * bead is stuck to the next; a clump's beads share its address). ABI 18: the
+ * fluorescent slide (specimen ISC_SPECIMEN_SLIDE 3: a uniform dye layer on the
+ * coverslip, whose light is the host's; the world has no cells or dyes).
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -62,7 +64,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 17
+#define ISC_ABI_VERSION 18
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -108,10 +110,12 @@ ISC_API int32_t isc_pack_window(uint32_t seed, int32_t cx0, int32_t cy0, int32_t
  * optical volume is empty, isc_world_set_cache_dir keeps nothing) and only
  * ISC_STRUCT_ORIGAMI_SITES dyes; a cell field ISC_STRUCT_MICROTUBULE, _NPC and
  * _LAMIN. ABI 17: a bead world has no cells (as a nanoruler world) and no
- * dyes: only its fiducial beads (isc_fiducials_in_window). */
+ * dyes: only its fiducial beads (isc_fiducials_in_window). ABI 18: a slide
+ * world likewise (the layer is the host's; fiducial beads as on any). */
 #define ISC_SPECIMEN_CELLFIELD 0
 #define ISC_SPECIMEN_NANORULERS 1
 #define ISC_SPECIMEN_BEADS 2
+#define ISC_SPECIMEN_SLIDE 3
 typedef struct IscWorld IscWorld;
 ISC_API IscWorld* isc_world_new(uint32_t seed, const IscParams* p);
 ISC_API void isc_world_free(IscWorld* w);

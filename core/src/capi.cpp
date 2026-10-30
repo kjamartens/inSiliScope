@@ -17,7 +17,7 @@ static_assert(ISC_STRUCT_COUNT == isc::STRUCTURE_COUNT && ISC_STRUCT_MICROTUBULE
                  ISC_LAMIN_STRIDE == 6 &&
                  ISC_STRUCT_ORIGAMI_SITES == isc::STRUCTURE_ORIGAMI, "structures");
 static_assert(ISC_SPECIMEN_CELLFIELD == isc::SPECIMEN_CELLFIELD && ISC_SPECIMEN_NANORULERS == isc::SPECIMEN_NANORULERS &&
-                 ISC_SPECIMEN_BEADS == isc::SPECIMEN_BEADS,
+                 ISC_SPECIMEN_BEADS == isc::SPECIMEN_BEADS && ISC_SPECIMEN_SLIDE == isc::SPECIMEN_SLIDE,
               "specimens");
 static_assert(ISC_STATE_BLINK == isc::STATE_BLINK && ISC_STATE_PRE == isc::STATE_PRE &&
                  ISC_STATE_INITIAL_ON == isc::STATE_INITIAL_ON && ISC_STATE_ALWAYS_ON == isc::STATE_ALWAYS_ON, "states");
