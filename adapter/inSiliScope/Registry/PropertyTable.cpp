@@ -817,7 +817,7 @@ std::vector<PropDef> BuildTable()
       }
       add(OptNames(L, "PatternPolarization", Tier::Advanced, "sim-polarization", sim::SimPolarizationNames(), 0,
                    "Every beam's polarization: S (across its plane of incidence: full fringe contrast; the lattice's "
-                   "x and y pairs then do not interfere, LatticeSIM3D's centre beam is circular), P, Circular, LinearX "
+                   "x and y pairs then do not interfere, LatticeSIM3D's centre beam is linear diagonal), P, Circular, LinearX "
                    "(the pupil field along the lab x axis) "
                    "or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S."));
       add(OptNames(L, "PatternAnchor", Tier::Advanced, "sim-anchor", sim::SimAnchorNames(), 0,

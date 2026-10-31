@@ -62,6 +62,14 @@ double SimTypeDefaultRadius(int type)
    }
 }
 
+double BeamFrameSign(double phiRad)
+{
+   const double c = std::cos(phiRad), s = std::sin(phiRad);
+   if (std::fabs(c) > 1e-9)
+      return c > 0 ? 1.0 : -1.0;
+   return s >= 0 ? 1.0 : -1.0;
+}
+
 double Beam::Radius() const { return std::sqrt(ux * ux + uy * uy); }
 double Beam::AzimuthRad() const { return (ux == 0.0 && uy == 0.0) ? 0.0 : std::atan2(uy, ux); }
 
@@ -123,9 +131,9 @@ void Polarize(Beam& b, int polarization)
       break;
    case SIM_POL_LINEAR_X:
    {
-      // The pupil field along the lab x axis: its s part -sin phi, its p part cos phi.
-      const double phi = b.AzimuthRad();
-      b.polDeg = std::atan2(std::cos(phi), -std::sin(phi)) * 180.0 / kPi;
+      // The pupil field along the lab x axis: its s part -sin phi, its p part cos phi, in the beam's signed frame.
+      const double phi = b.AzimuthRad(), g = BeamFrameSign(phi);
+      b.polDeg = std::atan2(g * std::cos(phi), -g * std::sin(phi)) * 180.0 / kPi;
       break;
    }
    case SIM_POL_UNPOLARIZED: b.polDeg = kUnpolarizedDeg; break;
@@ -174,12 +182,15 @@ BeamSet MakeBeams(int type, double radiusU, int polarization, double centreAmp)
       break;
    case SIM_LATTICE_3D:
       beam(0, 0, centreAmp, 0);
-      // The centre beam circular under S and P (the user's choice, 2026-10-30): the x and y pairs do not interfere
-      // with each other, and the centre beam interferes with both alike.
+      // The centre beam linear at 45 degrees (diagonal, (x + y) / sqrt 2) under S and P (the user's choice,
+      // 2026-10-31; circular from 2026-10-30 to then): the x and y pairs do not interfere with each other, and the
+      // centre beam interferes with both alike and in phase, so both first-order fringes are at their maximum in
+      // the in-phase plane together (a circular centre puts them a quarter axial period apart: one on where the
+      // other is off; the matrix's ellip column 0.25 gives it).
       if (polarization == SIM_POL_S || polarization == SIM_POL_P)
       {
          s.beams.back().polDeg = 45.0;
-         s.beams.back().ellipTurns = 0.25;
+         s.beams.back().ellipTurns = 0.0;
       }
       beam(r, 0, 1, 2);
       beam(-r, 0, 1, -2);
@@ -399,14 +410,15 @@ BeamField BeamFieldOf(const Beam& b, double lambdaNm, double nS, double nI, doub
 }
 
 namespace {
-// The field of a beam in the lab frame (its own frame rotated by its azimuth).
+// The field of a beam in the lab frame (its own frame rotated by its azimuth, with the frame's sign: a beam and its
+// opposite carry the same lab field, BeamFrameSign).
 void LabField(const BeamField& f, double phi, std::complex<double>& Ex, std::complex<double>& Ey,
               std::complex<double>& Ez)
 {
-   const double c = std::cos(phi), s = std::sin(phi);
+   const double g = BeamFrameSign(phi), c = g * std::cos(phi), s = g * std::sin(phi);
    Ex = f.ex * c - f.ey * s;
    Ey = f.ex * s + f.ey * c;
-   Ez = f.ez;
+   Ez = g * f.ez;
 }
 
 void CompileRun(const PatternState& st, double lambdaNm, double nS, double nI, double na, bool forceS, bool forceP,

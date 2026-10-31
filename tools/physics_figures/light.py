@@ -397,7 +397,7 @@ def sim_patterns(ctx):
                   "The four pattern types at frame 0, the beams at 0.5 in the pupil (below the types' defaults, so the "
                   "fringes are resolved here; %s nm, the widefield microtubules' line). Top: the pupil from above, the "
                   "critical circle dotted, each beam's spot (the default beam's %.0f µm radius) with its polarization "
-                  "(S: a bar across its plane of incidence; the lattice's circular centre beam a circular arrow). "
+                  "(S: a bar across its plane of incidence; the lattice's diagonal centre beam a bar at 45 degrees). "
                   "Middle: the excitation on the focal plane over the centre 6 µm (period %s nm for a pair at 0.5). "
                   "Bottom: an x-z section through the axis: 2D SIM's stripes reach every height alike, the centre beam "
                   "of 3D SIM and the 3D lattice adds an axial modulation.\n"

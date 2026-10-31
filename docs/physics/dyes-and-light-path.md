@@ -186,9 +186,12 @@ and mostly its moiré with the sample, which is what a reconstruction uses. Ever
 physics above at the beam's own angle (the Fresnel amplitudes below the critical angle, Axelrod's evanescent field
 components with their phases above it [[axelrod1984](../references.md#axelrod1984)]), the pattern their coherent sum
 squared [[frohn2001](../references.md#frohn2001)]; the polarization (`sim-polarization`, Advanced) is S for every
-type unless changed (each beam linearly polarized across its plane of incidence: full fringe contrast; for the lattice
-the x and y pairs then do not interfere, and `LatticeSIM3D`'s centre beam is circular under S and P, interfering with
-both pairs alike), or P, Circular, LinearX or Unpolarized. The beams are in phase at the focal plane (`sim-anchor`
+type unless changed (each beam linearly polarized across its plane of incidence, a beam and its opposite with the
+same field direction as one grating's +1 and -1 orders have: full fringe contrast, and the centre-beam fringes of
+`SIM3D` at their maximum in the in-phase plane; for the lattice
+the x and y pairs then do not interfere, and `LatticeSIM3D`'s centre beam is linear diagonal under S and P,
+interfering with both pairs alike and in phase, so both first-order fringes peak in the focal plane together; a
+circular centre beam, set through the matrix, would put them a quarter axial period apart), or P, Circular, LinearX or Unpolarized. The beams are in phase at the focal plane (`sim-anchor`
 Focus, Advanced): the grating or SLM that makes them is conjugate to it, so the pattern's axial structure moves with the
 focus and the sample moves through it, whether the stage or the objective moves; `Coverslip` fixes the fringes to the
 sample instead (an illumination path that does not move with the focus). The evanescent decay of a TIRF beam is from

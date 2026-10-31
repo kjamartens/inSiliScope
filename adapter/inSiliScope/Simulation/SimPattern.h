@@ -98,6 +98,12 @@ struct BeamSet
 // LatticeSIM3D those and the centre (steps +2 / -2, +3 / -3; phases 13); Custom none (the matrix alone). Every beam
 // polarized per `polarization` (S: 0; P: 90; Circular: 45 at a quarter turn; LinearX: the pupil field along the lab
 // x axis, atan2(cos phi, -sin phi), signed; Unpolarized: polDeg kUnpolarizedDeg).
+// The sign of a beam's frame (s = (-sin phi, cos phi, 0), p = (cos theta cos phi, cos theta sin phi, -sin theta))
+// is taken so that a beam and its opposite carry the same lab field for the same amplitude, as one grating's +1 and
+// -1 orders do (2026-10-31, the user's choice): +1 on the right half-plane (cos phi > 0, or the +y axis), -1 on the
+// left. Before, opposite beams had opposite lab fields (a half-turn phase on one), which put SIM3D's and the
+// lattice's first-order fringes at zero in the in-phase plane.
+double BeamFrameSign(double phiRad);
 BeamSet MakeBeams(int type, double radiusU, int polarization, double centreAmp);
 // A matrix row (a column's value given) laid over beam j: j < count overrides the columns given, j >= count adds a beam
 // (the missing columns at Beam's defaults).

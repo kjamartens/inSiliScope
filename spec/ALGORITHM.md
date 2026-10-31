@@ -953,11 +953,15 @@ Off and no matrix).
   left out, *estimate*).
 - **The field of a beam** in the sample, over the epi amplitude t0 (so |E|^2 = the single beam's F): below the
   critical angle the Fresnel amplitudes t_s, t_p (bornwolf1999 1.5.2) on the vectors s = (-sin phi, cos phi, 0) and
-  p = (cos theta_s cos phi, cos theta_s sin phi, -sin theta_s); above it Axelrod's evanescent components with their
+  p = (cos theta_s cos phi, cos theta_s sin phi, -sin theta_s), **both negated on the left half-plane**
+  (`BeamFrameSign`: cos phi < 0, or the -y axis) so that a beam and its opposite carry the same lab field for the
+  same amplitude, as one grating's +1 and -1 orders do (the user's choice, 2026-10-31; before, opposite beams had
+  opposite lab fields, a half-turn phase on one, which put SIM3D's and the lattice's centre-side fringes at zero in
+  the in-phase plane -- with equal fields SIM3D's first order is maximal there, ctest); above it Axelrod's evanescent components with their
   phases (axelrod1984: E_y for s, E_x and E_z a quarter turn apart for p, delta_s and delta_p; their |.|^2 are
   axelrod2001's I_s and I_p of the single beam), the amplitude decaying as exp(-z / 2 d). The polarization state is
   cos a E_s + sin a e^{i 2 pi ellip} E_p; the LinearX choice puts the pupil field along the lab x axis (its s part
-  -sin phi, p part cos phi, signed: a beam and its opposite carry opposite p signs, as x-polarized light does);
+  -sin phi, p part cos phi in the beam's signed frame);
   Unpolarized is the mean of the all-s and the all-p patterns (the single beam's "mean of s and p"). Each beam's
   envelope is stretched by 1 / cos theta_i along its azimuth and moves with height as the single beam's does.
 - **The pattern** I(r) = |sum_j sqrt(P_j(r)) E_j(r)|^2 is compiled per laser line into terms (`CompilePattern`): the
@@ -983,8 +987,10 @@ Off and no matrix).
   Illumination group's Epi / HILO / TIRF presets apply to the pattern); a type pick sets it to the type's default (2D
   0.95; 3D and the lattices 0.9; *estimates*) and the polarization to S (every type's proper one; the lattice's
   "orthogonal pairs" = S: the x pair and the y pair do not interfere; Circular is the alternative one picks).
-  LatticeSIM3D's centre beam is circular under S and P (the user's choice, 2026-10-30): it interferes with both pairs
-  alike, where an s- or p-polarized centre beam would favour one.
+  LatticeSIM3D's centre beam is linear at 45 degrees (diagonal) under S and P (the user's choice, 2026-10-31;
+  circular on 2026-10-30): it interferes with both pairs alike and in phase, so both first-order fringes peak in the
+  in-phase plane together and vanish half an axial period up; a circular centre (the matrix's ellip 0.25) puts the two
+  a quarter axial period apart (one on where the other is off), an s- or p-polarized one favours one pair.
 - **The frame program** (`FrameLightAt`, `PatternStateAt`): frame f (the sample's frame counter: the movie's f plus
   `frame0`, which a live producer passes from its counter -- not a user setting; a stack starts at 0) -> (angle index,
   phase index) in AngleMajor order (every phase of an orientation, then the next: gustafsson2008) or PhaseMajor. The

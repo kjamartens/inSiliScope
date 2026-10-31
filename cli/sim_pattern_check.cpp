@@ -96,7 +96,8 @@ double ExplicitPattern(const PatternState& st, double lambdaNm, double nS, doubl
       const BeamField f = BeamFieldOf(b, lambdaNm, nS, nI, na, polarization, forceS, forceP);
       if (f.clipped)
          continue;
-      const double phi = b.AzimuthRad(), c = std::cos(phi), s = std::sin(phi);
+      // the beam's frame signed so that opposite beams carry the same lab field (the convention, BeamFrameSign)
+      const double phi = b.AzimuthRad(), g = BeamFrameSign(phi), c = g * std::cos(phi), s = g * std::sin(phi);
       std::complex<double> ph = std::exp(I * (k * (b.ux * x + b.uy * y) + 2.0 * kPi * b.phaseTurns));
       if (f.evanescent)
          ph *= std::exp(-std::max(0.0, z) / (2.0 * f.decayUm));
@@ -104,7 +105,7 @@ double ExplicitPattern(const PatternState& st, double lambdaNm, double nS, doubl
          ph *= std::exp(I * (k * f.kzOverK * z));
       Ex += (f.ex * c - f.ey * s) * ph;
       Ey += (f.ex * s + f.ey * c) * ph;
-      Ez += f.ez * ph;
+      Ez += g * f.ez * ph;
    }
    return std::norm(Ex) + std::norm(Ey) + std::norm(Ez);
 }
@@ -264,6 +265,33 @@ void FieldChecks()
                }
             }
          }
+   // Equal lab fields: SIM3D's centre-side fringe (the first order, period lambda / n u) is at its maximum in the
+   // in-phase plane (z = 0) and vanishes a quarter axial period up (a grating's 0 and +-1 orders); the lattice's
+   // x pair alike.
+   for (int type : { SIM_3D, SIM_LATTICE_3D })
+   {
+      BeamSet set = MakeBeams(type, 0.9, SIM_POL_S, 1.0);
+      const PatternState st = PatternStateAt(set, 0, 0, 0.05);
+      const Pattern pat = CompilePattern(st, 488.0, nS, nI, na, SIM_POL_S);
+      std::vector<double> env(st.beams.size(), 1.0);
+      const double q1 = 2.0 * kPi * nS / 0.488 * 0.9, axial = 2.0 * kPi / (2.0 * kPi * nS / 0.488 * (1.0 - std::sqrt(1.0 - 0.81)));
+      auto first = [&](double z) {   // the first-order Fourier amplitude along x at height z, over the mean
+         std::complex<double> c(0, 0);
+         double dc = 0;
+         const int N = 200;
+         for (int i = 0; i < N; ++i)
+         {
+            const double x = i * 2.0 * kPi / q1 / N, v = pat.At(x, 0.0, z, env.data());
+            c += v * std::exp(std::complex<double>(0, -q1 * x));
+            dc += v;
+         }
+         return 2.0 * std::abs(c) / dc;
+      };
+      const double f0 = first(0.0), fq = first(axial / 4);
+      // (over the line's own mean at y = 0, which holds the y pair's second order too: SIM3D ~1.26, the lattice ~0.36)
+      Check(f0 > 0.3 && fq < 1e-6, "equal lab fields: the first order maximal in the in-phase plane (" + std::to_string(f0) +
+                                     "), zero a quarter axial period up (" + std::to_string(fq) + ")");
+   }
    // The anchor (sim-anchor Focus): the pattern compiled with its beams in phase at zRef equals the one in phase at
    // the coverslip read zRef lower (propagating beams: no decay from the coverslip to break it).
    for (int type : { SIM_3D, SIM_LATTICE_3D })
