@@ -46,7 +46,7 @@ struct SplatArgs
    int camRad = 0;                // half-width in camera pixels
    int bw = 0;                    // block-sum array width (and height)
    int qw = 0;                    // bw / os (polySums row length per phase)
-   const float* B = nullptr;      // block sums of the plane (bw x bw)
+   const float* B = nullptr;      // block sums of the plane (bw x bw), or nullptr: read through P
    const float* P = nullptr;      // polySums of the plane, or nullptr
    int x0 = 0, y0 = 0;            // centre camera pixel
    int bx = 0, by = 0;            // block-sum index of the first tap of (x0, y0)

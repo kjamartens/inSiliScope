@@ -93,7 +93,7 @@ class BeadHalo
 public:
    explicit BeadHalo(const PsfKernelCache& wide);   // keeps its geometry and block sums
    const PsfKernelCache& Geom() const { return geom_; }
-   const std::vector<float>& Plane(int k) const { return sums_[static_cast<size_t>(k)]; }
+   const std::vector<float>& Plane(int k) const { return (*sums_)[static_cast<size_t>(k)]; }
    int Nz() const { return geom_.nz; }
    uint64_t Id() const { return id_; }
    double Bytes() const;   // the planes held (MemoryReport.h)
@@ -105,7 +105,8 @@ public:
 
 private:
    PsfKernelCache geom_;   // the geometry only (no data)
-   std::vector<std::vector<float>> sums_;
+   std::shared_ptr<const std::vector<std::vector<float>>> sums_;   // the wide kernel's planes (os 1), or a copy
+   bool ownSums_ = false;
    std::vector<std::vector<float>> beyond_;   // per plane and Chebyshev radius r: the largest sample at r or beyond
    uint64_t id_;
 };

@@ -457,11 +457,11 @@ bool GpuSimulator::SetKernels(const std::vector<const PsfKernelCache*>& kernels,
       v.Reset();
    // The spans of every kernel (one dummy entry without any cut: the slot is bound either way).
    std::vector<int32_t> spans(2, 0);
-   std::vector<const std::vector<std::vector<float>>*> held;   // the distinct kernels' planes, by buffer
+   std::vector<const PsfKernelPlanes*> held;   // the distinct kernels' stacks, by buffer
    for (size_t k = 0; k < kernels.size(); ++k)
    {
       const PsfKernelCache* cache = kernels[k];
-      if (!cache || !cache->valid || cache->BlockSums().empty())
+      if (!cache || !cache->valid || !cache->data || cache->Planes().empty())
       {
          outError = "no kernel block sums";
          return false;
@@ -477,7 +477,7 @@ bool GpuSimulator::SetKernels(const std::vector<const PsfKernelCache*>& kernels,
       geo[3] = os - 1;
       misc[0] = static_cast<uint32_t>(bw) * static_cast<uint32_t>(bw);
       const bool useSpans = cache->halo && cache->halo->camRad == camRad &&
-                            cache->halo->nz == static_cast<int>(cache->BlockSums().size());
+                            cache->halo->nz == static_cast<int>(cache->Planes().size());
       misc[1] = useSpans ? 1u : 0u;
       misc[2] = static_cast<uint32_t>(spans.size() / 2);
       if (useSpans)
@@ -488,19 +488,25 @@ bool GpuSimulator::SetKernels(const std::vector<const PsfKernelCache*>& kernels,
          }
       // The same planes as an earlier kernel (groups at one wavelength): its buffer.
       size_t b = 0;
-      while (b < held.size() && held[b] != &cache->BlockSums())
+      while (b < held.size() && held[b] != cache->data.get())
          ++b;
       misc[3] = static_cast<uint32_t>(b);
       if (b < held.size())
          continue;
       std::vector<float> all;
-      all.reserve(static_cast<size_t>(misc[0]) * cache->BlockSums().size());
-      for (const std::vector<float>& p : cache->BlockSums())
+      // Row-major, as the shader reads them (the stack keeps the polyphase layout: rebuilt per plane here).
+      const int nz = static_cast<int>(cache->Planes().size());
+      all.reserve(static_cast<size_t>(misc[0]) * nz);
+      cache->PrepareSplat();
+      for (int z = 0; z < nz; ++z)
+      {
+         const std::vector<float> p = cache->BlockSums(z).RowMajor();
          all.insert(all.end(), p.begin(), p.end());
+      }
       if (!m.MakeStructured(sizeof(float), static_cast<UINT>(all.size()), all.data(), false, m.sums[b], m.sumsSrv[b],
                             outError))
          return false;
-      held.push_back(&cache->BlockSums());
+      held.push_back(cache->data.get());
    }
    return m.MakeStructured(2 * sizeof(int32_t), static_cast<UINT>(spans.size() / 2), spans.data(), false, m.spans,
                            m.spansSrv, outError);

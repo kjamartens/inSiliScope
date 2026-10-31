@@ -8,7 +8,7 @@
 //                shader, the analog of webSMLM's WebGPU simulation kernel
 //                (build 2026-09-21c). One GPU thread per output pixel gathers
 //                that frame's emitters from the kernel's block sums
-//                (PsfKernelCache::blockSums, the same numbers the CPU splat
+//                (PsfKernelCache::BlockSums, row-major: the same numbers the CPU splat
 //                reads, with the same SplatSetup() indices/weights), adds the
 //                background, and applies the sCMOS or EMCCD noise chain with
 //                the same counter-based pcg4d stream as the CPU

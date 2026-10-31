@@ -58,11 +58,23 @@ std::vector<Tap> SphereTaps(double rS)
    return taps;
 }
 
+// Row-major block sums (a bead core's, the halo's planes) as a view of the geometry g.
+BlockSumsView RowView(const std::vector<float>& B, const PsfKernelCache& g)
+{
+   BlockSumsView v;
+   v.B = B.data();
+   v.os = std::max(1, g.oversampling);
+   v.bw = g.blockSumWidth > 0 ? g.blockSumWidth : g.sizeOversampled + v.os - 1;
+   v.qw = v.bw / v.os;
+   return v;
+}
+
 // img += photons x the block sums B (of geometry cache) at setup st over the camera pixels (x0 + dx, y0 + dy), dx in
 // [dxLo, dxHi], dy in [dyLo, dyHi], clipped to the image's rows [rowLo, rowHi) and the block sums (JS splatRect, every
 // row; SplatRows' arithmetic). A pixel's sum does not depend on the rows: bands of rows give the whole image's numbers.
 void SplatRect(std::vector<float>& img, unsigned W, int rowLo, int rowHi, const PsfKernelCache& cache,
-               const SplatSetupResult& st, const float* B, double photons, int dxLo, int dxHi, int dyLo, int dyHi)
+               const SplatSetupResult& st, const BlockSumsView& B, double photons, int dxLo, int dxHi, int dyLo,
+               int dyHi)
 {
    const int os = std::max(1, cache.oversampling), off = os - 1, bw = cache.blockSumWidth, NT = st.nTaps;
    const int yLo = std::max(dyLo, rowLo - st.y0), yHi = std::min(dyHi, rowHi - 1 - st.y0);
@@ -79,9 +91,12 @@ void SplatRect(std::vector<float>& img, unsigned W, int rowLo, int rowHi, const 
          const int r0 = st.by + dy * os + off;
          if (r0 < 0 || r0 >= bw)
             continue;
-         const float* brow = B + static_cast<size_t>(r0) * bw + c;
+         // Row r0's samples c + dx os: os apart in the row-major sums, adjacent in the polyphase ones.
+         const int q = floorDiv(c, os), ph = c - q * os;
+         const float* brow = B.B ? B.B + static_cast<size_t>(r0) * bw + c
+                                 : B.P + (static_cast<size_t>(r0) * os + static_cast<size_t>(ph)) * B.qw + q;
          float* rowOut = img.data() + static_cast<size_t>(st.y0 + dy) * W + st.x0;
-         if (os == 1)
+         if (os == 1 || !B.B)
             for (int dx = xa; dx <= xb; ++dx)
                rowOut[dx] += static_cast<float>(photons * static_cast<double>(brow[dx]));
          else
@@ -100,10 +115,16 @@ void SplatRect(std::vector<float>& img, unsigned W, int rowLo, int rowHi, const 
          double sum = 0.0;
          for (int j = jLo; j < jHi; ++j)
          {
-            const float* brow = B + static_cast<size_t>(r0 + j) * bw + c0;
             double row = 0.0;
-            for (int i = iLo; i < iHi; ++i)
-               row += st.wx[i] * brow[i];
+            if (B.B)
+            {
+               const float* brow = B.B + static_cast<size_t>(r0 + j) * bw + c0;
+               for (int i = iLo; i < iHi; ++i)
+                  row += st.wx[i] * brow[i];
+            }
+            else
+               for (int i = iLo; i < iHi; ++i)
+                  row += st.wx[i] * B.At(r0 + j, c0 + i);
             sum += st.wy[j] * row;
          }
          rowOut[st.x0 + dx] += static_cast<float>(photons * sum);
@@ -156,18 +177,30 @@ double BeadBinNm(double dNm)
    return std::max(kBeadBinNm, kBeadBinNm * std::floor(dNm / kBeadBinNm + 0.5));
 }
 
-BeadHalo::BeadHalo(const PsfKernelCache& wide) : geom_(wide), sums_(wide.BlockSums())
+BeadHalo::BeadHalo(const PsfKernelCache& wide) : geom_(wide)
 {
+   // One sample per pixel: the planes are their own block sums (BuildBlockSums at os 1 copies them), shared with the
+   // kernel memo; any other oversampling a row-major copy of the sums.
+   if (wide.data && std::max(1, wide.oversampling) == 1)
+      sums_ = std::shared_ptr<const std::vector<std::vector<float>>>(wide.data, &wide.data->planes);
+   else
+   {
+      auto own = std::make_shared<std::vector<std::vector<float>>>();
+      for (int z = 0; z < static_cast<int>(wide.Planes().size()); ++z)
+         own->push_back(wide.BlockSums(z).RowMajor());
+      sums_ = own;
+      ownSums_ = true;
+   }
    static std::atomic<uint64_t> next{ 0 };
    id_ = ++next;
    geom_.data.reset();
    geom_.halo.reset();
    const int n = geom_.sizeOversampled, c = geom_.halfWidthOversampled;
-   beyond_.assign(sums_.size(), std::vector<float>(static_cast<size_t>(c) + 1, 0.0f));
-   for (size_t k = 0; k < sums_.size(); ++k)
+   beyond_.assign(sums_->size(), std::vector<float>(static_cast<size_t>(c) + 1, 0.0f));
+   for (size_t k = 0; k < sums_->size(); ++k)
    {
       std::vector<float>& b = beyond_[k];
-      const float* p = sums_[k].data();
+      const float* p = (*sums_)[k].data();
       for (int y = 0; y < n; ++y)
          for (int x = 0; x < n; ++x)
          {
@@ -182,8 +215,9 @@ BeadHalo::BeadHalo(const PsfKernelCache& wide) : geom_(wide), sums_(wide.BlockSu
 double BeadHalo::Bytes() const
 {
    double b = 0.0;
-   for (const auto& p : sums_)
-      b += VectorBytes(p);
+   if (ownSums_)   // else the kernel memo's planes (psf.planes)
+      for (const auto& p : *sums_)
+         b += VectorBytes(p);
    for (const auto& p : beyond_)
       b += VectorBytes(p);
    return b;
@@ -201,7 +235,7 @@ double BeadKernel::CoreBytes()
 double BeadHalo::SigmaPx(int k) const
 {
    const int n = geom_.sizeOversampled, c = geom_.halfWidthOversampled;
-   const float* p = sums_[static_cast<size_t>(k)].data();
+   const float* p = (*sums_)[static_cast<size_t>(k)].data();
    double s = 0.0, s2 = 0.0;
    for (int y = 0; y < n; ++y)
       for (int x = 0; x < n; ++x)
@@ -444,9 +478,9 @@ double BeadKernel::InnerScale(const BeadHalo& halo, int k)
    const int rc = InnerRadius(), n = 2 * rc + 1;
    std::vector<float> a(static_cast<size_t>(n) * n, 0.0f), b(static_cast<size_t>(n) * n, 0.0f);
    const PsfKernelCache& G = halo.Geom();
-   SplatRect(a, n, 0, n, K_, SplatSetup(K_, rc, rc, PsfInterpMode::Nearest), K_.BlockSums()[static_cast<size_t>(k)].data(),
-             1.0, -rc, rc, -rc, rc);
-   SplatRect(b, n, 0, n, G, SplatSetup(G, rc, rc, PsfInterpMode::Nearest), halo.Plane(k).data(), 1.0, -rc, rc, -rc, rc);
+   SplatRect(a, n, 0, n, K_, SplatSetup(K_, rc, rc, PsfInterpMode::Nearest), K_.BlockSums(k), 1.0, -rc, rc, -rc, rc);
+   SplatRect(b, n, 0, n, G, SplatSetup(G, rc, rc, PsfInterpMode::Nearest), RowView(halo.Plane(k), G), 1.0, -rc, rc, -rc,
+             rc);
    double sa = 0.0, sb = 0.0;
    for (size_t i = 0; i < a.size(); ++i)
    {
@@ -473,9 +507,10 @@ void BeadKernel::Splat(std::vector<float>& img, unsigned W, unsigned H, int k, d
       camRad = InnerRadius();
    const std::shared_ptr<const Core> C = CoreAt(k, BeadBinNm(dNm));
    const double inner = withHalo ? photons * InnerScale(*halo, k) : photons;
-   const float* P = K.BlockSums()[static_cast<size_t>(k)].data();
+   const BlockSumsView P = K.BlockSums(k);
    if (C)
-      SplatRect(img, W, r0, r1, C->geom, SplatSetup(C->geom, xPx, yPx, interp_), C->blockSums.data(), inner, -rc, rc, -rc, rc);
+      SplatRect(img, W, r0, r1, C->geom, SplatSetup(C->geom, xPx, yPx, interp_), RowView(C->blockSums, C->geom), inner, -rc,
+                rc, -rc, rc);
    else
       SplatRect(img, W, r0, r1, K, SplatSetup(K, xPx, yPx, interp_), P, inner, -rc, rc, -rc, rc);
    const SplatSetupResult st = SplatSetup(K, xPx, yPx, PsfInterpMode::Nearest);
@@ -490,7 +525,7 @@ void BeadKernel::Splat(std::vector<float>& img, unsigned W, unsigned H, int k, d
       return;
    const PsfKernelCache& G = halo->Geom();
    const SplatSetupResult sh = SplatSetup(G, xPx, yPx, PsfInterpMode::Nearest);
-   const float* Q = halo->Plane(k).data();
+   const BlockSumsView Q = RowView(halo->Plane(k), G);
    SplatRect(img, W, r0, r1, G, sh, Q, photons, -R, R, -R, -camRad - 1);
    SplatRect(img, W, r0, r1, G, sh, Q, photons, -R, R, camRad + 1, R);
    SplatRect(img, W, r0, r1, G, sh, Q, photons, -R, -camRad - 1, -camRad, camRad);

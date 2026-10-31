@@ -3153,7 +3153,7 @@ void SplatUnitInto(std::vector<double>& img, unsigned width, unsigned height, co
       yHi = static_cast<int>(height);
    const int os = std::max(1, cache.oversampling);
    const int camRad = cache.halfWidthOversampled / os;
-   const int off = os - 1, bw = cache.blockSumWidth;
+   const int off = os - 1, bw = cache.blockSumWidth, qw = bw / os;
    const SplatSetupResult& st = plan.st;
    const int NT = st.nTaps;
    const float* B = plan.B;
@@ -3171,10 +3171,23 @@ void SplatUnitInto(std::vector<double>& img, unsigned width, unsigned height, co
          double sum = 0.0;
          for (int j = jLo; j < jHi; ++j)
          {
-            const float* brow = B + static_cast<size_t>(r0 + j) * bw;
             double row = 0.0;
-            for (int i = iLo; i < iHi; ++i)
-               row += st.wx[i] * brow[c0 + i];
+            if (B)
+            {
+               const float* brow = B + static_cast<size_t>(r0 + j) * bw;
+               for (int i = iLo; i < iHi; ++i)
+                  row += st.wx[i] * brow[c0 + i];
+            }
+            else
+            {
+               // The stack's polyphase layout (PsfKernelPlanes::SplatSums): the same numbers.
+               const float* prow = plan.P + static_cast<size_t>(r0 + j) * os * qw;
+               for (int i = iLo; i < iHi; ++i)
+               {
+                  const int c = c0 + i;
+                  row += st.wx[i] * prow[static_cast<size_t>(c % os) * qw + c / os];
+               }
+            }
             sum += st.wy[j] * row;
          }
          rowOut[st.x0 + dx] += static_cast<double>(static_cast<float>(sign * sum));
@@ -5065,8 +5078,16 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       {
          if (psfOk && !ScopePsfKernel(spec, g.lambdaNm, g.kernel, psfErr))
             psfOk = false;
-         if (psfOk)
+         // The splat's block sums only for a group that splats blinks (made here, before the frames' parallel loops;
+         // a WideField label's mean field reads the planes alone; per-dye populations: below).
+         const LabelPhysics& L = S.labels[static_cast<size_t>(g.structure)];
+         if (psfOk && !g.pre && L.mode != MODE_WIDEFIELD && !g.allMf)
+         {
+            g.kernel.PrepareSplat();
             g.blinkKernel = WithHaloCut(g.kernel, ScopeSpecGet(spec, "psf-halo-cut"));
+         }
+         else if (psfOk)
+            g.blinkKernel = g.kernel;
       }
       psfSec = TimingSince(tk);
    };
@@ -5245,6 +5266,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          F.sigmaPx = GaussianSigmaPx(F.lambdaNm, ScopeSpecGet(spec, "na"), pixelNm);
          if (F.kernel.valid)
          {
+            F.kernel.PrepareSplat();   // the bead splats read the block sums in parallel bands
             F.B = BeadKernelFor(F.kernel, pixelNm);
             // The halo: the point PSF at the component's wavelength over a window twice the FOV, one sample per pixel.
             PsfGeneratorRequest hr;
@@ -5402,6 +5424,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    {
       if (!p.needWindows)
          continue;   // mean-field to the end (or no dye left): no windows needed
+      m.groups[p.group].kernel.PrepareSplat();   // (per-dye frames splat its dyes)
       if (m.map)
       {
          // The map's windows in T (the initial ON ends on its dye's dose, the pre state at its activation; a DOSE dye

@@ -397,7 +397,6 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
    outCache.interpMode = req.interpMode;
    PsfKernelPlanes d;
    d.planes = std::move(planes);
-   d.blockSums.assign(static_cast<size_t>(g.nz), std::vector<float>());
    outCache.blockSumWidth = g.size + g.oversampling - 1;
    ParallelFor(static_cast<unsigned>(g.nz), [&](unsigned z) {
       std::vector<float>& plane = d.planes[z];
@@ -408,11 +407,9 @@ bool BuildZernikePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& 
       if (sum > 0.0)
          for (float& v : plane)
             v = static_cast<float>(v / sum);
-      d.blockSums[z] = BuildBlockSums(plane.data(), g.size, g.oversampling);
    });
-   BuildPolyphaseSums(d, outCache.blockSumWidth, g.oversampling);
-   outCache.SetData(std::move(d));
-   TimingLog("psf.normalize+block-sums", TimingSince(tSums));
+   outCache.SetData(std::move(d));   // the splat's block sums: on first use (PsfKernelPlanes::Sums)
+   TimingLog("psf.normalize", TimingSince(tSums));
    outCache.valid = true;
    return true;
 }

@@ -86,7 +86,8 @@ DESCRIBE = {
     "gpu.splat+noise": "GPU: splat, noise and readback",
     "psf.compute": "PSF kernel computed",
     "psf.zernike-planes": "PSF: pupil -> planes (chirp-Z)",
-    "psf.normalize+block-sums": "PSF: normalise, block sums for the splat",
+    "psf.normalize": "PSF: normalise the planes",
+    "psf.block-sums": "PSF: block sums for the splat (first splat of a kernel)",
     "init.camera": "Camera Initialize",
     "init.preload (background)": "PSF preload thread at init",
 }

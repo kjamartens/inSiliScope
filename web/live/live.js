@@ -493,7 +493,7 @@ const PHASES = [
   ['bf.image', 'BrightField image', 2], ['bf.frame.noise', 'BrightField noise', 2], ['bf.frame.onFrame', 'BrightField hand-over', 2],
   ['bf.focus-cached', 'BrightField focus (cached)', 2], ['bf.prefetch-image', 'BrightField prefetch', 2],
   ['psf.compute', 'PSF kernel (compute)', 1], ['psf.zernike-planes', 'PSF planes', 2],
-  ['psf.normalize+block-sums', 'PSF normalize, block sums', 2], ['psf.memo-hit', 'PSF kernel (memo)', 1],
+  ['psf.normalize', 'PSF normalize', 2], ['psf.block-sums', 'PSF block sums', 2], ['psf.memo-hit', 'PSF kernel (memo)', 1],
   ['psf.disk-hit', 'PSF kernel (disk)', 1],
 ];
 const KNOWN = new Set(PHASES.map(r => r[0]));

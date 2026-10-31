@@ -638,7 +638,6 @@ bool ComputePsfKernelCacheJvm(const PsfGeneratorRequest& req, PsfKernelCache& ou
       outCache.interpMode = req.interpMode;
       PsfKernelPlanes d;
       d.planes.assign(static_cast<size_t>(nz), std::vector<float>(planeFloats));
-      d.blockSums.assign(static_cast<size_t>(nz), std::vector<float>());
       outCache.blockSumWidth = size + oversampling - 1;
       for (int z = 0; z < nz; ++z)
       {
@@ -652,9 +651,7 @@ bool ComputePsfKernelCacheJvm(const PsfGeneratorRequest& req, PsfKernelCache& ou
          if (sum > 0.0)
             for (float& v : plane)
                v = static_cast<float>(v / sum);
-         d.blockSums[static_cast<size_t>(z)] = BuildBlockSums(plane.data(), size, oversampling);
       }
-      BuildPolyphaseSums(d, outCache.blockSumWidth, oversampling);
       outCache.SetData(std::move(d));
       outCache.valid = true;
       ok = true;
@@ -764,9 +761,6 @@ bool LoadKernelFromDisk(const PsfGeneratorRequest& req, PsfKernelCache& out)
       if (!in)
          return false;
    }
-   d.blockSums.assign(static_cast<size_t>(nz), std::vector<float>());
-   ParallelFor(static_cast<unsigned>(nz), [&](unsigned z) { d.blockSums[z] = BuildBlockSums(d.planes[z].data(), size, os); });
-   BuildPolyphaseSums(d, bw, os);
    out = PsfKernelCache();
    out.oversampling = os;
    out.halfWidthOversampled = half;
@@ -983,10 +977,13 @@ void AddPsfStackMemory(MemoryReport& r, const PsfKernelCache& c)
    double planes = 0.0, sums = 0.0;
    for (const auto& p : c.data->planes)
       planes += VectorBytes(p);
-   for (const auto& p : c.data->blockSums)
-      sums += VectorBytes(p);
-   for (const auto& p : c.data->polySums)
-      sums += VectorBytes(p);
+   if (c.data->sums && c.data->sums->built.load())
+   {
+      for (const auto& p : c.data->sums->block)
+         sums += VectorBytes(p);
+      for (const auto& p : c.data->sums->poly)
+         sums += VectorBytes(p);
+   }
    r.Add("psf.planes", planes);
    r.Add("psf.splat-sums", sums);
 }
@@ -1059,12 +1056,53 @@ std::vector<float> BuildPolyphaseSums(const float* blockSums, int bw, int os)
    return out;
 }
 
-void BuildPolyphaseSums(PsfKernelPlanes& d, int bw, int os)
+const PsfKernelPlanes::SplatSums& PsfKernelPlanes::Sums() const
 {
-   d.polySums.assign(d.blockSums.size(), std::vector<float>());
-   ParallelFor(static_cast<unsigned>(d.blockSums.size()), [&](unsigned z) {
-      d.polySums[z] = BuildPolyphaseSums(d.blockSums[z].data(), bw, os);
+   std::call_once(sums->once, [&] {
+      const auto t0 = TimingClock::now();
+      const int os = std::max(1, oversampling), bw = blockSumWidth, n = bw - os + 1;
+      const size_t nz = planes.size();
+      const bool poly = bw > 0 && bw % os == 0;
+      (poly ? sums->poly : sums->block).assign(nz, std::vector<float>());
+      ParallelFor(static_cast<unsigned>(nz), [&](unsigned z) {
+         std::vector<float> B = BuildBlockSums(planes[z].data(), n, os);
+         if (poly)
+            sums->poly[z] = BuildPolyphaseSums(B.data(), bw, os);
+         else
+            sums->block[z] = std::move(B);
+      });
+      sums->built = true;
+      TimingLog("psf.block-sums", TimingSince(t0));
    });
+   return *sums;
+}
+
+std::vector<float> BlockSumsView::RowMajor() const
+{
+   if (B)
+      return std::vector<float>(B, B + static_cast<size_t>(bw) * bw);
+   std::vector<float> out(P ? static_cast<size_t>(bw) * bw : 0);
+   if (P)
+      for (int r = 0; r < bw; ++r)
+         for (int c = 0; c < bw; ++c)
+            out[static_cast<size_t>(r) * bw + c] = At(r, c);
+   return out;
+}
+
+BlockSumsView PsfKernelCache::BlockSums(int z) const
+{
+   BlockSumsView v;
+   if (!data || z < 0 || static_cast<size_t>(z) >= data->planes.size())
+      return v;
+   const PsfKernelPlanes::SplatSums& s = data->Sums();
+   v.bw = data->blockSumWidth;
+   v.os = std::max(1, data->oversampling);
+   v.qw = v.bw / v.os;
+   if (!s.poly.empty())
+      v.P = s.poly[static_cast<size_t>(z)].data();
+   else
+      v.B = s.block[static_cast<size_t>(z)].data();
+   return v;
 }
 
 namespace {
@@ -1074,6 +1112,8 @@ std::atomic<uint64_t> g_kernelSerial{0};
 void PsfKernelCache::SetData(PsfKernelPlanes&& d)
 {
    d.serial = ++g_kernelSerial;
+   d.oversampling = std::max(1, oversampling);
+   d.blockSumWidth = blockSumWidth > 0 ? blockSumWidth : sizeOversampled + d.oversampling - 1;
    data = std::make_shared<const PsfKernelPlanes>(std::move(d));
 }
 
@@ -1084,14 +1124,17 @@ namespace {
 // taps i < nTaps; over every sub-pixel position and interpolation (bx in
 // [kc - os - 1, kc] with kc = halfOv, SplatSetup) that is
 // [kc - 2 + dx*os, kc + os + 1 + dx*os]; rows likewise.
-void HaloPlaneSpans(const float* B, int bw, int os, int halfOv, int camRad, double thr, int16_t* lo, int16_t* hi,
+void HaloPlaneSpans(const BlockSumsView& B, int halfOv, int camRad, double thr, int16_t* lo, int16_t* hi,
                     long& kept, int32_t& radius2)
 {
-   const int n = 2 * camRad + 1;
+   const int n = 2 * camRad + 1, bw = B.bw, os = B.os;
    std::vector<float> colMax(static_cast<size_t>(bw) * n);   // [r][dx]: max over the pixel's columns
+   std::vector<float> rowBuf(static_cast<size_t>(bw));
    for (int r = 0; r < bw; ++r)
    {
-      const float* row = B + static_cast<size_t>(r) * bw;
+      for (int c = 0; c < bw; ++c)
+         rowBuf[c] = B.At(r, c);
+      const float* row = rowBuf.data();
       for (int dx = -camRad; dx <= camRad; ++dx)
       {
          const int c0 = std::max(0, halfOv - 2 + dx * os), c1 = std::min(bw - 1, halfOv + os + 1 + dx * os);
@@ -1136,7 +1179,7 @@ PsfKernelCache WithHaloCut(const PsfKernelCache& cache, double threshold)
    out.halo.reset();
    const int os = std::max(1, cache.oversampling);
    const int camRad = cache.halfWidthOversampled / os;
-   if (!(threshold > 0.0) || !cache.valid || cache.BlockSums().size() != static_cast<size_t>(cache.nz) ||
+   if (!(threshold > 0.0) || !cache.valid || cache.Planes().size() != static_cast<size_t>(cache.nz) ||
        camRad < 1 || camRad > 16000)
       return out;
    static std::mutex mutex;
@@ -1165,8 +1208,9 @@ PsfKernelCache WithHaloCut(const PsfKernelCache& cache, double threshold)
    // reads by 1.25^2: the spans keep a margin for it.
    const double overshoot =
       cache.interpMode == PsfInterpMode::Cubic || cache.interpMode == PsfInterpMode::Fft ? 1.5625 : 1.0;
+   cache.PrepareSplat();
    ParallelFor(static_cast<unsigned>(cache.nz), [&](unsigned z) {
-      HaloPlaneSpans(cache.BlockSums()[z].data(), cache.blockSumWidth, os, cache.halfWidthOversampled, camRad,
+      HaloPlaneSpans(cache.BlockSums(static_cast<int>(z)), cache.halfWidthOversampled, camRad,
                      threshold / overshoot, h->lo.data() + z * n, h->hi.data() + z * n, kept[z], h->radius2[z]);
    });
    double sum = 0.0;
@@ -1372,17 +1416,20 @@ bool PlanSplat(const PsfKernelCache& cache, int zIndex, double xPx, double yPx, 
 {
    if (!cache.valid || totalPhotons <= 0.0)
       return false;
-   if (zIndex < 0 || zIndex >= cache.nz || cache.BlockSums().size() != static_cast<size_t>(cache.nz))
+   if (zIndex < 0 || zIndex >= cache.nz || cache.Planes().size() != static_cast<size_t>(cache.nz))
       return false;
 
    const int os = std::max(1, cache.oversampling);
    const int n = cache.sizeOversampled;
-   const std::vector<std::vector<float>>& poly = cache.PolySums();
    plan.zIndex = zIndex;
-   plan.B = cache.BlockSums()[static_cast<size_t>(zIndex)].data();
+   plan.B = nullptr;
    plan.P = nullptr;
-   if (poly.size() == static_cast<size_t>(cache.nz) && !poly[static_cast<size_t>(zIndex)].empty())
-      plan.P = poly[static_cast<size_t>(zIndex)].data();
+   if (interpMode != PsfInterpMode::Fft)
+   {
+      const BlockSumsView v = cache.BlockSums(zIndex);   // the plane's sums in the stack's one layout
+      plan.B = v.B;
+      plan.P = v.P;
+   }
    if (interpMode == PsfInterpMode::Fft)
    {
       // Align the shared sub-cell fraction onto the grid with ONE Fourier
