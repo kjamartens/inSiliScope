@@ -4091,9 +4091,12 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    if (slot.has && slot.scene.AccelTooBig())
       slot.accelTooBig = true;
    // A structured pattern's scenes stay on the CPU: the GPU hosts keep their plane spectra per scene geometry, not
-   // per plane factor (a state's fringes would be another state's; M4 makes the states resident).
-   const bool cpuScene = shifts || slot.accelTooBig || S.excite.Patterned();   // (an accelerator the scene does not use)
-   const bool sceneGpu = gpuMode || (accel != nullptr && !cpuScene);
+   // per plane factor (a state's fringes would be another state's; M4 makes the states resident). In GPU mode (the
+   // viewer's WebGPU movie) too (2026-10-31): a state's images made at once and its spectra let go, as live does --
+   // deferred, every state kept its spectra for the host, and the CPU's images of 13-15 states passed the 2 GB heap.
+   const bool patterned = S.excite.Patterned();
+   const bool cpuScene = shifts || slot.accelTooBig || patterned;   // (an accelerator the scene does not use)
+   const bool sceneGpu = (gpuMode && !patterned) || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {
       slot.scene = WidefieldScene();
@@ -4148,7 +4151,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    slot.scene.SetAsyncBasis(cache.live && g_liveAsyncBasis.load());
    // GPU mode: the images wait for the GPU host (SetMeanFieldImages), a weighted scene's those of its basis (below; not
    // a blink population's: its weights change every frame).
-   nd.deferred = gpuMode && !shifts && !(p.weighted && p.state == ISC_STATE_BLINK);
+   nd.deferred = gpuMode && sceneGpu && !shifts && !(p.weighted && p.state == ISC_STATE_BLINK);
    slot.scene.SetDeferImages(nd.deferred);
    // A shaped excitation: each dye plane's factor per cell.
    if (shaped)
@@ -4257,7 +4260,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
          TimingLog("fl.mean-field-render", TimingSince(tW));
       }
    }
-   else if (!gpuMode || anchor)
+   else if (!gpuMode || !sceneGpu || anchor)
       TakeImage(p, ni);
    if (varies && !nd.deferred)
       slot.scene.ReleaseSpectra();   // (a stepping pattern: the images stay, the spectra go; above)
@@ -5521,10 +5524,11 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       {
          if (!m.BuildMeanField(p, err))
             return false;
-         // (A weighted scene's images wait for the GPU only when its basis was made for it: deferred.)
+         // (A weighted scene's images wait for the GPU only when its basis was made for it: deferred; a CPU scene's,
+         // a structured pattern's, are made.)
          if (gpuMode)
             for (size_t j = 0; j < p.mf.size(); ++j)
-               if (!p.weighted || p.mf[j].deferred)
+               if (p.mf[j].slot->gpuMode && (!p.weighted || p.mf[j].deferred))
                   m.sceneQueue.push_back({ &p, j });
       }
    m.imagerPerFrame = 0;
