@@ -107,10 +107,11 @@
   #lv_scale,#lv_idle{position:absolute;color:#dfe6ee;font-size:11px;pointer-events:none;text-shadow:0 0 3px #000}
   #lv_perfNote{font-size:10px;line-height:1.35;color:var(--muted);margin-bottom:3px;overflow-wrap:anywhere}
   #lv_perfNote:empty{display:none}
-  #lv_perfOut{font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
-  #lv_perfOut .tot{color:var(--text);font-weight:600}
+  #lv_perfOut,#lv_memOut{font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
+  #lv_memOut{margin-top:4px}
+  #lv_perfOut .tot,#lv_memOut .tot{color:var(--text);font-weight:600}
   #lv_perfOut .sub{padding-left:8px}
-  #lv_perfOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
+  #lv_perfOut span:nth-child(2n),#lv_memOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
   input[readonly]{opacity:.75;cursor:default}
   #lv_scale{bottom:6px;right:8px;text-align:center}
   /* the zoom inset: the image's outline, the part shown, the factor */
@@ -548,7 +549,7 @@
           <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
         </div>
         <div class="lc t-expert" id="lv_perfBox" title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display (shown at the Expert level)"><h5>Performance</h5>
-          <div id="lv_perfNote"></div><div id="lv_perfOut"></div></div>
+          <div id="lv_perfNote"></div><div id="lv_perfOut"></div><div id="lv_memOut"></div></div>
     </div>
     </div>
   </div>
@@ -4441,29 +4442,82 @@ function initGenWorkers() {
         : e.data.type === 'fiducials' ? onFiducialsResult(e.data) : onCellResult(i, e.data));
       genWorkers.cells.push(w); genWorkers.busy.push(null);
     }
-    genWorkers.dyes = spawnGenWorker();
-    genWorkers.dyes.onmessage = e => {
-      const t = e.data.type;
-      if (t === 'movie') onMovieResult(e.data);
-      else if (t === 'events') onEventsResult(e.data);
-      else if (t === 'movie-progress') onMovieProgress(e.data);
-      else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
-      else if (t === 'illum') onIllumResult(e.data);
-      else if (t === 'bf-begin') onBfBegin(e.data);
-      else if (t === 'origami') onOrigamiResult(e.data);
-      else if (t === 'options') {
-        // the engine's options by name: default, settings-file part, value names (web/live/settings_file.js)
-        self.ISC_ENGINE_OPTIONS = new Map(e.data.names.map((n, i) => [n, { def: e.data.defaults[i], part: e.data.parts[i], names: e.data.valueNames[i] }]));
-        if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults);
-      }
-      else if (t === 'setup') onSetupResult(e.data);
-      else if (t !== 'bf-end') onDyeResult(e);
-    };
+    genWorkers.dyes = spawnDyesWorker();
     genWorkers.ok = true;
     flushSetupWaiting();
     genWorkers.dyes.postMessage({ type: 'options', id: 0 });
     schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
+}
+// A worker's error in words: an aborted engine is out of memory (its WebAssembly heap has a cap and never shrinks).
+function workerErrorText(msg) {
+  return /Aborted|out of memory|Cannot enlarge memory/i.test(msg || '')
+    ? 'out of memory: the engine needed more than its WebAssembly heap allows, and was restarted. A coarser pixel ' +
+      'size, a smaller field, fewer labelled targets or a shorter PSF z range need less.'
+    : (msg || 'the worker failed');
+}
+// The movie worker (genWorkers.dyes) with its jobs in flight, by reply type and id: when it dies (2026-10-31: an
+// out-of-memory abort in a movie job) it is replaced alone -- a fresh heap -- and its jobs are answered with the
+// error, instead of moving the whole engine to the main thread, where the same job would abort the page.
+const dyesInflight = new Map();
+const DYES_REPLY = { 'bf-movie': 'movie' };
+function spawnDyesWorker() {
+  const w = spawnGenWorker(), post = w.postMessage.bind(w);
+  w.answered = false;
+  w.postMessage = (m, t) => {
+    if (m && m.id !== undefined && m.type !== 'init') dyesInflight.set((DYES_REPLY[m.type] || m.type) + ':' + m.id, m);
+    post(m, t);
+  };
+  w.onmessage = e => {
+    const d = e.data;
+    w.answered = true;
+    if (d && d.id !== undefined && !/-progress$/.test(d.type)) dyesInflight.delete(d.type + ':' + d.id);
+    onDyesMessage(e);
+  };
+  w.onerror = e => {
+    // Never answered: the worker cannot run here (the old fallback, the core on the main thread).
+    if (!w.answered) { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); return; }
+    e.preventDefault();
+    onDyesWorkerDied(w, e.message);
+  };
+  return w;
+}
+function onDyesWorkerDied(w, msg) {
+  if (genWorkers.dyes !== w) return;
+  const error = workerErrorText(msg);
+  console.warn('the movie worker failed and was restarted:', msg);
+  w.terminate();
+  const jobs = [...dyesInflight.values()];
+  dyesInflight.clear();
+  genWorkers.dyes = spawnDyesWorker();
+  dyePending = null; oriPending = null;   // (asked again by the next draw)
+  for (const j of jobs) {
+    if (j.type === 'movie' || j.type === 'bf-movie') onMovieResult({ type: 'movie', id: j.id, error, prepared: !!j.prepare });
+    else if (j.type === 'bf-begin') onBfBegin({ type: 'bf-begin', id: j.id, h: -1, error });
+    else if (j.type === 'events') onEventsResult({ type: 'events', id: j.id, error });
+    else if (j.type === 'psf') onPsfResult({ type: 'psf', id: j.id, error });
+    else if (j.type === 'illum') onIllumResult({ type: 'illum', id: j.id, error });
+    else if (j.type === 'setup') onSetupResult({ type: 'setup', id: j.id, error });
+    else if (j.type === 'options') genWorkers.dyes.postMessage(j);
+  }
+  requestDraw();
+}
+function onDyesMessage(e) {
+  const t = e.data.type;
+  if (t === 'movie') onMovieResult(e.data);
+  else if (t === 'events') onEventsResult(e.data);
+  else if (t === 'movie-progress') onMovieProgress(e.data);
+  else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
+  else if (t === 'illum') onIllumResult(e.data);
+  else if (t === 'bf-begin') onBfBegin(e.data);
+  else if (t === 'origami') onOrigamiResult(e.data);
+  else if (t === 'options') {
+    // the engine's options by name: default, settings-file part, value names (web/live/settings_file.js)
+    self.ISC_ENGINE_OPTIONS = new Map(e.data.names.map((n, i) => [n, { def: e.data.defaults[i], part: e.data.parts[i], names: e.data.valueNames[i] }]));
+    if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults);
+  }
+  else if (t === 'setup') onSetupResult(e.data);
+  else if (t !== 'bf-end') onDyeResult(e);
 }
 function disableGenWorkers() {
   genWorkers.ok = false;

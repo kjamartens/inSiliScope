@@ -120,7 +120,7 @@ function worker() {
   L.worker = spawnGenWorker();
   L.worker.onmessage = e => onResult(e.data);
   // a failure here stops live only (the shared handler would move every worker to the main thread)
-  L.worker.onerror = e => { e.preventDefault(); L.err = e.message || 'the live worker failed'; L.pending = null; L.worker.terminate(); L.worker = null; L.worldKey = null; setLive(false); };
+  L.worker.onerror = e => { e.preventDefault(); L.err = workerErrorText(e.message || 'the live worker failed'); L.pending = null; L.worker.terminate(); L.worker = null; L.worldKey = null; setLive(false); };
   return L.worker;
 }
 // The live session follows the sample: a new world (seed, cell or specimen parameters) is a fresh sample, as the
@@ -522,17 +522,18 @@ function showPerf() {
   row('to and from the worker', P.workerMs !== undefined ? Math.max(0, P.roundMs - P.workerMs) : undefined, 1);
   row('display (image, histogram)', P.paintMs !== undefined ? P.paintMs + (P.histMs || 0) : undefined, 0, 'tot');
   row('wait (paced to the exposure)', L.on ? P.waitMs || 0 : undefined, 0, 'tot');
-  // Memory (MemoryReport.h): the live worker's heap (it never shrinks: its high-water mark; 2 GB at most) and what the
-  // engine's caches hold, the largest owners.
-  const M = P.memory;
+  // Memory (MemoryReport.h): the live worker's heap (it never shrinks: its high-water mark) and what the
+  // engine's caches hold, the largest owners; a block of its own under the times (its rows come and go with the owners).
+  const M = P.memory, mem = [];
   if (M) {
     const mb = v => (v >= 1000 ? (v / 1024).toFixed(2) + ' GB' : v.toFixed(0) + ' MB');
-    rows.push(`<span class="tot" title="The live worker's WASM heap: it never shrinks, so this is its high-water mark">memory: worker heap</span><span class="tot">${mb(M.heapMB)}</span>`);
-    rows.push(`<span style="padding-left:8px">engine caches</span><span>${mb(M.totalMB)}</span>`);
+    mem.push(`<span class="tot" title="The live worker's WASM heap: it never shrinks, so this is its high-water mark">memory: worker heap</span><span class="tot">${mb(M.heapMB)}</span>`);
+    mem.push(`<span style="padding-left:8px">engine caches</span><span>${mb(M.totalMB)}</span>`);
     for (const [name, v] of M.owners.slice(0, 6)) if (v >= 1)
-      rows.push(`<span style="padding-left:16px">${name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span><span>${mb(v)}</span>`);
+      mem.push(`<span style="padding-left:16px">${name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span><span>${mb(v)}</span>`);
   }
   out.innerHTML = rows.join('');
+  $('lv_memOut').innerHTML = mem.join('');
 }
 // the performance box shows at the Expert level (a frame taken there is profiled; a snap fills it)
 new MutationObserver(() => { showPerf(); showPerfNote(); if (expert() && !L.on && !REC.on && L.frame && !L.pending) request(); })

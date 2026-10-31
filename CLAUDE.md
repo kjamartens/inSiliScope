@@ -190,6 +190,8 @@ that finishes them.
   ~35 s), `viewer_live_record.mjs` (browser: the one-line info, the square
   image, the fixed performance rows at Expert, ● Record played in the live view and its saved TIFF stack: pages, header,
   pixel size, the sample's time), `viewer_mobile.mjs` (browser, phone size with touch: layout, focus knob and gestures, the inset swap, back to wide),
+  `viewer_oom.mjs` (browser, ~9 s: the movie worker's out-of-memory abort answers its jobs and replaces that worker alone;
+  the next movie renders),
   `viewer_splitter.mjs` (browser, 8 s: a dragged splitter width over a reload, the world canvases measured at it),
   `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, the lamina layer),
