@@ -156,6 +156,7 @@ function onResult(d) {
   L.t = d.t !== undefined ? d.t : L.t + exposureSec();
   L.clock = d.clock;
   L.drift = d.drift;
+  L.pattern = d.pattern || null;
   L.engine = d.engine;
   L.paths = d.paths || null;
   L.perf = { roundMs: L.ms, workerMs: d.workerMs, profile: d.profile || null };
@@ -440,7 +441,8 @@ function showInfo() {
     : REC.on ? `● recording ${REC.got}/${REC.n}` + size
     : REC.msg && !L.on ? REC.msg
     : !L.frames ? (L.on ? 'starting…' : '')
-    : (L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + L.ms.toFixed(1) + ' ms/frame' + size;
+    : (L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + L.ms.toFixed(1) + ' ms/frame' + size +
+      (L.pattern ? ` · pattern ${L.pattern.frame % L.pattern.period + 1}/${L.pattern.period}` : '');
   el.textContent = text;
   el.title = text;
   showPerfNote();
@@ -455,6 +457,7 @@ function showPerfNote() {
   if (how) lines.push('render: ' + how);
   lines.push(`sample time ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : ''));
   if (L.drift && L.drift.some(v => Math.abs(v) >= 0.5)) lines.push(`drift ${L.drift.map(v => v.toFixed(0)).join(', ')} nm`);
+  if (L.pattern) lines.push(`pattern: angle ${L.pattern.angle}, phase ${L.pattern.phase} (frame ${L.pattern.frame % L.pattern.period} of ${L.pattern.period})`);
   el.innerHTML = lines.map(s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('<br>');
 }
 // How the frame was drawn (LiveScope's render paths, spec/ALGORITHM.md "Blink render regimes"): blinks splatted one by
@@ -612,7 +615,7 @@ function onRecChunk(d, job) {
     REC.engineMs += d.workerMs || 0;
   }
   L.err = '';
-  L.t = d.t; L.clock = d.clock; L.drift = d.drift; L.engine = d.engine; L.paths = d.paths || null;
+  L.t = d.t; L.clock = d.clock; L.drift = d.drift; L.pattern = d.pattern || null; L.engine = d.engine; L.paths = d.paths || null;
   const s = (performance.now() - REC.t0) / 1000;
   L.ms = REC.got ? s * 1000 / REC.got : 0;
   L.frames++;

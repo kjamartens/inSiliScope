@@ -148,6 +148,8 @@ function setKey(k, raw, note) {
   if (k === 'world-seed' || k === 'psf-kernel-half-width-nm') return;
   const zj = /^zern\.(\d+)$/.exec(k);
   if (zj && self.ISC_ZERN) { self.ISC_ZERN.set(+zj[1], v); return; }   // (the seed's; the viewer's own 3 um: checked after)
+  const bj = /^beam\.(\d+)\.([A-Za-z]+)$/.exec(k);
+  if (bj && self.ISC_BEAMS) { const c = ['ux', 'uy', 'spot', 'tiltX', 'tiltY', 'amp', 'phase', 'pol', 'ellip', 'phaseStep', 'nm'].indexOf(bj[2]); if (c >= 0) self.ISC_BEAMS.set(+bj[1], c, v); return; }
   if (k === 'qe-curve') {
     const flat = v === CUSTOM_CAMERA();
     setControl($('qeFlat'), flat, note);

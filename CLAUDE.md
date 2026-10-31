@@ -432,10 +432,28 @@ choice): the light history records one chapter per beam set with a grid per comp
 terms with (sx, sy) shears; no core ABI change); the emission uses each frame's exact pattern (the events' `excite` per
 frame, the per-dye windows re-splatted, one mean-field scene per pattern state (`MeanFieldNode::patternState`, slots
 per state), the background's flat part per state, the beads' `FiducialMovie::frameScale`); the adapter's GPU splat is
-off under a varying pattern. cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
+off under a varying pattern; the beads at the pattern averaged over their volume (`Pattern::BallMean`,
+`Excitation::AtBall` / `DcAtBall`, 2026-10-31), the slide with the frame's fringes through the PSF's OTF per height
+(`SlideFringes`, `Impl::SlideFringesFor`, the OTF cache `SlideOtf`); a mean-field state scene keeps its images and
+not its spectra (`WidefieldScene::ReleaseSpectra`), the states share the dye tiles and the kernel spectra
+(`ShareKernels`, a `KernelStore` under a mutex; 13 scenes at a 40 nm pixel aborted the viewer). cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
 `pattern_xy`. Checks: ctest `sim_pattern` (~8 s), `history_check` (SIM3D, TIRF-SIM), `live_scope` (the counter, a SIM
-mode). Not yet (M2/M3): the MM rows and counter, the viewer's rows, readout and illumination preview, the figures and
-gallery, the GPU mean field under a pattern.
+mode). MM: `Lasers.Pattern` (Basic; the cap 31), `PatternPolarization` .. `PatternCentreAmp` (Advanced), `Beams` and
+the drift (Expert), `Objective.TubeLengthMm`; the counter `Stg().patternFrame` (`PatternFrame` read-only, `PatternRestart`
+Sequence / Never, `PatternState`, `PatternPeriodNm`): a sequence's frames count at publish, a snap's when taken, the
+producer waits for each frame to be taken under a pattern (`liveSeqWaitTake_`, as a z sequence), render-ahead batches
+take `frame0` = the counter + the queued frames; each live frame's metadata carries the index it was rendered with
+(`inSiliScope-PatternFrame`, `LitFrame::patternFrame`, `takenPatternFrame_`: what a reconstruction needs per frame);
+a frame is the acquisition's as of its publish (`seqFrameNow`: a frame in flight across a stop and a new start used
+to step the new sequence's program and light although the consumer skips it as stale -- the SIM sequence began at 1); `tools/test_sim.py` (26 s: the rows, the fringe's Fourier peak and
+2 pi / 3 steps on the difference image, the restart, the cycle sum = 2 x 9 x Off). Viewer: `mv_sim-type` (Basic, a pick
+counted as `pattern`), the readout `#patternReadout`, the `simBeams` matrix (Expert, `beam.<j>.<col>` in the spec),
+**Preview illumination** (Basic+, as Preview PSF now; `web/live/illum_preview.js` + the `illum` worker job on
+`isc_illum_preview`, the beam record 9 floats with the ellipticity: a circular beam drawn as a circular arrow), the live
+info's pattern state (`info[13..16]`); `web/illumination.html` = the docs' interactive figure (an iframe in the physics
+page, copied beside the viewer by `build_site.sh`); `tests/web/viewer_sim.mjs`. LatticeSIM3D's centre beam is
+circular under S and P (the user's choice). Figures `sim-patterns`, `sim-cycle`, `sim-spot`; gallery `sim-2d`,
+`sim-3d`, `sim-lattice-3d`. Not yet: the GPU mean field under a pattern, the exact per-frame dose.
 
 **Exact light history (2026-10-15/16, core ABI 14, spec/ALGORITHM.md "Exact light history", spec/PORT.md 23; branch
 `claude/exact-dose`):** every dye of every consumer reads its kinetics at the dose at its own (x, y, z), smooth in all

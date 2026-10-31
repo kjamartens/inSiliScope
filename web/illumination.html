@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Illumination preview</title>
+<!-- The docs' interactive illumination figure (docs/physics/dyes-and-light-path.md "Structured illumination"): the
+     light entering the objective's back focal plane and the pattern it makes in the sample, from the viewer's own
+     engine (web/insiliscope_module.js, isc_illum_preview) and drawing (web/live/illum_preview.js), with the type, the
+     BFP position, the polarization and the frame to pick. Embedded by the docs in an iframe; standalone too. -->
+<style>
+  :root{color-scheme:light dark;--fg:#ddd;--bg:#14181f;--line:rgba(255,255,255,.85)}
+  @media (prefers-color-scheme: light){:root{--fg:#222;--bg:#fff;--line:rgba(0,0,0,.75)}}
+  body{margin:0;padding:10px;font:13px/1.4 system-ui,sans-serif;color:var(--fg);background:var(--bg)}
+  .row{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-bottom:8px}
+  label{display:flex;align-items:center;gap:5px}
+  select,input[type=number]{font:inherit}
+  .views{display:flex;flex-wrap:wrap;gap:8px}
+  canvas{width:min(32vw,260px);height:auto;image-rendering:pixelated;background:#000;border:1px solid #555}
+  .sub{opacity:.8;font-size:12px}
+</style>
+</head>
+<body>
+<div class="row">
+  <label>Pattern <select id="type"><option value="0">Off (one beam)</option><option value="1" selected>SIM2D</option><option value="2">SIM3D</option><option value="3">LatticeSIM2D</option><option value="4">LatticeSIM3D</option></select></label>
+  <label>BFP position <input type="range" id="bfp" min="0" max="1.1" step="0.01" value="0.95"><span id="bfpVal">0.95</span></label>
+  <label>Polarization <select id="pol"><option value="0">S</option><option value="1">P</option><option value="2">Circular</option><option value="3">LinearX</option><option value="4">Unpolarized</option></select></label>
+  <label>Beam FWHM <input type="number" id="fwhm" min="10" max="300" step="5" value="100" style="width:4em"> % of the field</label>
+</div>
+<div class="row">
+  <label>Frame <input type="range" id="frame" min="0" max="8" step="1" value="0" style="width:180px"><span id="state"></span></label>
+  <span class="sub" id="note"></span>
+</div>
+<div class="views"><canvas id="bfpCv"></canvas><canvas id="xyCv"></canvas><canvas id="xzCv"></canvas></div>
+<p class="sub">From above: the pupil, the critical circle (dashed), the pupil edge (solid), each beam's spot ringed with its
+polarization as a bar (evanescent beams in blue). From below: the excitation on the focal plane over 1.5× a 12.8 µm
+field (the field framed). From the side: an x-z section through the axis, the coverslip at the bottom, 8 µm up. The 640 nm
+line, NA 1.40 in water (n 1.337).</p>
+<script src="insiliscope_module.js"></script>
+<script src="live/illum_preview.js"></script>
+<script>
+(async () => {
+  const $ = id => document.getElementById(id);
+  const note = $('note');
+  let M = null;
+  try {
+    // (The module as source text: evaluating it defines createInsiliscope, as the viewer does.)
+    (0, eval)(self.ISC_MODULE_SRC);
+    M = await createInsiliscope();
+  } catch (e) { note.textContent = 'the engine could not start: ' + e.message; return; }
+  const P = self.ISC_ILLUM_PREVIEW;
+  let busy = false, again = false;
+  async function draw() {
+    if (busy) { again = true; return; }
+    busy = true;
+    const type = $('type').value, bfp = +$('bfp').value, pol = $('pol').value, fwhm = +$('fwhm').value;
+    $('bfpVal').textContent = bfp.toFixed(2);
+    const spec = `size=128 pixel-nm=100 frames=1 illum-bfp=${bfp} illum-fwhm=${fwhm} sim-type=${type} sim-polarization=${pol} ` +
+      `npc-dye=None mt-mode=WideField laser-640=1 light-preset=-1 psf-kernel-half-width-nm=1500`;
+    const d = P.readIllumPreview(M, spec, +$('frame').value, 160, 96);
+    if (d.error) { note.textContent = d.error; busy = false; return; }
+    $('frame').max = Math.max(0, d.period - 1);
+    if (+$('frame').value > d.period - 1) $('frame').value = 0;
+    const line = getComputedStyle(document.documentElement).getPropertyValue('--line').trim();
+    P.drawIllumPreview(d, { bfp: $('bfpCv'), xy: $('xyCv'), xz: $('xzCv') }, { line, text: '#fff' });
+    $('state').textContent = P.illumPreviewCaption(d);
+    const u = d.beams.length ? Math.max(...d.beams.map(b => b.u)) : 0;
+    note.textContent = u > 1 ? 'the beams are evanescent (TIRF-SIM)' : u > 0 ? `the beams ${(Math.asin(Math.min(1, u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium` : 'epi: the beam straight up';
+    document.body.dataset.period = d.period;
+    document.body.dataset.beams = d.beams.length;
+    busy = false;
+    if (again) { again = false; draw(); }
+  }
+  for (const id of ['type', 'bfp', 'pol', 'fwhm', 'frame']) $(id).addEventListener('input', draw);
+  $('type').addEventListener('change', () => { const r = { '1': 0.95, '2': 0.9, '3': 0.9, '4': 0.9 }[$('type').value]; if (r) $('bfp').value = r; });
+  draw();
+})();
+</script>
+</body>
+</html>

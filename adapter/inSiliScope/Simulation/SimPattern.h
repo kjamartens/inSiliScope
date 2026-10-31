@@ -168,6 +168,13 @@ struct Pattern
    std::vector<double> PeriodsUm() const;
    // The intensity at r over the envelopes env[j] (sqrt(env_j env_l) for a fringe term).
    double At(double x, double y, double z, const double* env) const;
+   // At averaged over a ball of radius r (um) about (x, y, z), the envelopes those at the centre (a fiducial bead's
+   // volume, 2026-10-31: a bead wider than a fringe is never dark): per term the ball's form factor
+   // 3 (sin k - k cos k) / k^3 at k = r |(qx, qy, kz + i / decay)| (complex: the decay inside the ball), exact for
+   // the plane-wave terms (the coverslip's cut of the decay at z = 0 is not: the ball is taken whole).
+   double BallMean(double x, double y, double z, double r, const double* env) const;
+   // The same over the DC terms alone (j == l): the frame's beams' incoherent sum over the ball.
+   double DcBallMean(double z, double r, const double* env) const;
 };
 Pattern CompilePattern(const PatternState& st, double lambdaNm, double nS, double nI, double na, int polarization);
 

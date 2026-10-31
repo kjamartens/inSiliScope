@@ -207,7 +207,9 @@ Upcoming ideas:
   and orientation per frame), the kinetics on the cycle mean (the light history's components), the emission on each
   frame's pattern (blinks, per-dye windows, one mean-field scene per state, the background, the beads), cli
   `--sim-beams` and `<out>.pattern.csv`, the setup JSON's beams and pattern; ctest `sim_pattern`, `history_check`,
-  `live_scope`. Next: [ ] MM `Lasers.Pattern*` rows, the frame counter and `tools/test_sim.py`, [ ] the viewer's
-  rows, readout and the illumination preview (also as an interactive docs figure), figures `sim-patterns`,
-  `sim-cycle`, `sim-spot`, gallery `sim-*`, [ ] the GPU mean field under a pattern, [ ] the exact per-frame dose,
+  `live_scope`. [x] MM `Lasers.Pattern*` rows, the frame counter (`PatternFrame`, `PatternRestart`, the producer waits
+  for each frame to be taken under a pattern) and `tools/test_sim.py` (26 s); [x] the viewer's rows, readout and
+  **Preview illumination** (`web/live/illum_preview.js`, `isc_illum_preview`; `web/illumination.html` the docs'
+  interactive figure), the live info's pattern state, figures `sim-patterns`, `sim-cycle`, `sim-spot`, gallery
+  `sim-2d`, `sim-3d`, `sim-lattice-3d`, `tests/web/viewer_sim.mjs`. Next: [ ] the GPU mean field under a pattern, [ ] the exact per-frame dose,
   [ ] stroboscopic / every-n-th-frame programs on `FrameLight.scale`.

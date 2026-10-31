@@ -152,7 +152,20 @@ through it step by step.
   preset of every labelled target combined (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic and
   filter; the **BFP position** slider, 0 = epi, 1 = the critical angle, between HILO and above TIRF, with the regime and
   how deep the light reaches shown under it; the DNA-PAINT presets set HILO, the nanorulers TIRF; in Advanced the beam
-  profile, its width and the DNA-PAINT chamber height; [Dyes and light path](physics/dyes-and-light-path.md)). The preset is also the modality: "BrightField (lasers
+  profile, its width and the DNA-PAINT chamber height; [Dyes and light path](physics/dyes-and-light-path.md)). The
+  **Pattern** select makes the light several coherent beams in the back focal plane whose fringes step with the frame
+  (structured illumination: SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D or Custom; a pick sets the BFP position to the
+  type's radius and the polarization to S; the readout under it gives the fringe period and the frames per cycle; in
+  Advanced the polarization, the phases and orientations per cycle, their order, the first orientation, a phase
+  offset and the centre beam's amplitude; in Expert the phase drift and the **Beams** matrix: every beam of the
+  illumination in every mode, one row per beam, `ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm`, pre-filled
+  with the type's beams, which typed rows replace; the column table and worked examples are on the physics page under
+  [Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)). The live sample counts its
+  frames (the info line shows the frame's place in the cycle, the performance box its angle and phase), a recording
+  of a fresh sample starts at frame 0. **Preview illumination** sketches the light entering the objective's back
+  focal plane (from above: the pupil, the critical circle, each beam's spot with its size and polarization) and the
+  pattern it makes in the sample (from below: the focal plane over 1.5x the field; from the side: an x-z section
+  through the axis) for the current settings, with a slider through the frame program. The preset is also the modality: "BrightField (lasers
   off)" images transmitted light, every other preset fluorescence. The label stays
   available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
   own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
@@ -179,7 +192,7 @@ through it step by step.
   Aberrations preset's 28 coefficients in waves (OSA order 0-27), which you can type over (28 values, or 15 with the rest
   0); picking a preset replaces them again, as `Objective.ZernikeCoefficients` does in Micro-Manager. The
   kernel of the current PSF settings is computed in the background as soon as the page is ready and whenever those
-  settings change. In Advanced, **Preview PSF** shows that kernel in a player over the view: the oversampled kernel
+  settings change. **Preview PSF** shows that kernel in a player over the view: the oversampled kernel
   beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from the
   focal plane (its title bar drags it).
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`

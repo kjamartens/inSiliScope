@@ -413,23 +413,29 @@ double Excitation::MeanPlaneMean(double x, double y, double z0, double z1, const
    return s;
 }
 
+void Excitation::FrameEnvelopes(double x, double y, double z, std::vector<double>& env) const
+{
+   // The frame's envelopes: the state's beam j is the cycle component (angle index x N + j) rotated to the frame's
+   // angle; its envelope is that component's with the frame's azimuth. The components of angle `light.angle` are
+   // exactly the frame's beams (the same rotation), so use them.
+   const size_t N = state_.beams.size();
+   const size_t base = static_cast<size_t>(state_.light.angle) * N;
+   env.resize(N);
+   for (size_t j = 0; j < N; ++j)
+   {
+      const size_t cj = base + j < comps_.size() ? base + j : j;
+      env[j] = comps_[cj].clipped ? 0.0 : ComponentLateral(static_cast<int>(cj), x, y, z);
+   }
+}
+
 double Excitation::At(double x, double y, double z, const ExcitationShares& shares) const
 {
    if (!patterned_)
       return clipped_ ? 0.0 : F_ * Lateral(x, y, z) * Depth(z, shares);
    if (clipped_)
       return 0.0;
-   // The frame's envelopes: the state's beam j is the cycle component (angle index x N + j) rotated to the frame's
-   // angle; its envelope is that component's with the frame's azimuth. The components of angle `light.angle` are
-   // exactly the frame's beams (the same rotation), so use them.
-   const size_t N = state_.beams.size();
-   const size_t base = static_cast<size_t>(state_.light.angle) * N;
-   std::vector<double> env(N);
-   for (size_t j = 0; j < N; ++j)
-   {
-      const size_t cj = base + j < comps_.size() ? base + j : j;
-      env[j] = comps_[cj].clipped ? 0.0 : ComponentLateral(static_cast<int>(cj), x, y, z);
-   }
+   std::vector<double> env;
+   FrameEnvelopes(x, y, z, env);
    double s = 0.0;
    for (const ExcitationLine& l : shares)
    {
@@ -438,6 +444,36 @@ double Excitation::At(double x, double y, double z, const ExcitationShares& shar
          continue;
       s += l.share * p->At(x, y, z, env.data());
    }
+   return s;
+}
+
+double Excitation::AtBall(double x, double y, double z, double rUm, const ExcitationShares& shares) const
+{
+   if (!patterned_ || !(rUm > 0))
+      return At(x, y, z, shares);
+   if (clipped_)
+      return 0.0;
+   std::vector<double> env;
+   FrameEnvelopes(x, y, z, env);
+   double s = 0.0;
+   for (const ExcitationLine& l : shares)
+      if (const Pattern* p = PatternOf(l.nm))
+         s += l.share * p->BallMean(x, y, z, rUm, env.data());
+   return s;
+}
+
+double Excitation::DcAtBall(double x, double y, double z, double rUm, const ExcitationShares& shares) const
+{
+   if (!patterned_)
+      return At(x, y, z, shares);
+   if (clipped_)
+      return 0.0;
+   std::vector<double> env;
+   FrameEnvelopes(x, y, z, env);
+   double s = 0.0;
+   for (const ExcitationLine& l : shares)
+      if (const Pattern* p = PatternOf(l.nm))
+         s += l.share * p->DcBallMean(z, rUm, env.data());
    return s;
 }
 

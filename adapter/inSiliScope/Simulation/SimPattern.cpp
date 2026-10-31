@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -167,6 +168,13 @@ BeamSet MakeBeams(int type, double radiusU, int polarization, double centreAmp)
       break;
    case SIM_LATTICE_3D:
       beam(0, 0, centreAmp, 0);
+      // The centre beam circular under S and P (the user's choice, 2026-10-30): the x and y pairs do not interfere
+      // with each other, and the centre beam interferes with both alike.
+      if (polarization == SIM_POL_S || polarization == SIM_POL_P)
+      {
+         s.beams.back().polDeg = 45.0;
+         s.beams.back().ellipTurns = 0.25;
+      }
       beam(r, 0, 1, 2);
       beam(-r, 0, 1, -2);
       beam(0, r, 1, 3);
@@ -500,6 +508,49 @@ double Pattern::At(double x, double y, double z, const double* env) const
       s += t.amp * e;
    }
    return s;
+}
+
+namespace {
+// The mean of exp(i k . r) over the unit ball, for |k| = k (complex k allowed: a decaying wave).
+std::complex<double> BallFormFactor(std::complex<double> k)
+{
+   const std::complex<double> k2 = k * k;
+   if (std::abs(k) < 1e-3)
+      return 1.0 - k2 / 10.0 + k2 * k2 / 280.0;
+   return 3.0 * (std::sin(k) - k * std::cos(k)) / (k2 * k);
+}
+double BallMeanTerms(const std::vector<PatternTerm>& terms, bool dcOnly, double x, double y, double z, double r,
+                     const double* env)
+{
+   const std::complex<double> I(0.0, 1.0);
+   double s = 0.0;
+   for (const PatternTerm& t : terms)
+   {
+      const bool fringe = t.j != t.l;
+      if (dcOnly && fringe)
+         continue;
+      double e = fringe ? std::sqrt(env[t.j] * env[t.l]) : env[t.j];
+      if (!(e > 0))
+         continue;
+      const double sr = t.decayUm > 0 ? 1.0 / t.decayUm : 0.0;   // exp(-sr z) = Re exp(i (i sr) z)
+      const std::complex<double> kzc(fringe ? t.kz : 0.0, sr);
+      const std::complex<double> k = r * std::sqrt(std::complex<double>(fringe ? t.qx * t.qx + t.qy * t.qy : 0.0) + kzc * kzc);
+      const double theta = fringe ? t.qx * x + t.qy * y + t.kz * z + t.phase : 0.0;
+      const std::complex<double> v = std::exp(I * theta - sr * std::max(0.0, z)) * BallFormFactor(k);
+      s += t.amp * e * v.real();
+   }
+   return s;
+}
+} // namespace
+
+double Pattern::BallMean(double x, double y, double z, double r, const double* env) const
+{
+   return r > 0 ? BallMeanTerms(terms, false, x, y, z, r, env) : At(x, y, z, env);
+}
+
+double Pattern::DcBallMean(double z, double r, const double* env) const
+{
+   return BallMeanTerms(terms, true, 0.0, 0.0, z, std::max(0.0, r), env);
 }
 
 bool OrdersSeparate(const BeamSet& set, std::string& why)

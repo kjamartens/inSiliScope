@@ -75,6 +75,16 @@ ExcitationSpec SpecFor(const BeamSet& set, int profile = ILLUM_FLAT)
 // The explicit field sum, written out from the beams (not from the compiled terms): every beam's lab-frame complex
 // field vector x exp(i (k_par . r + kz z) + i phi) (evanescent: exp(-z / 2 d)), all summed, |.|^2; the envelopes left
 // out (Flat).
+// 12-point Gauss-Legendre nodes and weights on [-1, 1] (Abramowitz & Stegun 25.4.29).
+const double GL12[12][2] = {
+   { -0.9815606342467192, 0.0471753363865118 }, { -0.9041172563704749, 0.1069393259953184 },
+   { -0.7699026741943047, 0.1600783285433462 }, { -0.5873179542866175, 0.2031674267230659 },
+   { -0.3678314989981802, 0.2334925365383548 }, { -0.1252334085114689, 0.2491470458134028 },
+   { 0.1252334085114689, 0.2491470458134028 },  { 0.3678314989981802, 0.2334925365383548 },
+   { 0.5873179542866175, 0.2031674267230659 },  { 0.7699026741943047, 0.1600783285433462 },
+   { 0.9041172563704749, 0.1069393259953184 },  { 0.9815606342467192, 0.0471753363865118 }
+};
+
 double ExplicitPattern(const PatternState& st, double lambdaNm, double nS, double nI, double na, int polarization,
                        double x, double y, double z, bool forceS = false, bool forceP = false)
 {
@@ -148,6 +158,65 @@ void FringeChecks()
       }
       const double period = 0.64 / (2.0 * 1.337 * u);
       Check(std::fabs(ex.At(0.3 + period, 0.0, 0.05, sh) - ex.At(0.3, 0.0, 0.05, sh)) < 1e-9, "TIRF-SIM: the period");
+   }
+   // A bead's volume (Pattern::BallMean, Excitation::AtBall): the frame's pattern averaged over a ball equals a
+   // numerical average of At over the ball; the phases' mean of AtBall is DcAtBall; r = 0 is At; a ball wider than
+   // the fringe keeps a fraction of the modulation, never none.
+   {
+      BeamSet set = MakeBeams(SIM_2D, 0.5, SIM_POL_S, 1.0);
+      set.angles = 1;
+      const ExcitationShares sh = { { 640.0, 1.0 } };
+      const double period = 0.64 / (2.0 * 1.337 * 0.5), r = 0.1;
+      double worst = 0.0, dcWorst = 0.0;
+      for (int ph = 0; ph < 3; ++ph)
+      {
+         ExcitationSpec es = SpecFor(set);
+         es.frame = ph;
+         Excitation ex(es);
+         for (double x : { 0.0, 0.11, 0.23 })
+         {
+            const double z = 0.4;
+            // the ball average of At by a product quadrature: Gauss-Legendre in the radius (r^2 dr) and in cos theta,
+            // uniform in phi (a smooth integrand: converged far below the tolerance)
+            double sum = 0.0, wsum = 0.0;
+            const int nr = 12, nt = 12, np = 24;
+            for (int a = 0; a < nr; ++a)
+            {
+               const double rr = 0.5 * (1.0 + GL12[a][0]), wr = 0.5 * GL12[a][1] * rr * rr;
+               for (int b2 = 0; b2 < nt; ++b2)
+               {
+                  const double ct = GL12[b2][0], wt = GL12[b2][1], st = std::sqrt(std::max(0.0, 1.0 - ct * ct));
+                  for (int c = 0; c < np; ++c)
+                  {
+                     const double phi = (c + 0.5) * 2.0 * kPi / np;
+                     sum += wr * wt * ex.At(x + r * rr * st * std::cos(phi), r * rr * st * std::sin(phi), z + r * rr * ct, sh);
+                     wsum += wr * wt;
+                  }
+               }
+            }
+            const double num = sum / wsum, ball = ex.AtBall(x, 0.0, z, r, sh);
+            worst = std::max(worst, std::fabs(ball - num) / std::max(1e-12, num));
+            dcWorst = std::max(dcWorst, std::fabs(ex.AtBall(x, 0.0, z, 0.0, sh) - ex.At(x, 0.0, z, sh)));
+         }
+      }
+      Check(worst < 2e-3, "ball mean = the numerical ball average (" + std::to_string(worst) + ")");
+      Check(dcWorst < 1e-12, "ball mean at r = 0 = At");
+      // the phases' mean of the ball mean = the DC part over the ball; the modulation over a ball of a period's radius
+      double sumBall = 0.0, dc = 0.0, hi = 0.0, lo = 1e300;
+      for (int ph = 0; ph < 3; ++ph)
+      {
+         ExcitationSpec es = SpecFor(set);
+         es.frame = ph;
+         Excitation ex(es);
+         const double v = ex.AtBall(0.05, 0.0, 0.4, period / 2, sh);
+         sumBall += v / 3;
+         dc = ex.DcAtBall(0.05, 0.0, 0.4, period / 2, sh);
+         hi = std::max(hi, v);
+         lo = std::min(lo, v);
+      }
+      Check(std::fabs(sumBall - dc) < 1e-9 * dc, "the phases' mean of the ball mean = DcAtBall");
+      Check(lo > 0.3 * dc && hi - lo > 0.05 * dc && hi - lo < 1.0 * dc,
+            "a ball of a period's diameter keeps part of the modulation (" + std::to_string((hi - lo) / dc) + " of the mean)");
    }
    // The legacy beam: no beam set, the single beam's old factor.
    {

@@ -15,7 +15,7 @@ with advertisers. The Micro-Manager adapter, the command-line tool and the webSM
 
 | Event | What it carries |
 |---|---|
-| `pick` | which control (specimen, modality, Look, settings level, a Configuration group such as Mode, Objective or Camera) and the option picked |
+| `pick` | which control (specimen, modality, the illumination pattern, Look, settings level, a Configuration group such as Mode, Objective or Camera) and the option picked |
 | `live`, `snap` | that live view was started, that a snap was taken |
 | `record` | that a recording started; its length in a range (up to 10, 100, 1000 ... frames); whether it continued the live sample |
 | `save-tiff` | that a TIFF was saved, from a recording or a movie; its length in a range |

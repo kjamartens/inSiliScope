@@ -56,7 +56,8 @@ The viewer (live in your browser): **https://kjamartens.github.io/inSiliScope/**
 - **Fluorescence imaging**: blinks splatted with a diffraction PSF (a scalar Gibson-Lanni model with Zernike
   aberration modes, double helix) or a Gaussian, continuous populations mean-field (3D PSF
   convolution by FFT, GPU path: WebGPU / Direct3D 11) or per dye, sub-pixel placement, sCMOS/EMCCD noise, background,
-  drift, hardware z stacks.
+  drift, hardware z stacks; the light as a spot in the back focal plane (epi / HILO / TIRF) or several coherent beams
+  (2D, 3D and lattice SIM, phase-stepped with the frame).
 - **BrightField** (exploration): transmitted light through the cells' refractive index (cytoplasm, nucleus,
   microtubules only -- nothing the world does not simulate), partially coherent Koehler illumination, multislice
   wave optics, one quality setting from fast to precise ([spec/BRIGHTFIELD.md](spec/BRIGHTFIELD.md)).

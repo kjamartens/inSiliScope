@@ -283,4 +283,95 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
    return true;
 }
 
+bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, int n, int nz, IllumPreview& out, std::string& err)
+{
+   out = IllumPreview();
+   n = std::max(8, std::min(512, n));
+   nz = std::max(8, std::min(512, nz));
+   sim::ScopeResolved R;
+   if (!sim::ScopeResolve(spec, R, err))
+      return false;
+   sim::Excitation ex;
+   std::vector<sim::ExcitationLine> sh;
+   if (!sim::ScopeExcitation(spec, ex, sh, err))
+      return false;
+   const sim::ExcitationShares shares = sh.empty() ? sim::ExcitationShares{ { 640.0, 1.0 } } : sh;
+   if (ex.Patterned())
+      ex.SetFrame(frame);
+   const sim::ExcitationSpec& es = ex.Spec();
+   out.n = n;
+   out.nz = nz;
+   out.patterned = ex.Patterned();
+   out.frame = frame;
+   out.period = ex.Patterned() ? std::max(1, es.beams.Period()) : 1;
+   out.angle = ex.Patterned() ? ex.State().light.angle : 0;
+   out.phase = ex.Patterned() ? ex.State().light.phase : 0;
+   out.uMax = ex.UMax();
+   out.uSpan = 1.1 * ex.UMax();
+   out.xySpanUm = 1.5 * R.W * R.p.pixelSizeNm / 1000.0;
+   out.zMaxUm = 8.0;
+   // The beams: a set's state (rotated, phased), or the legacy beam as one.
+   std::vector<sim::Beam> beams = ex.Patterned() ? ex.State().beams : std::vector<sim::Beam>();
+   if (!ex.Patterned())
+   {
+      sim::Beam b;
+      b.ux = es.bfp;
+      b.polDeg = sim::kUnpolarizedDeg;
+      beams.push_back(b);
+   }
+   // A spot's size in u units: its radius in the pupil over the critical radius f n_s (the legacy width's spot when
+   // the beam has none).
+   const double fObjUm = es.beams.beams.empty()
+                            ? std::max(1.0, sim::ScopeSpecGet(spec, "tube-length-mm")) * 1000.0 /
+                                 std::max(1.0, sim::ScopeSpecGet(spec, "magnification"))
+                            : es.fObjUm;
+   sim::ExcitationSpec geo = es;
+   geo.fObjUm = fObjUm;
+   const sim::Excitation pair(geo);
+   const double spotLegacy = pair.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovWidthUm);
+   std::vector<double> spotU(beams.size());
+   for (size_t k = 0; k < beams.size(); ++k)
+   {
+      const sim::Beam& b = beams[k];
+      const double w = b.spotUm > 0 ? b.spotUm : spotLegacy;
+      spotU[k] = w / (fObjUm * es.nMed);
+      const sim::BeamField f = sim::BeamFieldOf(b, es.lambdaRefNm, es.nMed, es.nImm, es.na, es.beams.polarization);
+      const double v[IllumPreview::kBeamStride] = { b.ux, b.uy, spotU[k], b.amp, b.phaseTurns, b.polDeg, f.u,
+                                                    f.evanescent ? 1.0 : 0.0, b.ellipTurns };
+      out.beams.insert(out.beams.end(), v, v + IllumPreview::kBeamStride);
+   }
+   // The pupil seen from above: each beam's spot, a Gaussian of its 1/e^2 radius (intensity), x its amplitude squared.
+   out.bfp.assign(static_cast<size_t>(n) * n, 0.0f);
+   for (int j = 0; j < n; ++j)
+      for (int i = 0; i < n; ++i)
+      {
+         const double u = (i + 0.5) / n * 2 * out.uSpan - out.uSpan, v = (j + 0.5) / n * 2 * out.uSpan - out.uSpan;
+         double a = 0.0;
+         for (size_t k = 0; k < beams.size(); ++k)
+         {
+            const double r2 = (u - beams[k].ux) * (u - beams[k].ux) + (v - beams[k].uy) * (v - beams[k].uy);
+            const double w2 = std::max(1e-6, spotU[k] * spotU[k]);
+            a += beams[k].amp * beams[k].amp * std::exp(-2.0 * r2 / w2);
+         }
+         out.bfp[static_cast<size_t>(j) * n + i] = static_cast<float>(a);
+      }
+   // The pattern on the focal plane (seen from below) and through the axis (from the side), the excitation factor.
+   out.xy.assign(static_cast<size_t>(n) * n, 0.0f);
+   const double zf = es.pivotUm;
+   for (int j = 0; j < n; ++j)
+      for (int i = 0; i < n; ++i)
+      {
+         const double x = (i + 0.5) / n * out.xySpanUm - out.xySpanUm / 2, y = (j + 0.5) / n * out.xySpanUm - out.xySpanUm / 2;
+         out.xy[static_cast<size_t>(j) * n + i] = static_cast<float>(ex.At(x, y, zf, shares));
+      }
+   out.xz.assign(static_cast<size_t>(nz) * n, 0.0f);
+   for (int k = 0; k < nz; ++k)
+      for (int i = 0; i < n; ++i)
+      {
+         const double x = (i + 0.5) / n * out.xySpanUm - out.xySpanUm / 2, z = (k + 0.5) / nz * out.zMaxUm;
+         out.xz[static_cast<size_t>(k) * n + i] = static_cast<float>(ex.At(x, 0.0, z, shares));
+      }
+   return true;
+}
+
 } // namespace probes

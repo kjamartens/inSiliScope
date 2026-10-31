@@ -467,7 +467,13 @@ public:
    unsigned FftSizeX() const { return nx_; }
    unsigned FftSizeY() const { return ny_; }
    int KernelRadius() const { return R_; }
-   int PsfPlanes() const { return static_cast<int>(kernels_.size()); }
+   int PsfPlanes() const
+   {
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
+      return static_cast<int>(kernels_->map.size());
+   }
+   // This scene reads and fills the kernel spectra of `other` (the same PSF and grid: a pattern's state scenes).
+   void ShareKernels(const WidefieldScene& other) { kernels_ = other.kernels_; }
    // Dye planes of the current focus per resolution level (full, 1/2, 1/4).
    const unsigned* PlanesPerLevel() const { return planesPerLevel_; }
    size_t CachedSpectraBytes() const { return cacheBytes_; }
@@ -551,6 +557,9 @@ public:
    // returns images only). Set before an Update.
    void SetKeepSpectra(bool on) { keepSpectra_ = on; }
    bool KeepSpectra() const { return keepSpectra_; }
+   // Drop every cached plane spectrum (the next focus work re-makes what it needs): a structured pattern's state
+   // scenes (one per state) keep only their images between frames, as 13 scenes' spectra do not fit (2026-10-31).
+   void ReleaseSpectra();
    // A synchronous GPU host for the focus work (plane spectra, re-pairing,
    // images); nullptr = the CPU. On a host failure the scene keeps rendering
    // on the CPU and GpuError() says why.
@@ -662,7 +671,21 @@ private:
    int R_ = 0;
    int levels_ = 1;
    RealFft2d fft_[kLevels];
-   std::map<int, KernelSpec> kernels_;
+   // The kernel spectra per PSF plane on this grid, in a store scenes of one PSF and grid can share (a structured
+   // pattern's state scenes, ShareKernels; 2026-10-31: 13 stores of ~60 MB at a 40 nm pixel): every access under its
+   // mutex (map nodes are stable; the store is cleared only on a new FFT shape, which its sharers change together).
+   struct KernelStore
+   {
+      std::mutex mutex;
+      std::map<int, KernelSpec> map;
+   };
+   std::shared_ptr<KernelStore> kernels_ = std::make_shared<KernelStore>();
+   const KernelSpec* KernelAt(int p) const
+   {
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
+      auto it = kernels_->map.find(p);
+      return it == kernels_->map.end() ? nullptr : &it->second;
+   }
    long kernelsVersion_ = -1;
    // Channels: [0] persistent (may be unused), [1..] bleach basis maps.
    Channel persistent_;

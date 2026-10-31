@@ -104,6 +104,11 @@ public:
    const PatternState& State() const { return state_; }
    // The pattern of a line at the current frame (Patterned; nullptr for a line it was not compiled for).
    const Pattern* PatternOf(double nm) const;
+   // At averaged over a ball of radius rUm about the point (Pattern::BallMean, the envelopes at the centre), and
+   // the frame's beams' incoherent part over the same ball: a fiducial bead's light in the frame is the ratio x
+   // its mean (a bead wider than a fringe is never dark). One beam: At.
+   double AtBall(double x, double y, double z, double rUm, const ExcitationShares& shares) const;
+   double DcAtBall(double x, double y, double z, double rUm, const ExcitationShares& shares) const;
    // The lateral fringe periods at nm, um (largest first; empty without fringes).
    std::vector<double> PeriodsUm(double nm) const;
 
@@ -209,6 +214,8 @@ private:
    double u_ = 0, uMax_ = 0, F_ = 1, cosI_ = 1, tanS_ = 0, nS_ = 1.337, nI_ = 1.518, na_ = 1.4, zp_ = 0;
    double fwhmUm_ = 1, sig_ = 1, r0_ = 1, edge_ = 1, flatTop0_ = 1, reachUm_ = 0;
    bool clipped_ = false, tirf_ = false, uniform_ = false, tilted_ = false, patterned_ = false;
+   // The frame's beam envelopes at a point (Patterned): env[j] for the state's beam j.
+   void FrameEnvelopes(double x, double y, double z, std::vector<double>& env) const;
    std::vector<Component> comps_;
    std::vector<Envelope> envs_;   // per component
    PatternState state_;

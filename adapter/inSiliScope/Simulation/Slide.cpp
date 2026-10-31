@@ -143,7 +143,7 @@ LightPast LightPastAt(double doseNow, double doseOther, double rate, double peak
    return p;
 }
 
-void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f)
+void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f, const SlideFringes* fringes)
 {
    const size_t n = static_cast<size_t>(M.W) * M.H;
    const double T = M.expSec, tf = f * T;
@@ -151,6 +151,8 @@ void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f)
    {
       const SlideMovie::Geometry& G = M.geos[C.geo];
       const double k = C.c.bleachPerSec;
+      const std::vector<SlideFringes::Term>* fr =
+         fringes && C.geo < fringes->geos.size() && !fringes->geos[C.geo].empty() ? &fringes->geos[C.geo] : nullptr;
       ParallelFor(M.H, [&](unsigned y) {
          for (size_t i = static_cast<size_t>(y) * M.W, e = i + M.W; i < e; ++i)
          {
@@ -158,6 +160,20 @@ void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f)
             if (!(b > 0))
                continue;
             double s = 1.0;
+            if (fr)
+            {
+               // The frame's fringes over the mean (SlideFringes): the pattern's frame coordinates of this pixel.
+               const double px = fringes->x0Um + (i - static_cast<size_t>(y) * M.W) * fringes->pxUm;
+               const double py = fringes->y0Um + y * fringes->pxUm;
+               double mod = 1.0;
+               for (const SlideFringes::Term& t : *fr)
+               {
+                  const double th = t.qx * px + t.qy * py;
+                  const std::complex<float>& c = t.c[i];
+                  mod += c.real() * std::cos(th) - c.imag() * std::sin(th);
+               }
+               s = std::max(0.0, mod);
+            }
             if (k > 0)
             {
                // The column's mean survival over [t, t + T], each height weighted by its excitation (its emission).
@@ -174,7 +190,7 @@ void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f)
                   num += a * std::exp(-past - h * t) * q;
                   den += a;
                }
-               s = den > 0 ? num / den : 1.0;
+               s *= den > 0 ? num / den : 1.0;
             }
             img[i] += static_cast<float>(b * s);
          }

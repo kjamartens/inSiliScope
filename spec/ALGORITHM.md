@@ -977,6 +977,8 @@ Off and no matrix).
   Illumination group's Epi / HILO / TIRF presets apply to the pattern); a type pick sets it to the type's default (2D
   0.95; 3D and the lattices 0.9; *estimates*) and the polarization to S (every type's proper one; the lattice's
   "orthogonal pairs" = S: the x pair and the y pair do not interfere; Circular is the alternative one picks).
+  LatticeSIM3D's centre beam is circular under S and P (the user's choice, 2026-10-30): it interferes with both pairs
+  alike, where an s- or p-polarized centre beam would favour one.
 - **The frame program** (`FrameLightAt`, `PatternStateAt`): frame f (the sample's frame counter: the movie's f plus
   `frame0`, which a live producer passes from its counter -- not a user setting; a stack starts at 0) -> (angle index,
   phase index) in AngleMajor order (every phase of an orientation, then the next: gustafsson2008) or PhaseMajor. The
@@ -1010,7 +1012,22 @@ Off and no matrix).
   plane (the damped cosine's integral), `Excitation::PlaneMean`; the state's plane spectra and bleach basis stay
   cached while the pattern steps; `MovieCache::meanField` slots per (population, state), a phase drift giving every
   frame its own state), the background's flat part x the frame's pattern on the coverslip (memoized per state), the
-  beads at the frame's pattern over the mean (their rate and bleaching on the mean). Known approximations
+  **beads** at the frame's pattern over the frame's beams' incoherent sum, **both averaged over the bead's volume**
+  (`Pattern::BallMean`, the user's choice 2026-10-31: a bead wider than a fringe is never dark; per term the ball's
+  form factor 3 (sin k - k cos k) / k^3 at k = r |(q, kz + i / d)|, exact for the plane-wave terms, the envelopes at
+  the centre; their rate and bleaching on the mean), the **fluorescent slide** with the frame's fringes
+  (`SlideFringes`, `SlideFringesFor`): a cosine of lateral frequency q at height z is imaged attenuated and shifted by
+  the PSF's OTF at (q, its defocus) -- the slide's whole-column model (the mean light collected defocused) extended to
+  the fringes, so a thick layer shows the fringe of the heights near focus only -- per fringe term and pixel one
+  complex coefficient over the layer's mean light: the term's amplitude (the line's share, its decay, over the beams'
+  incoherent sum at the height) x the OTF (the kernel at the geometry's first dye's wavelength, memoized; the
+  Gaussian PSF's e^(-q^2 sigma^2 / 2) without one) x e^(i (kz z + phase)), weighted as the mean light's heights (the
+  geometry's nodes, linear between them, on a height grid of min(0.1 um, the kernel's z step)); the frame's image =
+  the mean's x (1 + sum_t Re[c_t e^(i q_t . r)]) x the column's survival; the fringe's envelope taken as the mean's.
+  Fixed on purpose: a mean-field scene per state keeps its images and not its plane spectra (`ReleaseSpectra` after
+  its build; the 13 scenes of the 3D lattice at a 40 nm pixel passed the viewer's 2 GB heap, 2026-10-31) and the
+  states share one set of dye tiles and one store of kernel spectra (`WidefieldScene::ShareKernels`, under a mutex;
+  the plane factor applies at the dye-plane spectra) -- a focus change re-makes a state's spectra. Known approximations
   (documented): a dye's dose within a cycle is off by at most one frame's modulation; the DNA-PAINT imager background
   and the TIRF collected column use the cycle mean (the fringes blur over the defocused column); the beam set's
   components in the imager column share component 0's depth intervals; the pattern is read at the undrifted site; a

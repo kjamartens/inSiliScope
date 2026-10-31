@@ -804,7 +804,7 @@ void WidefieldScene::StartAsyncBasis(const std::vector<float>& wb)
       BackgroundPriority();
       const auto t = TimingClock::now();
       a->scene->SetBleachWeights(wb, false);
-      a->scene->kernels_.clear();   // (the take reads the basis, its spectra and images only)
+      a->scene->kernels_ = std::make_shared<KernelStore>();   // (the take reads the basis, its spectra and images only)
       a->scene->dyes_ = WidefieldDyePlanes();
       a->seconds = TimingSince(t);
       a->done.store(true, std::memory_order_release);
@@ -1190,7 +1190,8 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
                    spec.psfVersion != kernelsVersion_;
       if (fftChanged)
       {
-         kernels_.clear();
+         std::lock_guard<std::mutex> lk(kernels_->mutex);
+         kernels_->map.clear();
          kernelsVersion_ = spec.psfVersion;
       }
       if (fftChanged || rectChanged)
@@ -1400,7 +1401,7 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
    const long kLo = SnapFloor(g.zMinUm / dz), kHi = -SnapFloor(-g.zMaxUm / dz);
    std::vector<int> missing;
    auto want = [&](int p) {
-      if (!kernels_.count(p) && std::find(missing.begin(), missing.end(), p) == missing.end())
+      if (!KernelAt(p) && std::find(missing.begin(), missing.end(), p) == missing.end())
          missing.push_back(p);
    };
    struct Raw { long k; int p0; double frac; };
@@ -1433,8 +1434,10 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
       const auto tK = TimingClock::now();
       std::vector<KernelSpec> made(missing.size());
       ParallelFor(static_cast<unsigned>(missing.size()), [&](unsigned i) { MakeKernel(psf, missing[i], made[i]); });
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
       for (size_t i = 0; i < missing.size(); ++i)
-         kernels_[missing[i]] = std::move(made[i]);
+         if (!kernels_->map.count(missing[i]))   // (a sharer may have made it meanwhile)
+            kernels_->map[missing[i]] = std::move(made[i]);
       TimingLog("wf.kernels", TimingSince(tK), std::to_string(missing.size()).c_str());
    }
    for (const Raw& r : raw)
@@ -1444,9 +1447,9 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
       d.p0 = r.p0;
       d.w0 = static_cast<float>(1.0 - r.frac);
       d.w1 = static_cast<float>(r.frac);
-      d.level = kernels_[r.p0].level;
+      d.level = KernelAt(r.p0)->level;
       if (r.frac > 0.0)
-         d.level = std::min(d.level, kernels_[r.p0 + 1].level);
+         d.level = std::min(d.level, KernelAt(r.p0 + 1)->level);
       plan.perLevel[d.level]++;
       plan.deps.push_back(d);
    }
@@ -1567,6 +1570,14 @@ void WidefieldScene::FillSpectra(const std::vector<const Channel*>& chans, const
    TrimCache(stamp);
 }
 
+void WidefieldScene::ReleaseSpectra()
+{
+   const size_t budget = cacheBudget_;
+   cacheBudget_ = 0;
+   TrimCache(~0ull);
+   cacheBudget_ = budget;
+}
+
 void WidefieldScene::TrimCache(unsigned long long keepStamp)
 {
    // Least recently used first (ties in key order), never what these plans use (used == keepStamp). (One sort: the
@@ -1631,8 +1642,8 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
          {
             const FocusPlan::Dep& d = *deps[j];
             const float* a = reinterpret_cast<const float*>(specs[j]->data());
-            const float* k0 = reinterpret_cast<const float*>(kernels_.at(d.p0).spec[L].data());
-            const float* k1 = d.w1 > 0.0f ? reinterpret_cast<const float*>(kernels_.at(d.p0 + 1).spec[L].data()) : nullptr;
+            const float* k0 = reinterpret_cast<const float*>(KernelAt(d.p0)->spec[L].data());
+            const float* k1 = d.w1 > 0.0f ? reinterpret_cast<const float*>(KernelAt(d.p0 + 1)->spec[L].data()) : nullptr;
             const float w0 = d.w0, w1 = d.w1;
             for (size_t i = b0; i < b1; ++i)
             {
@@ -1821,7 +1832,7 @@ bool WidefieldScene::JobFor(const FocusPlan& plan, const std::vector<const Chann
    }
    std::sort(ps.begin(), ps.end());
    for (int p : ps)
-      job.kernels.push_back({p, &kernels_.at(p).spec[0]});
+      job.kernels.push_back({p, &KernelAt(p)->spec[0]});
    return true;
 }
 

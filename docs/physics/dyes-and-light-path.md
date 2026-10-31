@@ -173,6 +173,11 @@ sample to a fringe pattern that steps with the frame (`sim-type`, MM `Lasers.Pat
 | `LatticeSIM3D` | ±x, ±y and the centre | 13 phases (the x and y pairs stepping 2 : 3) | the five-beam lattice of Zeiss's Lattice SIM |
 | `Custom` | the beam matrix alone | `sim-phases` × `sim-angles` | |
 
+<figure markdown="span" class="isc-fig">
+<iframe src="../../../illumination.html" title="Illumination preview" loading="lazy" style="width:100%;height:470px;border:0"></iframe>
+<figcaption markdown="span">The light entering the objective's back focal plane and the pattern it makes, from the viewer's engine (the same sketch as the viewer's **Preview illumination** button): pick a pattern type, the BFP position, the polarization and the beam width, and step through the frame program. From above: the pupil, each beam's spot ringed with its polarization (a bar for linear, a circular arrow for circular; evanescent beams in blue); from below: the excitation on the focal plane; from the side: an x-z section through the axis.</figcaption>
+</figure>
+
 The beams sit at radius r = `illum-bfp` in the pupil: the BFP slider is the beams' radius, so past 1 the beams are
 evanescent and the pattern is **TIRF-SIM** [[kner2009](../references.md#kner2009)]; a type pick sets it to the type's
 default (2D 0.95, 3D and the lattices 0.9; *estimates*). Two beams at ±u make a fringe of period λ / (2 n u) in the
@@ -182,7 +187,10 @@ physics above at the beam's own angle (the Fresnel amplitudes below the critical
 components with their phases above it [[axelrod1984](../references.md#axelrod1984)]), the pattern their coherent sum
 squared [[frohn2001](../references.md#frohn2001)]; the polarization (`sim-polarization`, Advanced) is S for every
 type unless changed (each beam linearly polarized across its plane of incidence: full fringe contrast; for the lattice
-the x and y pairs then do not interfere), or P, Circular, LinearX or Unpolarized.
+the x and y pairs then do not interfere, and `LatticeSIM3D`'s centre beam is circular under S and P, interfering with
+both pairs alike), or P, Circular, LinearX or Unpolarized.
+
+<!-- fig:sim-patterns -->
 
 Each beam is a **spot** in the pupil: a Gaussian spot of radius w<sub>b</sub> is exactly a Gaussian beam of 1/e²
 radius λ f / (π w<sub>b</sub>) in the sample (f the objective's focal length, `tube-length-mm` / `magnification`), so
@@ -197,6 +205,8 @@ columns given; a row beyond them adds a beam; `Custom` is the matrix alone. For 
 `0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0`, and a lattice whose centre beam the fibre bundle delivers 0.5°
 off is its five rows with `tiltX 0.5` in the first.
 
+<!-- fig:sim-spot -->
+
 **The frame program.** Frame f of the sample's frame sequence takes the phase index f mod nPhases and the orientation
 index f / nPhases (every phase of an orientation, then the next; `sim-order` PhaseMajor swaps them); the orientation
 rotates every beam by 180° / `sim-angles`, the phase adds phaseStep × phase / nPhases turns to each beam. A cli stack
@@ -204,13 +214,19 @@ starts at frame 0 and writes the state per frame to `<out>.pattern.csv`; the vie
 (every frame, dark ones too; a fresh sample starts at 0). A phase drift (Expert) makes each beam's phase walk per frame
 (`sim-phase-drift-turns-per-sqrt-sec`) or slide (`sim-phase-drift-turns-per-sec`).
 
+<!-- fig:sim-cycle -->
+
 **What the dyes see.** The emission of every frame uses that frame's exact pattern: each blink's photons at its site,
 the mean-field image under the pattern (one scene per pattern state), the background at the coverslip. The kinetics
 (dSTORM switching, PALM activation, bleaching, the background fade) run on the **cycle mean** of the pattern, the
 beams' incoherent sum, which the pattern summed over a full phase cycle equals exactly: a dye's dose within a cycle is
 off by at most one frame's modulation, and the light history keeps one chapter per beam set (one component per beam
 of the cycle) instead of a fringe it could not resolve. The DNA-PAINT imager background uses the cycle mean too (the
-defocused column blurs the fringes).
+defocused column blurs the fringes). A [fiducial bead](../samples/fiducials.md) takes the pattern averaged over its
+volume (the ball's form factor per fringe term: a 200 nm bead on a 200 nm fringe keeps about a third of the modulation,
+and is never dark), and the [fluorescent slide](../samples/slide.md) shows the frame's fringes imaged through the PSF
+at every height's defocus: in a thick layer only the heights near focus keep their fringe, so its contrast is a
+fraction of the pattern's; a thin layer or TIRF-SIM shows it in full.
 
 ## The DNA-PAINT imager background
 

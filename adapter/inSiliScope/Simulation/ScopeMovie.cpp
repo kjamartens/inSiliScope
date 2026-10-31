@@ -49,6 +49,8 @@
 #include <list>
 #include <memory>
 #include <mutex>
+#include <tuple>
+#include <complex>
 #include <random>
 #include <stdexcept>
 #if !defined(__EMSCRIPTEN__)
@@ -278,7 +280,7 @@ const OptionTable& Options()
          { "illum-bfp", 0, "Lasers.BfpPosition: the laser spot in the back focal plane, from its centre (0, epi) to the critical angle (1); between: HILO, above: TIRF up to the pupil edge NA / n_medium (beyond it no light reaches the sample). Unset: that of the light preset (DNA-PAINT: HILO; the nanorulers: TIRF)" },
          { "illum-geometry", 0, "deprecated, ignored (was Lasers.IlluminationGeometry: Epi; illum-bfp replaces it)" },
          { "sim-type", 0, "Lasers.Pattern: structured illumination, the light as coherent beams in the back focal plane (spec/ALGORITHM.md \"Structured illumination\"): 0 Off (one beam at illum-bfp), 1 SIM2D (two beams at +-illum-bfp, 3 phases x 3 angles), 2 SIM3D (+ the centre beam, 5 phases x 3 angles), 3 LatticeSIM2D (+-x, +-y, 9 phases), 4 LatticeSIM3D (+ the centre, 13 phases stepped 2:3), 5 Custom (the beam matrix alone); names accepted. The pattern's phase and angle step with the frame (the frame program); the kinetics run on the cycle mean (the beams' incoherent sum)" },
-         { "sim-polarization", 0, "Lasers.PatternPolarization: every beam's polarization, 0 S (perpendicular to its plane of incidence: full fringe contrast, the lattice's orthogonal pairs), 1 P, 2 Circular, 3 LinearX (the pupil field along the lab x axis), 4 Unpolarized (the mean of the S and P patterns); names accepted" },
+         { "sim-polarization", 0, "Lasers.PatternPolarization: every beam's polarization, 0 S (perpendicular to its plane of incidence: full fringe contrast, the lattice's orthogonal pairs; LatticeSIM3D's centre beam circular under S and P), 1 P, 2 Circular, 3 LinearX (the pupil field along the lab x axis), 4 Unpolarized (the mean of the S and P patterns); names accepted" },
          { "sim-phases", 0, "Lasers.PatternPhases: phase steps per angle (0 = the type's: 3, 5, 9, 13)" },
          { "sim-angles", 0, "Lasers.PatternAngles: pattern orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D/SIM3D, 1 for the lattices)" },
          { "sim-order", 0, "Lasers.PatternOrder: the frame program's order, 0 AngleMajor (every phase of an angle, then the next angle), 1 PhaseMajor; names accepted" },
@@ -1224,6 +1226,23 @@ std::string ScopeBeamMeanKey(const ExcitationSpec& e)
    std::snprintf(b, sizeof b, ";beams[pol%d;a%d;a0%.10g;f%.10g;l%.10g]", e.beams.polarization, e.beams.angles,
                  e.beams.angle0Deg, e.fObjUm, e.lambdaRefNm);
    return std::string(b) + FormatBeamMatrix(e.beams.beams);
+}
+
+// The beam set's numbers for a numeric cache key (BgMapCache: the background and slide maps are the mean light's, which
+// a beam set changes; 2026-10-31: an Off movie after a SIM2D movie in one process took the pair's map).
+void AppendBeamKey(std::vector<double>& key, const ExcitationSpec& e)
+{
+   key.push_back(static_cast<double>(e.beams.beams.size()));
+   if (e.beams.beams.empty())
+      return;
+   key.push_back(static_cast<double>(e.beams.polarization));
+   key.push_back(static_cast<double>(e.beams.angles));
+   key.push_back(e.beams.angle0Deg);
+   key.push_back(e.fObjUm);
+   key.push_back(e.lambdaRefNm);
+   for (const Beam& b : e.beams.beams)
+      for (int c = 0; c < kBeamColumns; ++c)
+         key.push_back(BeamColumn(b, c));
 }
 
 ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
@@ -2622,6 +2641,55 @@ bool ConfigureShared(MovieCache& c, const SampleSettings& cf, std::string& err)
 
 constexpr double kMinDetectedFraction = 1e-4;   // a (structure, state) detected less than this is skipped (no kernel)
 
+namespace {
+// The PSF's OTF at lateral frequency (qx, qy) (rad/um) per z plane of a kernel: the sum over the plane of
+// K e^{-i q . r} (the planes are sum 1, r from the plane's centre). Cached per kernel and q (rounded to 1e-6 rad/um),
+// 64 entries (the slide's fringes, SlideFringesFor: a live frame re-begins its movie).
+std::mutex g_slideOtfMutex;
+std::map<std::tuple<unsigned long long, long, long>, std::shared_ptr<const std::vector<std::complex<double>>>> g_slideOtf;
+std::shared_ptr<const std::vector<std::complex<double>>> SlideOtf(const PsfKernelCache& K, double qx, double qy,
+                                                                  double pixelNm)
+{
+   const auto key = std::make_tuple(K.data ? K.data->serial : 0ull, std::lround(qx * 1e6), std::lround(qy * 1e6));
+   {
+      std::lock_guard<std::mutex> lk(g_slideOtfMutex);
+      auto it = g_slideOtf.find(key);
+      if (it != g_slideOtf.end())
+         return it->second;
+   }
+   const int n = K.sizeOversampled, nz = std::max(1, K.nz);
+   const double pitch = pixelNm / 1000.0 / std::max(1, K.oversampling), c0 = (n - 1) / 2.0;
+   std::vector<std::complex<double>> ex(static_cast<size_t>(n)), ey(static_cast<size_t>(n));
+   for (int i = 0; i < n; ++i)
+   {
+      ex[static_cast<size_t>(i)] = std::polar(1.0, -qx * (i - c0) * pitch);
+      ey[static_cast<size_t>(i)] = std::polar(1.0, -qy * (i - c0) * pitch);
+   }
+   auto out = std::make_shared<std::vector<std::complex<double>>>(static_cast<size_t>(nz), std::complex<double>(1.0, 0.0));
+   const std::vector<std::vector<float>>& planes = K.Planes();
+   ParallelFor(static_cast<unsigned>(std::min<size_t>(planes.size(), static_cast<size_t>(nz))), [&](unsigned z) {
+      const std::vector<float>& P = planes[z];
+      if (P.size() < static_cast<size_t>(n) * n)
+         return;
+      std::complex<double> s = 0.0;
+      for (int j = 0; j < n; ++j)
+      {
+         const float* row = P.data() + static_cast<size_t>(j) * n;
+         std::complex<double> r = 0.0;
+         for (int i = 0; i < n; ++i)
+            r += static_cast<double>(row[i]) * ex[static_cast<size_t>(i)];
+         s += r * ey[static_cast<size_t>(j)];
+      }
+      (*out)[z] = s;
+   });
+   std::lock_guard<std::mutex> lk(g_slideOtfMutex);
+   if (g_slideOtf.size() >= 64)
+      g_slideOtf.clear();
+   g_slideOtf[key] = out;
+   return out;
+}
+} // namespace
+
 double GaussianSigmaPx(double lambdaNm, double na, double pixelNm)
 {
    return std::min(std::max(0.21 * lambdaNm / std::max(0.01, na) / pixelNm, 0.3), 20.0);
@@ -3232,6 +3300,122 @@ struct FluorescenceMovie::Impl
    double MeanExciteAt(const ExcitationShares& sh, double xUm, double yUm, double zNm) const
    {
       return S.excite.MeanAt(xUm - axisX, yUm - axisY, zNm / 1000.0 + S.q.zRefUm, sh);
+   }
+   // The slide's fringes in pattern state `state` (SlideFringes; spec/ALGORITHM.md "Structured illumination", the
+   // slide): per geometry and fringe term, per pixel c = sum over heights of the term's amplitude (the line's share,
+   // its decay, over the beams' incoherent sum at that height) x the PSF's OTF at the term's q and the height's
+   // defocus x e^{i (kz z + phase)}, weighted by the pixel's mean light at the height (the geometry's nodes, linear
+   // between them, on a fine height grid of min(0.1 um, the kernel's step)), over the mean light's sum. The fringe
+   // envelope is taken as the mean light's (the beams' envelopes coincide on the axis).
+   std::shared_ptr<const SlideFringes> SlideFringesFor(const SlideMovie& SM, long state)
+   {
+      auto out = std::make_shared<SlideFringes>();
+      const double um = S.p.pixelSizeNm / 1000.0;
+      out->pxUm = um;
+      out->x0Um = -axisX;
+      out->y0Um = -axisY;
+      const Excitation& ex = ExciteFor(state);
+      const size_t n = static_cast<size_t>(S.W) * S.H;
+      out->geos.resize(SM.geos.size());
+      for (size_t g = 0; g < SM.geos.size(); ++g)
+      {
+         const SlideMovie::Geometry& G = SM.geos[g];
+         const double zTop = g < SM.zTop.size() ? SM.zTop[g] : 0.0;
+         if (!(zTop > 0) || G.nodes < 1)
+            continue;
+         const PsfKernelCache* K = g < SM.kernels.size() && SM.kernels[g].valid ? &SM.kernels[g] : nullptr;
+         const double dz = std::min(0.1, K && K->zStepNm > 0 ? K->zStepNm / 1000.0 : 0.1);
+         const int nf = std::max(1, static_cast<int>(std::ceil(zTop / dz)));
+         struct Term
+         {
+            double qx, qy, kz, decay, amp, phase;
+         };
+         std::vector<Term> terms;
+         std::vector<double> dc(static_cast<size_t>(nf), 0.0);
+         for (const ExcitationLine& l : G.shares)
+         {
+            const Pattern* p = ex.PatternOf(l.nm);
+            if (!p)
+               continue;
+            for (const PatternTerm& t : p->terms)
+            {
+               if (t.j == t.l)
+                  for (int k = 0; k < nf; ++k)
+                  {
+                     const double z = (k + 0.5) * zTop / nf;
+                     dc[static_cast<size_t>(k)] += l.share * t.amp * (t.decayUm > 0 ? std::exp(-z / t.decayUm) : 1.0);
+                  }
+               else
+                  terms.push_back({ t.qx, t.qy, t.kz, t.decayUm, l.share * t.amp, t.phase });
+            }
+         }
+         if (terms.empty())
+            continue;
+         std::vector<std::shared_ptr<const std::vector<std::complex<double>>>> otfs(terms.size());
+         const double sigmaUm = GaussianSigmaPx(g < SM.lambdaNm.size() ? SM.lambdaNm[g] : 600.0,
+                                                ScopeSpecGet(spec, "na"), S.p.pixelSizeNm) * um;
+         for (size_t t = 0; t < terms.size(); ++t)
+            if (K)
+               otfs[t] = SlideOtf(*K, terms[t].qx, terms[t].qy, S.p.pixelSizeNm);
+         std::vector<std::vector<std::complex<double>>> H(terms.size(),
+                                                          std::vector<std::complex<double>>(static_cast<size_t>(G.nodes), 0.0));
+         std::vector<double> D(static_cast<size_t>(G.nodes), 0.0);
+         for (int k = 0; k < nf; ++k)
+         {
+            const double z = (k + 0.5) * zTop / nf;
+            int i0 = 0, i1 = 0;
+            double f1 = 0.0;
+            if (G.nodes > 1)
+            {
+               const double u = z / zTop * G.nodes - 0.5;
+               i0 = std::min(G.nodes - 1, std::max(0, static_cast<int>(std::floor(u))));
+               i1 = std::min(G.nodes - 1, i0 + 1);
+               f1 = std::min(1.0, std::max(0.0, u - i0));
+            }
+            D[static_cast<size_t>(i0)] += 1.0 - f1;
+            D[static_cast<size_t>(i1)] += f1;
+            if (!(dc[static_cast<size_t>(k)] > 0))
+               continue;
+            const int pz = K ? K->NearestZIndex(z - S.q.zRefUm) : 0;
+            for (size_t t = 0; t < terms.size(); ++t)
+            {
+               const Term& tt = terms[t];
+               const std::complex<double> otf =
+                  K ? (*otfs[t])[static_cast<size_t>(pz)]
+                    : std::complex<double>(std::exp(-0.5 * (tt.qx * tt.qx + tt.qy * tt.qy) * sigmaUm * sigmaUm), 0.0);
+               const double amp = tt.amp * (tt.decay > 0 ? std::exp(-z / tt.decay) : 1.0) / dc[static_cast<size_t>(k)];
+               const std::complex<double> h = amp * otf * std::polar(1.0, tt.kz * z + tt.phase);
+               H[t][static_cast<size_t>(i0)] += (1.0 - f1) * h;
+               H[t][static_cast<size_t>(i1)] += f1 * h;
+            }
+         }
+         std::vector<SlideFringes::Term>& outTerms = out->geos[g];
+         outTerms.resize(terms.size());
+         for (size_t t = 0; t < terms.size(); ++t)
+         {
+            outTerms[t].qx = terms[t].qx;
+            outTerms[t].qy = terms[t].qy;
+            outTerms[t].c.assign(n, std::complex<float>(0.0f, 0.0f));
+         }
+         ParallelFor(S.H, [&](unsigned y) {
+            for (size_t i = static_cast<size_t>(y) * S.W, e = i + S.W; i < e; ++i)
+            {
+               double den = 0.0;
+               for (int j = 0; j < G.nodes; ++j)
+                  den += G.a[static_cast<size_t>(j) * n + i] * D[static_cast<size_t>(j)];
+               if (!(den > 0))
+                  continue;
+               for (size_t t = 0; t < terms.size(); ++t)
+               {
+                  std::complex<double> num = 0.0;
+                  for (int j = 0; j < G.nodes; ++j)
+                     num += static_cast<double>(G.a[static_cast<size_t>(j) * n + i]) * H[t][static_cast<size_t>(j)];
+                  outTerms[t].c[i] = static_cast<std::complex<float>>(num / den);
+               }
+            }
+         });
+      }
+      return out;
    }
    // The pattern states the movie's frames take (distinct, in order of first use), and a population's mean-field
    // node of frame f.
@@ -3888,7 +4072,9 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // frames are those of the GPU off).
    if (slot.has && slot.scene.AccelTooBig())
       slot.accelTooBig = true;
-   const bool cpuScene = shifts || slot.accelTooBig;   // (an accelerator the scene does not use)
+   // A structured pattern's scenes stay on the CPU: the GPU hosts keep their plane spectra per scene geometry, not
+   // per plane factor (a state's fringes would be another state's; M4 makes the states resident).
+   const bool cpuScene = shifts || slot.accelTooBig || S.excite.Patterned();   // (an accelerator the scene does not use)
    const bool sceneGpu = gpuMode || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {
@@ -3897,6 +4083,26 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
       slot.gpuMode = sceneGpu;
       slot.has = true;
       slot.anchored = false;
+   }
+   // A stepping pattern (one scene per state, a live frame building one state's per movie): the states' scenes share
+   // one set of dye tiles (world-anchored; the plane factor applies at the dye-plane spectra; thread-safe) and one
+   // store of kernel spectra (the same PSF and grid), from any built slot of this population; and a state's scene
+   // keeps its images, not its plane spectra (below). 13 full scenes at a 40 nm pixel passed the viewer's heap
+   // (2026-10-31); a focus change re-makes a state's spectra.
+   if (varies)
+   {
+      const int base = (p.structure * 4 + p.state) * kPatternSlots;
+      for (int k = 0; k < kPatternSlots; ++k)
+      {
+         const std::unique_ptr<MeanFieldSlot>& o = cache.meanField[base + k];
+         if (o && o.get() != &slot && o->has && o->gpuMode == slot.gpuMode)
+         {
+            if (o->scene.Tiles() != slot.scene.Tiles())
+               slot.scene.SetTiles(o->scene.Tiles());
+            slot.scene.ShareKernels(o->scene);
+            break;
+         }
+      }
    }
    // AnchorMeanField: the scene at its anchor while the FOV is within kMeanFieldAnchorUm of it (else a new anchor
    // here), the images shifted by anchor - origin (the FOV over a sample moved by d: the image moves by d).
@@ -4035,6 +4241,8 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    }
    else if (!gpuMode || anchor)
       TakeImage(p, ni);
+   if (varies && !nd.deferred)
+      slot.scene.ReleaseSpectra();   // (a stepping pattern: the images stay, the spectra go; above)
    return true;
 }
 
@@ -4710,6 +4918,11 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       m.varies = S.excite.Varies();
       m.driftsPhase = es.beams.driftTurnsPerSqrtSec > 0 || es.beams.driftTurnsPerSec != 0;
       m.period = std::max(1, es.beams.Period());
+      // Every state's Excitation made here (ExciteFor memoizes lazily; frames render in parallel batches and the
+      // beads' frame scale reads it per frame).
+      if (m.varies)
+         for (long st : m.PatternStates())
+            m.ExciteFor(st);
    }
    m.map.reset();
    if (hostMap || m.shaped)
@@ -5018,12 +5231,16 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       FM->sec = TimingSince(tFid);
       TimingLog("fl.fiducials-setup", FM->sec);
       m.fid = std::move(FM);
-      // A pattern stepping with the frame: each bead's frame x the frame's excitation over the cycle mean (its rate
-      // and bleaching run on the mean).
+      // A pattern stepping with the frame: each bead's frame x the frame's pattern over the beams' incoherent sum,
+      // both averaged over the bead's volume (Pattern::BallMean, the user's choice 2026-10-31: a bead wider than a
+      // fringe is never dark; its rate and bleaching run on the mean).
       if (m.varies && m.fid)
          m.fid->frameScale = [&m](long f, const FiducialMovieComponent& c, const FiducialBeadSite& e) {
-            const double mean = m.MeanExciteAt(c.c.lineShares, e.xUm, e.yUm, e.zNm);
-            return mean > 0 ? m.ExciteAtFrame(f, c.c.lineShares, e.xUm, e.yUm, e.zNm) / mean : 0.0;
+            const double r = std::max(0.0, e.d) / 2000.0;
+            const Excitation& ex = m.ExciteFor(m.StateOf(f));
+            const double x = e.xUm - m.axisX, y = e.yUm - m.axisY, z = e.zNm / 1000.0 + m.S.q.zRefUm;
+            const double dc = ex.DcAtBall(x, y, z, r, c.c.lineShares);
+            return dc > 0 ? ex.AtBall(x, y, z, r, c.c.lineShares) / dc : 0.0;
          };
    }
    // The binned blink regime (its kernel spectra are made on first use).
@@ -5290,6 +5507,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
                   m.axisX, m.axisY, static_cast<double>(S.W), static_cast<double>(S.H), um, H0, S.expSec,
                   S.p.backgroundPhotons };
+      AppendBeamKey(job.key, es);
       for (size_t i = 11; i + 1 < m.exciteKey.size(); ++i)   // a beam set's program and beams (none: nothing)
          job.key.push_back(m.exciteKey[i]);
       for (const ImagerSource& src : job.sources)
@@ -5368,6 +5586,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
                            m.axisX, m.axisY, static_cast<double>(S.W), static_cast<double>(S.H), um, Hl, 1.0, 0.0,
                            kSlideNodesPerScale, 1.0 };
+               AppendBeamKey(job.key, es);
                for (const ExcitationLine& l : c.lineShares)
                {
                   job.key.push_back(l.nm);
@@ -5393,11 +5612,14 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                      for (int j = 0; j < G.nodes; ++j)
                      {
                         const double z = oneNode ? Hl / 2 : (j + 0.5) / G.nodes * zTop;
+                        // (the mean light: a pattern's fringes are the frame's, SlideFringes)
                         G.a[static_cast<size_t>(j) * n + static_cast<size_t>(y) * S.W + x] =
-                           static_cast<float>(m.ExciteAt(G.shares, x * um, y * um, (z - S.q.zRefUm) * 1000.0));
+                           static_cast<float>(m.MeanExciteAt(G.shares, x * um, y * um, (z - S.q.zRefUm) * 1000.0));
                      }
                });
             SM->geos.push_back(std::move(G));
+            SM->zTop.push_back(zTop);
+            SM->lambdaNm.push_back(c.lambdaNm);
             maps.push_back(std::move(map));
          }
          SlideMovie::Comp C;
@@ -5407,6 +5629,23 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          for (size_t k = 0; k < n; ++k)
             C.base[k] = static_cast<float>(c.perPxUmSec * maps[g][k] * S.expSec);
          SM->comps.push_back(std::move(C));
+      }
+      // A structured pattern: the fringes over the layer per pattern state (SlideFringes), each height's through the
+      // PSF at its defocus -- the kernel at the geometry's first dye's wavelength (ScopePsfRequest, memoized), the
+      // Gaussian PSF's OTF without one.
+      if (S.excite.Patterned())
+      {
+         for (size_t g = 0; g < SM->geos.size(); ++g)
+         {
+            PsfKernelCache K;
+            PsfGeneratorRequest req;
+            std::string psfErr;
+            if (ScopePsfRequest(spec, SM->lambdaNm[g], req, psfErr))
+               ComputePsfKernelCache(req, K, psfErr);
+            SM->kernels.push_back(K);
+         }
+         for (long st : m.PatternStates())
+            SM->fringes[st] = m.SlideFringesFor(*SM, st);
       }
       if (history && light)
       {
@@ -5928,7 +6167,15 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          if (m.slide)
          {
             const auto ts = TimingClock::now();
-            RenderSlide(img, *m.slide, f);
+            {
+               const SlideFringes* fr = nullptr;
+               if (!m.slide->fringes.empty())
+               {
+                  auto it = m.slide->fringes.find(m.StateOf(f));
+                  fr = it != m.slide->fringes.end() ? it->second.get() : nullptr;
+               }
+               RenderSlide(img, *m.slide, f, fr);
+            }
             m.slide->sec += TimingSince(ts);
             paths[static_cast<size_t>(k)].push_back("slide: " + std::to_string(m.slide->comps.size()) + " dyes, " +
                                                     std::to_string(m.slide->geos.empty() ? 0 : m.slide->geos[0].nodes) +
