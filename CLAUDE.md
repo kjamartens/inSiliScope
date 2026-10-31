@@ -454,7 +454,10 @@ in the dialog (2026-10-31); the captions are page text, not on the canvases (`il
 follows every settings change; the beam record 9 floats with the ellipticity: a circular beam drawn as a circular arrow), the live
 info's pattern state (`info[13..16]`); `web/illumination.html` = the docs' interactive figure (an iframe in the physics
 page, copied beside the viewer by `build_site.sh`); `tests/web/viewer_sim.mjs`. LatticeSIM3D's centre beam is
-circular under S and P (the user's choice). Figures `sim-patterns`, `sim-cycle`, `sim-spot`; gallery `sim-2d`,
+circular under S and P (the user's choice). **The axial anchor** (2026-10-31, `sim-anchor` / `Lasers.PatternAnchor`,
+Advanced, part instrument): the beams are in phase at the focus (default: the fringes move with the focus, the sample
+moves through them, by the stage or the objective alike; `CompilePattern` zRefUm, the terms' phases -kz z_focus) or at
+the coverslip (the old behaviour); the evanescent decay from the coverslip either way. Figures `sim-patterns`, `sim-cycle`, `sim-spot`; gallery `sim-2d`,
 `sim-3d`, `sim-lattice-3d`. Not yet: the GPU mean field under a pattern, the exact per-frame dose.
 
 **Exact light history (2026-10-15/16, core ABI 14, spec/ALGORITHM.md "Exact light history", spec/PORT.md 23; branch

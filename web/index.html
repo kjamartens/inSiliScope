@@ -483,7 +483,7 @@
         <figure><figcaption id="il_xz_t">Side, x-z through the axis</figcaption><canvas id="il_xz"></canvas><div class="note" id="il_xz_n"></div></figure>
       </div>
       <div class="t"><span>frame</span><input type="range" id="il_slider" min="0" max="0" value="0" style="flex:1"><span id="il_state"></span></div>
-      <div class="t"><span>height z</span><input type="range" id="il_z" min="0" max="8" step="0.02" value="0.5" style="flex:1"><span id="il_zval" title="double-click: back to the focus"></span></div></div>
+      <div class="t"><span>height z</span><input type="range" id="il_z" min="0" max="8" step="0.02" value="0.5" autocomplete="off" style="flex:1"><span id="il_zval" title="double-click: back to the focus"></span></div></div>
     <div id="movie"><div class="t drag" title="Drag to move the player"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_gif" title="The movie as shown (display range), scaled up to at least 512 px">GIF</a> &nbsp; <a href="#" id="mv_mp4" title="The movie as shown (display range), scaled up to at least 512 px; WebM where the browser cannot encode H.264">MP4</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
       <canvas id="mv_cv"></canvas>
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
@@ -1180,6 +1180,8 @@ const UI_GROUPS = [
         kids: [
           select('mv_sim-polarization', 'Polarization', 'Every beam\'s polarization: S (across its plane of incidence: full fringe contrast; the lattice\'s x and y pairs then do not interfere, LatticeSIM3D\'s centre beam is circular), P, Circular, LinearX (the pupil field along the lab x axis) or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S. <code>Lasers.PatternPolarization</code>',
             [['0', 'S'], ['1', 'P'], ['2', 'Circular'], ['3', 'LinearX'], ['4', 'Unpolarized']], '0', { adv, show: FL }),
+          select('mv_sim-anchor', 'In phase at', 'The plane the beams are in phase at, which the pattern\'s axial structure is fixed to: the focus (a grating or SLM conjugate to the focal plane: the fringes move with the focus and the sample moves through them, by the stage or the objective alike) or the coverslip (the fringes fixed to the sample: an illumination that does not move with the focus). The evanescent decay is from the coverslip either way. <code>Lasers.PatternAnchor</code>',
+            [['0', 'Focus'], ['1', 'Coverslip']], '0', { adv, show: FL }),
           num('mv_sim-phases', 'Phases', '', 'Phase steps per orientation (0 = the type\'s: 3, 5, 9, 13). <code>Lasers.PatternPhases</code>', 0, 64, 1, 0, { adv, show: FL }),
           num('mv_sim-angles', 'Orientations', '', 'Orientations per cycle, 180° / n apart (0 = the type\'s: 3 for SIM2D and SIM3D, 1 for the lattices). <code>Lasers.PatternAngles</code>', 0, 12, 1, 0, { adv, show: FL }),
           select('mv_sim-order', 'Order', 'The frame program\'s order: every phase of an orientation, then the next orientation (AngleMajor), or the orientations within each phase (PhaseMajor). <code>Lasers.PatternOrder</code>', [['0', 'AngleMajor'], ['1', 'PhaseMajor']], '0', { adv, show: FL }),
@@ -6963,7 +6965,10 @@ function onIllumResult(d) {
 const illumOpen = () => document.getElementById('illumDlg').style.display === 'block';
 document.getElementById('illumPreview').addEventListener('click', () => requestIllum(+document.getElementById('il_slider').value, illumZ));
 document.getElementById('il_slider').addEventListener('input', () => scheduleIllum(40));
-document.getElementById('il_z').addEventListener('input', e => { illumZ = +e.target.value; document.getElementById('il_zval').textContent = illumZ.toFixed(2) + ' µm'; scheduleIllum(40); });
+document.getElementById('il_z').addEventListener('input', e => {
+  if (!illumOpen()) return;   // (a browser restoring the slider's value at load is not the user)
+  illumZ = +e.target.value; document.getElementById('il_zval').textContent = illumZ.toFixed(2) + ' µm'; scheduleIllum(40);
+});
 document.getElementById('il_zval').addEventListener('dblclick', () => { illumZ = -1; scheduleIllum(0); });   // back to the focus
 document.getElementById('il_close').addEventListener('click', e => { e.preventDefault(); document.getElementById('illumDlg').style.display = 'none'; });
 // Auto-update: any settings change (an mv_ control, the beam matrix, the Zernike entry, a restore) redraws the open dialog.

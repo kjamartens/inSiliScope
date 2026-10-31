@@ -44,6 +44,12 @@ const std::vector<std::string>& SimOrderNames()
    return v;
 }
 
+const std::vector<std::string>& SimAnchorNames()
+{
+   static const std::vector<std::string> v = { "Focus", "Coverslip" };
+   return v;
+}
+
 double SimTypeDefaultRadius(int type)
 {
    switch (type)
@@ -404,7 +410,7 @@ void LabField(const BeamField& f, double phi, std::complex<double>& Ex, std::com
 }
 
 void CompileRun(const PatternState& st, double lambdaNm, double nS, double nI, double na, bool forceS, bool forceP,
-                double weight, Pattern& out, bool keepFields)
+                double weight, double zRefUm, Pattern& out, bool keepFields)
 {
    const double k = 2.0 * kPi * nS / (lambdaNm * 1e-3);   // rad/um in the medium
    const size_t N = st.beams.size();
@@ -449,14 +455,16 @@ void CompileRun(const PatternState& st, double lambdaNm, double nS, double nI, d
             inv += 1.0 / (2.0 * F[l].decayUm);
          p.decayUm = inv > 0 ? 1.0 / inv : 0.0;
          p.amp = weight * 2.0 * std::abs(c);
-         p.phase = 2.0 * kPi * (st.beams[j].phaseTurns - st.beams[l].phaseTurns) + std::arg(c);
+         // The beams in phase at zRefUm (the focal plane or the coverslip): the fringe's axial phase referred there.
+         p.phase = 2.0 * kPi * (st.beams[j].phaseTurns - st.beams[l].phaseTurns) + std::arg(c) - p.kz * zRefUm;
          out.terms.push_back(p);
       }
    }
 }
 } // namespace
 
-Pattern CompilePattern(const PatternState& st, double lambdaNm, double nS, double nI, double na, int polarization)
+Pattern CompilePattern(const PatternState& st, double lambdaNm, double nS, double nI, double na, int polarization,
+                       double zRefUm)
 {
    Pattern out;
    bool unpol = polarization == SIM_POL_UNPOLARIZED;
@@ -464,11 +472,11 @@ Pattern CompilePattern(const PatternState& st, double lambdaNm, double nS, doubl
       unpol = unpol || b.polDeg < kUnpolarizedBelowDeg;
    if (unpol)
    {
-      CompileRun(st, lambdaNm, nS, nI, na, true, false, 0.5, out, true);
-      CompileRun(st, lambdaNm, nS, nI, na, false, true, 0.5, out, false);
+      CompileRun(st, lambdaNm, nS, nI, na, true, false, 0.5, zRefUm, out, true);
+      CompileRun(st, lambdaNm, nS, nI, na, false, true, 0.5, zRefUm, out, false);
    }
    else
-      CompileRun(st, lambdaNm, nS, nI, na, false, false, 1.0, out, true);
+      CompileRun(st, lambdaNm, nS, nI, na, false, false, 1.0, zRefUm, out, true);
    return out;
 }
 

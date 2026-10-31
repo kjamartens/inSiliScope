@@ -247,8 +247,9 @@ void Excitation::Compile()
    std::vector<double> lines = spec_.lineNm;
    if (lines.empty())
       lines.push_back(spec_.lambdaRefNm);
+   const double zRef = spec_.anchorFocus ? spec_.pivotUm : 0.0;
    for (double nm : lines)
-      patterns_.push_back({ nm, CompilePattern(state_, nm, nS_, nI_, na_, spec_.beams.polarization) });
+      patterns_.push_back({ nm, CompilePattern(state_, nm, nS_, nI_, na_, spec_.beams.polarization, zRef) });
 }
 
 const Pattern* Excitation::PatternOf(double nm) const

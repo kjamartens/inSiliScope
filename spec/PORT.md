@@ -1344,7 +1344,8 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
   `ComponentDepthMean` / `ComponentDecayUm`, `SpotRadiusUm` / `EnvelopeFwhmUm` (the Fourier pair), `Column` /
   `ImagerMap` on the mean. `ScopeMovie`: options `sim-type`, `sim-polarization`, `sim-phases`, `sim-angles`,
   `sim-order`, `sim-angle0-deg`, `sim-phase0` (part settings), `sim-centre-amp`, `sim-phase-drift-turns-per-sqrt-sec`,
-  `sim-phase-drift-turns-per-sec`, `tube-length-mm`, `magnification` (instrument), `frame0` (measurement, internal),
+  `sim-phase-drift-turns-per-sec`, `sim-anchor` (Focus / Coverslip: where the beams are in phase, `ExcitationSpec::
+  anchorFocus`, `CompilePattern` zRefUm; 2026-10-31), `tube-length-mm`, `magnification` (instrument), `frame0` (measurement, internal),
   the `beam.<j>.<column>` keys (instrument; `BeamKeyIndex`, `ScopeSpecSet`, `ScopeOptionPart`), `ScopeBeamSet`,
   `ScopeBeamMeanKey` (the chapter key's part), `ScopeExcitationSpec` resolving them (the strongest line at the sample
   as `lambdaRefNm`); `ScopeSetup::frame0`. `FluorescenceMovie::Impl`: `varies`, `period`, `StateOf(f)`, `ExciteFor`

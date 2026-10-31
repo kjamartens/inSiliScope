@@ -2403,6 +2403,10 @@ self.ISC_MM_TIERS = {
 "tier": "Expert",
 "prop": "Nanorulers.Docking_WobbleConeDeg"
 },
+"sim-anchor": {
+"tier": "Advanced",
+"prop": "Lasers.PatternAnchor"
+},
 "sim-angle0-deg": {
 "tier": "Advanced",
 "prop": "Lasers.PatternAngle0Deg"
@@ -2690,6 +2694,7 @@ self.ISC_MM_TIERS = {
 "Lasers.Laser640KWcm2": "Basic",
 "Lasers.Laser730KWcm2": "Basic",
 "Lasers.Pattern": "Basic",
+"Lasers.PatternAnchor": "Advanced",
 "Lasers.PatternAngle0Deg": "Advanced",
 "Lasers.PatternAngles": "Advanced",
 "Lasers.PatternCentreAmp": "Advanced",

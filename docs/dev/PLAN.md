@@ -211,6 +211,7 @@ Upcoming ideas:
   for each frame to be taken under a pattern) and `tools/test_sim.py` (26 s); [x] the viewer's rows, readout and
   **Preview illumination** (`web/live/illum_preview.js`, `isc_illum_preview`; `web/illumination.html` the docs'
   interactive figure; 2026-10-31: a height slider for the section seen from below, captions as page text, the open
-  dialog follows the settings), the live info's pattern state, figures `sim-patterns`, `sim-cycle`, `sim-spot`, gallery
+  dialog follows the settings; `sim-anchor` Focus / Coverslip, the beams in phase at the focus by default), the live
+  info's pattern state, figures `sim-patterns`, `sim-cycle`, `sim-spot`, gallery
   `sim-2d`, `sim-3d`, `sim-lattice-3d`, `tests/web/viewer_sim.mjs`. Next: [ ] the GPU mean field under a pattern, [ ] the exact per-frame dose,
   [ ] stroboscopic / every-n-th-frame programs on `FrameLight.scale`.

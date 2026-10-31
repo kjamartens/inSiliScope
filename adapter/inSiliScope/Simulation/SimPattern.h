@@ -52,6 +52,7 @@ enum SimOrder { SIM_ORDER_ANGLE_MAJOR = 0, SIM_ORDER_PHASE_MAJOR = 1 };
 const std::vector<std::string>& SimTypeNames();           // Off, SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D, Custom
 const std::vector<std::string>& SimPolarizationNames();   // S, P, Circular, LinearX, Unpolarized
 const std::vector<std::string>& SimOrderNames();          // AngleMajor, PhaseMajor
+const std::vector<std::string>& SimAnchorNames();         // Focus, Coverslip (sim-anchor: where the beams are in phase)
 // The side beams' radius a type pick sets (u; estimates: 2D SIM near the pupil edge, 3D and lattice propagating).
 double SimTypeDefaultRadius(int type);
 
@@ -176,7 +177,11 @@ struct Pattern
    // The same over the DC terms alone (j == l): the frame's beams' incoherent sum over the ball.
    double DcBallMean(double z, double r, const double* env) const;
 };
-Pattern CompilePattern(const PatternState& st, double lambdaNm, double nS, double nI, double na, int polarization);
+// zRefUm: the height where the beams are in phase (their phases as given): the terms' phases carry -kz zRefUm, so the
+// pattern's axial structure is fixed to that plane (the focal plane under sim-anchor Focus, the coverslip under
+// Coverslip; 2026-10-31). The evanescent decays are from the coverslip whatever it is.
+Pattern CompilePattern(const PatternState& st, double lambdaNm, double nS, double nI, double na, int polarization,
+                       double zRefUm = 0.0);
 
 // Every order's phase shift per phase index is distinct mod nPhases (a fringe between beams j, l shifts by
 // (step_j - step_l) / nPhases of a turn; orders are the distinct lateral q up to sign): the separation the

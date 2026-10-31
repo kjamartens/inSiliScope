@@ -156,8 +156,9 @@ through it step by step.
   **Pattern** select makes the light several coherent beams in the back focal plane whose fringes step with the frame
   (structured illumination: SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D or Custom; a pick sets the BFP position to the
   type's radius and the polarization to S; the readout under it gives the fringe period and the frames per cycle; in
-  Advanced the polarization, the phases and orientations per cycle, their order, the first orientation, a phase
-  offset and the centre beam's amplitude; in Expert the phase drift and the **Beams** matrix: every beam of the
+  Advanced the polarization, the plane the beams are in phase at (the focus, so the fringes move with the focus and
+  the sample moves through them, or the coverslip), the phases and orientations per cycle, their order, the first
+  orientation, a phase offset and the centre beam's amplitude; in Expert the phase drift and the **Beams** matrix: every beam of the
   illumination in every mode, one row per beam, `ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm`, pre-filled
   with the type's beams, which typed rows replace; the column table and worked examples are on the physics page under
   [Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)). The live sample counts its

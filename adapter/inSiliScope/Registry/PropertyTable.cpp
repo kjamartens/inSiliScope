@@ -820,6 +820,12 @@ std::vector<PropDef> BuildTable()
                    "x and y pairs then do not interfere, LatticeSIM3D's centre beam is circular), P, Circular, LinearX "
                    "(the pupil field along the lab x axis) "
                    "or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S."));
+      add(OptNames(L, "PatternAnchor", Tier::Advanced, "sim-anchor", sim::SimAnchorNames(), 0,
+                   "The plane the beams are in phase at, which the pattern's axial structure is fixed to: Focus (a "
+                   "grating or SLM conjugate to the focal plane: the fringes move with the focus and the sample moves "
+                   "through them, by the stage or the objective alike) or Coverslip (the fringes fixed to the sample: "
+                   "an illumination that does not move with the focus). The evanescent decay is from the coverslip "
+                   "either way."));
       {
          PropDef d = Opt(L, "PatternPhases", Tier::Advanced, "sim-phases", 0, 64,
                          "Phase steps per orientation (0 = the type's: 3, 5, 9, 13).");

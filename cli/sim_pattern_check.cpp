@@ -264,6 +264,30 @@ void FieldChecks()
                }
             }
          }
+   // The anchor (sim-anchor Focus): the pattern compiled with its beams in phase at zRef equals the one in phase at
+   // the coverslip read zRef lower (propagating beams: no decay from the coverslip to break it).
+   for (int type : { SIM_3D, SIM_LATTICE_3D })
+   {
+      BeamSet set = MakeBeams(type, 0.9, SIM_POL_S, 1.0);
+      const PatternState st = PatternStateAt(set, 3, 0, 0.05);
+      const Pattern a = CompilePattern(st, 488.0, nS, nI, na, SIM_POL_S, 0.5), b = CompilePattern(st, 488.0, nS, nI, na, SIM_POL_S);
+      std::vector<double> env(st.beams.size(), 1.0);
+      for (int i = 0; i < 12; ++i)
+      {
+         const double x = 0.31 * i - 1.0, y = 0.17 * i, z = 0.07 * i;
+         const double pa = a.At(x, y, z, env.data()), pb = b.At(x, y, z - 0.5, env.data());
+         Check(std::fabs(pa - pb) <= 1e-9 * std::max(1.0, std::fabs(pb)), "the pattern anchored at 0.5 um = the coverslip's shifted by 0.5 um");
+      }
+      // and the two differ on the focal plane itself (the SIM3D first order is zero at the in-phase plane's quarter
+      // period: at the coverslip anchor the focal plane 0.5 um up sees another phase)
+      double diff = 0;
+      for (int i = 0; i < 12; ++i)
+      {
+         const double x = 0.05 * i;
+         diff = std::max(diff, std::fabs(a.At(x, 0, 0.5, env.data()) - b.At(x, 0, 0.5, env.data())));
+      }
+      Check(diff > 1e-3, "the anchor moves the pattern on the focal plane");
+   }
    // A custom set: five beams with tilts, phases, amplitudes, an ellipticity, at mixed radii (one evanescent).
    {
       BeamSet set = MakeBeams(SIM_CUSTOM, 0, SIM_POL_S, 1.0);

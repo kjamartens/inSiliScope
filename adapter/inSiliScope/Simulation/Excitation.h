@@ -75,6 +75,10 @@ struct ExcitationSpec
    double pivotUm = 0;           // where the HILO beam crosses the axis (the focal plane)
    // Several beams (SimPattern.h): empty beams = the legacy single beam at (bfp, 0) above.
    BeamSet beams;
+   // Where the beams are in phase (sim-anchor, 2026-10-31): true = the focal plane (pivotUm): the fringes move with
+   // the focus and the sample moves through them (the stage or the objective: the same relative motion), as a
+   // grating or SLM conjugate to the focal plane makes them; false = the coverslip: the fringes fixed to the sample.
+   bool anchorFocus = true;
    double fObjUm = 2000;         // the objective's focal length (tube length / magnification): the pupil radius is f NA,
                                  // a spot of radius w_b makes an envelope of 1/e^2 radius lambda f / (pi w_b), a tilt
                                  // moves it by f tan(tilt)

@@ -90,7 +90,7 @@ def main():
     core.setXYPosition("XYStage", 6.58, -5.61)   # a cell's microtubules
     core.waitForDevice("XYStage")
 
-    for p, v in (("Pattern", "Off"), ("PatternPolarization", "S"), ("PatternPhases", 0), ("PatternAngles", 0),
+    for p, v in (("Pattern", "Off"), ("PatternPolarization", "S"), ("PatternAnchor", "Focus"), ("PatternPhases", 0), ("PatternAngles", 0),
                  ("PatternOrder", "AngleMajor"), ("PatternAngle0Deg", 0), ("PatternPhase0", 0), ("PatternCentreAmp", 1),
                  ("PatternPhaseDriftTurnsPerSqrtSec", 0), ("PatternPhaseDriftTurnsPerSec", 0), ("PatternRestart", "Sequence"),
                  ("PatternState", "no pattern"), ("PatternPeriodNm", -1)):
@@ -99,7 +99,8 @@ def main():
     rows = core.getProperty("Lasers", "Beams").split(";")
     assert len(rows) == 1 and len(rows[0].split()) == 11, f"Off: one beam row expected, got {rows}"
     assert float(core.getProperty("Objective", "TubeLengthMm")) == 200
-    print("Layout OK: the Pattern rows, one beam under Off")
+    assert set(core.getAllowedPropertyValues("Lasers", "PatternAnchor")) == {"Focus", "Coverslip"}
+    print("Layout OK: the Pattern rows (PatternAnchor Focus / Coverslip), one beam under Off")
 
     core.setProperty("Lasers", "Pattern", "SIM2D")
     assert float(core.getProperty("Lasers", "BfpPosition")) == 0.95, "a SIM2D pick sets BfpPosition 0.95"

@@ -138,7 +138,8 @@ const char* PartOf(const std::string& n)
             "gain", "offset", "offset-std", "read-noise", "gain-std-pct", "read-noise-std-pct", "cic", "bit-depth",
             "illum-profile", "illum-fwhm", "laser-custom-nm", "ex-lo-nm", "ex-hi-nm", "dichroic-edge-nm", "em-lo-nm",
             "em-hi-nm", "bf-condenser-na", "bf-wavelength-nm", "bf-aberrations", "fid-blocking-od", "sim-centre-amp",
-            "sim-phase-drift-turns-per-sqrt-sec", "sim-phase-drift-turns-per-sec", "tube-length-mm", "magnification" }))
+            "sim-phase-drift-turns-per-sqrt-sec", "sim-phase-drift-turns-per-sec", "sim-anchor", "tube-length-mm",
+            "magnification" }))
       return "instrument";
    if (n == "fid-psf-z-range-um" || n == "fid-far-defocus" || n == "fid-clumps-as-one")   // the beads' drawing, as psf-z-range-um
       return "settings";
@@ -281,6 +282,7 @@ const OptionTable& Options()
          { "illum-geometry", 0, "deprecated, ignored (was Lasers.IlluminationGeometry: Epi; illum-bfp replaces it)" },
          { "sim-type", 0, "Lasers.Pattern: structured illumination, the light as coherent beams in the back focal plane (spec/ALGORITHM.md \"Structured illumination\"): 0 Off (one beam at illum-bfp), 1 SIM2D (two beams at +-illum-bfp, 3 phases x 3 angles), 2 SIM3D (+ the centre beam, 5 phases x 3 angles), 3 LatticeSIM2D (+-x, +-y, 9 phases), 4 LatticeSIM3D (+ the centre, 13 phases stepped 2:3), 5 Custom (the beam matrix alone); names accepted. The pattern's phase and angle step with the frame (the frame program); the kinetics run on the cycle mean (the beams' incoherent sum)" },
          { "sim-polarization", 0, "Lasers.PatternPolarization: every beam's polarization, 0 S (perpendicular to its plane of incidence: full fringe contrast, the lattice's orthogonal pairs; LatticeSIM3D's centre beam circular under S and P), 1 P, 2 Circular, 3 LinearX (the pupil field along the lab x axis), 4 Unpolarized (the mean of the S and P patterns); names accepted" },
+         { "sim-anchor", 0, "Lasers.PatternAnchor: the plane the beams are in phase at, which the pattern's axial structure is fixed to: 0 Focus (a grating or SLM conjugate to the focal plane: the fringes move with the focus and the sample moves through them, by the stage or the objective alike), 1 Coverslip (the fringes fixed to the sample: an illumination that does not move with the focus); the evanescent decay is from the coverslip either way; names accepted" },
          { "sim-phases", 0, "Lasers.PatternPhases: phase steps per angle (0 = the type's: 3, 5, 9, 13)" },
          { "sim-angles", 0, "Lasers.PatternAngles: pattern orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D/SIM3D, 1 for the lattices)" },
          { "sim-order", 0, "Lasers.PatternOrder: the frame program's order, 0 AngleMajor (every phase of an angle, then the next angle), 1 PhaseMajor; names accepted" },
@@ -467,6 +469,7 @@ const std::vector<std::string>* OptionNames(const std::string& name)
       m["sim-type"] = SimTypeNames();
       m["sim-polarization"] = SimPolarizationNames();
       m["sim-order"] = SimOrderNames();
+      m["sim-anchor"] = SimAnchorNames();
       return m;
    }();
    auto it = names.find(name);
@@ -1261,6 +1264,7 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
    e.nMed = O("bf-n-medium");
    e.pivotUm = O("focus-um") + O("z");
    e.beams = ScopeBeamSet(spec);
+   e.anchorFocus = O("sim-anchor") == 0;
    if (!e.beams.beams.empty())
    {
       // A beam set: the pupil's geometry, the lines the pattern is made for (the strongest at the sample sets the

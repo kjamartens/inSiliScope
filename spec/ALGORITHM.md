@@ -966,7 +966,13 @@ Off and no matrix).
   u_l), axial kz = k0 n_s (cos theta_j - cos theta_l) for propagating beams, 1 / d_jl = 1 / 2 d_j + 1 / 2 d_l over the
   evanescent ones. Two beams at +-u make a fringe of period lambda / (2 n_s u), contrast 1 when s-polarized and |cos 2
   theta_s| when p-polarized (the p vectors' lateral parts oppose); beyond the critical angle the fringe stays and decays
-  (TIRF-SIM, kner2009). ctest `sim_pattern`: the compiled terms equal the explicit field sum written out independently
+  (TIRF-SIM, kner2009). **The axial anchor** (`sim-anchor`, 2026-10-31): the beams are in phase at the focal plane
+  (Focus, default: a grating or SLM conjugate to the focal plane, so the fringes move with the focus and the sample
+  moves through them -- the stage or the objective, the same relative motion; the terms' phases carry -kz z_focus,
+  `CompilePattern`'s zRefUm; Brudanin's SIM package anchors its harmonics at the PSF's centre too) or at the coverslip
+  (Coverslip: the fringes fixed to the sample, an illumination that does not move with the focus; the only behaviour
+  before 2026-10-31). The evanescent decay is from the coverslip in both. Under z drift the pattern is still read at
+  the undrifted site (below). ctest `sim_pattern`: the compiled terms equal the explicit field sum written out independently
   (the user's pattern_at_z / pattern_at_z_with_polarization3 in physical units) for every type, polarization and a
   tilted, phased custom set, 4320 points to 1e-9.
 - **The types.** `sim-type` SIM2D: two beams at +-r, 3 phases x 3 orientations (gustafsson2000; the orientations 180 /
