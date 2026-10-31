@@ -1895,6 +1895,9 @@ struct MeanFieldSlot
    // AnchorMeanField: the pose (FOV origin, world um) the scene is kept at.
    bool anchored = false;
    double anchorX = 0, anchorY = 0;
+   // A varying pattern's state scene: the first frame of the movie that used it last (BuildMeanFieldNode).
+   long frame0 = 0;
+   bool frame0Set = false;
    // A host's map (MapEntriesFor): the grid (geometry) and lattice its entries were made for, each grid cell's place
    // between them (the scene's weight map), and the population's weight entries by (map, grid, population).
    std::vector<double> tileGeom;
@@ -3956,6 +3959,8 @@ void FluorescenceMovie::Impl::Survey(Population& p, double zMin, double zMax)
       if (!S.excite.Tilted())
          ek[kExciteKeyPivot] = 0.0;
       key.insert(key.end(), ek.begin(), ek.end());
+      // (The lit test reads the first frame's pattern state: not in exciteKey without a phase drift.)
+      key.push_back(static_cast<double>(StateOf(0)));
       for (const ExcitationLine& l : g.shares)
       {
          key.push_back(l.nm);
@@ -4208,6 +4213,13 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    if (!slot.scene.Update(cache.source, ill, ws, *slot.psf, err))
       return false;
    TimingLog("fl.mean-field-scene", TimingSince(tPhase));
+   // A varying pattern: between a state's movies the dyes were lit by the other states (a live producer's frames step
+   // through them), so the state's bleach basis no longer holds them: a movie at another first frame makes a new one
+   // (one image; the first frame left the plane factor's key on 2026-10-31, and with it this reset).
+   if (varies && (!slot.frame0Set || slot.frame0 != S.frame0))
+      slot.scene.ForgetBleachBasis();
+   slot.frame0 = S.frame0;
+   slot.frame0Set = true;
    nd.slot = &slot;
    nd.ws = ws;
    if (p.weighted)
@@ -4983,11 +4995,15 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       if (!es.beams.beams.empty())
       {
          const BeamSet& b = es.beams;
+         // The first frame's index only under a phase drift: otherwise a state's light is its program index's
+         // (ExciteFor), whatever frame the movie starts at, so a live producer's next frame finds its caches (the
+         // background map, plane factors, mean-field scenes). The survey keys its base state itself (Survey).
+         const bool drifts = b.driftTurnsPerSqrtSec > 0 || b.driftTurnsPerSec != 0;
          std::vector<double> k = { static_cast<double>(b.type), static_cast<double>(b.polarization),
                                    static_cast<double>(b.phases), static_cast<double>(b.angles),
                                    static_cast<double>(b.order), b.angle0Deg, b.phase0, b.driftTurnsPerSqrtSec,
                                    b.driftTurnsPerSec, es.fObjUm, es.lambdaRefNm, static_cast<double>(es.seed),
-                                   es.expSec, static_cast<double>(es.frame) };
+                                   es.expSec, drifts ? static_cast<double>(es.frame) : 0.0 };
          for (const Beam& bm : b.beams)
             for (int c = 0; c < kBeamColumns; ++c)
                k.push_back(BeamColumn(bm, c));

@@ -525,6 +525,9 @@ public:
    static constexpr double kPrebuildAt = 0.4;
    // Takes a basis made on that thread (wait: waits for one being made); true if one was taken.
    bool TakeAsyncBasis(bool wait = false);
+   // The bleach basis no longer describes the dyes' path (another light lit them since it was made): the next frame
+   // makes a new one.
+   void ForgetBleachBasis() { InvalidateBleach(); }
    // A rate population's frames without a pass over its weights (2026-10-15): frame k of weights wb0 is
    // wb0 x exp(-rate k) (the scene's rates, SetWeightRates). AnchorDecay holds wb0 in a Chebyshev basis (as
    // BleachCoefficients does) and gives its decay from the basis' anchor, its largest deviation from that and the
