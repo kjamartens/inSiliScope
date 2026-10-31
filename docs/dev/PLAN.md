@@ -221,3 +221,6 @@ Upcoming ideas:
   replaced alone, the module's heap up to 4 GB; `tests/web/wasm_heap_check.mjs`, `viewer_oom.mjs`. Open: [ ] the light
   history's per-component footprints over a long pan (measure with the report), [ ] sharing a population's dye
   planes / per-cell arrays across its states.
+  2026-10-31: [x] live SIM with blinking labels: the frame counter out of the excitation key (bit for bit; DNA-PAINT
+  SIM2D at 256 px 320 -> 105 ms), [x] dSTORM's initial ON and PALM's pre state under the cycle-mean light (Quality
+  Exhaustive: each frame's pattern, `sim-frame-pattern-continuous`).
