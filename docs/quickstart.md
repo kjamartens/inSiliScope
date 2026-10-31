@@ -67,7 +67,10 @@ older builds refuse the DLL.
     - `Illumination` (`Epi` / `HILO` / `TIRF`: where the laser spot sits in the objective's back focal plane,
       `Lasers.BfpPosition` 0 / 0.95 / 1.03) and `BfpPosition` (the same as an editable field, 0 = epi, 1 = the critical
       angle). The channels' light presets set it too: the DNA-PAINT channel HILO, the nanorulers TIRF, the others epi
-      ([Illumination geometry](physics/dyes-and-light-path.md#illumination-geometry));
+      ([Illumination geometry](physics/dyes-and-light-path.md#illumination-geometry)); `Lasers.Pattern` (a property,
+      not a group) makes the light several coherent beams at that radius for structured illumination (SIM2D, SIM3D,
+      the lattices), stepping with every frame an acquisition takes
+      ([Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim));
     - `Laser 561 nm (kW/cm2)` and `Laser 640 nm (kW/cm2)`: the two lines' powers at the sample as editable fields in
       the main window (one property each, `Lasers.Laser561KWcm2` / `Laser640KWcm2`; 0 = off), e.g. 561 alone for the
       nuclear pores, 640 alone for the microtubules;

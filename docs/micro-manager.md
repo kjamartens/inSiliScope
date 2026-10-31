@@ -133,10 +133,11 @@ Objective turret: NA, immersion, magnification, aberrations.
 | `ZernikePreset` | Basic | MixedRealisticObjective | `None`, `AstigmatismWeak`, `AstigmatismModerate`, `AstigmatismStrong`, `ComaWeak`, `ComaStrong`, `SphericalWeak`, `SphericalStrong`, `TrefoilModerate`, `MixedRealisticObjective`, `SaddlePoint`, `ExtendedRange`, `ExtendedRangeStrong` | The objective's aberrations: a named Zernike set (sets ZernikeCoefficients). |
 | `NA` | Advanced | 1.4 | 0.1 .. 1.7 | Numerical aperture (setting it by hand makes the turret position Custom). |
 | `ImmersionIndex` | Advanced | 1.518 | 1 .. 2 | Refractive index of the immersion medium. |
-| `Magnification` | Advanced | 100 | 1 .. 250 | The objective's magnification (the pixel size follows). |
+| `Magnification` | Advanced | 100 | 1 .. 250 | The objective's magnification (the pixel size follows; with the tube length, the pupil's geometry: a beam's spot size and entry tilt map to the sample through the focal length tube length / magnification). |
 | `PsfKernelHalfWidthNm` | Advanced | 7000 | 100 .. 20000 | Half-width of the rendered PSF window (nm; a minimum, grown to cover the first Airy ring). |
 | `PsfZRangeUm` | Advanced | 7 | 0.1 .. 20 | The z span of the PSF kernel (um): dyes further from focus use its end plane. |
 | `PsfZStepUm` | Advanced | 0.1 | 0.01 .. 1 | The z step of the PSF kernel's planes (um). |
+| `TubeLengthMm` | Expert | 200 | 50 .. 500 | The tube lens' focal length (mm): the objective's focal length is it over the magnification, the back focal plane's radius that x NA (a beam's spot size and tilt map to the sample through it). |
 | `ZernikeCoefficients` | Expert | 0 0 0 0 0.05 0.08 0 0.06 0 0 0 0 0.07 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 |  | The pupil's Zernike coefficients, OSA 0-27, in waves, space-separated (GibsonLanniZernike). |
 | `WorkingDistanceUm` | Expert | 150 | 0 .. 9999 | Working distance (um; the JVM GibsonLanni model only). |
 
@@ -189,11 +190,27 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `IlluminationProfile` | Basic | Gaussian | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge). |
 | `IlluminationFwhmPct` | Basic | 100 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
 | `BfpPosition` | Basic | 0.95 | 0 .. 1.2 | Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge NA / medium index (beyond it no light reaches the sample). |
+| `Pattern` | Basic | Off | `Off`, `SIM2D`, `SIM3D`, `LatticeSIM2D`, `LatticeSIM3D`, `Custom` | Structured illumination: the light as coherent beams in the back focal plane, the fringes stepping with the frame. Off: one beam at BfpPosition. SIM2D: two beams at +-BfpPosition, 3 phases x 3 orientations. SIM3D: + the centre beam, 5 phases x 3 orientations. LatticeSIM2D: +-x and +-y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets BfpPosition to the type's radius (2D 0.95; 3D and the lattices 0.9) and PatternPolarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern's cycle mean, each frame's image on its exact pattern. |
 | `IlluminationRegime` | Advanced (read-only) | HILO |  | Epi, HILO, TIRF, or Clipped (the spot beyond the pupil edge: no light) (read-only). |
 | `IlluminationDepthNm` | Advanced (read-only) | 14973.57262 |  | TIRF: the evanescent field's 1/e intensity depth at the first label's main line; HILO: the sheet's thickness on the axis; -1 in epi (nm, read-only). |
 | `CustomLineNm` | Advanced | 0 | 0 .. 1000 | Wavelength of an extra laser line (nm). |
 | `CustomLineKWcm2` | Advanced | 0 | 0 .. 10 | Intensity of the extra line, kW/cm^2. |
 | `ChamberHeightUm` | Advanced | 100 | 0 .. 1000 | Depth of the imager solution over the coverslip (um): the DNA-PAINT free-imager background is its column of light (epi: all of it; HILO: about the sheet; TIRF: about the penetration depth). |
+| `PatternPolarization` | Advanced | S | `S`, `P`, `Circular`, `LinearX`, `Unpolarized` | Every beam's polarization: S (across its plane of incidence: full fringe contrast; the lattice's x and y pairs then do not interfere, LatticeSIM3D's centre beam is circular), P, Circular, LinearX (the pupil field along the lab x axis) or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S. |
+| `PatternPhases` | Advanced | 0 | 0 .. 64 | Phase steps per orientation (0 = the type's: 3, 5, 9, 13). |
+| `PatternAngles` | Advanced | 0 | 0 .. 12 | Orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D and SIM3D, 1 for the lattices). |
+| `PatternOrder` | Advanced | AngleMajor | `AngleMajor`, `PhaseMajor` | The frame program's order: AngleMajor (every phase of an orientation, then the next orientation) or PhaseMajor. |
+| `PatternAngle0Deg` | Advanced | 0 | -180 .. 180 | The first orientation, degrees from the x axis. |
+| `PatternPhase0` | Advanced | 0 | -100 .. 100 | Added to the phase index (fractional allowed): the pattern's starting phase. |
+| `PatternCentreAmp` | Advanced | 1 | 0 .. 10 | The centre beam's field amplitude over the side beams' (SIM3D, LatticeSIM3D; 1, an estimate). |
+| `PatternFrame` | Advanced (read-only) | 0 |  | The sample's pattern frame counter: the index the next taken frame has in the frame program (every taken frame counts, dark ones too; a sequence start sets it to 0 under PatternRestart = Sequence); each live frame's metadata tag inSiliScope-PatternFrame is the index it was rendered with (read-only). |
+| `PatternRestart` | Advanced | Sequence | `Sequence`, `Never` | When the pattern frame counter restarts at 0: at every sequence start (Live, an acquisition: its frames aligned with the program) or never (the counter runs on across acquisitions). |
+| `PatternState` | Advanced (read-only) | no pattern |  | The frame program's state the next taken frame has: 'angle a phase p, frame f of N' (read-only). |
+| `PatternPeriodNm` | Advanced (read-only) | -1 |  | The lateral fringe period of the pattern at the first label's main line (nm; the largest of several; -1 without a pattern) (read-only). |
+| `SpotRadiusUm` | Advanced (read-only) | 19.22916107 |  | The beam's spot in the back focal plane: the Gaussian spot's 1/e^2 radius (um) that makes the envelope of IlluminationFwhmPct at the strongest line (a Fourier pair through the objective's focal length) (read-only). |
+| `PatternPhaseDriftTurnsPerSqrtSec` | Expert | 0 | 0 .. 10 | Each beam's phase takes a random walk: its RMS after 1 s (turns; per seed and frame, as the sample drift). 0 = none. |
+| `PatternPhaseDriftTurnsPerSec` | Expert | 0 | -100 .. 100 | Each beam's phase drifts at its phase step x this (turns/s): the pattern slides along its stepping direction. 0 = none. |
+| `Beams` | Expert | 0.95 0 0 0 0 1 0 -999 0 0 0 |  | Every beam of the illumination, one row per beam, rows separated by ';', columns separated by spaces: ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm -- the position in the back focal plane (u units: 1 = the critical angle, beyond it evanescent), the spot's 1/e^2 radius in the pupil (um; 0 = from IlluminationFwhmPct: a Gaussian spot of radius w makes an envelope of 1/e^2 radius lambda f / (pi w), f = TubeLengthMm / Magnification), the bundle's entry tilt (degrees, two axes: the envelope's centre moves by f tan tilt), the field amplitude, the phase (turns), the polarization angle (degrees; 0 s, 90 p; below -180 unpolarized), the ellipticity phase (turns; 0.25 circular), the phase step per phase index (1 / PatternPhases turns) and the laser line the beam carries (nm; 0 = every line). Off shows its one beam; a Pattern its beams; an edit replaces them (Custom: the matrix alone). Example, a 2D SIM pair at 0.95: 0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0 |
 
 ### TransmittedLamp
 

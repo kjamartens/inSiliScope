@@ -211,6 +211,12 @@ void SceneState::SetOption(const std::string& option, double v)
    options_[option] = v;
 }
 
+void SceneState::ClearOption(const std::string& option)
+{
+   std::lock_guard<std::mutex> g(optionMutex_);
+   options_.erase(option);
+}
+
 bool SceneState::DyeEdit(const std::string& key, double& v) const
 {
    std::lock_guard<std::mutex> g(optionMutex_);

@@ -631,12 +631,16 @@ std::vector<PropDef> BuildTable()
       ThenNumber(d, [](H& h) { h.Notify("objective"); });
       add(d);
       d = Num(O, "Magnification", Tier::Advanced, "objective-mag", &SceneState::objectiveMag, 1, 250,
-              "The objective's magnification (the pixel size follows).");
+              "The objective's magnification (the pixel size follows; with the tube length, the pupil's geometry: a "
+              "beam's spot size and entry tilt map to the sample through the focal length tube length / magnification).");
       ThenNumber(d, [](H& h) {
          h.Notify("objective");
          NotifyPixel(h);
       });
       add(d);
+      add(Opt(O, "TubeLengthMm", Tier::Expert, "tube-length-mm", 50, 500,
+              "The tube lens' focal length (mm): the objective's focal length is it over the magnification, the back "
+              "focal plane's radius that x NA (a beam's spot size and tilt map to the sample through it)."));
       d = Row(O, "ZernikePreset", Tier::Basic, "zernike-preset",
               "The objective's aberrations: a named Zernike set (sets ZernikeCoefficients).");
       d.kind = PropKind::Text;
@@ -779,6 +783,190 @@ std::vector<PropDef> BuildTable()
       add(Opt(L, "ChamberHeightUm", Tier::Advanced, "chamber-height-um", 0, 1000,
               "Depth of the imager solution over the coverslip (um): the DNA-PAINT free-imager background is its "
               "column of light (epi: all of it; HILO: about the sheet; TIRF: about the penetration depth)."));
+
+      // Structured illumination (spec/ALGORITHM.md "Structured illumination", spec/PORT.md 28): the light as coherent
+      // beams in the back focal plane, the pattern stepping with the frame. The type's beams sit at BfpPosition (the
+      // beams' radius); a pick sets it to the type's default and the polarization to S (the proper one); the beam
+      // matrix (Beams) shows every beam of the light in every mode and takes edits over them.
+      {
+         PropDef d = OptNames(L, "Pattern", Tier::Basic, "sim-type", sim::SimTypeNames(), 0,
+                              "Structured illumination: the light as coherent beams in the back focal plane, the fringes "
+                              "stepping with the frame. Off: one beam at BfpPosition. SIM2D: two beams at +-BfpPosition, "
+                              "3 phases x 3 orientations. SIM3D: + the centre beam, 5 phases x 3 orientations. "
+                              "LatticeSIM2D: +-x and +-y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs "
+                              "stepping 2:3). Custom: the Beams matrix alone. A pick sets BfpPosition to the type's "
+                              "radius (2D 0.95; 3D and the lattices 0.9) and PatternPolarization to S; past 1 the "
+                              "beams are evanescent (TIRF-SIM). The kinetics run on the pattern's cycle mean, each "
+                              "frame's image on its exact pattern.");
+         ThenText(d, [](H& h) {
+            const int t = static_cast<int>(h.State().Option("sim-type"));
+            const double r = sim::SimTypeDefaultRadius(t);
+            if (r > 0)
+            {
+               h.State().SetOption("illum-bfp", r);
+               h.Notify("illum-bfp");
+            }
+            if (t != sim::SIM_OFF)
+            {
+               h.State().SetOption("sim-polarization", sim::SIM_POL_S);
+               h.Notify("sim-polarization");
+            }
+            h.Notify("beams");
+         });
+         add(d);
+      }
+      add(OptNames(L, "PatternPolarization", Tier::Advanced, "sim-polarization", sim::SimPolarizationNames(), 0,
+                   "Every beam's polarization: S (across its plane of incidence: full fringe contrast; the lattice's "
+                   "x and y pairs then do not interfere, LatticeSIM3D's centre beam is circular), P, Circular, LinearX "
+                   "(the pupil field along the lab x axis) "
+                   "or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S."));
+      {
+         PropDef d = Opt(L, "PatternPhases", Tier::Advanced, "sim-phases", 0, 64,
+                         "Phase steps per orientation (0 = the type's: 3, 5, 9, 13).");
+         d.kind = PropKind::Integer;
+         add(d);
+         d = Opt(L, "PatternAngles", Tier::Advanced, "sim-angles", 0, 12,
+                 "Orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D and SIM3D, 1 for the "
+                 "lattices).");
+         d.kind = PropKind::Integer;
+         add(d);
+      }
+      add(OptNames(L, "PatternOrder", Tier::Advanced, "sim-order", sim::SimOrderNames(), 0,
+                   "The frame program's order: AngleMajor (every phase of an orientation, then the next orientation) "
+                   "or PhaseMajor."));
+      add(Opt(L, "PatternAngle0Deg", Tier::Advanced, "sim-angle0-deg", -180, 180,
+              "The first orientation, degrees from the x axis."));
+      add(Opt(L, "PatternPhase0", Tier::Advanced, "sim-phase0", -100, 100,
+              "Added to the phase index (fractional allowed): the pattern's starting phase."));
+      add(Opt(L, "PatternCentreAmp", Tier::Advanced, "sim-centre-amp", 0, 10,
+              "The centre beam's field amplitude over the side beams' (SIM3D, LatticeSIM3D; 1, an estimate)."));
+      add(Opt(L, "PatternPhaseDriftTurnsPerSqrtSec", Tier::Expert, "sim-phase-drift-turns-per-sqrt-sec", 0, 10,
+              "Each beam's phase takes a random walk: its RMS after 1 s (turns; per seed and frame, as the sample "
+              "drift). 0 = none."));
+      add(Opt(L, "PatternPhaseDriftTurnsPerSec", Tier::Expert, "sim-phase-drift-turns-per-sec", -100, 100,
+              "Each beam's phase drifts at its phase step x this (turns/s): the pattern slides along its stepping "
+              "direction. 0 = none."));
+      {
+         // The beam matrix: every beam of the light (the type's beams at BfpPosition, with the matrix's rows over
+         // them), one row per beam; an edit writes every column of every row (beam.<j>.<column> engine keys), rows
+         // beyond the matrix removed.
+         PropDef d = Row(L, "Beams", Tier::Expert, "beams",
+                         "Every beam of the illumination, one row per beam, rows separated by ';', columns separated "
+                         "by spaces: ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm -- the position in the "
+                         "back focal plane (u units: 1 = the critical angle, beyond it evanescent), the spot's 1/e^2 "
+                         "radius in the pupil (um; 0 = from IlluminationFwhmPct: a Gaussian spot of radius w makes an "
+                         "envelope of 1/e^2 radius lambda f / (pi w), f = TubeLengthMm / Magnification), the "
+                         "bundle's entry tilt (degrees, two axes: the envelope's centre moves by f tan tilt), the "
+                         "field amplitude, the phase (turns), the polarization angle (degrees; 0 s, 90 p; below -180 "
+                         "unpolarized), the ellipticity phase (turns; 0.25 circular), the phase step per phase index "
+                         "(1 / PatternPhases turns) and the laser line the beam carries (nm; 0 = every line). Off "
+                         "shows its one beam; a Pattern its beams; an edit replaces them (Custom: the matrix alone). "
+                         "Example, a 2D SIM pair at 0.95: 0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0");
+         d.kind = PropKind::Text;
+         d.getText = [](H& h) {
+            const sim::ScopeSpec spec = BuildScopeSpec(h.State(), 0, 0, 0, 0, 1);
+            const sim::ExcitationSpec es = sim::ScopeExcitationSpec(spec);
+            if (!es.beams.beams.empty())
+               return sim::FormatBeamMatrix(es.beams.beams);
+            sim::Beam b;
+            b.ux = es.bfp;
+            b.polDeg = sim::kUnpolarizedDeg;
+            return sim::FormatBeamMatrix({ b });
+         };
+         d.setText = [](H& h, const std::string& text) {
+            std::vector<std::vector<double>> rows;
+            std::string err;
+            if (!sim::ParseBeamMatrix(text, rows, err) || rows.empty())
+               return false;
+            for (const auto& kv : h.State().Options())
+               if (sim::BeamKeyIndex(kv.first, nullptr) >= 0)
+                  h.State().ClearOption(kv.first);
+            for (size_t r = 0; r < rows.size(); ++r)
+            {
+               sim::Beam b;
+               for (size_t c = 0; c < rows[r].size(); ++c)
+                  sim::SetBeamColumn(b, static_cast<int>(c), rows[r][c]);
+               for (int c = 0; c < sim::kBeamColumns; ++c)
+                  h.State().SetOption("beam." + std::to_string(r) + "." + sim::BeamColumnNames()[static_cast<size_t>(c)],
+                                      sim::BeamColumn(b, c));
+            }
+            return true;
+         };
+         add(d);
+      }
+      {
+         // The frame program's state (read-only): the counter, the state it gives, the fringe period.
+         PropDef r = Row(L, "PatternFrame", Tier::Advanced, "pattern-frame",
+                         "The sample's pattern frame counter: the index the next taken frame has in the frame program "
+                         "(every taken frame counts, dark ones too; a sequence start sets it to 0 under PatternRestart "
+                         "= Sequence); each live frame's metadata tag inSiliScope-PatternFrame is the index it was "
+                         "rendered with (read-only).");
+         r.kind = PropKind::Integer;
+         r.readOnly = true;
+         r.invalidate = Invalidate::None;
+         r.get = [](H& h) { return static_cast<double>(h.Stage().patternFrame.load()); };
+         r.set = [](H&, double) {};
+         add(r);
+         r = Names(L, "PatternRestart", Tier::Advanced, "pattern-restart", &SceneState::patternRestart,
+                   { "Sequence", "Never" },
+                   "When the pattern frame counter restarts at 0: at every sequence start (Live, an acquisition: its "
+                   "frames aligned with the program) or never (the counter runs on across acquisitions).");
+         r.invalidate = Invalidate::None;
+         add(r);
+         r = Row(L, "PatternState", Tier::Advanced, "pattern-state",
+                 "The frame program's state the next taken frame has: 'angle a phase p, frame f of N' (read-only).");
+         r.kind = PropKind::Text;
+         r.readOnly = true;
+         r.invalidate = Invalidate::None;
+         r.getText = [](H& h) {
+            const sim::BeamSet set = sim::ScopeBeamSet(BuildScopeSpec(h.State(), 0, 0, 0, 0, 1));
+            const long long f = h.Stage().patternFrame.load();
+            if (set.beams.empty())
+               return std::string("no pattern");
+            const sim::FrameLight L = sim::FrameLightAt(set, f);
+            return "angle " + std::to_string(L.angle) + " phase " + std::to_string(L.phase) + ", frame " +
+                   std::to_string(((f % set.Period()) + set.Period()) % set.Period()) + " of " +
+                   std::to_string(set.Period());
+         };
+         r.setText = [](H&, const std::string&) { return true; };
+         add(r);
+         r = Row(L, "PatternPeriodNm", Tier::Advanced, "pattern-period-nm",
+                 "The lateral fringe period of the pattern at the first label's main line (nm; the largest of several; "
+                 "-1 without a pattern) (read-only).");
+         r.readOnly = true;
+         r.invalidate = Invalidate::None;
+         r.get = [](H& h) {
+            sim::Excitation ex;
+            std::vector<sim::ExcitationLine> shares;
+            std::string err;
+            if (!sim::ScopeExcitation(BuildScopeSpec(h.State(), 0, 0, 0, 0, 1), ex, shares, err) || !ex.Patterned())
+               return -1.0;
+            const std::vector<double> per = ex.PeriodsUm(shares.empty() ? 640.0 : shares[0].nm);
+            return per.empty() ? -1.0 : per[0] * 1000.0;
+         };
+         r.set = [](H&, double) {};
+         add(r);
+         r = Row(L, "SpotRadiusUm", Tier::Advanced, "spot-radius-um",
+                 "The beam's spot in the back focal plane: the Gaussian spot's 1/e^2 radius (um) that makes the "
+                 "envelope of IlluminationFwhmPct at the strongest line (a Fourier pair through the objective's focal "
+                 "length) (read-only).");
+         r.readOnly = true;
+         r.invalidate = Invalidate::None;
+         r.get = [](H& h) {
+            const sim::ScopeSpec spec = BuildScopeSpec(h.State(), 0, 0, 0, 0, 1);
+            sim::ExcitationSpec es = sim::ScopeExcitationSpec(spec);
+            // (The pair at the spec's pupil geometry: fObjUm and lambdaRefNm are set with a beam set only.)
+            if (es.beams.beams.empty())
+            {
+               es.fObjUm = std::max(1.0, sim::ScopeSpecGet(spec, "tube-length-mm")) * 1000.0 /
+                           std::max(1.0, sim::ScopeSpecGet(spec, "magnification"));
+            }
+            const sim::Excitation ex(es);
+            return ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovWidthUm);
+         };
+         r.set = [](H&, double) {};
+         add(r);
+      }
    }
 
    // =========================== TransmittedLamp ===========================
@@ -1295,6 +1483,7 @@ std::vector<PropDef> BuildTable()
          double x = 0, y = 0;
          h.Stage().PositionXyAt(sim::SharedStageState::Clock::now(), x, y);
          sim::ScopeSpec spec = BuildScopeSpec(h.State(), x, y, h.Stage().zPositionUm.load(), 0.0, 1);
+         spec["frame0"] = static_cast<double>(h.Stage().patternFrame.load());   // (the next frame's pattern state)
          AddDriftToSpec(spec, SnapshotParams(h.State()).drift);
          std::ofstream f(path, std::ios::binary);   // plain LF line ends on every platform
          if (!f)

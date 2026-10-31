@@ -976,6 +976,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
       std::vector<uint16_t> adu;
       sim::SharedStageState::Clock::time_point started;
       long slot;   // the live frame counter it is for
+      long long patternFrame;   // the frame program's index it was rendered with
    };
    std::deque<AheadFrame> aheadQueue;
    AheadStamp aheadStamp, lastStamp;
@@ -1003,12 +1004,12 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // A hardware z stack: the camera triggers the stage once per frame, so
       // a frame of this acquisition the consumer has not taken yet must not
       // be overwritten by the next position (it would be lost and every later
-      // frame would sit one position off).
+      // frame would sit one position off). A structured pattern's frame program the same (liveSeqWaitTake_).
       const auto tZWait = sim::TimingClock::now();
       bool zWaited = false;
       for (;;)
       {
-         if (!liveProducerRun_.load() || !liveSeqCapture_.load() || !liveSeqSkipStale_.load() ||
+         if (!liveProducerRun_.load() || !liveSeqCapture_.load() || !liveSeqWaitTake_.load() ||
              liveTakenSeq_.load() >= liveFrameSeq_.load())
             break;
          {
@@ -1342,8 +1343,9 @@ void CInSiliScopeCamera::LiveProducerLoop()
                if (b->ok)
                {
                   long slot = b->firstSlot;
+                  long long pf = b->patternFrame0;
                   for (std::vector<uint16_t>& fr : b->frames)
-                     aheadQueue.push_back({ std::move(fr), aheadJobStarted, slot++ });
+                     aheadQueue.push_back({ std::move(fr), aheadJobStarted, slot++, pf++ });
                   zClampedSinceRebuild += b->zClamped;
                   zTotalSinceRebuild += b->zTotal;
                   const double perFrame = b->ms / std::max<size_t>(1, b->frames.size());
@@ -1381,6 +1383,7 @@ void CInSiliScopeCamera::LiveProducerLoop()
          {
             nextFrame.swap(aheadQueue.front().adu);
             queuedStarted = aheadQueue.front().started;
+            lit.patternFrame = aheadQueue.front().patternFrame;
             aheadQueue.pop_front();
             fromQueue = nextFrame.size() == static_cast<size_t>(w) * h;
             if (fromQueue)
@@ -1419,6 +1422,10 @@ void CInSiliScopeCamera::LiveProducerLoop()
          // At the sample's time, under this frame's light (its dyes' clocks:
          // the history's map).
          spec = isc::BuildScopeSpec(St(), posX, posY, zOffsetUm - liveDriftZUm, lightHistory_.T(), 1);
+         // The frame program's index: the next taken frame's (a sequence's frames count at publish, a snap's when it
+         // is taken, idle frames not at all: an idle frame shows the state the next snap will have).
+         spec["frame0"] = static_cast<double>(Stg().patternFrame.load());
+         lit.patternFrame = Stg().patternFrame.load();
          flLight = liveLightAt(currentConfigVersion, posX, posY, zOffsetUm - liveDriftZUm);
          lap("live.spec+clock");
          sim::FluorescenceMovie fm;
@@ -1573,12 +1580,23 @@ void CInSiliScopeCamera::LiveProducerLoop()
       // dye is fresh, LightHistory::Lit).
       if (lit.valid && !configLightsSample)
          lit.valid = false;
+      // The acquisition's frame as of now: a sequence may have stopped and another started while this frame
+      // rendered (its flag above was read at its start); it is then stale for the new one (the consumer skips it)
+      // and must not step the new one's frame program or light (2026-10-31: a SIM sequence began at index 1).
+      const bool seqFrameNow = seqFrame && liveSeqCapture_.load() &&
+                               frameStart.time_since_epoch().count() >= liveSeqStartTicks_.load();
       {
          std::lock_guard<std::mutex> tg(liveTakeMutex_);
-         if (lit.valid && (seqFrame || (timeRuns && St().epiExplicit.load())))
+         if (lit.valid && (seqFrameNow || (timeRuns && St().epiExplicit.load())))
          {
             lightHistory_.Advance(lit.dtSec, lit.light);
             lit.counted = true;
+         }
+         if (seqFrameNow)
+         {
+            // The frame program steps with every frame an acquisition takes (dark ones too).
+            Stg().patternFrame.fetch_add(1);
+            lit.patternCounted = true;
          }
          else if (timeRuns && !(lit.valid && acquiring) && lightHistory_.Lit())
             lightHistory_.Advance(timeStepSec, darkLight);
@@ -1633,6 +1651,8 @@ void CInSiliScopeCamera::LiveProducerLoop()
             fade0 = lightHistory_.DoseAt(sx, sy);
          }
          job->spec["start-sec"] = t0 + ahead * params.frameDurationSec;
+         job->patternFrame0 = Stg().patternFrame.load() + ahead;
+         job->spec["frame0"] = static_cast<double>(job->patternFrame0);
          // Frame f's background fade: the dose at the FOV centre then.
          const double fadeRate = lightHistory_.DoseRate(job->light, sx, sy);
          for (long f = 0; f < aheadK; ++f)
@@ -1796,10 +1816,13 @@ bool CInSiliScopeCamera::GenerateNextFrameIntoImg(bool interruptible)
          std::lock_guard<std::mutex> tg(liveTakeMutex_);
          if (lit.valid && !lit.counted)
             lightHistory_.Advance(lit.dtSec, lit.light);
+         if (!lit.patternCounted)
+            Stg().patternFrame.fetch_add(1);   // (a snap: the frame program steps as it is taken)
          liveTakenSeq_ = seq;
       }
       for (int k = 0; k < 3; ++k)
          takenDriftNm_[k] = lit.driftNm[k];
+      takenPatternFrame_ = lit.patternFrame;
       liveCv_.notify_all();   // a hardware z stack's producer waits for this
       sim::TimingLog(interruptible ? "mm.wait-frame (sequence)" : "mm.wait-frame (snap)",
                      std::chrono::duration<double>(tTaken - tTake).count());

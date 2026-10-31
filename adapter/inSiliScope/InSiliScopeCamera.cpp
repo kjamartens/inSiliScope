@@ -417,6 +417,7 @@ int CInSiliScopeCamera::StopSequenceAcquisition()
    }
    liveSeqCapture_ = false;
    liveSeqSkipStale_ = false;
+   liveSeqWaitTake_ = false;
    Stg().EndSequenceAcquisition();
    return DEVICE_OK;
 }
@@ -440,12 +441,18 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
    // the camera steps it one position per frame.
    const sim::SharedStageState::ZSequence zseq = Stg().GetZSequence();
    liveSeqEpoch_ = Stg().BeginSequenceAcquisition();
+   // The structured pattern's frame program restarts with the sequence (Lasers.PatternRestart = Sequence): its
+   // frames aligned with the program, whatever was snapped before.
+   if (St().patternRestart.load() == 0)
+      Stg().patternFrame.store(0);
+   const bool patternVaries = sim::ScopeBeamSet(BuildScopeSpec(St(), 0, 0, 0, 0, 1)).Period() > 1;
    // Live: the first frame is one started from here (the pose, focus and
    // settings of this moment); the producer counts a frame as the
    // acquisition's (the sample's time, its light) when capturing and started
    // after this instant (no start in between: never a frame counted early).
    liveSeqStartTicks_ = std::numeric_limits<long long>::max();
    liveSeqSkipStale_ = zseq.armed;
+   liveSeqWaitTake_ = zseq.armed || patternVaries;
    liveSeqCapture_ = true;
    liveSeqStartTicks_ = sim::SharedStageState::Clock::now().time_since_epoch().count();
    if (acqMode_ != SMLM_MODE_LIVE)
@@ -475,6 +482,13 @@ int CInSiliScopeCamera::InsertImage()
              CDeviceUtils::ConvertToString((timeStamp - sequenceStartTime_).getMsec()));
    md.AddTag(MM::g_Keyword_Metadata_ROI_X, CDeviceUtils::ConvertToString(static_cast<long>(roiX_)));
    md.AddTag(MM::g_Keyword_Metadata_ROI_Y, CDeviceUtils::ConvertToString(static_cast<long>(roiY_)));
+   // The frame program's index the frame was rendered with (Lasers.Pattern: a reconstruction needs each frame's
+   // state; -1 = not a live frame).
+   {
+      const long long pf = takenPatternFrame_.load();
+      if (pf >= 0)
+         md.AddTag("inSiliScope-PatternFrame", CDeviceUtils::ConvertToString(static_cast<long>(pf)));
+   }
 
    imageCounter_++;
 
@@ -534,6 +548,7 @@ void CInSiliScopeCamera::OnThreadExiting() throw()
       LogMessage("SMLM sequence acquisition thread exiting");
       liveSeqCapture_ = false;
       liveSeqSkipStale_ = false;
+   liveSeqWaitTake_ = false;
       Stg().EndSequenceAcquisition();
       if (GetCoreCallback())
          GetCoreCallback()->AcqFinished(this, 0);

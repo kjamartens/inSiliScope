@@ -29,6 +29,12 @@ struct SharedStageState
 
    std::atomic<double> zPositionUm{0.0};
 
+   // The sample's pattern frame counter (structured illumination's frame program, spec/ALGORITHM.md "Structured
+   // illumination"): the index the next taken frame has in the program. Every frame the camera takes counts (a snap,
+   // a sequence's frames; idle frames of the live producer do not); a sequence start sets it to 0 under
+   // Lasers.PatternRestart = Sequence. Read by the Lasers readouts, written by the camera.
+   std::atomic<long long> patternFrame{0};
+
    // ---- Z sequence (MM hardware-triggered z stacks) ----
    // The ZStage uploads positions (AddToStageSequence / SetStageLinear-
    // Sequence, then SendStageSequence) and arms them (StartStageSequence).

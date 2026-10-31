@@ -398,6 +398,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 100.0,
        "na": 1.4
       },
       "optics": {
@@ -410,6 +411,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 100.0,
        "na": 1.49
       },
       "optics": {
@@ -422,6 +424,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
+       "magnification": 60.0,
        "na": 1.2
       },
       "optics": {
@@ -434,6 +437,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 60.0,
        "na": 1.42
       },
       "optics": {
@@ -961,6 +965,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 100.0,
        "na": 1.4
       },
       "optics": {
@@ -973,6 +978,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 100.0,
        "na": 1.49
       },
       "optics": {
@@ -985,6 +991,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
+       "magnification": 60.0,
        "na": 1.2
       },
       "optics": {
@@ -997,6 +1004,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 60.0,
        "na": 1.42
       },
       "optics": {
@@ -1525,6 +1533,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 100.0,
        "na": 1.4
       },
       "optics": {
@@ -1537,6 +1546,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 100.0,
        "na": 1.49
       },
       "optics": {
@@ -1549,6 +1559,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
+       "magnification": 60.0,
        "na": 1.2
       },
       "optics": {
@@ -1561,6 +1572,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
+       "magnification": 60.0,
        "na": 1.42
       },
       "optics": {
@@ -1999,6 +2011,10 @@ self.ISC_MM_TIERS = {
 "tier": "Advanced",
 "prop": "Lasers.CustomLineNm"
 },
+"magnification": {
+"tier": "Advanced",
+"prop": "Objective.Magnification"
+},
 "mean-field-density-per-um2": {
 "tier": "Expert",
 "prop": "Renderer.MeanFieldDensityPerUm2"
@@ -2387,6 +2403,46 @@ self.ISC_MM_TIERS = {
 "tier": "Expert",
 "prop": "Nanorulers.Docking_WobbleConeDeg"
 },
+"sim-angle0-deg": {
+"tier": "Advanced",
+"prop": "Lasers.PatternAngle0Deg"
+},
+"sim-angles": {
+"tier": "Advanced",
+"prop": "Lasers.PatternAngles"
+},
+"sim-centre-amp": {
+"tier": "Advanced",
+"prop": "Lasers.PatternCentreAmp"
+},
+"sim-order": {
+"tier": "Advanced",
+"prop": "Lasers.PatternOrder"
+},
+"sim-phase-drift-turns-per-sec": {
+"tier": "Expert",
+"prop": "Lasers.PatternPhaseDriftTurnsPerSec"
+},
+"sim-phase-drift-turns-per-sqrt-sec": {
+"tier": "Expert",
+"prop": "Lasers.PatternPhaseDriftTurnsPerSqrtSec"
+},
+"sim-phase0": {
+"tier": "Advanced",
+"prop": "Lasers.PatternPhase0"
+},
+"sim-phases": {
+"tier": "Advanced",
+"prop": "Lasers.PatternPhases"
+},
+"sim-polarization": {
+"tier": "Advanced",
+"prop": "Lasers.PatternPolarization"
+},
+"sim-type": {
+"tier": "Basic",
+"prop": "Lasers.Pattern"
+},
 "slide-bleach-half-sec": {
 "tier": "Basic",
 "prop": "FluorescentSlide.BleachHalfTimeSec"
@@ -2402,6 +2458,10 @@ self.ISC_MM_TIERS = {
 "slide-thickness-um": {
 "tier": "Basic",
 "prop": "FluorescentSlide.ThicknessUm"
+},
+"tube-length-mm": {
+"tier": "Expert",
+"prop": "Objective.TubeLengthMm"
 },
 "wf-kernel-um": {
 "tier": "Advanced",
@@ -2615,6 +2675,7 @@ self.ISC_MM_TIERS = {
 "Fluorophores.NuclearPores_EffectiveDye": "Advanced",
 "Fluorophores.NuclearPores_EmissionNm": "Advanced",
 "Fluorophores.NuclearPores_PhotonsPerSecOn": "Advanced",
+"Lasers.Beams": "Expert",
 "Lasers.BfpPosition": "Basic",
 "Lasers.ChamberHeightUm": "Advanced",
 "Lasers.CustomLineKWcm2": "Advanced",
@@ -2628,7 +2689,22 @@ self.ISC_MM_TIERS = {
 "Lasers.Laser561KWcm2": "Basic",
 "Lasers.Laser640KWcm2": "Basic",
 "Lasers.Laser730KWcm2": "Basic",
+"Lasers.Pattern": "Basic",
+"Lasers.PatternAngle0Deg": "Advanced",
+"Lasers.PatternAngles": "Advanced",
+"Lasers.PatternCentreAmp": "Advanced",
+"Lasers.PatternFrame": "Advanced",
+"Lasers.PatternOrder": "Advanced",
+"Lasers.PatternPeriodNm": "Advanced",
+"Lasers.PatternPhase0": "Advanced",
+"Lasers.PatternPhaseDriftTurnsPerSec": "Expert",
+"Lasers.PatternPhaseDriftTurnsPerSqrtSec": "Expert",
+"Lasers.PatternPhases": "Advanced",
+"Lasers.PatternPolarization": "Advanced",
+"Lasers.PatternRestart": "Advanced",
+"Lasers.PatternState": "Advanced",
 "Lasers.Preset": "Basic",
+"Lasers.SpotRadiusUm": "Advanced",
 "Nanorulers.AttachHeightNm": "Advanced",
 "Nanorulers.Bending": "Advanced",
 "Nanorulers.DensityPerUm2": "Basic",
@@ -2658,6 +2734,7 @@ self.ISC_MM_TIERS = {
 "Objective.PsfKernelHalfWidthNm": "Advanced",
 "Objective.PsfZRangeUm": "Advanced",
 "Objective.PsfZStepUm": "Advanced",
+"Objective.TubeLengthMm": "Expert",
 "Objective.WorkingDistanceUm": "Expert",
 "Objective.ZernikeCoefficients": "Expert",
 "Objective.ZernikePreset": "Basic",

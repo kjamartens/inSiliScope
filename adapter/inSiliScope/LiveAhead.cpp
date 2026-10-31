@@ -172,6 +172,7 @@ void CInSiliScopeCamera::LiveAheadLoop()
       auto cancelled = [&] { return job.id <= liveAheadCancel_.load() || !liveAheadRun_; };
       out.id = job.id;
       out.firstSlot = job.firstSlot;
+      out.patternFrame0 = job.patternFrame0;
       out.frames.assign(static_cast<size_t>(K), std::vector<uint16_t>());
       const LiveStatics& st = *job.statics;
       // The shared GPU hosts for the whole batch (the producer renders on the
