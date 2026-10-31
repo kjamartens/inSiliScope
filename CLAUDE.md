@@ -192,6 +192,8 @@ that finishes them.
   pixel size, the sample's time), `viewer_mobile.mjs` (browser, phone size with touch: layout, focus knob and gestures, the inset swap, back to wide),
   `viewer_oom.mjs` (browser, ~9 s: the movie worker's out-of-memory abort answers its jobs and replaces that worker alone;
   the next movie renders),
+  `wasm_heap_check.mjs` (Node, ~75 s: the module's heap per path at a 40 nm pixel under bounds, and with every pointer
+  above 2 GB the same bits as a fresh module),
   `viewer_splitter.mjs` (browser, 8 s: a dragged splitter width over a reload, the world canvases measured at it),
   `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, the lamina layer),
@@ -254,6 +256,9 @@ that finishes them.
 - Core WASM: `source ~/emsdk/emsdk_env.sh` (Emscripten pinned to 6.0.10, see `.github/workflows/ci.yml`),
   `cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm -j 8`, then
   `node tools/embed_web_module.mjs` (viewer module; `--check` in CI).
+  The viewer module's heap may grow to 4 GB (2026-10-31, `-sMAXIMUM_MEMORY=4GB`): above 2 GB a pointer is a negative
+  i32 in JS, so `cli/module_unsigned_pointers.js` (`--extern-post-js`) wraps `_malloc` and every export that returns a
+  pointer with `>>> 0` -- a new pointer-returning export goes in its list.
   webSMLM block: `node tools/make_cellfield_block.mjs` (its check script is gone, 2026-10-27).
 - Core on Linux/macOS: `cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release`, build, `ctest --test-dir build/native -j 8`.
 - Golden vectors: ctest `golden_vectors` (bit-identical to `spec/golden/ref.txt`, frozen from the JS until
