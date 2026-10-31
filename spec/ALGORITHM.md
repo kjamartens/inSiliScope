@@ -1037,7 +1037,11 @@ Off and no matrix).
   geometry's nodes, linear between them, on a height grid of min(0.1 um, the kernel's z step)); the frame's image =
   the mean's x (1 + sum_t Re[c_t e^(i q_t . r)]) x the column's survival; the fringe's envelope taken as the mean's.
   Fixed on purpose: a mean-field scene per state keeps its images and not its plane spectra (`ReleaseSpectra` after
-  its build; the 13 scenes of the 3D lattice at a 40 nm pixel passed the viewer's 2 GB heap, 2026-10-31) and the
+  its build; the 13 scenes of the 3D lattice at a 40 nm pixel passed the viewer's 2 GB heap, 2026-10-31), makes them
+  a batch of 32 at a time, each batch added into the channel's per-level sums in plan order and dropped
+  (`SetStreamSpectra`: the same bits, a batch's spectra at the peak instead of the plan's ~450), is a CPU scene in the
+  viewer's GPU mode too (deferred for the WebGPU host, every state kept its spectra; the host's resident spectra are
+  per scene geometry, not per plane factor), and the
   states share one set of dye tiles and one store of kernel spectra (`WidefieldScene::ShareKernels`, under a mutex;
   the plane factor applies at the dye-plane spectra) -- a focus change re-makes a state's spectra. Known approximations
   (documented): a dye's dose within a cycle is off by at most one frame's modulation; the DNA-PAINT imager background

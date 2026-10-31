@@ -215,3 +215,9 @@ Upcoming ideas:
   info's pattern state, figures `sim-patterns`, `sim-cycle`, `sim-spot`, gallery
   `sim-2d`, `sim-3d`, `sim-lattice-3d`, `tests/web/viewer_sim.mjs`. Next: [ ] the GPU mean field under a pattern, [ ] the exact per-frame dose,
   [ ] stroboscopic / every-n-th-frame programs on `FrameLight.scale`.
+  2026-10-31: [x] the RAM of the SIM path and under it (bit for bit): a memory report per owner (`MemoryReport.h`,
+  `isc_memory_json`, the Expert box), PSF splat sums lazy in one layout, SIM state scenes not deferred on the WebGPU
+  path and their spectra streamed, the slide's fringes capped, stale pattern slots freed, an aborted movie worker
+  replaced alone, the module's heap up to 4 GB; `tests/web/wasm_heap_check.mjs`, `viewer_oom.mjs`. Open: [ ] the light
+  history's per-component footprints over a long pan (measure with the report), [ ] sharing a population's dye
+  planes / per-cell arrays across its states.

@@ -41,8 +41,17 @@ that finishes them.
   mean-field scenes' plane / kernel spectra, dye tiles and planes, per-cell arrays, images; the background maps; a
   scene's own share `WidefieldScene::AddMemory`); the cli prints `ISC_MEMORY` lines after a movie with `ISC_TIMING=1`;
   the module's `isc_memory_json()` adds the live light history and the WebGPU sessions, with the heap's size; the
-  viewer's Expert performance box shows the worker heap and the largest owners. The viewer module's heap is capped
-  (no `MAXIMUM_MEMORY`: 2 GB) and never shrinks; an out-of-memory there is an `Aborted()`.
+  viewer's Expert performance box shows the worker heap and the largest owners (`#lv_memOut`, under the times). The
+  viewer module's heap never shrinks; an out-of-memory there is an `Aborted()` (cap 4 GB since 2026-10-31, was 2 GB).
+  **RAM cuts (2026-10-31, bit for bit):** a PSF stack's splat sums are made on its first splat and kept in one layout
+  (`PsfKernelPlanes::Sums`, call_once; polyphase; every reader through `BlockSumsView`; hosts that splat in parallel
+  bands call `PrepareSplat()` first): a WideField label's stack is its planes only (two thirds less), a blink label's a
+  third less; a SIM state's scene is a CPU scene on the viewer's WebGPU path too (made at once, its spectra let go: the
+  path's SIM movies aborted at 2 GB) and makes its plane spectra 32 at a time into its sums (`SetStreamSpectra`); the
+  slide's fringes per batch of frames (32 kept); a population's slots of states the pattern no longer takes freed; an
+  aborted movie worker is replaced alone, its jobs told "out of memory" (`spawnDyesWorker`, `workerErrorText`). Viewer
+  heap at 40 nm, two WideField labels: 1470-1855 MB (two aborts) -> 592-979 MB; cli 40 nm 256 px LatticeSIM3D 2301 ->
+  1140 MB. Checks: `tests/web/wasm_heap_check.mjs`, `viewer_oom.mjs`, ctest `sr_render` (the layout's memcmp).
 - **Usage counts (2026-10-21, [docs/privacy.md](docs/privacy.md)):** Umami Cloud (cookieless, website id in
   `web/live/usage.js` and `overrides/partials/integrations/analytics/custom.html`, keep them in step), only on
   kjamartens.github.io and never with Do Not Track / GPC / `localStorage umami.disabled`. The viewer calls `iscTrack(name,
@@ -450,7 +459,10 @@ off under a varying pattern; the beads at the pattern averaged over their volume
 `Excitation::AtBall` / `DcAtBall`, 2026-10-31), the slide with the frame's fringes through the PSF's OTF per height
 (`SlideFringes`, `Impl::SlideFringesFor`, the OTF cache `SlideOtf`); a mean-field state scene keeps its images and
 not its spectra (`WidefieldScene::ReleaseSpectra`), the states share the dye tiles and the kernel spectra
-(`ShareKernels`, a `KernelStore` under a mutex; 13 scenes at a 40 nm pixel aborted the viewer). cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
+(`ShareKernels`, a `KernelStore` under a mutex; 13 scenes at a 40 nm pixel aborted the viewer); 2026-10-31: a state's
+scene is a CPU scene in GPU mode too (the WebGPU host's resident spectra are per geometry, not per plane factor) and
+streams its plane spectra (`SetStreamSpectra`), the slide's fringes are made per batch (`kSlideFringeStates` 32 kept),
+the slots of states the pattern no longer takes are freed. cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
 `pattern_xy`. Checks: ctest `sim_pattern` (~8 s), `history_check` (SIM3D, TIRF-SIM), `live_scope` (the counter, a SIM
 mode). MM: `Lasers.Pattern` (Basic; the cap 31), `PatternPolarization` .. `PatternCentreAmp` (Advanced), `Beams` and
 the drift (Expert), `Objective.TubeLengthMm`; the counter `Stg().patternFrame` (`PatternFrame` read-only, `PatternRestart`

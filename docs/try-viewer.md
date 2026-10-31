@@ -53,7 +53,10 @@ through it step by step.
   drift; then where each frame's time goes, in milliseconds with one decimal: the engine's phases (setup, the core's
   blink events, splatting, camera noise, ...), the trip to and from the worker, the display, and the wait that paces
   frames to the exposure. Every row that can take time is always listed, in the same order; one the frame did not have
-  shows "—".
+  shows "—". Under the times, the memory: the live worker's heap (it never shrinks, so this is the most it has held)
+  and what the engine's caches hold, the largest first (the PSF kernel per label colour is usually most of it; a
+  finer pixel size or a longer PSF z range makes it bigger). If a movie needs more memory than the browser gives it,
+  the movie stops with an "out of memory" message and its worker starts afresh; the viewer goes on.
 - **● Record** opens a small box for the number of frames; its **Start** (or Enter) records N frames at the stage
   position with the current settings, rendered as fast as the engine goes, not paced to the exposure. The recording
   then plays in the live view in real time at the exposure it was taken with (100 frames of 1 ms play in 0.1 s; the

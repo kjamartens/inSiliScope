@@ -1367,6 +1367,15 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
   the program, the matrix, the drift, the movie's `frame0`, mean field vs per dye, Off bit for bit), `history_check`
   (SIM3D Gaussian, TIRF-SIM2D: the dose = the brute sum of `MeanAt`, components and terms), `live_scope` (a SIM mode
   in the recording and replay tests, the frame counter), the reference TIFFs of the Off path unchanged.
+- **Memory (2026-10-31, bit for bit).** A state's mean-field scene: a CPU scene in GPU mode too (`BuildMeanFieldNode`:
+  `sceneGpu = (gpuMode && !patterned) || (accel && !cpuScene)`, deferred only for GPU scenes, `sceneQueue` lists only
+  those), its plane spectra streamed into its sums (`WidefieldScene::SetStreamSpectra`, `ChannelImage` in batches of
+  32, phase `wf.plane-spectra-streamed`); the slide's fringes made per batch of frames before it renders, the least
+  recently used beyond `kSlideFringeStates` (32) dropped (`SlideMovie::fringeOrder`); after `BuildMeanField` a
+  population's slots of states >= the period (Off: >= 1) freed unless the phase drifts. Under it, for every path: the
+  PSF stack's splat sums lazy and in one layout (`PsfKernelPlanes::Sums`, `BlockSumsView`, `PrepareSplat`), the
+  viewer module's heap up to 4 GB (`cli/module_unsigned_pointers.js`), an aborted movie worker replaced alone. Checks:
+  `tests/web/wasm_heap_check.mjs` (~75 s), `viewer_oom.mjs` (~9 s), the reference TIFFs and module cases unchanged.
 - **Not in this round:** the MM adapter's rows and counter (M2), the viewer's rows, readout and preview (M3), the
   GPU mean field under a pattern (the CPU scenes serve; a job cannot see per-frame plane factors yet), the exact
   per-frame dose, stroboscopic programs.
