@@ -113,6 +113,7 @@ struct SlideMovie
    std::vector<PsfKernelCache> kernels;
    // A pattern: the fringes per pattern state (SlideFringesFor; RenderSlide takes the frame's).
    std::map<long, std::shared_ptr<const SlideFringes>> fringes;
+   std::vector<long> fringeOrder;   // the states in fringes, least recently used first (Render keeps 32)
    // The past light: none (empty): t0Sec of the movie's own light at every height; under a light history per pixel
    // (LightPast) seconds of the light now (each height at its own excitation) plus seconds at excitation 1 (every
    // height alike), then the frames from t0Sec on at each height's own excitation.

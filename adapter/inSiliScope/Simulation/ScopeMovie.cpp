@@ -3257,6 +3257,8 @@ struct ExcitePlaneFactor : WidefieldPlaneFactor
 // The pattern states' mean-field slots per population (MovieCache::meanField): a frame's slot by its pattern state,
 // states beyond this many sharing (a phase drift: every frame its own state; a slot a state takes over rebuilds).
 constexpr int kPatternSlots = 64;
+// The slide's fringes kept per movie (SlideMovie::fringes; the least recently used beyond them made again on use).
+constexpr size_t kSlideFringeStates = 32;
 
 // ---- the fluorescence movie (JS fluorescence.js renderFluorescenceMovie) ----
 struct FluorescenceMovie::Impl
@@ -4019,6 +4021,20 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
       p.mf[j].patternState = states[j];
       if (!BuildMeanFieldNode(p, j, err))
          return false;
+   }
+   // The population's slots no state of the pattern now takes (2026-10-31): a pattern's states after it was switched
+   // off, or beyond a pattern with fewer states (a phase drift's may take any slot: kept). Freed after the build, so
+   // the new scenes could share their kernel spectra and dye tiles first.
+   if (!driftsPhase)
+   {
+      const int base = (p.structure * 4 + p.state) * kPatternSlots;
+      const long keep = varies ? period : 1;
+      for (int k = static_cast<int>(std::min<long>(keep, kPatternSlots)); k < kPatternSlots; ++k)
+      {
+         auto it = cache.meanField.find(base + k);
+         if (it != cache.meanField.end())
+            cache.meanField.erase(it);
+      }
    }
    return true;
 }
@@ -5717,8 +5733,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                ComputePsfKernelCache(req, K, psfErr);
             SM->kernels.push_back(K);
          }
-         for (long st : m.PatternStates())
-            SM->fringes[st] = m.SlideFringesFor(*SM, st);
+         // (The fringes themselves per batch of frames, Render: at most kSlideFringeStates kept.)
       }
       if (history && light)
       {
@@ -6030,6 +6045,29 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             m.ExciteFor(m.StateOf(f0 + k));
             m.BgMapFor(f0 + k);
          }
+      // The slide under a pattern: the batch's fringes, the least recently used beyond kSlideFringeStates let go (a
+      // phase drift is a state per frame, ~3 MB each at 256 px: a long movie held them all; 2026-10-31).
+      if (m.slide && S.excite.Patterned())
+      {
+         SlideMovie& SM = *m.slide;
+         std::vector<long> batchStates;
+         for (long k = 0; k < nb; ++k)
+         {
+            const long st = m.StateOf(f0 + k);
+            if (std::find(batchStates.begin(), batchStates.end(), st) != batchStates.end())
+               continue;
+            batchStates.push_back(st);
+            SM.fringeOrder.erase(std::remove(SM.fringeOrder.begin(), SM.fringeOrder.end(), st), SM.fringeOrder.end());
+            SM.fringeOrder.push_back(st);
+            if (!SM.fringes.count(st))
+               SM.fringes[st] = m.SlideFringesFor(SM, st);
+         }
+         while (SM.fringeOrder.size() > std::max<size_t>(kSlideFringeStates, batchStates.size()))
+         {
+            SM.fringes.erase(SM.fringeOrder.front());
+            SM.fringeOrder.erase(SM.fringeOrder.begin());
+         }
+      }
       tBlinks.Start();
       // The blinks: frame per core, or -- fewer frames than cores (a live
       // frame, a render-ahead batch) -- one frame after the other, each in
