@@ -462,7 +462,10 @@ not its spectra (`WidefieldScene::ReleaseSpectra`), the states share the dye til
 (`ShareKernels`, a `KernelStore` under a mutex; 13 scenes at a 40 nm pixel aborted the viewer); 2026-10-31: a state's
 scene is a CPU scene in GPU mode too (the WebGPU host's resident spectra are per geometry, not per plane factor) and
 streams its plane spectra (`SetStreamSpectra`), the slide's fringes are made per batch (`kSlideFringeStates` 32 kept),
-the slots of states the pattern no longer takes are freed. Live speed (2026-10-31, bit for bit): `frame0` is in the excitation key (`Impl::exciteKey`) only under a phase drift (a state's light is its program index's), so a live frame finds the background map, plane factors and state scenes (DNA-PAINT SIM2D 256 px 320 -> 105 ms, Off 90); the survey keys its first frame's state, a state scene at another `frame0` drops its bleach basis (`MeanFieldSlot::frame0`, `ForgetBleachBasis`: the other states lit its dyes since; a single basis, as before). cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
+the slots of states the pattern no longer takes are freed. Live speed (2026-10-31, bit for bit): `frame0` is in the excitation key (`Impl::exciteKey`) only under a phase drift (a state's light is its program index's), so a live frame finds the background map, plane factors and state scenes (DNA-PAINT SIM2D 256 px 320 -> 105 ms, Off 90); the survey keys its first frame's state, a state scene at another `frame0` drops its bleach basis (`MeanFieldSlot::frame0`, `ForgetBleachBasis`: the other states lit its dyes since; a single basis, as before). The
+blink modes' continuous dyes (dSTORM initial ON, PALM pre state) glow under the cycle mean (`Population::meanLight`,
+one node, state -1; the user's choice 2026-10-31) unless `sim-frame-pattern-continuous` 1 (`Renderer.
+PatternOnContinuousDyes`, Expert; Quality Exhaustive). cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
 `pattern_xy`. Checks: ctest `sim_pattern` (~8 s), `history_check` (SIM3D, TIRF-SIM), `live_scope` (the counter, a SIM
 mode). MM: `Lasers.Pattern` (Basic; the cap 31), `PatternPolarization` .. `PatternCentreAmp` (Advanced), `Beams` and
 the drift (Expert), `Objective.TubeLengthMm`; the counter `Stg().patternFrame` (`PatternFrame` read-only, `PatternRestart`

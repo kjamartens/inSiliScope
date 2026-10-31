@@ -21,8 +21,10 @@ namespace sim {
 // (psf-halo-cut), the dimmest blink splatted in a frame (blink-min-photons,
 // detected photons; an *estimate* of what a localization needs) and whether a
 // clump of fiducial beads is drawn as one bead of their volume
-// (fid-clumps-as-one; Exhaustive: each bead, the user's choice 2026-10-30) per
-// level.
+// (fid-clumps-as-one; Exhaustive: each bead, the user's choice 2026-10-30) and
+// whether a structured pattern lights the blink modes' continuous dyes frame by
+// frame (sim-frame-pattern-continuous; else the cycle mean: Exhaustive only, the
+// user's choice 2026-10-31) per level.
 struct QualityPreset
 {
    const char* name;
@@ -32,11 +34,12 @@ struct QualityPreset
    double halo;
    double minPhotons;
    double clumpsAsOne;
+   double framePattern;
 };
 constexpr QualityPreset kQualityPresets[] = {
-   { "Fast", 1, 4, 1, 1e-5, 100, 1 },
-   { "Realistic", 3, 6, 1, 3e-6, 50, 1 },
-   { "Exhaustive", 4, 8, 2, 0.0, 0, 0 },
+   { "Fast", 1, 4, 1, 1e-5, 100, 1, 0 },
+   { "Realistic", 3, 6, 1, 3e-6, 50, 1, 0 },
+   { "Exhaustive", 4, 8, 2, 0.0, 0, 0, 1 },
 };
 
 // SampleHolder.DriftPreset (Off .. Extreme): xy and z drift speed (nm/s) and

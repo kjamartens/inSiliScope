@@ -416,6 +416,7 @@ const OptionTable& Options()
          { "psf-halo-cut", 3e-6, "Renderer.PsfHaloCut: blink splats leave out camera pixels below this share of the emitter's photons (Quality Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel; WideField keeps the whole kernel)" },
          { "psf-interp", 2, "Renderer.PsfInterp: 0 Nearest, 1 Linear, 2 Cubic, 3 Fft (names accepted)" },
          { "blink-min-photons", 50, "Renderer.BlinkMinPhotons: a blink with fewer detected photons than this in a frame is not splatted in that frame (Quality Fast 100, Realistic 50, Exhaustive 0); binned and mean-field frames and continuous dyes keep every one" },
+         { "sim-frame-pattern-continuous", 0, "Renderer.PatternOnContinuousDyes: under a structured pattern, the blink modes' continuous dyes (dSTORM's initial ON, PALM's pre state) lit by each frame's pattern (1, Quality Exhaustive) or by the cycle mean (0, Fast and Realistic: one mean-field scene, as without a pattern, ~6x faster live); the blinks and WideField dyes always take the frame's pattern, and the kinetics run on the cycle mean either way" },
       };
       v.insert(v.end(), rest.begin(), rest.end());
       for (const ScopeOption& x : v)
@@ -2907,6 +2908,9 @@ struct Population
    // A weighted blink population: the weight entries its scene's dye cells read (WidefieldScene::UsedWeights; the
    // others stay 0: each costs a Markov chain per frame).
    std::vector<uint8_t> used;
+   // A blink mode's continuous dyes (dSTORM's initial ON, PALM's pre state) under a varying pattern at the cycle-mean
+   // light (sim-frame-pattern-continuous 0): one mean-field node (pattern state -1), the dyes' excitation the mean.
+   bool meanLight = false;
 };
 
 // A population's decay rate under a label's physics (per second): the
@@ -3244,6 +3248,7 @@ struct ExcitePlaneFactor : WidefieldPlaneFactor
    ExcitationShares shares;
    double offX = 0, offY = 0;   // the beam's axis from the scene's (AnchorMeanField), um
    double pitchUm = 0;          // a beam set: the pattern's exact mean over the cell (0: at the cell's centre)
+   bool cycleMean = false;      // a beam set: the cycle's mean light (Population::meanLight), not the state's
    float At(long, double z0, double z1, double x, double y) const override
    {
       if (ex.Clipped())
@@ -3251,7 +3256,8 @@ struct ExcitePlaneFactor : WidefieldPlaneFactor
       x += offX;
       y += offY;
       if (ex.Patterned())
-         return static_cast<float>(ex.PlaneMean(x, y, z0, z1, pitchUm, shares));
+         return static_cast<float>(cycleMean ? ex.MeanPlaneMean(x, y, z0, z1, shares)
+                                             : ex.PlaneMean(x, y, z0, z1, pitchUm, shares));
       const double dm = ex.DepthMean(z0, z1, shares), zc = std::max(0.0, (z0 + z1) / 2);
       return static_cast<float>(std::min(ex.F(), ex.F() * ex.Lateral(x, y, zc) * dm));
    }
@@ -4019,7 +4025,7 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    // One node per pattern state the movie's frames take (one without a varying pattern): each its own scene under
    // that state's plane factor, so a state's plane spectra and bleach basis stay cached while the pattern steps.
    p.mfBuilt = true;
-   const std::vector<long> states = PatternStates();
+   const std::vector<long> states = p.meanLight ? std::vector<long>{ -1 } : PatternStates();
    p.mf.assign(states.size(), MeanFieldNode());
    for (size_t j = 0; j < states.size(); ++j)
    {
@@ -4033,7 +4039,7 @@ bool FluorescenceMovie::Impl::BuildMeanField(Population& p, std::string& err)
    if (!driftsPhase)
    {
       const int base = (p.structure * 4 + p.state) * kPatternSlots;
-      const long keep = varies ? period : 1;
+      const long keep = varies && !p.meanLight ? period : 1;
       for (int k = static_cast<int>(std::min<long>(keep, kPatternSlots)); k < kPatternSlots; ++k)
       {
          auto it = cache.meanField.find(base + k);
@@ -4052,7 +4058,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    MeanFieldNode& nd = p.mf[ni];
    const long stateIdx = nd.patternState;
    std::unique_ptr<MeanFieldSlot>& slotPtr =
-      cache.meanField[(p.structure * 4 + p.state) * kPatternSlots + static_cast<int>(stateIdx % kPatternSlots)];
+      cache.meanField[(p.structure * 4 + p.state) * kPatternSlots + (stateIdx < 0 ? 0 : static_cast<int>(stateIdx % kPatternSlots))];
    if (!slotPtr)
       slotPtr.reset(new MeanFieldSlot());
    MeanFieldSlot& slot = *slotPtr;
@@ -4167,7 +4173,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
       nd.shifted = nd.shiftX != 0.0 || nd.shiftY != 0.0;
    }
    slot.scene.SetKeepSpectra(shifts);
-   slot.scene.SetStreamSpectra(varies);   // (its spectra let go after the build: made a batch at a time, below)
+   slot.scene.SetStreamSpectra(varies && !p.meanLight);   // (a state's spectra let go after the build: made a batch at a time)
    slot.scene.SetAccelerator(cpuScene ? nullptr : accel);
    // Live (the MM adapter's, SetLiveAsyncBasis): the next bleach basis made ahead on a thread of its own.
    slot.scene.SetAsyncBasis(cache.live && g_liveAsyncBasis.load());
@@ -4179,7 +4185,8 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    if (shaped)
    {
       auto pf = std::make_shared<ExcitePlaneFactor>();
-      pf->ex = ExciteFor(stateIdx);
+      pf->ex = stateIdx < 0 ? S.excite : ExciteFor(stateIdx);
+      pf->cycleMean = stateIdx < 0;
       pf->shares = g.shares;
       pf->pitchUm = um / ws.grid.upscale;
       if (anchor)
@@ -4216,7 +4223,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // A varying pattern: between a state's movies the dyes were lit by the other states (a live producer's frames step
    // through them), so the state's bleach basis no longer holds them: a movie at another first frame makes a new one
    // (one image; the first frame left the plane factor's key on 2026-10-31, and with it this reset).
-   if (varies && (!slot.frame0Set || slot.frame0 != S.frame0))
+   if (varies && !p.meanLight && (!slot.frame0Set || slot.frame0 != S.frame0))
       slot.scene.ForgetBleachBasis();
    slot.frame0 = S.frame0;
    slot.frame0Set = true;
@@ -4490,7 +4497,7 @@ void FluorescenceMovie::Impl::AdvanceAcc(Population& p, long f, double z, double
       // dyes that entered or left it.
       std::vector<uint64_t> key;
       MovieCache::RunningImage* run = nullptr;
-      if (carry && !varies)
+      if (carry && (!varies || p.meanLight))
       {
          auto bits = [&](double v) {
             uint64_t b;
@@ -5431,6 +5438,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          p.nSlab = nSlab;
          // A map: each epoch's decay rate, and the share of the dyes the light reaches, their survival.
          p.nZLit = nZ;
+         p.meanLight = m.varies && ScopeSpecGet(spec, "sim-frame-pattern-continuous") == 0 &&
+                       (state == ISC_STATE_INITIAL_ON || state == ISC_STATE_PRE);
          if (m.mapped)
          {
             p.lam = EpochLambdas(m.map->s[static_cast<size_t>(s)], S.labels, s, state);
@@ -5488,7 +5497,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                continue;
             if (dose && !(windowClock[2 * wi + 1] > 0))
                continue;   // frozen: no light
-            const double a = m.shaped ? m.ExciteAt(g.shares, e.xUm, e.yUm, e.zNm) : 1.0;
+            const double a = !m.shaped ? 1.0
+                             : p.meanLight ? m.MeanExciteAt(g.shares, e.xUm, e.yUm, e.zNm)
+                                           : m.ExciteAt(g.shares, e.xUm, e.yUm, e.zNm);
             if (!(a > 0))
                continue;
             if (e.tEnd > 0)
@@ -6245,7 +6256,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   ddx = S.drift[static_cast<size_t>(f)].x / pixelNm;
                   ddy = S.drift[static_cast<size_t>(f)].y / pixelNm;
                }
-               if (m.varies)
+               if (m.varies && !p.meanLight)
                {
                   // The pattern of this frame at every dye: the running image made afresh.
                   for (BlinkEvent& e : p.wins)

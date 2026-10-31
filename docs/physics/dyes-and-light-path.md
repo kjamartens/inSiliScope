@@ -224,7 +224,12 @@ starts at frame 0 and writes the state per frame to `<out>.pattern.csv`; the vie
 <!-- fig:sim-cycle -->
 
 **What the dyes see.** The emission of every frame uses that frame's exact pattern: each blink's photons at its site,
-the mean-field image under the pattern (one scene per pattern state), the background at the coverslip. The kinetics
+the mean-field image under the pattern (one scene per pattern state), the background at the coverslip. One exception,
+for speed: the blink modes' always-glowing dyes (dSTORM's initial ON, PALM's pre state) glow under the cycle mean,
+one image as without a pattern (live dSTORM-SIM ~6x faster; over a full cycle the same photons, 1 % per pixel apart
+in a 9-frame SIM2D test); `Renderer.Quality` Exhaustive (`Renderer.PatternOnContinuousDyes` On, Expert;
+`--sim-frame-pattern-continuous 1`) gives them the frame's pattern too. The blinks and WideField dyes always take it.
+The kinetics
 (dSTORM switching, PALM activation, bleaching, the background fade) run on the **cycle mean** of the pattern, the
 beams' incoherent sum, which the pattern summed over a full phase cycle equals exactly: a dye's dose within a cycle is
 off by at most one frame's modulation, and the light history keeps one chapter per beam set (one component per beam

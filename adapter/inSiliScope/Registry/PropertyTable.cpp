@@ -1343,7 +1343,8 @@ std::vector<PropDef> BuildTable()
             if (h.State().brightField[BF_QUALITY].load() == q.bf && h.State().psfOversampling.load() == q.os &&
                 h.State().wideField[WF_UPSCALING].load() == q.wf && h.State().psfHaloCut.load() == q.halo &&
                 h.State().Option("blink-min-photons") == q.minPhotons &&
-                h.State().Option("fid-clumps-as-one") == q.clumpsAsOne)
+                h.State().Option("fid-clumps-as-one") == q.clumpsAsOne &&
+                h.State().Option("sim-frame-pattern-continuous") == q.framePattern)
                return std::string(q.name);
          return std::string("Custom");
       };
@@ -1359,12 +1360,14 @@ std::vector<PropDef> BuildTable()
                h.State().psfHaloCut = q.halo;
                h.State().SetOption("blink-min-photons", q.minPhotons);
                h.State().SetOption("fid-clumps-as-one", q.clumpsAsOne);
+               h.State().SetOption("sim-frame-pattern-continuous", q.framePattern);
                h.Notify("bf-quality");
                h.Notify("psf-oversampling");
                h.Notify("wf-upscale");
                h.Notify("psf-halo-cut");
                h.Notify("blink-min-photons");
                h.Notify("fid-clumps-as-one");
+               h.Notify("sim-frame-pattern-continuous");
                return true;
             }
          return false;
@@ -1470,6 +1473,13 @@ std::vector<PropDef> BuildTable()
       d = OnOffOpt(R, "BeadClumpsAsOne", Tier::Expert, "fid-clumps-as-one",
                    "On: a clump of fiducial beads is drawn as one bead of their volume at their centre of mass with their "
                    "light (faster; Quality Fast, Realistic). Off: each bead of a clump (Exhaustive).");
+      ThenText(d, quality);
+      add(d);
+      d = OnOffOpt(R, "PatternOnContinuousDyes", Tier::Expert, "sim-frame-pattern-continuous",
+                   "Under a structured pattern (Lasers.Pattern): On, the blink modes' continuous dyes (dSTORM's initial "
+                   "ON, PALM's pre state) are lit by each frame's pattern (Quality Exhaustive); Off, by the cycle's mean "
+                   "light (Fast, Realistic: ~6x faster live). The blinks and WideField dyes always take the frame's "
+                   "pattern; the kinetics run on the cycle mean either way.");
       ThenText(d, quality);
       add(d);
       add(Opt(R, "BlinkMeanFieldDensityPerUm2", Tier::Expert, "blink-mean-field-density-per-um2", 0, 1e9,

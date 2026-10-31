@@ -12,7 +12,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 2.0
+       "psf-zernike-preset": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -20,7 +21,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 3.0
+       "psf-zernike-preset": 3.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -28,7 +30,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 1.0
+       "psf-zernike-preset": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -36,7 +39,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 5.0
+       "psf-zernike-preset": 5.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -44,7 +48,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 4.0
+       "psf-zernike-preset": 4.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -52,7 +57,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 11.0
+       "psf-zernike-preset": 11.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -60,7 +66,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 12.0
+       "psf-zernike-preset": 12.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -68,7 +75,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 9.0
+       "psf-zernike-preset": 9.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -76,7 +84,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 0.0
+       "psf-zernike-preset": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -84,7 +93,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 10.0
+       "psf-zernike-preset": 10.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -92,7 +102,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 7.0
+       "psf-zernike-preset": 7.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -100,7 +111,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 6.0
+       "psf-zernike-preset": 6.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -108,7 +120,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 8.0
+       "psf-zernike-preset": 8.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -131,7 +144,8 @@ self.ISC_MM_CONFIG = {
        "qe": 0.85,
        "qe-curve": 0.0,
        "read-noise": 1.2,
-       "read-noise-std-pct": 20.0
+       "read-noise-std-pct": 20.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "emissionMag": 0.667,
@@ -153,7 +167,8 @@ self.ISC_MM_CONFIG = {
        "qe": 0.95,
        "qe-curve": 1.0,
        "read-noise": 50.0,
-       "read-noise-std-pct": 0.0
+       "read-noise-std-pct": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "emissionMag": 1.6,
@@ -184,7 +199,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 58.0,
        "npc-mode": 0.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 0.0
+       "ruler-mode": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -207,7 +223,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 60.0,
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 2.0
+       "ruler-mode": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -230,7 +247,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 60.0,
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 2.0
+       "ruler-mode": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "trans"
      },
@@ -253,7 +271,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 100.0,
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 3.0
+       "ruler-mode": 3.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -276,7 +295,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 58.0,
        "npc-mode": 1.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 1.0
+       "ruler-mode": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      }
@@ -293,7 +313,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 250.0,
        "drift-z-nm-per-sqrt-sec": 50.0,
        "drift-z-speed-nm-per-sec": 250.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -304,7 +325,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 25.0,
        "drift-z-nm-per-sqrt-sec": 5.0,
        "drift-z-speed-nm-per-sec": 25.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -315,7 +337,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 2.0,
        "drift-z-nm-per-sqrt-sec": 0.4,
        "drift-z-speed-nm-per-sec": 2.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -326,7 +349,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 5.0,
        "drift-z-nm-per-sqrt-sec": 1.0,
        "drift-z-speed-nm-per-sec": 5.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -337,7 +361,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
        "drift-z-speed-nm-per-sec": 0.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -350,7 +375,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 0.0
+       "illum-bfp": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -358,7 +384,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 0.95
+       "illum-bfp": 0.95,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -366,7 +393,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 1.03
+       "illum-bfp": 1.03,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -399,7 +427,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 100.0,
-       "na": 1.4
+       "na": 1.4,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 100.0
@@ -412,7 +441,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 100.0,
-       "na": 1.49
+       "na": 1.49,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 100.0
@@ -425,7 +455,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
        "magnification": 60.0,
-       "na": 1.2
+       "na": 1.2,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 60.0
@@ -438,7 +469,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 60.0,
-       "na": 1.42
+       "na": 1.42,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 60.0
@@ -456,6 +488,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
        "psf-oversampling": 8.0,
+       "sim-frame-pattern-continuous": 1.0,
        "wf-upscale": 2.0
       }
      },
@@ -466,6 +499,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
        "psf-oversampling": 4.0,
+       "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
       }
      },
@@ -476,6 +510,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
        "psf-oversampling": 6.0,
+       "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
       }
      }
@@ -489,6 +524,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 2.0
       }
      },
@@ -497,6 +533,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": null
       }
      },
@@ -505,6 +542,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 1.0
       }
      },
@@ -513,6 +551,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 3.0
       }
      }
@@ -547,7 +586,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 2.0
+       "psf-zernike-preset": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -555,7 +595,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 3.0
+       "psf-zernike-preset": 3.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -563,7 +604,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 1.0
+       "psf-zernike-preset": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -571,7 +613,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 5.0
+       "psf-zernike-preset": 5.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -579,7 +622,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 4.0
+       "psf-zernike-preset": 4.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -587,7 +631,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 11.0
+       "psf-zernike-preset": 11.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -595,7 +640,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 12.0
+       "psf-zernike-preset": 12.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -603,7 +649,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 9.0
+       "psf-zernike-preset": 9.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -611,7 +658,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 0.0
+       "psf-zernike-preset": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -619,7 +667,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 10.0
+       "psf-zernike-preset": 10.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -627,7 +676,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 7.0
+       "psf-zernike-preset": 7.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -635,7 +685,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 6.0
+       "psf-zernike-preset": 6.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -643,7 +694,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 8.0
+       "psf-zernike-preset": 8.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -675,7 +727,8 @@ self.ISC_MM_CONFIG = {
        "qe": 0.85,
        "qe-curve": 0.0,
        "read-noise": 1.2,
-       "read-noise-std-pct": 20.0
+       "read-noise-std-pct": 20.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "emissionMag": 0.667,
@@ -697,7 +750,8 @@ self.ISC_MM_CONFIG = {
        "qe": 0.95,
        "qe-curve": 1.0,
        "read-noise": 50.0,
-       "read-noise-std-pct": 0.0
+       "read-noise-std-pct": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "emissionMag": 1.6,
@@ -728,7 +782,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 58.0,
        "npc-mode": 0.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 0.0
+       "ruler-mode": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -751,7 +806,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 60.0,
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 2.0
+       "ruler-mode": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -774,7 +830,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 60.0,
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 2.0
+       "ruler-mode": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "trans"
      },
@@ -797,7 +854,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 100.0,
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 3.0
+       "ruler-mode": 3.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -820,7 +878,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 100.0,
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 3.0
+       "ruler-mode": 3.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "both"
      },
@@ -843,7 +902,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 58.0,
        "npc-mode": 1.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 1.0
+       "ruler-mode": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      }
@@ -860,7 +920,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 250.0,
        "drift-z-nm-per-sqrt-sec": 50.0,
        "drift-z-speed-nm-per-sec": 250.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -871,7 +932,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 25.0,
        "drift-z-nm-per-sqrt-sec": 5.0,
        "drift-z-speed-nm-per-sec": 25.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -882,7 +944,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 2.0,
        "drift-z-nm-per-sqrt-sec": 0.4,
        "drift-z-speed-nm-per-sec": 2.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -893,7 +956,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 5.0,
        "drift-z-nm-per-sqrt-sec": 1.0,
        "drift-z-speed-nm-per-sec": 5.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -904,7 +968,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
        "drift-z-speed-nm-per-sec": 0.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -917,7 +982,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 0.0
+       "illum-bfp": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -925,7 +991,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 0.95
+       "illum-bfp": 0.95,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -933,7 +1000,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 1.03
+       "illum-bfp": 1.03,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -966,7 +1034,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 100.0,
-       "na": 1.4
+       "na": 1.4,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 100.0
@@ -979,7 +1048,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 100.0,
-       "na": 1.49
+       "na": 1.49,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 100.0
@@ -992,7 +1062,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
        "magnification": 60.0,
-       "na": 1.2
+       "na": 1.2,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 60.0
@@ -1005,7 +1076,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 60.0,
-       "na": 1.42
+       "na": 1.42,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 60.0
@@ -1023,6 +1095,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
        "psf-oversampling": 8.0,
+       "sim-frame-pattern-continuous": 1.0,
        "wf-upscale": 2.0
       }
      },
@@ -1033,6 +1106,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
        "psf-oversampling": 4.0,
+       "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
       }
      },
@@ -1043,6 +1117,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
        "psf-oversampling": 6.0,
+       "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
       }
      }
@@ -1056,6 +1131,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 2.0
       }
      },
@@ -1064,6 +1140,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": null
       }
      },
@@ -1072,6 +1149,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 1.0
       }
      },
@@ -1080,6 +1158,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 3.0
       }
      }
@@ -1115,7 +1194,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 2.0
+       "psf-zernike-preset": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1123,7 +1203,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 3.0
+       "psf-zernike-preset": 3.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1131,7 +1212,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 1.0
+       "psf-zernike-preset": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1139,7 +1221,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 5.0
+       "psf-zernike-preset": 5.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1147,7 +1230,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 4.0
+       "psf-zernike-preset": 4.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1155,7 +1239,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 11.0
+       "psf-zernike-preset": 11.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1163,7 +1248,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 12.0
+       "psf-zernike-preset": 12.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1171,7 +1257,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 9.0
+       "psf-zernike-preset": 9.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1179,7 +1266,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 0.0
+       "psf-zernike-preset": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1187,7 +1275,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 10.0
+       "psf-zernike-preset": 10.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1195,7 +1284,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 7.0
+       "psf-zernike-preset": 7.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1203,7 +1293,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 6.0
+       "psf-zernike-preset": 6.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1211,7 +1302,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "psf-zernike-preset": 8.0
+       "psf-zernike-preset": 8.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -1243,7 +1335,8 @@ self.ISC_MM_CONFIG = {
        "qe": 0.85,
        "qe-curve": 0.0,
        "read-noise": 1.2,
-       "read-noise-std-pct": 20.0
+       "read-noise-std-pct": 20.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "emissionMag": 0.667,
@@ -1265,7 +1358,8 @@ self.ISC_MM_CONFIG = {
        "qe": 0.95,
        "qe-curve": 1.0,
        "read-noise": 50.0,
-       "read-noise-std-pct": 0.0
+       "read-noise-std-pct": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "emissionMag": 1.6,
@@ -1296,7 +1390,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 58.0,
        "npc-mode": 0.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 0.0
+       "ruler-mode": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -1319,7 +1414,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 60.0,
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 2.0
+       "ruler-mode": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -1342,7 +1438,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 60.0,
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 2.0
+       "ruler-mode": 2.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "trans"
      },
@@ -1365,7 +1462,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 100.0,
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 3.0
+       "ruler-mode": 3.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      },
@@ -1388,7 +1486,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 100.0,
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 3.0
+       "ruler-mode": 3.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "both"
      },
@@ -1411,7 +1510,8 @@ self.ISC_MM_CONFIG = {
        "npc-label-pct": 58.0,
        "npc-mode": 1.0,
        "ruler-dye": -1.0,
-       "ruler-mode": 1.0
+       "ruler-mode": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       },
       "light": "epi"
      }
@@ -1428,7 +1528,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 250.0,
        "drift-z-nm-per-sqrt-sec": 50.0,
        "drift-z-speed-nm-per-sec": 250.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1439,7 +1540,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 25.0,
        "drift-z-nm-per-sqrt-sec": 5.0,
        "drift-z-speed-nm-per-sec": 25.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1450,7 +1552,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 2.0,
        "drift-z-nm-per-sqrt-sec": 0.4,
        "drift-z-speed-nm-per-sec": 2.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1461,7 +1564,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 5.0,
        "drift-z-nm-per-sqrt-sec": 1.0,
        "drift-z-speed-nm-per-sec": 5.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1472,7 +1576,8 @@ self.ISC_MM_CONFIG = {
        "drift-xy-speed-nm-per-sec": 0.0,
        "drift-z-nm-per-sqrt-sec": 0.0,
        "drift-z-speed-nm-per-sec": 0.0,
-       "fid-clumps-as-one": 1.0
+       "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -1485,7 +1590,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 0.0
+       "illum-bfp": 0.0,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1493,7 +1599,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 0.95
+       "illum-bfp": 0.95,
+       "sim-frame-pattern-continuous": 0.0
       }
      },
      {
@@ -1501,7 +1608,8 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
-       "illum-bfp": 1.03
+       "illum-bfp": 1.03,
+       "sim-frame-pattern-continuous": 0.0
       }
      }
     ]
@@ -1534,7 +1642,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 100.0,
-       "na": 1.4
+       "na": 1.4,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 100.0
@@ -1547,7 +1656,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 100.0,
-       "na": 1.49
+       "na": 1.49,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 100.0
@@ -1560,7 +1670,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
        "magnification": 60.0,
-       "na": 1.2
+       "na": 1.2,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 60.0
@@ -1573,7 +1684,8 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
        "magnification": 60.0,
-       "na": 1.42
+       "na": 1.42,
+       "sim-frame-pattern-continuous": 0.0
       },
       "optics": {
        "objectiveMag": 60.0
@@ -1591,6 +1703,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
        "psf-oversampling": 8.0,
+       "sim-frame-pattern-continuous": 1.0,
        "wf-upscale": 2.0
       }
      },
@@ -1601,6 +1714,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
        "psf-oversampling": 4.0,
+       "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
       }
      },
@@ -1611,6 +1725,7 @@ self.ISC_MM_CONFIG = {
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
        "psf-oversampling": 6.0,
+       "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
       }
      }
@@ -1624,6 +1739,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 2.0
       }
      },
@@ -1632,6 +1748,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": null
       }
      },
@@ -1640,6 +1757,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 1.0
       }
      },
@@ -1648,6 +1766,7 @@ self.ISC_MM_CONFIG = {
       "set": {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
+       "sim-frame-pattern-continuous": 0.0,
        "specimen": 3.0
       }
      }
@@ -2419,6 +2538,10 @@ self.ISC_MM_TIERS = {
 "tier": "Advanced",
 "prop": "Lasers.PatternCentreAmp"
 },
+"sim-frame-pattern-continuous": {
+"tier": "Expert",
+"prop": "Renderer.PatternOnContinuousDyes"
+},
 "sim-order": {
 "tier": "Advanced",
 "prop": "Lasers.PatternOrder"
@@ -2760,6 +2883,7 @@ self.ISC_MM_TIERS = {
 "Renderer.MeanFieldDensityPerUm2": "Expert",
 "Renderer.MeanFieldMaxEmitters": "Expert",
 "Renderer.MeanFieldSlabNm": "Expert",
+"Renderer.PatternOnContinuousDyes": "Expert",
 "Renderer.PsfGeneratorJavaHome": "Expert",
 "Renderer.PsfHaloCut": "Expert",
 "Renderer.PsfInterp": "Expert",

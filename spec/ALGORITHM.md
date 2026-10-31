@@ -1007,6 +1007,15 @@ Off and no matrix).
   seed ^ "SIMP", frame, beam: one path per seed on every consumer, as the sample drift), plus a linear drift of
   phaseStep_j x rate x t (the pattern slides along its stepping direction). The walk is a sum over the frames before
   (O(f), once per movie).
+- **The blink modes' continuous dyes glow under the cycle mean (the user's choice, 2026-10-31).** dSTORM's initial
+  ON and PALM's pre state (`Population::meanLight`) render at the cycle's mean light: one mean-field node (pattern
+  state -1, `ExcitePlaneFactor::cycleMean` = `Excitation::MeanPlaneMean`), per-dye windows at `MeanExciteAt`, their
+  running image carried as without a pattern. A state's scene under the frame's pattern cannot keep a bleach basis
+  live (the other states light its dyes between its visits, and a basis of ~12 images per state outlasts too few
+  visits in its 4 s span), so it made one image per frame from streamed spectra: dSTORM-SIM live ~6x Off. Over a
+  full cycle the photons agree (SIM2D, 9 frames, beams at 0.8: totals 0.03 %, per pixel 1.2 % rms). Quality
+  Exhaustive (`sim-frame-pattern-continuous` 1) keeps the frame's pattern. Blinks and WideField dyes always take
+  it.
 - **The kinetics run on the cycle mean (the user's choice, 2026-10-30).** The pattern summed over a full phase cycle is
   nPhases x nAngles x the beams' incoherent sum (the fringes cancel exactly; ctest: 1e-10), so the dose a dye takes
   over a cycle is the mean light's. The light history records that mean: one chapter per beam set with **one

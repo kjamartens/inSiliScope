@@ -1368,6 +1368,13 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
   (SIM3D Gaussian, TIRF-SIM2D: the dose = the brute sum of `MeanAt`, components and terms), `live_scope` (a SIM mode
   in the recording and replay tests, the frame counter), the reference TIFFs of the Off path unchanged.
 - **Live speed (2026-10-31, bit for bit).** `Impl::exciteKey` holds `frame0` only under a phase drift (otherwise a state's `Excitation` is `ExciteFor(state)`, the same at any first frame), so the live producers' frames reuse the background slices (`BgMapCache`, 264 ms of every DNA-PAINT SIM frame at 128 px), the plane factors, the state scenes and the survey (its key adds `StateOf(0)`: its lit test reads the first frame's state). A state scene used by a movie at another `frame0` forgets its bleach basis (`MeanFieldSlot::frame0`, `WidefieldScene::ForgetBleachBasis`): the other states lit its dyes in between, so the basis no longer fits and a full one was made every frame (3.6 s); the single basis is what the changing key made before. Measured (viewer module, Node, live): DNA-PAINT SIM2D 128 px 220-290 -> ~30 ms (Off ~27), 256 px ~320 -> ~105 ms (Off ~90); dSTORM SIM2D 128 px 114-190 -> ~110 ms (Off ~14), 256 px ~400 -> 260-420 ms (Off ~45: its mean field's one image per frame from streamed spectra). Checks: live frames of DNA-PAINT, dSTORM (with a phase drift), PALM, the slide and the beads under SIM2D/3D = the previous module's bit for bit.
+- **Continuous dyes of the blink modes at the cycle mean (2026-10-31, the user's choice).** Option
+  `sim-frame-pattern-continuous` (default 0; `Renderer.PatternOnContinuousDyes`, Expert; `QualityPreset::framePattern`:
+  Exhaustive 1): 0 = `Population::meanLight` for `ISC_STATE_INITIAL_ON` / `ISC_STATE_PRE` under a varying pattern --
+  `BuildMeanField` one node (state -1, slot 0, `ExcitePlaneFactor::cycleMean`, spectra not streamed, the bleach basis
+  kept across frames), windows' `excite` = `MeanExciteAt`, no per-frame re-splat, the running image carried. 1 = the
+  previous output bit for bit (module live and movie cases). Measured (viewer module, 128 px, live): dSTORM SIM2D
+  ~110 -> 30-70 ms (Off ~14; noisy). Default dSTORM/PALM SIM outputs change; nothing else does (cli refs, module refs).
 - **Memory (2026-10-31, bit for bit).** A state's mean-field scene: a CPU scene in GPU mode too (`BuildMeanFieldNode`:
   `sceneGpu = (gpuMode && !patterned) || (accel && !cpuScene)`, deferred only for GPU scenes, `sceneQueue` lists only
   those), its plane spectra streamed into its sums (`WidefieldScene::SetStreamSpectra`, `ChannelImage` in batches of
