@@ -563,6 +563,10 @@ public:
    // Drop every cached plane spectrum (the next focus work re-makes what it needs): a structured pattern's state
    // scenes (one per state) keep only their images between frames, as 13 scenes' spectra do not fit (2026-10-31).
    void ReleaseSpectra();
+   // A scene that keeps no spectra anyway (a structured pattern's state, above): its CPU images make the plane spectra
+   // in batches, each added into the channel's sums in plan order and dropped (ChannelImage: the same bits), so a
+   // state holds a batch of spectra at its peak instead of the plan's hundreds (2026-10-31). Set before an Update.
+   void SetStreamSpectra(bool on) { stream_ = on; }
    // A synchronous GPU host for the focus work (plane spectra, re-pairing,
    // images); nullptr = the CPU. On a host failure the scene keeps rendering
    // on the CPU and GpuError() says why.
@@ -634,6 +638,8 @@ private:
    // channel has no light).
    void ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img,
                      std::vector<cfloat>* keep = nullptr) const;
+   // The CPU's images make their spectra as they go (SetStreamSpectra, no spectra kept).
+   bool Streaming() const { return stream_ && !keepSpectra_; }
    void ImagesFor(const FocusPlan& plan, WidefieldImages& out) const;
    std::vector<const Channel*> ActiveChannels() const;
    void Refocus(const WidefieldPsf& psf);
@@ -724,7 +730,7 @@ private:
    bool lastFast_ = false;
    double bandEpsilon_ = kBandEpsilon;
    unsigned long long imagesVersion_ = 1;
-   bool gpuMode_ = false, defer_ = false, keepSpectra_ = false;
+   bool gpuMode_ = false, defer_ = false, keepSpectra_ = false, stream_ = false;
    WidefieldAccelerator* accel_ = nullptr;
    std::string gpuError_;
    bool accelTooBig_ = false;

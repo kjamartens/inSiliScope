@@ -4146,6 +4146,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
       nd.shifted = nd.shiftX != 0.0 || nd.shiftY != 0.0;
    }
    slot.scene.SetKeepSpectra(shifts);
+   slot.scene.SetStreamSpectra(varies);   // (its spectra let go after the build: made a batch at a time, below)
    slot.scene.SetAccelerator(cpuScene ? nullptr : accel);
    // Live (the MM adapter's, SetLiveAsyncBasis): the next bleach basis made ahead on a thread of its own.
    slot.scene.SetAsyncBasis(cache.live && g_liveAsyncBasis.load());

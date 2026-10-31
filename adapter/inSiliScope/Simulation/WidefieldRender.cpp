@@ -1652,54 +1652,86 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
    img.assign(static_cast<size_t>(cw) * ch, 0.0f);
    std::vector<cfloat> S[kLevels];
    bool any = false;
+   // Streaming: the plan's spectra a batch at a time (made, added, dropped); the sums take the planes in plan order per
+   // bin either way, so a batch boundary changes no bit.
+   const bool stream = Streaming();
+   const size_t kStreamBatch = 32;
+   double streamSec = 0.0;
+   size_t streamMade = 0;
    for (int L = 0; L < levels_; ++L)
    {
-      std::vector<const FocusPlan::Dep*> deps;
-      std::vector<const std::vector<cfloat>*> specs;
+      std::vector<const FocusPlan::Dep*> all;
       for (const FocusPlan::Dep& d : plan.deps)
+         if (d.level == L)
+            all.push_back(&d);
+      for (size_t q0 = 0; q0 < all.size(); q0 += stream ? kStreamBatch : all.size())
       {
-         if (d.level != L)
-            continue;
-         const std::vector<cfloat>* a = CachedSpectrum(c, d.k, L);
-         if (!a || a->empty())
-            continue;
-         deps.push_back(&d);
-         specs.push_back(a);
-      }
-      if (deps.empty())
-         continue;
-      any = true;
-      const RealFft2d& fft = fft_[L];
-      const unsigned W = fft.SpecW(), rows = fft.Ny();
-      S[L].assign(fft.SpecSize(), cfloat(0.0f, 0.0f));
-      // Rows of the spectrum in parallel; planes in plan order per bin.
-      const unsigned B = 8;
-      ParallelForOn(pool_, (rows + B - 1) / B, [&](unsigned blk) {
-         const unsigned r0 = blk * B, r1 = std::min(rows, r0 + B);
-         const size_t b0 = static_cast<size_t>(r0) * W, b1 = static_cast<size_t>(r1) * W;
-         float* s = reinterpret_cast<float*>(S[L].data());
-         for (size_t j = 0; j < deps.size(); ++j)
+         const size_t q1 = stream ? std::min(all.size(), q0 + kStreamBatch) : all.size();
+         std::vector<const FocusPlan::Dep*> deps;
+         std::vector<const std::vector<cfloat>*> specs;
+         std::vector<std::vector<cfloat>> made(stream ? q1 - q0 : 0);
+         if (stream)
          {
-            const FocusPlan::Dep& d = *deps[j];
-            const float* a = reinterpret_cast<const float*>(specs[j]->data());
-            const float* k0 = reinterpret_cast<const float*>(KernelAt(d.p0)->spec[L].data());
-            const float* k1 = d.w1 > 0.0f ? reinterpret_cast<const float*>(KernelAt(d.p0 + 1)->spec[L].data()) : nullptr;
-            const float w0 = d.w0, w1 = d.w1;
-            for (size_t i = b0; i < b1; ++i)
-            {
-               float kr = w0 * k0[2 * i], ki = w0 * k0[2 * i + 1];
-               if (k1)
-               {
-                  kr += w1 * k1[2 * i];
-                  ki += w1 * k1[2 * i + 1];
-               }
-               const float ar = a[2 * i], ai = a[2 * i + 1];
-               s[2 * i] += ar * kr - ai * ki;
-               s[2 * i + 1] += ar * ki + ai * kr;
-            }
+            const auto tS = TimingClock::now();
+            ParallelForOn(pool_, static_cast<unsigned>(q1 - q0), [&](unsigned i) {
+               const FocusPlan::Dep& d = *all[q0 + i];
+               const auto& pl = dyes_.planes.at(d.k);
+               if (pl.Empty(c.pop) || CachedSpectrum(c, d.k, L) || (cancel_ && cancel_->load(std::memory_order_relaxed)))
+                  return;
+               PlaneSpectrum(c, d.k, pl, L, made[i]);
+            });
+            streamSec += TimingSince(tS);
+            streamMade += q1 - q0;
          }
-      });
+         for (size_t i = q0; i < q1; ++i)
+         {
+            const FocusPlan::Dep& d = *all[i];
+            const std::vector<cfloat>* a = CachedSpectrum(c, d.k, L);
+            if (!a && stream)
+               a = &made[i - q0];
+            if (!a || a->empty())
+               continue;
+            deps.push_back(&d);
+            specs.push_back(a);
+         }
+         if (deps.empty())
+            continue;
+         any = true;
+         const RealFft2d& fft = fft_[L];
+         const unsigned W = fft.SpecW(), rows = fft.Ny();
+         if (S[L].empty())
+            S[L].assign(fft.SpecSize(), cfloat(0.0f, 0.0f));
+         // Rows of the spectrum in parallel; planes in plan order per bin.
+         const unsigned B = 8;
+         ParallelForOn(pool_, (rows + B - 1) / B, [&](unsigned blk) {
+            const unsigned r0 = blk * B, r1 = std::min(rows, r0 + B);
+            const size_t b0 = static_cast<size_t>(r0) * W, b1 = static_cast<size_t>(r1) * W;
+            float* s = reinterpret_cast<float*>(S[L].data());
+            for (size_t j = 0; j < deps.size(); ++j)
+            {
+               const FocusPlan::Dep& d = *deps[j];
+               const float* a = reinterpret_cast<const float*>(specs[j]->data());
+               const float* k0 = reinterpret_cast<const float*>(KernelAt(d.p0)->spec[L].data());
+               const float* k1 = d.w1 > 0.0f ? reinterpret_cast<const float*>(KernelAt(d.p0 + 1)->spec[L].data()) : nullptr;
+               const float w0 = d.w0, w1 = d.w1;
+               for (size_t i = b0; i < b1; ++i)
+               {
+                  float kr = w0 * k0[2 * i], ki = w0 * k0[2 * i + 1];
+                  if (k1)
+                  {
+                     kr += w1 * k1[2 * i];
+                     ki += w1 * k1[2 * i + 1];
+                  }
+                  const float ar = a[2 * i], ai = a[2 * i + 1];
+                  s[2 * i] += ar * kr - ai * ki;
+                  s[2 * i + 1] += ar * ki + ai * kr;
+               }
+            }
+         });
+      }
    }
+   if (stream)
+      TimingLog("wf.plane-spectra-streamed", streamSec, std::to_string(streamMade).c_str());
    if (!any)
       return;
    const unsigned nx = nx_, ny = ny_, W = nx / 2 + 1;
@@ -1796,7 +1828,8 @@ void WidefieldScene::Refocus(const WidefieldPsf& psf)
 
 void WidefieldScene::ComputeCpuImages()
 {
-   FillSpectra(ActiveChannels(), {&plan_});
+   if (!Streaming())
+      FillSpectra(ActiveChannels(), {&plan_});
    ImagesFor(plan_, images_);
 }
 
@@ -2187,7 +2220,8 @@ void WidefieldScene::MakeBleachImages()
          return;
       }
    }
-   FillSpectra(chans, {&plan_});
+   if (!Streaming())
+      FillSpectra(chans, {&plan_});
    images_.bleach.resize(bleach_.size());
    images_.specBleach.assign(keepSpectra_ ? bleach_.size() : 0, std::vector<cfloat>());
    for (size_t j = 0; j < bleach_.size(); ++j)
