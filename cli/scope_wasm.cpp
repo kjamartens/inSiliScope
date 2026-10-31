@@ -2,6 +2,7 @@
 // the same render code as the inSiliScope camera and insiliscope_cli, in
 // the viewer's module next to the core's C ABI.
 #include "LiveScope.h"
+#include "MemoryReport.h"
 #include "ScopeMovie.h"
 #include "Timing.h"
 #include "WidefieldRender.h"
@@ -655,6 +656,32 @@ ISC_API void isc_live_profile(int32_t on)
    g_liveProfile = "{}";
 }
 ISC_API const char* isc_live_profile_json() { return g_liveProfile.c_str(); }
+
+// What the engine's caches hold (MemoryReport.h: ScopeMemoryReport, the live sample's light history and image, the
+// open WebGPU movie sessions) and the heap's size: {"heapMB", "totalMB", "owners": [[name, MB], ...]}, largest first.
+ISC_API const char* isc_memory_json()
+{
+   static std::string json;
+   sim::MemoryReport r;
+   sim::ScopeMemoryReport(r);
+   r.Add("light-history", static_cast<double>(g_live.History().Bytes()));
+   r.Add("live.image", sim::VectorBytes(g_liveImage));
+   double wf = 0.0;
+   for (const auto& kv : g_wf)
+   {
+      for (const auto& p : kv.second->job.planes)
+         wf += sim::VectorBytes(p.cells) + sim::VectorBytes(p.values);
+      wf += sim::VectorBytes(kv.second->cpu);
+   }
+   r.Add("wf.gpu-jobs", wf);
+#if defined(__EMSCRIPTEN__)
+   const double heap = static_cast<double>(__builtin_wasm_memory_size(0)) * 65536.0;
+#else
+   const double heap = 0.0;
+#endif
+   json = r.Json(heap);
+   return json.c_str();
+}
 
 ISC_API void isc_wf_end(int32_t h)
 {

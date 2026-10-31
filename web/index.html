@@ -4042,6 +4042,8 @@ function iscEngine(M) {
         frame: v[13], pattern: v[16] > 0 ? { frame: v[13], angle: v[14], phase: v[15], period: v[16] } : null,
         paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null, workerMs: performance.now() - tw };
       if (d.profile && M._isc_live_profile_json) res.profile = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
+      // What the engine's caches hold and the heap's size (MemoryReport.h), with the profile (Expert).
+      if (d.profile && M._isc_memory_json) res.memory = JSON.parse(M.UTF8ToString(M._isc_memory_json()));
     }
     for (const ptr of [s, info, err]) M._free(ptr);
     return [res, res.frames ? [res.frames.buffer] : []];

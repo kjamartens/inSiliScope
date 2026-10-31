@@ -22,6 +22,7 @@
 #include "Illumination.h"
 #include "LightHistory.h"
 #include "LightPath.h"
+#include "MemoryReport.h"
 #include "Parallel.h"
 #include "Spectra.h"
 #include "Timing.h"
@@ -4597,6 +4598,14 @@ public:
       return c;
    }
    ~BgMapCache() { Shutdown(); }
+   double Bytes()
+   {
+      std::lock_guard<std::mutex> lk(m_);
+      double b = 0.0;
+      for (const auto& e : slices_)
+         b += VectorBytes(e.second->lat) + VectorBytes(e.second->im);
+      return b;
+   }
 
    std::shared_ptr<const BgSlice> Slice(const BgJob& j)
    {
@@ -4791,6 +4800,38 @@ void SetBackgroundMapPrefetch(bool on)
 void BackgroundMapPrefetchShutdown()
 {
    BgMapCache::Get().Shutdown();
+}
+
+void ScopeMemoryReport(MemoryReport& r)
+{
+   AddPsfKernelMemory(r);
+   AddFiducialMemory(r);
+   r.Add("bg.maps", BgMapCache::Get().Bytes());
+   MovieCache& c = SharedMovieCache();
+   // (A movie in progress holds it: the viewer's WebGPU session between its begin and end.)
+   std::unique_lock<std::mutex> lk(c.mutex, std::try_to_lock);
+   if (!lk.owns_lock())
+   {
+      r.Add("(a movie in progress: its caches not read)", 0.0);
+      return;
+   }
+   for (const auto& kv : c.meanField)
+      if (kv.second)
+      {
+         kv.second->scene.AddMemory(r);
+         AddPsfStackMemory(r, kv.second->psfCache);
+      }
+   double running = 0.0;
+   for (const auto& kv : c.running)
+      running += VectorBytes(kv.second.acc) + VectorBytes(kv.second.in) + VectorBytes(kv.second.key);
+   r.Add("live.running-images", running);
+#if !defined(__EMSCRIPTEN__)
+   double ix = 0.0;
+   for (const DyeIndex& d : c.dyeIndexes)
+      for (const DyeIndex::Dyes& s : d.s)
+         ix += VectorBytes(s.start) + VectorBytes(s.v);
+   r.Add("dye-index", ix);
+#endif
 }
 
 void DyeIndexPrefetchShutdown()

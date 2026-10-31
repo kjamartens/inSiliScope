@@ -319,6 +319,11 @@ void SetPsfKernelDiskCacheDir(const std::string& dir);
 // dye state) keeps its groups + 1, so a repeat recomputes none.
 void SetPsfKernelMemoEntries(size_t n);
 std::string PsfKernelDiskCacheDir();
+class MemoryReport;
+// A kernel stack's arrays (MemoryReport.h: "psf.planes", "psf.splat-sums"; a stack held by several caches once), and
+// those of every stack ComputePsfKernelCache's memo holds.
+void AddPsfStackMemory(MemoryReport& r, const PsfKernelCache& c);
+void AddPsfKernelMemory(MemoryReport& r);
 
 // Builds the block sums of one plane (see PsfKernelPlanes::blockSums).
 std::vector<float> BuildBlockSums(const float* kernel, int n, int os);

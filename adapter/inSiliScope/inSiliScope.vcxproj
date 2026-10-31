@@ -186,6 +186,7 @@
     <ClInclude Include="Simulation\LightPath.h" />
     <ClInclude Include="Simulation\Excitation.h" />
     <ClInclude Include="Simulation\SimPattern.h" />
+    <ClInclude Include="Simulation\MemoryReport.h" />
     <ClInclude Include="Simulation\Spectra.h" />
     <ClInclude Include="Simulation\ScopeMovie.h" />
     <ClInclude Include="Simulation\LightHistory.h" />

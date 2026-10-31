@@ -44,6 +44,7 @@ namespace sim {
 
 class SampleSource;
 class ParallelPool;
+class MemoryReport;
 
 // Stops and joins every scene's basis thread (WidefieldScene::SetAsyncBasis) and its workers; a host that unloads
 // this code (the Micro-Manager DLL; its movie cache is static) calls it first, as ParallelPoolShutdown.
@@ -477,6 +478,8 @@ public:
    // Dye planes of the current focus per resolution level (full, 1/2, 1/4).
    const unsigned* PlanesPerLevel() const { return planesPerLevel_; }
    size_t CachedSpectraBytes() const { return cacheBytes_; }
+   // Adds what the scene holds to r (MemoryReport.h; the shared tiles and kernel store once).
+   void AddMemory(MemoryReport& r) const;
 
    // Per-column camera photons per bleaching dye for a frame of a fresh sample (D0 = framesBefore x dD).
    void FreshBleachWeights(double framesBefore, std::vector<float>& wb) const;

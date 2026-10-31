@@ -13,6 +13,7 @@
 // read-only views of the same movie for the docs' physics figures. --serve
 // runs many commands in one process (one per stdin line).
 #include "LiveScope.h"
+#include "MemoryReport.h"
 #include "Excitation.h"
 #include "ScopeMovie.h"
 #include "scope_probes.h"
@@ -312,6 +313,12 @@ int RunCli(int argc, char** argv)
    }, info, err);
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
    if (!writeOk) { std::fprintf(stderr, "write error\n"); return 1; }
+   if (sim::TimingPrinting()) {
+      // What the caches hold after the movie (ISC_MEMORY lines).
+      sim::MemoryReport mem;
+      sim::ScopeMemoryReport(mem);
+      mem.Log();
+   }
    if (!info.driftNm.empty()) {
       // The true sample drift per frame (ground truth for drift correction).
       const std::string csv = (out.size() > 4 && out.compare(out.size() - 4, 4, ".tif") == 0 ? out.substr(0, out.size() - 4) : out) +

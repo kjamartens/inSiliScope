@@ -159,7 +159,7 @@ function onResult(d) {
   L.pattern = d.pattern || null;
   L.engine = d.engine;
   L.paths = d.paths || null;
-  L.perf = { roundMs: L.ms, workerMs: d.workerMs, profile: d.profile || null };
+  L.perf = { roundMs: L.ms, workerMs: d.workerMs, profile: d.profile || null, memory: d.memory || null };
   const due = L.lastShown + exposureSec() * 1000, now = performance.now();
   L.perf.waitMs = L.on ? Math.max(0, due - now) : 0;
   const show = () => {
@@ -522,6 +522,16 @@ function showPerf() {
   row('to and from the worker', P.workerMs !== undefined ? Math.max(0, P.roundMs - P.workerMs) : undefined, 1);
   row('display (image, histogram)', P.paintMs !== undefined ? P.paintMs + (P.histMs || 0) : undefined, 0, 'tot');
   row('wait (paced to the exposure)', L.on ? P.waitMs || 0 : undefined, 0, 'tot');
+  // Memory (MemoryReport.h): the live worker's heap (it never shrinks: its high-water mark; 2 GB at most) and what the
+  // engine's caches hold, the largest owners.
+  const M = P.memory;
+  if (M) {
+    const mb = v => (v >= 1000 ? (v / 1024).toFixed(2) + ' GB' : v.toFixed(0) + ' MB');
+    rows.push(`<span class="tot" title="The live worker's WASM heap: it never shrinks, so this is its high-water mark">memory: worker heap</span><span class="tot">${mb(M.heapMB)}</span>`);
+    rows.push(`<span style="padding-left:8px">engine caches</span><span>${mb(M.totalMB)}</span>`);
+    for (const [name, v] of M.owners.slice(0, 6)) if (v >= 1)
+      rows.push(`<span style="padding-left:16px">${name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span><span>${mb(v)}</span>`);
+  }
   out.innerHTML = rows.join('');
 }
 // the performance box shows at the Expert level (a frame taken there is profiled; a snap fills it)

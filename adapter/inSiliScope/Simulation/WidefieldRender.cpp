@@ -15,6 +15,7 @@
 
 #include "insiliscope/insiliscope.h"
 
+#include "MemoryReport.h"
 #include "Parallel.h"
 #include "Timing.h"
 
@@ -1568,6 +1569,45 @@ void WidefieldScene::FillSpectra(const std::vector<const Channel*>& chans, const
       e.used = stamp;
    }
    TrimCache(stamp);
+}
+
+void WidefieldScene::AddMemory(MemoryReport& r) const
+{
+   double spectra = 0.0;
+   for (const auto& kv : cache_)
+      spectra += VectorBytes(kv.second.spec);
+   r.Add("mf.plane-spectra", spectra);
+   if (r.Once(kernels_.get()))
+   {
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
+      double k = 0.0;
+      for (const auto& kv : kernels_->map)
+         for (const std::vector<cfloat>& s : kv.second.spec)
+            k += VectorBytes(s);
+      r.Add("mf.kernel-spectra", k);
+   }
+   if (r.Once(tiles_.get()))
+      r.Add("mf.dye-tiles", static_cast<double>(tiles_->Bytes()));
+   double planes = 0.0;
+   for (const auto& kv : dyes_.planes)
+      for (int pop = 0; pop < 2; ++pop)
+         planes += VectorBytes(kv.second.cell[pop]) + VectorBytes(kv.second.count[pop]) + 64.0;
+   r.Add("mf.dye-planes", planes);
+   double cells = VectorBytes(illum_) + VectorBytes(dD_) + VectorBytes(wp_) + VectorBytes(dDLevel_) +
+                  VectorBytes(cellChannel_) + VectorBytes(wbRef_) + VectorBytes(lwRef_) +
+                  VectorBytes(persistent_.weight) + VectorBytes(persistent_.logw);
+   for (const Channel& c : bleach_)
+      cells += VectorBytes(c.weight) + VectorBytes(c.logw);
+   if (weightMap_ && r.Once(weightMap_.get()))
+      cells += VectorBytes(weightMap_->tile) + VectorBytes(weightMap_->corner) + VectorBytes(weightMap_->fx) +
+               VectorBytes(weightMap_->fy);
+   r.Add("mf.cell-arrays", cells);
+   double images = VectorBytes(images_.persistent) + VectorBytes(images_.specPersistent);
+   for (const auto& b : images_.bleach)
+      images += VectorBytes(b);
+   for (const auto& b : images_.specBleach)
+      images += VectorBytes(b);
+   r.Add("mf.images", images);
 }
 
 void WidefieldScene::ReleaseSpectra()

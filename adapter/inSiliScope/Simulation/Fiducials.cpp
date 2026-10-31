@@ -2,6 +2,7 @@
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 
 #include "Fiducials.h"
+#include "MemoryReport.h"
 #include "DyeLibrary.h"
 #include "Parallel.h"
 #include "Spectra.h"
@@ -178,6 +179,25 @@ BeadHalo::BeadHalo(const PsfKernelCache& wide) : geom_(wide), sums_(wide.BlockSu
    }
 }
 
+double BeadHalo::Bytes() const
+{
+   double b = 0.0;
+   for (const auto& p : sums_)
+      b += VectorBytes(p);
+   for (const auto& p : beyond_)
+      b += VectorBytes(p);
+   return b;
+}
+
+double BeadKernel::CoreBytes()
+{
+   std::lock_guard<std::mutex> lock(mu_);
+   double b = 0.0;
+   for (const auto& kv : cores_)
+      b += VectorBytes(kv.second->blockSums);
+   return b;
+}
+
 double BeadHalo::SigmaPx(int k) const
 {
    const int n = geom_.sizeOversampled, c = geom_.halfWidthOversampled;
@@ -210,12 +230,27 @@ int BeadHalo::Extent(int k, double photons) const
    return std::min(geom_.halfWidthOversampled, lo + 1);
 }
 
+namespace {
+// BeadHaloFor's: the movie's components and the next movie's (gold: its photoluminescence and a scatter per laser
+// line), most recent first.
+std::mutex g_haloMu;
+std::vector<std::pair<PsfGeneratorRequest, std::shared_ptr<const BeadHalo>>> g_haloMemo;
+// BeadKernelFor's: a few recent (kernel, interpolation, pixel) entries.
+struct BeadKernelEntry
+{
+   uint64_t serial;
+   PsfInterpMode interp;
+   double pixelNm;
+   std::shared_ptr<BeadKernel> B;
+};
+std::mutex g_beadMu;
+std::vector<BeadKernelEntry> g_beadMemo;
+} // namespace
+
 bool BeadHaloFor(const PsfGeneratorRequest& req, std::shared_ptr<const BeadHalo>& out, std::string& err)
 {
-   // The movie's components and the next movie's (gold: its photoluminescence and a scatter per laser line).
-   static std::mutex mu;
-   static std::vector<std::pair<PsfGeneratorRequest, std::shared_ptr<const BeadHalo>>> memo;   // most recent first
-   std::lock_guard<std::mutex> lock(mu);
+   std::lock_guard<std::mutex> lock(g_haloMu);
+   auto& memo = g_haloMemo;
    for (size_t i = 0; i < memo.size(); ++i)
       if (PsfRequestsSameKernel(memo[i].first, req))
       {
@@ -464,24 +499,33 @@ void BeadKernel::Splat(std::vector<float>& img, unsigned W, unsigned H, int k, d
 
 std::shared_ptr<BeadKernel> BeadKernelFor(const PsfKernelCache& K, double pixelNm)
 {
-   // A few recent (kernel, interpolation, pixel) entries: a movie's components and the next movie's.
-   struct Entry
-   {
-      uint64_t serial;
-      PsfInterpMode interp;
-      double pixelNm;
-      std::shared_ptr<BeadKernel> B;
-   };
-   static std::mutex mu;
-   static std::vector<Entry> memo;
-   std::lock_guard<std::mutex> lock(mu);
-   for (const Entry& e : memo)
+   // A movie's components and the next movie's.
+   std::lock_guard<std::mutex> lock(g_beadMu);
+   auto& memo = g_beadMemo;
+   for (const BeadKernelEntry& e : memo)
       if (e.serial == K.Serial() && e.interp == K.interpMode && e.pixelNm == pixelNm)
          return e.B;
    if (memo.size() >= 8)
       memo.erase(memo.begin());
    memo.push_back({ K.Serial(), K.interpMode, pixelNm, std::make_shared<BeadKernel>(K, pixelNm) });
    return memo.back().B;
+}
+
+void AddFiducialMemory(MemoryReport& r)
+{
+   {
+      std::lock_guard<std::mutex> lock(g_haloMu);
+      for (const auto& e : g_haloMemo)
+         if (e.second && r.Once(e.second.get()))
+            r.Add("psf.bead-halo", e.second->Bytes());
+   }
+   std::lock_guard<std::mutex> lock(g_beadMu);
+   for (const BeadKernelEntry& e : g_beadMemo)
+      if (e.B)
+      {
+         AddPsfStackMemory(r, e.B->Point());
+         r.Add("psf.bead-cores", e.B->CoreBytes());
+      }
 }
 
 double GoldScatteringUm2(double lambdaNm, double dNm)

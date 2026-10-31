@@ -2,6 +2,7 @@
 #include "FftRadix2.h"
 #include "SplatKernel.h"
 #include "ZernikePsf.h"
+#include "MemoryReport.h"
 #include "Parallel.h"
 #include "PsfResource.h"
 #include "Timing.h"
@@ -974,6 +975,30 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
 }
 
 
+
+void AddPsfStackMemory(MemoryReport& r, const PsfKernelCache& c)
+{
+   if (!c.data || !r.Once(c.data.get()))
+      return;
+   double planes = 0.0, sums = 0.0;
+   for (const auto& p : c.data->planes)
+      planes += VectorBytes(p);
+   for (const auto& p : c.data->blockSums)
+      sums += VectorBytes(p);
+   for (const auto& p : c.data->polySums)
+      sums += VectorBytes(p);
+   r.Add("psf.planes", planes);
+   r.Add("psf.splat-sums", sums);
+}
+
+void AddPsfKernelMemory(MemoryReport& r)
+{
+   KernelMemo& m = Memo();
+   std::lock_guard<std::mutex> g(m.mutex);
+   for (const auto& e : m.entries)
+      if (e.second)
+         AddPsfStackMemory(r, *e.second);
+}
 
 int PsfKernelHalfWidthPx(double halfWidthNm, double pixelSizeNm, double wavelengthNm, double na)
 {

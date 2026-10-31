@@ -302,6 +302,11 @@ void BackgroundMapPrefetchShutdown();
 void SetLiveAsyncBasis(bool on);
 // Live dye counts: the dye index made ahead on a thread of its own (native builds); hosts that unload join it here.
 void DyeIndexPrefetchShutdown();
+class MemoryReport;
+// What the engine's caches hold (MemoryReport.h): the PSF kernel stacks (the memo's, the mean-field scenes', the
+// beads'), the mean-field scenes, the background and slide maps, the dye indexes, the live running images. Between
+// movies (it takes the movie cache's lock).
+void ScopeMemoryReport(MemoryReport& r);
 
 // One blink group of a FluorescenceSimplePlan (a blinking label's main state):
 // its kernel, photons per blink and events, and the frames whose blinks the

@@ -36,6 +36,13 @@ that finishes them.
   from the `insiliscope_block` target, `cli/CMakeLists.txt`: the core's C ABI + `cli/block_entry.cpp`
   `isc_drift_trajectory` = `Simulation/Drift.cpp` (the trajectory; the image shifts are `DriftShift.cpp`); not
   committed; published as a release asset by `.github/workflows/release.yml`). 
+- **Memory report (2026-10-31, `Simulation/MemoryReport.h`):** bytes per owner of the engine's caches
+  (`ScopeMemoryReport`: the PSF kernel stacks of the memo, the mean-field slots and the beads, each stack once; the
+  mean-field scenes' plane / kernel spectra, dye tiles and planes, per-cell arrays, images; the background maps; a
+  scene's own share `WidefieldScene::AddMemory`); the cli prints `ISC_MEMORY` lines after a movie with `ISC_TIMING=1`;
+  the module's `isc_memory_json()` adds the live light history and the WebGPU sessions, with the heap's size; the
+  viewer's Expert performance box shows the worker heap and the largest owners. The viewer module's heap is capped
+  (no `MAXIMUM_MEMORY`: 2 GB) and never shrinks; an out-of-memory there is an `Aborted()`.
 - **Usage counts (2026-10-21, [docs/privacy.md](docs/privacy.md)):** Umami Cloud (cookieless, website id in
   `web/live/usage.js` and `overrides/partials/integrations/analytics/custom.html`, keep them in step), only on
   kjamartens.github.io and never with Do Not Track / GPC / `localStorage umami.disabled`. The viewer calls `iscTrack(name,

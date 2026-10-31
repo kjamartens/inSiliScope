@@ -96,6 +96,7 @@ public:
    const std::vector<float>& Plane(int k) const { return sums_[static_cast<size_t>(k)]; }
    int Nz() const { return geom_.nz; }
    uint64_t Id() const { return id_; }
+   double Bytes() const;   // the planes held (MemoryReport.h)
    // Plane k's spread per axis, camera pixels: sqrt(<r^2> / 2) over its window.
    double SigmaPx(int k) const;
    // The camera half-width a splat of `photons` at plane k needs: beyond it every sample x |photons| is below
@@ -111,6 +112,8 @@ private:
 // The halo of a request (oversampling 1, its half-width set by the caller; GibsonLanniZernike; memoized, a few
 // entries apart from the point kernels' memo, so the beads do not push the dyes' kernels out). False with err.
 bool BeadHaloFor(const PsfGeneratorRequest& req, std::shared_ptr<const BeadHalo>& out, std::string& err);
+// The halos and bead kernels these memos hold (MemoryReport.h; the bead kernels' point kernel stacks once).
+void AddFiducialMemory(MemoryReport& r);
 // The halo's camera half-width for a W x H frame of pixelNm and a point kernel of camRad camera pixels (JS
 // beadHaloHalfWidthPx).
 int BeadHaloHalfWidthPx(unsigned W, unsigned H, double pixelNm, int camRad);
@@ -121,6 +124,7 @@ class BeadKernel
 public:
    BeadKernel(const PsfKernelCache& K, double pixelNm);
    const PsfKernelCache& Point() const { return K_; }
+   double CoreBytes();   // the bead cores held (MemoryReport.h)
    // Splat one bead of diameter dNm with `photons` (any sign: a Taylor image's odd orders are negative) at (xPx, yPx)
    // (camera pixels) and plane k into img's rows [rowLo, rowHi) (rowHi < 0: H), its halo from halo when given (on the
    // same z planes) (JS splatBead, which takes every row).
