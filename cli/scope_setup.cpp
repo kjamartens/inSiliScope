@@ -283,7 +283,8 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
    return true;
 }
 
-bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, int n, int nz, IllumPreview& out, std::string& err)
+bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int n, int nz, IllumPreview& out,
+                    std::string& err)
 {
    out = IllumPreview();
    n = std::max(8, std::min(512, n));
@@ -355,9 +356,11 @@ bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, int n, int nz, 
          }
          out.bfp[static_cast<size_t>(j) * n + i] = static_cast<float>(a);
       }
-   // The pattern on the focal plane (seen from below) and through the axis (from the side), the excitation factor.
+   // The pattern on the plane at the section's height (seen from below; the focus unless one is asked for) and
+   // through the axis (from the side), the excitation factor.
    out.xy.assign(static_cast<size_t>(n) * n, 0.0f);
-   const double zf = es.pivotUm;
+   const double zf = zUm < 0 ? es.pivotUm : zUm;
+   out.zUm = zf;
    for (int j = 0; j < n; ++j)
       for (int i = 0; i < n; ++i)
       {

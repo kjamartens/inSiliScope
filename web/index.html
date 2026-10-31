@@ -144,7 +144,9 @@
   .opt.text:has(#zernCoeffs),.opt.text:has(#simBeams){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val,.opt.text:has(#simBeams)>.val{display:none}
   #simBeams{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}
   #illumDlg{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:60;background:var(--panel,#1d2430);color:var(--fg,#eee);border:1px solid #556;border-radius:6px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:96vw}
-  #illumDlg .views{display:flex;gap:8px;flex-wrap:wrap;justify-content:center} #illumDlg canvas{width:min(30vw,300px);height:auto;image-rendering:pixelated;background:#000}
+  #illumDlg .views{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:flex-start} #illumDlg canvas{width:100%;height:auto;image-rendering:pixelated;background:#000}
+  #illumDlg figure{margin:0;width:min(30vw,300px);display:flex;flex-direction:column;gap:3px} #illumDlg figcaption{font-size:12px;font-weight:600;text-align:center}
+  #illumDlg .note{font-size:11px;opacity:.8;line-height:1.3;text-align:center}
   #illumDlg .t{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px}
   #zernCoeffs{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}   /* (the 28 Zernike modes under their name) */
   #liveCtl .sub{font-size:10px;line-height:1.35}
@@ -475,8 +477,13 @@
     <div id="hud"><button id="viewBtn" title="What the world view draws: camera angle, layers, z clip" aria-expanded="false">View ▾</button><div id="hudText"></div><div id="viewPanel" hidden></div></div>
     <div id="loading">Loading the cell field (WebAssembly core, packing cells)…</div>
     <div id="illumDlg"><div class="t"><span id="il_title">Illumination</span><span style="flex:1"></span><a href="#" id="il_close">close</a></div>
-      <div class="views"><canvas id="il_bfp"></canvas><canvas id="il_xy"></canvas><canvas id="il_xz"></canvas></div>
-      <div class="t"><span>frame</span><input type="range" id="il_slider" min="0" max="0" value="0" style="flex:1"><span id="il_state"></span></div></div>
+      <div class="views">
+        <figure><figcaption id="il_bfp_t">Back focal plane, from above</figcaption><canvas id="il_bfp"></canvas><div class="note" id="il_bfp_n"></div></figure>
+        <figure><figcaption id="il_xy_t">Section, from below</figcaption><canvas id="il_xy"></canvas><div class="note" id="il_xy_n"></div></figure>
+        <figure><figcaption id="il_xz_t">Side, x-z through the axis</figcaption><canvas id="il_xz"></canvas><div class="note" id="il_xz_n"></div></figure>
+      </div>
+      <div class="t"><span>frame</span><input type="range" id="il_slider" min="0" max="0" value="0" style="flex:1"><span id="il_state"></span></div>
+      <div class="t"><span>height z</span><input type="range" id="il_z" min="0" max="8" step="0.02" value="0.5" style="flex:1"><span id="il_zval" title="double-click: back to the focus"></span></div></div>
     <div id="movie"><div class="t drag" title="Drag to move the player"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_gif" title="The movie as shown (display range), scaled up to at least 512 px">GIF</a> &nbsp; <a href="#" id="mv_mp4" title="The movie as shown (display range), scaled up to at least 512 px; WebM where the browser cannot encode H.264">MP4</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
       <canvas id="mv_cv"></canvas>
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
@@ -1185,7 +1192,7 @@ const UI_GROUPS = [
           num('mv_tube-length-mm', 'Tube length', 'mm', 'The tube lens\' focal length: the objective\'s focal length is it over the magnification (100), the pupil\'s radius that × NA; a beam\'s spot size and tilt map to the sample through it. <code>Objective.TubeLengthMm</code>', 50, 500, 1, 200, { adv, show: FL }),
         ] }),
     { kind: 'html', html: '<div class="sub" id="patternReadout"></div>', show: FL },
-    button('illumPreview', 'Preview illumination', 'Sketches the light entering the objective\'s back focal plane (from above: the pupil, the critical circle, each beam\'s spot with its size and polarization) and the pattern it makes in the sample (from below: the focal plane over 1.5× the field; from the side: an x-z section through the axis), for the current settings; a slider steps through the frame program.', { show: FL }),
+    button('illumPreview', 'Preview illumination', 'Sketches the light entering the objective\'s back focal plane (from above: the pupil, the critical circle, each beam\'s spot with its size and polarization) and the pattern it makes in the sample (from below: the focal plane over 1.5× the field; from the side: an x-z section through the axis), for the current settings; a slider steps through the frame program, another moves the section seen from below up and down (double-click its value: back to the focus); the sketch follows the settings while it is open.', { show: FL }),
     select('mv_ex-filter', 'Excitation filter', 'Laser clean-up filter in front of the dichroic: each laser line is scaled by its transmission (a 640 nm clean-up blocks the 561 nm line). None, ideal ±5 nm bands or real curves (FPbase). <code>ExcitationFilter</code>',
       DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_ex-filter']), { adv, show: FL, kids: [
         num('mv_ex-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>ExcitationFilter-CustomLoNm</code>', 300, 900, 0.5, 635, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
@@ -4054,20 +4061,21 @@ function iscEngine(M) {
         // The viewer's Preview illumination (isc_illum_preview: the pupil, the focal plane, an x-z section, the beams;
         // = web/live/illum_preview.js readIllumPreview, inlined: the workers hold the module alone).
         if (!M._isc_illum_preview) return [{ type: 'illum', id: d.id, error: 'this viewer module has no illumination preview (regenerate web/insiliscope_module.js)' }, []];
-        const len = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(len), info = M._malloc(11 * 8), err = M._malloc(512);
+        const len = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(len), info = M._malloc(12 * 8), err = M._malloc(512);
         M.stringToUTF8(d.spec, s, len);
         let out = 0, res;
-        const need = M._isc_illum_preview(s, d.frame, d.n, d.nz, 0, 0, info, err, 512);
+        const zUm = d.z >= 0 ? d.z : -1;   // the section's height (-1: the focus)
+        const need = M._isc_illum_preview(s, d.frame, zUm, d.n, d.nz, 0, 0, info, err, 512);
         if (need < 0) res = { type: 'illum', id: d.id, error: M.UTF8ToString(err) };
         else {
           out = M._malloc(Math.max(4, need * 4));
-          if (M._isc_illum_preview(s, d.frame, d.n, d.nz, out, need, info, err, 512) < 0) res = { type: 'illum', id: d.id, error: M.UTF8ToString(err) };
+          if (M._isc_illum_preview(s, d.frame, zUm, d.n, d.nz, out, need, info, err, 512) < 0) res = { type: 'illum', id: d.id, error: M.UTF8ToString(err) };
           else {
-            const v = M.HEAPF64.slice(info / 8, info / 8 + 11), N = v[0], NZ = v[1], nb = v[6], f = M.HEAPF32.slice(out / 4, out / 4 + need);
+            const v = M.HEAPF64.slice(info / 8, info / 8 + 12), N = v[0], NZ = v[1], nb = v[6], f = M.HEAPF32.slice(out / 4, out / 4 + need);
             let o = 0;
             const bfp = f.slice(o, o += N * N), xy = f.slice(o, o += N * N), xz = f.slice(o, o += NZ * N), beams = [];
             for (let k = 0; k < nb; k++) { const b = f.slice(o, o += 9); beams.push({ ux: b[0], uy: b[1], spotU: b[2], amp: b[3], phaseTurns: b[4], polDeg: b[5], u: b[6], evanescent: b[7] > 0.5, ellipTurns: b[8] }); }
-            res = { type: 'illum', id: d.id, data: { n: N, nz: NZ, xySpanUm: v[2], zMaxUm: v[3], uSpan: v[4], uMax: v[5], period: v[7], angle: v[8], phase: v[9], patterned: v[10] > 0.5, frame: d.frame, bfp, xy, xz, beams } };
+            res = { type: 'illum', id: d.id, data: { n: N, nz: NZ, xySpanUm: v[2], zMaxUm: v[3], uSpan: v[4], uMax: v[5], period: v[7], angle: v[8], phase: v[9], patterned: v[10] > 0.5, zUm: v[11], frame: d.frame, bfp, xy, xz, beams } };
           }
         }
         for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
@@ -6901,39 +6909,69 @@ window.addEventListener('isc-reset', () => BEAMS.clear());
 setTimeout(showBeams, 0);
 
 // ---- the illumination preview (Illumination & light path, Basic+) ----
-// The pupil seen from above, the focal plane from below and an x-z section from the side (web/live/illum_preview.js
-// draws; the data from the module's isc_illum_preview through a worker job), with a slider over the frame program.
-let illumJob = null, illumJobId = 0, illumData = null;
-function requestIllum(frame) {
+// The pupil seen from above, a section from below (at the focus until the height slider moves it) and an x-z section
+// from the side (web/live/illum_preview.js draws; the data from the module's isc_illum_preview through a worker job),
+// with a slider over the frame program and one over the section's height; while the dialog is open it follows every
+// settings change (2026-10-31: the user's request).
+let illumJob = null, illumJobId = 0, illumData = null, illumZ = -1, illumTimer = 0, illumKey = '';
+function requestIllum(frame, z) {
   const b = document.getElementById('illumPreview');
+  const spec = movieSpec({ frames: 1 });
+  const key = spec + '|' + frame + '|' + z;
+  if (key === illumKey && (illumJob || illumData)) return;   // the same picture: nothing to do
+  illumKey = key;
   b.textContent = 'Computing…';
   illumJob = { id: ++illumJobId, frame };
-  const job = { type: 'illum', id: illumJob.id, spec: movieSpec({ frames: 1 }), frame, n: 192, nz: 112 };
+  const job = { type: 'illum', id: illumJob.id, spec, frame, z, n: 192, nz: 112 };
   if (genWorkers.ok) genWorkers.dyes.postMessage(job);
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job, onIllumResult)).then(r => onIllumResult(r[0])), 0);
-  else { b.textContent = 'Preview illumination'; alert('Illumination preview: the workers are not ready yet.'); }
+  else { b.textContent = 'Preview illumination'; illumKey = ''; alert('Illumination preview: the workers are not ready yet.'); }
+}
+// A redraw of the open dialog at its frame and height, debounced (a slider drag, a settings change).
+function scheduleIllum(ms) {
+  clearTimeout(illumTimer);
+  illumTimer = setTimeout(() => requestIllum(+document.getElementById('il_slider').value, illumZ), ms || 80);
 }
 function onIllumResult(d) {
   if (!illumJob || d.id !== illumJob.id || d.type !== 'illum') return;
   illumJob = null;
   document.getElementById('illumPreview').textContent = 'Preview illumination';
-  if (d.error) { alert('Illumination preview failed: ' + d.error); return; }
+  if (d.error) { illumKey = ''; alert('Illumination preview failed: ' + d.error); return; }
   illumData = d.data;
-  const dlg = document.getElementById('illumDlg'), sl = document.getElementById('il_slider');
+  const dlg = document.getElementById('illumDlg'), sl = document.getElementById('il_slider'), zs = document.getElementById('il_z');
   sl.max = Math.max(0, illumData.period - 1);
   sl.value = ((illumData.frame % illumData.period) + illumData.period) % illumData.period;
+  zs.max = illumData.zMaxUm;
+  zs.value = illumData.zUm;
+  document.getElementById('il_zval').textContent = illumData.zUm.toFixed(2) + ' µm' + (illumZ < 0 ? ' (the focus)' : '');
   dlg.style.display = 'block';
   dlg.dataset.period = illumData.period;
   dlg.dataset.beams = illumData.beams.length;
   dlg.dataset.frame = sl.value;
-  self.ISC_ILLUM_PREVIEW.drawIllumPreview(illumData, { bfp: document.getElementById('il_bfp'), xy: document.getElementById('il_xy'), xz: document.getElementById('il_xz') });
-  document.getElementById('il_state').textContent = self.ISC_ILLUM_PREVIEW.illumPreviewCaption(illumData);
+  dlg.dataset.z = illumData.zUm.toFixed(2);
+  const P = self.ISC_ILLUM_PREVIEW;
+  P.drawIllumPreview(illumData, { bfp: document.getElementById('il_bfp'), xy: document.getElementById('il_xy'), xz: document.getElementById('il_xz') });
+  const L = P.illumPreviewLabels(illumData);
+  for (const v of ['bfp', 'xy', 'xz']) {
+    document.getElementById('il_' + v + '_t').textContent = L[v].title;
+    document.getElementById('il_' + v + '_n').textContent = L[v].note;
+  }
+  document.getElementById('il_state').textContent = P.illumPreviewCaption(illumData);
   document.getElementById('il_title').textContent = 'Illumination: ' + (illumData.patterned ? document.getElementById('mv_sim-type').selectedOptions[0].textContent : 'one beam') +
     ', BFP position ' + (+document.getElementById('mv_illum-bfp').value).toFixed(2);
 }
-document.getElementById('illumPreview').addEventListener('click', () => requestIllum(0));
-document.getElementById('il_slider').addEventListener('input', e => requestIllum(+e.target.value));
+const illumOpen = () => document.getElementById('illumDlg').style.display === 'block';
+document.getElementById('illumPreview').addEventListener('click', () => requestIllum(+document.getElementById('il_slider').value, illumZ));
+document.getElementById('il_slider').addEventListener('input', () => scheduleIllum(40));
+document.getElementById('il_z').addEventListener('input', e => { illumZ = +e.target.value; document.getElementById('il_zval').textContent = illumZ.toFixed(2) + ' µm'; scheduleIllum(40); });
+document.getElementById('il_zval').addEventListener('dblclick', () => { illumZ = -1; scheduleIllum(0); });   // back to the focus
 document.getElementById('il_close').addEventListener('click', e => { e.preventDefault(); document.getElementById('illumDlg').style.display = 'none'; });
+// Auto-update: any settings change (an mv_ control, the beam matrix, the Zernike entry, a restore) redraws the open dialog.
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (illumOpen() && t && t.id && (t.id.startsWith('mv_') || t.id === 'simBeams' || t.id === 'zernCoeffs')) scheduleIllum();
+}, true);
+window.addEventListener('isc-restored', () => { if (illumOpen()) scheduleIllum(); });
 // The pattern readout under the rows: the type's state, the fringe period at the strongest line, the frames per cycle.
 async function drawPatternReadout() {
   const out = document.getElementById('patternReadout');

@@ -16,7 +16,9 @@
   label{display:flex;align-items:center;gap:5px}
   select,input[type=number]{font:inherit}
   .views{display:flex;flex-wrap:wrap;gap:8px}
-  canvas{width:min(32vw,260px);height:auto;image-rendering:pixelated;background:#000;border:1px solid #555}
+  canvas{width:100%;height:auto;image-rendering:pixelated;background:#000;border:1px solid #555}
+  figure{margin:0;width:min(32vw,260px);display:flex;flex-direction:column;gap:3px} figcaption{font-size:12px;font-weight:600;text-align:center}
+  .note{font-size:11px;opacity:.8;line-height:1.3;text-align:center}
   .sub{opacity:.8;font-size:12px}
 </style>
 </head>
@@ -29,13 +31,16 @@
 </div>
 <div class="row">
   <label>Frame <input type="range" id="frame" min="0" max="8" step="1" value="0" style="width:180px"><span id="state"></span></label>
+  <label>Section height z <input type="range" id="z" min="0" max="8" step="0.02" value="0.5" style="width:180px"><span id="zVal"></span></label>
   <span class="sub" id="note"></span>
 </div>
-<div class="views"><canvas id="bfpCv"></canvas><canvas id="xyCv"></canvas><canvas id="xzCv"></canvas></div>
-<p class="sub">From above: the pupil, the critical circle (dashed), the pupil edge (solid), each beam's spot ringed with its
-polarization as a bar (evanescent beams in blue). From below: the excitation on the focal plane over 1.5× a 12.8 µm
-field (the field framed). From the side: an x-z section through the axis, the coverslip at the bottom, 8 µm up. The 640 nm
-line, NA 1.40 in water (n 1.337).</p>
+<div class="views">
+  <figure><figcaption id="bfpT">Back focal plane, from above</figcaption><canvas id="bfpCv"></canvas><div class="note" id="bfpN"></div></figure>
+  <figure><figcaption id="xyT">Section, from below</figcaption><canvas id="xyCv"></canvas><div class="note" id="xyN"></div></figure>
+  <figure><figcaption id="xzT">Side, x-z through the axis</figcaption><canvas id="xzCv"></canvas><div class="note" id="xzN"></div></figure>
+</div>
+<p class="sub">A 12.8 µm field, the 640 nm line, NA 1.40 in water (n 1.337), the focus 0.5 µm above the coverslip. The section seen
+from below starts at the focus; its slider moves it up and down (the dashed line in the side view).</p>
 <script src="insiliscope_module.js"></script>
 <script src="live/illum_preview.js"></script>
 <script>
@@ -49,7 +54,7 @@ line, NA 1.40 in water (n 1.337).</p>
     M = await createInsiliscope();
   } catch (e) { note.textContent = 'the engine could not start: ' + e.message; return; }
   const P = self.ISC_ILLUM_PREVIEW;
-  let busy = false, again = false;
+  let busy = false, again = false, zUser = -1;   // zUser: the section's height once the slider moved (-1: the focus)
   async function draw() {
     if (busy) { again = true; return; }
     busy = true;
@@ -57,12 +62,15 @@ line, NA 1.40 in water (n 1.337).</p>
     $('bfpVal').textContent = bfp.toFixed(2);
     const spec = `size=128 pixel-nm=100 frames=1 illum-bfp=${bfp} illum-fwhm=${fwhm} sim-type=${type} sim-polarization=${pol} ` +
       `npc-dye=None mt-mode=WideField laser-640=1 light-preset=-1 psf-kernel-half-width-nm=1500`;
-    const d = P.readIllumPreview(M, spec, +$('frame').value, 160, 96);
+    const d = P.readIllumPreview(M, spec, +$('frame').value, 160, 96, zUser);
     if (d.error) { note.textContent = d.error; busy = false; return; }
     $('frame').max = Math.max(0, d.period - 1);
     if (+$('frame').value > d.period - 1) $('frame').value = 0;
+    $('z').max = d.zMaxUm; $('z').value = d.zUm; $('zVal').textContent = d.zUm.toFixed(2) + ' µm';
     const line = getComputedStyle(document.documentElement).getPropertyValue('--line').trim();
-    P.drawIllumPreview(d, { bfp: $('bfpCv'), xy: $('xyCv'), xz: $('xzCv') }, { line, text: '#fff' });
+    P.drawIllumPreview(d, { bfp: $('bfpCv'), xy: $('xyCv'), xz: $('xzCv') }, { line });
+    const L = P.illumPreviewLabels(d);
+    for (const v of ['bfp', 'xy', 'xz']) { $(v + 'T').textContent = L[v].title; $(v + 'N').textContent = L[v].note; }
     $('state').textContent = P.illumPreviewCaption(d);
     const u = d.beams.length ? Math.max(...d.beams.map(b => b.u)) : 0;
     note.textContent = u > 1 ? 'the beams are evanescent (TIRF-SIM)' : u > 0 ? `the beams ${(Math.asin(Math.min(1, u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium` : 'epi: the beam straight up';
@@ -72,6 +80,7 @@ line, NA 1.40 in water (n 1.337).</p>
     if (again) { again = false; draw(); }
   }
   for (const id of ['type', 'bfp', 'pol', 'fwhm', 'frame']) $(id).addEventListener('input', draw);
+  $('z').addEventListener('input', () => { zUser = +$('z').value; draw(); });
   $('type').addEventListener('change', () => { const r = { '1': 0.95, '2': 0.9, '3': 0.9, '4': 0.9 }[$('type').value]; if (r) $('bfp').value = r; });
   draw();
 })();

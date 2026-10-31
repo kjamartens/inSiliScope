@@ -248,26 +248,28 @@ ISC_API int32_t isc_scope_psf_preview(const char* spec, float* out, int32_t cap,
 // section (xz), then the beams (8 doubles each: ux, uy, spotU, amp, phase, pol, u, evanescent) as floats. info[0..9]
 // = n, nz, xySpanUm, zMaxUm, uSpan, uMax, beams, period, angle, phase, patterned. Returns the float count; fills out
 // when cap >= that (kept from the sizing call to the filling call). -1 on a failure (message in errOut).
-ISC_API int32_t isc_illum_preview(const char* spec, double frame, int32_t n, int32_t nz, float* out, int32_t cap,
-                                  double* info, char* errOut, int32_t errCap)
+// zUm: the height of the section seen from below (< 0: the focus); info[11] returns the height used.
+ISC_API int32_t isc_illum_preview(const char* spec, double frame, double zUm, int32_t n, int32_t nz, float* out,
+                                  int32_t cap, double* info, char* errOut, int32_t errCap)
 {
    static std::string lastKey;
    static probes::IllumPreview last;
    if (!spec) return Fail(errOut, errCap, "no spec");
    try {
-      const std::string key = std::string(spec) + "|" + std::to_string(frame) + "|" + std::to_string(n) + "|" + std::to_string(nz);
+      const std::string key = std::string(spec) + "|" + std::to_string(frame) + "|" + std::to_string(zUm) + "|" +
+                              std::to_string(n) + "|" + std::to_string(nz);
       if (lastKey != key || last.n == 0) {
          sim::ScopeSpec s;
          std::string err;
          if (!sim::ParseScopeSpec(spec, s, err)) return Fail(errOut, errCap, err);
          lastKey.clear();
-         if (!probes::IllumPreviewOf(s, static_cast<long long>(frame), n, nz, last, err)) return Fail(errOut, errCap, err);
+         if (!probes::IllumPreviewOf(s, static_cast<long long>(frame), zUm, n, nz, last, err)) return Fail(errOut, errCap, err);
          lastKey = key;
       }
       const size_t nb = last.beams.size() / probes::IllumPreview::kBeamStride;
-      const double v[11] = { double(last.n), double(last.nz), last.xySpanUm, last.zMaxUm, last.uSpan, last.uMax,
+      const double v[12] = { double(last.n), double(last.nz), last.xySpanUm, last.zMaxUm, last.uSpan, last.uMax,
                              double(nb), double(last.period), double(last.angle), double(last.phase),
-                             last.patterned ? 1.0 : 0.0 };
+                             last.patterned ? 1.0 : 0.0, last.zUm };
       if (info) std::memcpy(info, v, sizeof v);
       const size_t need = last.bfp.size() + last.xy.size() + last.xz.size() + last.beams.size();
       if (need > 0x7fffffff) return Fail(errOut, errCap, "preview too large");

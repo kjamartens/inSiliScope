@@ -3,8 +3,9 @@
 // Structured illumination in the viewer (spec/ALGORITHM.md "Structured illumination") in headless Chromium: a Pattern
 // pick sets the BFP position to the type's radius and the polarization to S and goes into the movie spec; the readout
 // and the Beams matrix come from the setup job (the type's rows); Preview illumination opens the dialog with the
-// program's period and beam count, its slider steps the frame; a snap's info carries the pattern state and the live
-// sample's counter steps per frame; LatticeSIM3D's five beams; Off again.
+// program's period and beam count, its slider steps the frame, the height slider moves the section seen from below
+// (captions as page text), the open dialog follows a settings change; a snap's info carries the pattern state and the
+// live sample's counter steps per frame; LatticeSIM3D's five beams and its section's change with height; Off again.
 //   node tests/web/viewer_sim.mjs [--channel=chrome] [--swiftshader]
 import { runViewer } from './browser.mjs';
 
@@ -36,6 +37,15 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   await page.evaluate(() => { const s = document.getElementById('il_slider'); s.value = 4; s.dispatchEvent(new Event('input')); });
   await page.waitForFunction(() => document.getElementById('illumDlg').dataset.frame === '4' && /frame 4 of 9: angle 1, phase 1/.test(document.getElementById('il_state').textContent), null, { timeout: 90000 });
   check(true, 'the slider steps the preview to frame 4 (angle 1, phase 1)');
+  // the captions are page text; the section starts at the focus (0.5 um) and the height slider moves it
+  const cap = await page.evaluate(() => ({ z: document.getElementById('illumDlg').dataset.z, t: document.getElementById('il_xy_t').textContent,
+    zv: document.getElementById('il_zval').textContent, n: document.getElementById('il_xz_n').textContent }));
+  check(cap.z === '0.50' && /Section at z = 0\.50 µm/.test(cap.t) && /the focus/.test(cap.zv) && /dashed line/.test(cap.n),
+    `the captions: "${cap.t}", "${cap.zv}"; the side note "${cap.n.slice(0, 40)}…"`);
+  await page.evaluate(() => { const s = document.getElementById('il_z'); s.value = 1.2; s.dispatchEvent(new Event('input')); });
+  await page.waitForFunction(() => document.getElementById('illumDlg').dataset.z === '1.20' && /z = 1\.20/.test(document.getElementById('il_xy_t').textContent), null, { timeout: 90000 });
+  check(true, 'the height slider moves the section to 1.20 um (its caption follows)');
+  await page.evaluate(() => { illumZ = -1; });   // back to the focus for the rest
   await page.evaluate(() => document.getElementById('il_close').click());
 
   // a snap: the frame's pattern state in the info, the sample's counter stepping
@@ -50,12 +60,21 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   check(s1.p && s1.p.period === 9 && s2.p && s2.p.frame === s1.p.frame + 1 && /pattern \d+\/9/.test(s2.info),
     `snaps: pattern state ${JSON.stringify(s1.p)} then frame ${s2.p && s2.p.frame} (info "${s2.info.split('·').pop().trim()}")`);
 
-  // LatticeSIM3D: five beams, 13 frames, the radius 0.9
-  await set('mv_sim-type', '4');
+  // LatticeSIM3D: five beams, 13 frames, the radius 0.9 -- the open dialog follows the pick by itself
   await page.evaluate(() => document.getElementById('illumPreview').click());
-  await page.waitForFunction(() => { const d = document.getElementById('illumDlg'); return d.style.display !== 'none' && d.dataset.period === '13' && d.dataset.beams === '5'; }, null, { timeout: 90000 });
+  await page.waitForFunction(() => { const d = document.getElementById('illumDlg'); return d.style.display !== 'none' && d.dataset.period === '9'; }, null, { timeout: 90000 });
+  await set('mv_sim-type', '4');
+  await page.waitForFunction(() => { const d = document.getElementById('illumDlg'); return d.style.display !== 'none' && d.dataset.period === '13' && d.dataset.beams === '5' && d.dataset.z === '0.50'; }, null, { timeout: 90000 });
   const l = await page.evaluate(() => ({ bfp: +document.getElementById('mv_illum-bfp').value, title: document.getElementById('il_title').textContent }));
-  check(l.bfp === 0.9 && /LatticeSIM3D/.test(l.title), `LatticeSIM3D: 5 beams, 13 frames, BFP position 0.9 (${l.title})`);
+  check(l.bfp === 0.9 && /LatticeSIM3D/.test(l.title), `LatticeSIM3D: 5 beams, 13 frames, BFP position 0.9 (${l.title}), the dialog updated without a click`);
+  // the lattice's section changes with height (the centre beam's fringes swap direction every quarter axial period)
+  const fp = () => page.evaluate(() => { const c = document.getElementById('il_xy'), a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let h = 0; for (let i = 0; i < a.length; i += 4) h = (h * 31 + a[i]) >>> 0; return h; });
+  const f0 = await fp();
+  await page.evaluate(() => { const s = document.getElementById('il_z'); s.value = 0.66; s.dispatchEvent(new Event('input')); });
+  await page.waitForFunction(() => document.getElementById('illumDlg').dataset.z === '0.66', null, { timeout: 90000 });
+  const f1 = await fp();
+  check(f0 !== f1, `the lattice's section at 0.66 um differs from the focus's (${f0} vs ${f1})`);
+  await page.evaluate(() => { illumZ = -1; });
   await page.evaluate(() => document.getElementById('il_close').click());
 
   // Off: one beam, no pattern in the spec

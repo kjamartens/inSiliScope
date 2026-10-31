@@ -449,7 +449,9 @@ to step the new sequence's program and light although the consumer skips it as s
 2 pi / 3 steps on the difference image, the restart, the cycle sum = 2 x 9 x Off). Viewer: `mv_sim-type` (Basic, a pick
 counted as `pattern`), the readout `#patternReadout`, the `simBeams` matrix (Expert, `beam.<j>.<col>` in the spec),
 **Preview illumination** (Basic+, as Preview PSF now; `web/live/illum_preview.js` + the `illum` worker job on
-`isc_illum_preview`, the beam record 9 floats with the ellipticity: a circular beam drawn as a circular arrow), the live
+`isc_illum_preview(spec, frame, zUm, ...)`: the section seen from below at a height, the focus for zUm < 0, a slider
+in the dialog (2026-10-31); the captions are page text, not on the canvases (`illumPreviewLabels`); the open dialog
+follows every settings change; the beam record 9 floats with the ellipticity: a circular beam drawn as a circular arrow), the live
 info's pattern state (`info[13..16]`); `web/illumination.html` = the docs' interactive figure (an iframe in the physics
 page, copied beside the viewer by `build_site.sh`); `tests/web/viewer_sim.mjs`. LatticeSIM3D's centre beam is
 circular under S and P (the user's choice). Figures `sim-patterns`, `sim-cycle`, `sim-spot`; gallery `sim-2d`,

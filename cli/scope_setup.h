@@ -115,7 +115,7 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
 // The illumination as pictures (the viewer's Preview illumination, the docs' interactive figure): the light entering
 // the objective's back focal plane seen from above (bfp: the pupil over u in [-uSpan, uSpan], each beam's spot a
 // Gaussian of its size at its position, intensities summed), the pattern it makes in the sample seen from below (xy:
-// the excitation factor on the focal plane over [-xySpanUm/2, xySpanUm/2] squared, 1.5 x the FOV) and from the side
+// the excitation factor on the plane at height zUm (< 0: the focus) over [-xySpanUm/2, xySpanUm/2] squared, 1.5 x the FOV) and from the side
 // (xz: x over the same span, z from 0 to zMaxUm above the coverslip), all for the pattern state of `frame` (the
 // frame program; the legacy single beam: its one state). Images n x n (bfp, xy) and nz rows of n (xz), row 0 the
 // smallest y / z. beams: per beam ux, uy, spotU (the spot's 1/e^2 radius in u units), amp, phase (turns), pol (deg),
@@ -124,6 +124,7 @@ struct IllumPreview
 {
    int n = 0, nz = 0;
    double xySpanUm = 0, zMaxUm = 0, uSpan = 0, uMax = 0, uCrit = 1;
+   double zUm = 0;   // the x-y section's height above the coverslip (the focus when asked for < 0)
    long long frame = 0;
    int angle = 0, phase = 0, period = 1;
    bool patterned = false;
@@ -131,6 +132,7 @@ struct IllumPreview
    std::vector<double> beams;
    static constexpr int kBeamStride = 9;
 };
-bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, int n, int nz, IllumPreview& out, std::string& err);
+bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int n, int nz, IllumPreview& out,
+                    std::string& err);
 
 } // namespace probes

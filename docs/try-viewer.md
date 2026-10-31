@@ -164,8 +164,9 @@ through it step by step.
   frames (the info line shows the frame's place in the cycle, the performance box its angle and phase), a recording
   of a fresh sample starts at frame 0. **Preview illumination** sketches the light entering the objective's back
   focal plane (from above: the pupil, the critical circle, each beam's spot with its size and polarization) and the
-  pattern it makes in the sample (from below: the focal plane over 1.5x the field; from the side: an x-z section
-  through the axis) for the current settings, with a slider through the frame program. The preset is also the modality: "BrightField (lasers
+  pattern it makes in the sample (from below: a section over 1.5x the field, at the focus until its height slider
+  moves it; from the side: an x-z section through the axis, the section's height dashed) for the current settings,
+  with a slider through the frame program; the sketch follows every settings change while it is open. The preset is also the modality: "BrightField (lasers
   off)" images transmitted light, every other preset fluorescence. The label stays
   available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
   own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
