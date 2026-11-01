@@ -44,6 +44,7 @@ namespace sim {
 
 class SampleSource;
 class ParallelPool;
+class MemoryReport;
 
 // Stops and joins every scene's basis thread (WidefieldScene::SetAsyncBasis) and its workers; a host that unloads
 // this code (the Micro-Manager DLL; its movie cache is static) calls it first, as ParallelPoolShutdown.
@@ -467,10 +468,18 @@ public:
    unsigned FftSizeX() const { return nx_; }
    unsigned FftSizeY() const { return ny_; }
    int KernelRadius() const { return R_; }
-   int PsfPlanes() const { return static_cast<int>(kernels_.size()); }
+   int PsfPlanes() const
+   {
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
+      return static_cast<int>(kernels_->map.size());
+   }
+   // This scene reads and fills the kernel spectra of `other` (the same PSF and grid: a pattern's state scenes).
+   void ShareKernels(const WidefieldScene& other) { kernels_ = other.kernels_; }
    // Dye planes of the current focus per resolution level (full, 1/2, 1/4).
    const unsigned* PlanesPerLevel() const { return planesPerLevel_; }
    size_t CachedSpectraBytes() const { return cacheBytes_; }
+   // Adds what the scene holds to r (MemoryReport.h; the shared tiles and kernel store once).
+   void AddMemory(MemoryReport& r) const;
 
    // Per-column camera photons per bleaching dye for a frame of a fresh sample (D0 = framesBefore x dD).
    void FreshBleachWeights(double framesBefore, std::vector<float>& wb) const;
@@ -516,6 +525,9 @@ public:
    static constexpr double kPrebuildAt = 0.4;
    // Takes a basis made on that thread (wait: waits for one being made); true if one was taken.
    bool TakeAsyncBasis(bool wait = false);
+   // The bleach basis no longer describes the dyes' path (another light lit them since it was made): the next frame
+   // makes a new one.
+   void ForgetBleachBasis() { InvalidateBleach(); }
    // A rate population's frames without a pass over its weights (2026-10-15): frame k of weights wb0 is
    // wb0 x exp(-rate k) (the scene's rates, SetWeightRates). AnchorDecay holds wb0 in a Chebyshev basis (as
    // BleachCoefficients does) and gives its decay from the basis' anchor, its largest deviation from that and the
@@ -551,6 +563,13 @@ public:
    // returns images only). Set before an Update.
    void SetKeepSpectra(bool on) { keepSpectra_ = on; }
    bool KeepSpectra() const { return keepSpectra_; }
+   // Drop every cached plane spectrum (the next focus work re-makes what it needs): a structured pattern's state
+   // scenes (one per state) keep only their images between frames, as 13 scenes' spectra do not fit (2026-10-31).
+   void ReleaseSpectra();
+   // A scene that keeps no spectra anyway (a structured pattern's state, above): its CPU images make the plane spectra
+   // in batches, each added into the channel's sums in plan order and dropped (ChannelImage: the same bits), so a
+   // state holds a batch of spectra at its peak instead of the plan's hundreds (2026-10-31). Set before an Update.
+   void SetStreamSpectra(bool on) { stream_ = on; }
    // A synchronous GPU host for the focus work (plane spectra, re-pairing,
    // images); nullptr = the CPU. On a host failure the scene keeps rendering
    // on the CPU and GpuError() says why.
@@ -622,6 +641,8 @@ private:
    // channel has no light).
    void ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img,
                      std::vector<cfloat>* keep = nullptr) const;
+   // The CPU's images make their spectra as they go (SetStreamSpectra, no spectra kept).
+   bool Streaming() const { return stream_ && !keepSpectra_; }
    void ImagesFor(const FocusPlan& plan, WidefieldImages& out) const;
    std::vector<const Channel*> ActiveChannels() const;
    void Refocus(const WidefieldPsf& psf);
@@ -662,7 +683,21 @@ private:
    int R_ = 0;
    int levels_ = 1;
    RealFft2d fft_[kLevels];
-   std::map<int, KernelSpec> kernels_;
+   // The kernel spectra per PSF plane on this grid, in a store scenes of one PSF and grid can share (a structured
+   // pattern's state scenes, ShareKernels; 2026-10-31: 13 stores of ~60 MB at a 40 nm pixel): every access under its
+   // mutex (map nodes are stable; the store is cleared only on a new FFT shape, which its sharers change together).
+   struct KernelStore
+   {
+      std::mutex mutex;
+      std::map<int, KernelSpec> map;
+   };
+   std::shared_ptr<KernelStore> kernels_ = std::make_shared<KernelStore>();
+   const KernelSpec* KernelAt(int p) const
+   {
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
+      auto it = kernels_->map.find(p);
+      return it == kernels_->map.end() ? nullptr : &it->second;
+   }
    long kernelsVersion_ = -1;
    // Channels: [0] persistent (may be unused), [1..] bleach basis maps.
    Channel persistent_;
@@ -698,7 +733,7 @@ private:
    bool lastFast_ = false;
    double bandEpsilon_ = kBandEpsilon;
    unsigned long long imagesVersion_ = 1;
-   bool gpuMode_ = false, defer_ = false, keepSpectra_ = false;
+   bool gpuMode_ = false, defer_ = false, keepSpectra_ = false, stream_ = false;
    WidefieldAccelerator* accel_ = nullptr;
    std::string gpuError_;
    bool accelTooBig_ = false;

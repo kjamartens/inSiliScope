@@ -59,13 +59,16 @@ One source: `PartOf` in `ScopeMovie.cpp`; `Options()` throws when an option has 
 `illum-geometry`) change no image and are never saved. The view part is the viewer's (control ids, `view.scale`,
 `ui.settingsLevel`, `ui.style`); unticked by default in Save.
 
-- **instrument** (34): `pixel-nm`, `na`, `laser-custom-nm`, `illum-profile`, `illum-fwhm`, `ex-lo-nm`, `ex-hi-nm`,
+- **instrument** (39): `pixel-nm`, `na`, `laser-custom-nm`, `illum-profile`, `illum-fwhm`, `sim-centre-amp`,
+  `sim-phase-drift-turns-per-sqrt-sec`, `sim-phase-drift-turns-per-sec`, `tube-length-mm`, `magnification`, `ex-lo-nm`, `ex-hi-nm`,
   `dichroic-edge-nm`, `em-lo-nm`, `em-hi-nm`, `fid-blocking-od`, `camera-preset`, `qe-curve`, `qe`, `camera-type`,
   `dark-per-sec`, `gain`, `offset`, `offset-std`, `read-noise`, `gain-std-pct`, `read-noise-std-pct`, `cic`,
   `bit-depth`, `bf-condenser-na`, `bf-wavelength-nm`, `bf-aberrations`, `immersion-index`, `psf-model`,
-  `psf-zernike-preset`, `psf-mask`, `psf-mask-modes`, `psf-mask-waist`, `psf-working-distance-um`; `zern.*`
-- **settings** (43): `size`, `z-range-um`, `laser-405`, `laser-488`, `laser-561`, `laser-640`, `laser-730`,
-  `laser-custom`, `light-preset`, `illum-bfp`, `ex-filter`, `dichroic`, `em-filter`, `em-gain`, `modality`,
+  `psf-zernike-preset`, `psf-mask`, `psf-mask-modes`, `psf-mask-waist`, `psf-working-distance-um`; `zern.*`, `beam.*`
+  (the beam matrix, `beam.<j>.<column>`)
+- **settings** (50): `size`, `z-range-um`, `laser-405`, `laser-488`, `laser-561`, `laser-640`, `laser-730`,
+  `laser-custom`, `light-preset`, `illum-bfp`, `sim-type`, `sim-polarization`, `sim-phases`, `sim-angles`, `sim-order`,
+  `sim-angle0-deg`, `sim-phase0`, `ex-filter`, `dichroic`, `em-filter`, `em-gain`, `modality`,
   `light-epi`, `light-trans`, `wf-upscale`, `wf-plane-nm`, `wf-kernel-um`, `mean-field-density-per-um2`,
   `mean-field-slab-nm`, `mean-field-max-emitters`, `blink-binned-density-per-um2`, `blink-binned-max-emitters`,
   `blink-mean-field-density-per-um2`, `blink-mean-field-max-emitters`, `blink-binned-upscale`, `bf-quality`,
@@ -79,8 +82,8 @@ One source: `PartOf` in `ScopeMovie.cpp`; `Options()` throws when an option has 
   `occupancy`, `cell-diam-min-um`, `cell-diam-max-um`, `mt-density`, `npc-density`, `lamin-density`, `packing`, the
   `origami-*` and `fid-*` options (but `fid-blocking-od`), `bf-n-medium`, `bf-n-cytoplasm`, `bf-n-nucleus`,
   `bf-n-microtubule`, `bf-absorption-per-um`, `psf-sample-index`, `psf-sample-depth-nm`; `p.*`, the dye fields
-- **measurement** (17): `x`, `y`, `z`, `frames`, `exposure-ms`, `start-sec`, the `drift-*` options, `focus-um`; and
-  the light history
+- **measurement** (18): `x`, `y`, `z`, `frames`, `exposure-ms`, `start-sec`, `frame0`, the `drift-*` options,
+  `focus-um`; and the light history
 
 The choices between parts (each one decided on its own; move one by editing `PartOf`):
 
@@ -89,7 +92,10 @@ The choices between parts (each one decided on its own; move one by editing `Par
 | `size` | settings | the camera ROI one images with, not the sensor |
 | `em-gain` | settings | set per acquisition; the EMCCD's noise is the instrument's |
 | `illum-profile`, `illum-fwhm` | instrument | the beam's shaping optics |
-| `illum-bfp` | settings | the TIRF/HILO knob one turns |
+| `illum-bfp` | settings | the TIRF/HILO knob one turns (with a pattern: the beams' radius) |
+| `sim-type`, `sim-polarization`, `sim-phases`, `sim-angles`, `sim-order`, `sim-angle0-deg`, `sim-phase0` | settings | which pattern one runs and how it steps |
+| `sim-centre-amp`, the beam matrix (`beam.*`), the phase drift, `tube-length-mm`, `magnification` | instrument | the beams' optics: the bundle's spots, the pupil's geometry, the setup's phase stability |
+| `frame0` | measurement | where in the frame program the movie starts (a live producer's counter; not a user setting) |
 | `ex-filter`, `dichroic`, `em-filter` | settings | which filter is in place; the custom edges (`ex-lo-nm` ...) are the hardware |
 | `laser-custom-nm` / `laser-custom` | instrument / settings | the line is the hardware, its power the setting |
 | `qe-curve`, `camera-type` | instrument | the sensor |

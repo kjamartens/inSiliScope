@@ -85,6 +85,9 @@
     <ClCompile Include="Simulation\Excitation.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\SimPattern.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\Spectra.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -232,6 +235,12 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\LightPath.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\SimPattern.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\MemoryReport.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Excitation.h">

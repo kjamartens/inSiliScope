@@ -41,7 +41,7 @@
   };
 
   // The selects whose choices count: by id, plus every select with data-pick (the Configuration's preset groups).
-  const PICK_IDS = { mv_specimen: 'specimen', mv_modality: 'modality', theme: 'look' };
+  const PICK_IDS = { mv_specimen: 'specimen', mv_modality: 'modality', theme: 'look', 'mv_sim-type': 'pattern' };
   // A numeric option value (the specimen, the modality) goes as its option's label.
   const optionValue = sel => {
     const o = sel.options[sel.selectedIndex];

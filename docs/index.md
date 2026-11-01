@@ -61,6 +61,9 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
   modes, double helix) or a Gaussian. *BrightField* (exploration): transmitted light through
   the cells' refractive index, partially coherent multislice wave optics, a speed/precision quality setting.
 - **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background and illumination profiles.
+- **The light's geometry.** One laser spot in the objective's back focal plane (epi, HILO, TIRF) or several coherent
+  beams interfering to a 2D, 3D or lattice SIM pattern that steps with the frame
+  ([Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)).
 - **More than one sample.** The geometry of a sample is separate from the photophysics and the imaging: the cell
   field and the [nanorulers](samples/nanorulers/index.md) share the dyes, the light path, the PSF and the camera.
   Switch in the viewer's Sample select, Micro-Manager's `SampleHolder` or the cli's `--specimen`; see

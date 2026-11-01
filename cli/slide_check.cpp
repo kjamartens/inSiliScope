@@ -192,6 +192,43 @@ void Movies()
    std::snprintf(b, sizeof b, "bleaching at its rate (half-time %.3g s): frames worst %.1e off; one half-time later x %.6f",
                  std::log(2.0) / L, worst, half);
    Check(ok3 && ok4 && L > 0 && fr.size() == 20 && worst < 1e-5 && std::fabs(half - 0.5) < 1e-5, b);
+   // A structured pattern (SlideFringes): a thin layer at the focus shows the fringe (its contrast a fraction of the
+   // pattern's: the PSF's OTF at the fringe), the frames of a cycle differ, their sum is the cycle mean (3 x the Off
+   // frame at twice the power: the pair carries two beams), and a thick layer shows less contrast than a thin one.
+   {
+      bool okA = false, okB = false, okC = false, okD = false;
+      const std::string sim = flat + " sim-type=SIM2D sim-angles=1 illum-bfp=0.5 z=0.15 slide-thickness-um=0.3 psf-kernel-half-width-nm=1500";
+      const std::vector<std::vector<float>> fr3 = Photons(sim + " frames=3", okA);
+      const std::vector<std::vector<float>> off = Photons(flat + " illum-bfp=0.5 z=0.15 slide-thickness-um=0.3 psf-kernel-half-width-nm=1500", okB);
+      const std::vector<std::vector<float>> thick = Photons(sim + " slide-thickness-um=5 z=2.5", okC);
+      double diff01 = 0.0, cyc = 0.0, con = 0.0, conThick = 0.0;
+      if (okA && okB && okC && fr3.size() == 3 && !off.empty() && !thick.empty())
+      {
+         double hi = 0, lo = 1e300, hiT = 0, loT = 1e300;
+         for (size_t i = 0; i < fr3[0].size(); ++i)
+         {
+            const double o = std::max(1.0, static_cast<double>(off[0][i]));
+            diff01 = std::max(diff01, static_cast<double>(std::fabs(fr3[0][i] - fr3[1][i])) / o);
+            cyc = std::max(cyc, std::fabs((static_cast<double>(fr3[0][i]) + fr3[1][i] + fr3[2][i]) / 3 - 2.0 * off[0][i]) / o);
+            // the contrast along the middle row (the fringe along x)
+            if (i / 48 == 24)
+            {
+               hi = std::max<double>(hi, fr3[0][i]);
+               lo = std::min<double>(lo, fr3[0][i]);
+               hiT = std::max<double>(hiT, thick[0][i]);
+               loT = std::min<double>(loT, thick[0][i]);
+            }
+         }
+         con = (hi - lo) / (hi + lo);
+         conThick = (hiT - loT) / (hiT + loT);
+         okD = true;
+      }
+      // (the cycle's mean within 1 %: the beam set's components share component 0's depth intervals in the collected
+      // column, spec/ALGORITHM.md)
+      std::snprintf(b, sizeof b, "SIM2D on the slide: frames 0 and 1 differ by up to %.3f of the mean, the cycle's mean = 2 x Off within %.1e, "
+                    "the fringe contrast %.3f (0.3 um layer) vs %.3f (5 um)", diff01, cyc, con, conThick);
+      Check(okD && diff01 > 0.05 && cyc < 1e-2 && con > 0.05 && conThick < 0.7 * con, b);
+   }
    // TIRF: only the bottom ~0.1-0.2 um is lit: a thicker layer adds nothing, far less than epi.
    bool ok5 = false, ok6 = false;
    const double t5 = Sum(Photons(flat + " illum-bfp=1.03", ok5).at(0)), t25 = Sum(Photons(flat + " illum-bfp=1.03 slide-thickness-um=2.5", ok6).at(0));

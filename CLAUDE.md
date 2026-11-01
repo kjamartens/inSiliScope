@@ -36,6 +36,22 @@ that finishes them.
   from the `insiliscope_block` target, `cli/CMakeLists.txt`: the core's C ABI + `cli/block_entry.cpp`
   `isc_drift_trajectory` = `Simulation/Drift.cpp` (the trajectory; the image shifts are `DriftShift.cpp`); not
   committed; published as a release asset by `.github/workflows/release.yml`). 
+- **Memory report (2026-10-31, `Simulation/MemoryReport.h`):** bytes per owner of the engine's caches
+  (`ScopeMemoryReport`: the PSF kernel stacks of the memo, the mean-field slots and the beads, each stack once; the
+  mean-field scenes' plane / kernel spectra, dye tiles and planes, per-cell arrays, images; the background maps; a
+  scene's own share `WidefieldScene::AddMemory`); the cli prints `ISC_MEMORY` lines after a movie with `ISC_TIMING=1`;
+  the module's `isc_memory_json()` adds the live light history and the WebGPU sessions, with the heap's size; the
+  viewer's Expert performance box shows the worker heap and the largest owners (`#lv_memOut`, under the times). The
+  viewer module's heap never shrinks; an out-of-memory there is an `Aborted()` (cap 4 GB since 2026-10-31, was 2 GB).
+  **RAM cuts (2026-10-31, bit for bit):** a PSF stack's splat sums are made on its first splat and kept in one layout
+  (`PsfKernelPlanes::Sums`, call_once; polyphase; every reader through `BlockSumsView`; hosts that splat in parallel
+  bands call `PrepareSplat()` first): a WideField label's stack is its planes only (two thirds less), a blink label's a
+  third less; a SIM state's scene is a CPU scene on the viewer's WebGPU path too (made at once, its spectra let go: the
+  path's SIM movies aborted at 2 GB) and makes its plane spectra 32 at a time into its sums (`SetStreamSpectra`); the
+  slide's fringes per batch of frames (32 kept); a population's slots of states the pattern no longer takes freed; an
+  aborted movie worker is replaced alone, its jobs told "out of memory" (`spawnDyesWorker`, `workerErrorText`). Viewer
+  heap at 40 nm, two WideField labels: 1470-1855 MB (two aborts) -> 592-979 MB; cli 40 nm 256 px LatticeSIM3D 2301 ->
+  1140 MB. Checks: `tests/web/wasm_heap_check.mjs`, `viewer_oom.mjs`, ctest `sr_render` (the layout's memcmp).
 - **Usage counts (2026-10-21, [docs/privacy.md](docs/privacy.md)):** Umami Cloud (cookieless, website id in
   `web/live/usage.js` and `overrides/partials/integrations/analytics/custom.html`, keep them in step), only on
   kjamartens.github.io and never with Do Not Track / GPC / `localStorage umami.disabled`. The viewer calls `iscTrack(name,
@@ -183,6 +199,10 @@ that finishes them.
   ~35 s), `viewer_live_record.mjs` (browser: the one-line info, the square
   image, the fixed performance rows at Expert, ● Record played in the live view and its saved TIFF stack: pages, header,
   pixel size, the sample's time), `viewer_mobile.mjs` (browser, phone size with touch: layout, focus knob and gestures, the inset swap, back to wide),
+  `viewer_oom.mjs` (browser, ~9 s: the movie worker's out-of-memory abort answers its jobs and replaces that worker alone;
+  the next movie renders),
+  `wasm_heap_check.mjs` (Node, ~75 s: the module's heap per path at a 40 nm pixel under bounds, and with every pointer
+  above 2 GB the same bits as a fresh module),
   `viewer_splitter.mjs` (browser, 8 s: a dragged splitter width over a reload, the world canvases measured at it),
   `viewer_anim_export.mjs` (browser: export,
   playback, determinism), `viewer_scene.mjs` (browser: clip bands, rotation, detail budget, the lamina layer),
@@ -245,6 +265,9 @@ that finishes them.
 - Core WASM: `source ~/emsdk/emsdk_env.sh` (Emscripten pinned to 6.0.10, see `.github/workflows/ci.yml`),
   `cmake --preset wasm && cmake --build --preset wasm && ctest --test-dir build/wasm -j 8`, then
   `node tools/embed_web_module.mjs` (viewer module; `--check` in CI).
+  The viewer module's heap may grow to 4 GB (2026-10-31, `-sMAXIMUM_MEMORY=4GB`): above 2 GB a pointer is a negative
+  i32 in JS, so `cli/module_unsigned_pointers.js` (`--extern-post-js`) wraps `_malloc` and every export that returns a
+  pointer with `>>> 0` -- a new pointer-returning export goes in its list.
   webSMLM block: `node tools/make_cellfield_block.mjs` (its check script is gone, 2026-10-27).
 - Core on Linux/macOS: `cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release`, build, `ctest --test-dir build/native -j 8`.
 - Golden vectors: ctest `golden_vectors` (bit-identical to `spec/golden/ref.txt`, frozen from the JS until
@@ -414,6 +437,61 @@ the focus on a 10 nm grid and the mean-field scenes stay at an anchor within 1 u
 regime / depth readout (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
 the schema's consts are not in its scope); cli `--setup-json` `excitation` (section and axis of the factor), figures
 `light-geometry`, `light-geometry-images`.
+
+**Structured illumination (2026-10-30, branch `claude/sim-illumination`, spec/ALGORITHM.md "Structured illumination",
+spec/PORT.md 28, docs/physics/dyes-and-light-path.md "Structured illumination"):** the light as coherent beams in the
+BFP (`Simulation/SimPattern.*`: `Beam` = position in u, spot size, entry tilt, amplitude, phase, polarization,
+phaseStep, line; `BeamSet`, `MakeBeams`, the frame program `FrameLightAt` / `PatternStateAt`, `BeamFieldOf` (Fresnel /
+Axelrod fields over t0), `CompilePattern` (DC + fringe terms per line), `OrdersSeparate`, `ParseBeamMatrix` /
+`FormatBeamMatrix`). `Excitation` with a beam set: one `Component` per beam of the cycle (angle x beam), `At` = the
+frame's pattern x envelopes, `MeanAt` = the components' sum (the cycle mean), `PlaneMean` (the exact mean over a cell
+and a plane), `SetFrame`; without one the legacy single beam, bit for bit. Options `sim-type` (Off, SIM2D 3x3, SIM3D 5x3,
+LatticeSIM2D 9, LatticeSIM3D 13 stepped 2:3, Custom), `sim-polarization` (S default; P, Circular, LinearX, Unpolarized),
+`sim-phases`, `sim-angles`, `sim-order`, `sim-angle0-deg`, `sim-phase0`, `sim-centre-amp`, `sim-phase-drift-*`,
+`tube-length-mm`, `magnification`, the matrix keys `beam.<j>.<column>` (cli `--sim-beams "<rows>"`), `frame0`
+(internal: the live producers' counter; `LiveScope::FrameCounter`, `LiveFrameInfo::frame/patternAngle/patternPhase`).
+The BFP slider `illum-bfp` is the beams' radius (past 1 TIRF-SIM). **The kinetics run on the cycle mean** (the user's
+choice): the light history records one chapter per beam set with a grid per component (`Chapter::Comp`, `Record::fps`,
+terms with (sx, sy) shears; no core ABI change); the emission uses each frame's exact pattern (the events' `excite` per
+frame, the per-dye windows re-splatted, one mean-field scene per pattern state (`MeanFieldNode::patternState`, slots
+per state), the background's flat part per state, the beads' `FiducialMovie::frameScale`); the adapter's GPU splat is
+off under a varying pattern; the beads at the pattern averaged over their volume (`Pattern::BallMean`,
+`Excitation::AtBall` / `DcAtBall`, 2026-10-31), the slide with the frame's fringes through the PSF's OTF per height
+(`SlideFringes`, `Impl::SlideFringesFor`, the OTF cache `SlideOtf`); a mean-field state scene keeps its images and
+not its spectra (`WidefieldScene::ReleaseSpectra`), the states share the dye tiles and the kernel spectra
+(`ShareKernels`, a `KernelStore` under a mutex; 13 scenes at a 40 nm pixel aborted the viewer); 2026-10-31: a state's
+scene is a CPU scene in GPU mode too (the WebGPU host's resident spectra are per geometry, not per plane factor) and
+streams its plane spectra (`SetStreamSpectra`), the slide's fringes are made per batch (`kSlideFringeStates` 32 kept),
+the slots of states the pattern no longer takes are freed. Live speed (2026-10-31, bit for bit): `frame0` is in the excitation key (`Impl::exciteKey`) only under a phase drift (a state's light is its program index's), so a live frame finds the background map, plane factors and state scenes (DNA-PAINT SIM2D 256 px 320 -> 105 ms, Off 90); the survey keys its first frame's state, a state scene at another `frame0` drops its bleach basis (`MeanFieldSlot::frame0`, `ForgetBleachBasis`: the other states lit its dyes since; a single basis, as before). The
+blink modes' continuous dyes (dSTORM initial ON, PALM pre state) glow under the cycle mean (`Population::meanLight`,
+one node, state -1; the user's choice 2026-10-31) unless `sim-frame-pattern-continuous` 1 (`Renderer.
+PatternOnContinuousDyes`, Expert; Quality Exhaustive). cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
+`pattern_xy`. Checks: ctest `sim_pattern` (~8 s), `history_check` (SIM3D, TIRF-SIM), `live_scope` (the counter, a SIM
+mode). MM: `Lasers.Pattern` (Basic; the cap 31), `PatternPolarization` .. `PatternCentreAmp` (Advanced), `Beams` and
+the drift (Expert), `Objective.TubeLengthMm`; the counter `Stg().patternFrame` (`PatternFrame` read-only, `PatternRestart`
+Sequence / Never, `PatternState`, `PatternPeriodNm`): a sequence's frames count at publish, a snap's when taken, the
+producer waits for each frame to be taken under a pattern (`liveSeqWaitTake_`, as a z sequence), render-ahead batches
+take `frame0` = the counter + the queued frames; each live frame's metadata carries the index it was rendered with
+(`inSiliScope-PatternFrame`, `LitFrame::patternFrame`, `takenPatternFrame_`: what a reconstruction needs per frame);
+a frame is the acquisition's as of its publish (`seqFrameNow`: a frame in flight across a stop and a new start used
+to step the new sequence's program and light although the consumer skips it as stale -- the SIM sequence began at 1); `tools/test_sim.py` (26 s: the rows, the fringe's Fourier peak and
+2 pi / 3 steps on the difference image, the restart, the cycle sum = 2 x 9 x Off). Viewer: `mv_sim-type` (Basic, a pick
+counted as `pattern`), the readout `#patternReadout`, the `simBeams` matrix (Expert, `beam.<j>.<col>` in the spec),
+**Preview illumination** (Basic+, as Preview PSF now; `web/live/illum_preview.js` + the `illum` worker job on
+`isc_illum_preview(spec, frame, zUm, ...)`: the section seen from below at a height, the focus for zUm < 0, a slider
+in the dialog (2026-10-31); the captions are page text, not on the canvases (`illumPreviewLabels`); the open dialog
+follows every settings change; the beam record 9 floats with the ellipticity: a circular beam drawn as a circular arrow), the live
+info's pattern state (`info[13..16]`); `web/illumination.html` = the docs' interactive figure (an iframe in the physics
+page, copied beside the viewer by `build_site.sh`); `tests/web/viewer_sim.mjs`. LatticeSIM3D's centre beam is
+linear diagonal under S and P (the user's choice, 2026-10-31; circular before: the x and y first orders a quarter
+axial period apart). **The axial anchor** (2026-10-31, `sim-anchor` / `Lasers.PatternAnchor`,
+Advanced, part instrument): the beams are in phase at the focus (default: the fringes move with the focus, the sample
+moves through them, by the stage or the objective alike; `CompilePattern` zRefUm, the terms' phases -kz z_focus) or at
+the coverslip (the old behaviour); the evanescent decay from the coverslip either way. **Equal lab fields** (2026-10-31,
+the user's choice): `BeamFrameSign` negates the s and p frame of the left half-plane's beams so a beam and its opposite
+carry the same lab field (a grating's orders; before, opposite fields put SIM3D's first-order fringe at zero in focus;
+ctest `sim_pattern`). Figures `sim-patterns`, `sim-cycle`, `sim-spot`; gallery `sim-2d`,
+`sim-3d`, `sim-lattice-3d`. Not yet: the GPU mean field under a pattern, the exact per-frame dose.
 
 **Exact light history (2026-10-15/16, core ABI 14, spec/ALGORITHM.md "Exact light history", spec/PORT.md 23; branch
 `claude/exact-dose`):** every dye of every consumer reads its kinetics at the dose at its own (x, y, z), smooth in all

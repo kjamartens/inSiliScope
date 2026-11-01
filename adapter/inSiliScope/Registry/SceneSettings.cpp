@@ -278,6 +278,7 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
    s["pixel-nm"] = st.PixelSizeNm();
    s["background-per-sec"] = st.backgroundPhotonsPerSec.load();
    s["na"] = st.na.load();
+   s["magnification"] = st.objectiveMag.load();   // (the pupil's geometry for a beam's spot size and tilt)
    s["focus-um"] = st.cellField[CF_FOCUS_HEIGHT_UM].load();
    s["z-range-um"] = st.cellField[CF_Z_RANGE_UM].load();
    for (const auto& kv : st.Options())

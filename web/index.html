@@ -107,10 +107,11 @@
   #lv_scale,#lv_idle{position:absolute;color:#dfe6ee;font-size:11px;pointer-events:none;text-shadow:0 0 3px #000}
   #lv_perfNote{font-size:10px;line-height:1.35;color:var(--muted);margin-bottom:3px;overflow-wrap:anywhere}
   #lv_perfNote:empty{display:none}
-  #lv_perfOut{font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
-  #lv_perfOut .tot{color:var(--text);font-weight:600}
+  #lv_perfOut,#lv_memOut{font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
+  #lv_memOut{margin-top:4px}
+  #lv_perfOut .tot,#lv_memOut .tot{color:var(--text);font-weight:600}
   #lv_perfOut .sub{padding-left:8px}
-  #lv_perfOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
+  #lv_perfOut span:nth-child(2n),#lv_memOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
   input[readonly]{opacity:.75;cursor:default}
   #lv_scale{bottom:6px;right:8px;text-align:center}
   /* the zoom inset: the image's outline, the part shown, the factor */
@@ -141,7 +142,13 @@
   #liveCtl select,#liveCtl input[type=number],#liveCtl input[type=text],#panel select,#panel input[type=number],#panel input[type=text]{height:24px;box-sizing:border-box}
   #liveCtl .opt,#panel .opt{gap:6px;margin:3px 0;min-height:24px}
   #liveCtl .opt .ctl select{max-width:none;width:100%}
-  .opt.text:has(#zernCoeffs){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val{display:none}
+  .opt.text:has(#zernCoeffs),.opt.text:has(#simBeams){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val,.opt.text:has(#simBeams)>.val{display:none}
+  #simBeams{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}
+  #illumDlg{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:60;background:var(--panel,#1d2430);color:var(--fg,#eee);border:1px solid #556;border-radius:6px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:96vw}
+  #illumDlg .views{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:flex-start} #illumDlg canvas{width:100%;height:auto;image-rendering:pixelated;background:#000}
+  #illumDlg figure{margin:0;width:min(30vw,300px);display:flex;flex-direction:column;gap:3px} #illumDlg figcaption{font-size:12px;font-weight:600;text-align:center}
+  #illumDlg .note{font-size:11px;opacity:.8;line-height:1.3;text-align:center}
+  #illumDlg .t{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px}
   #zernCoeffs{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}   /* (the 28 Zernike modes under their name) */
   #liveCtl .sub{font-size:10px;line-height:1.35}
   #liveCtl .opt .unit,#liveCtl .opt .u{font-size:10px}
@@ -470,6 +477,14 @@
     <canvas id="cvXZ"></canvas>
     <div id="hud"><button id="viewBtn" title="What the world view draws: camera angle, layers, z clip" aria-expanded="false">View ▾</button><div id="hudText"></div><div id="viewPanel" hidden></div></div>
     <div id="loading">Loading the cell field (WebAssembly core, packing cells)…</div>
+    <div id="illumDlg"><div class="t"><span id="il_title">Illumination</span><span style="flex:1"></span><a href="#" id="il_close">close</a></div>
+      <div class="views">
+        <figure><figcaption id="il_bfp_t">Back focal plane, from above</figcaption><canvas id="il_bfp"></canvas><div class="note" id="il_bfp_n"></div></figure>
+        <figure><figcaption id="il_xy_t">Section, from below</figcaption><canvas id="il_xy"></canvas><div class="note" id="il_xy_n"></div></figure>
+        <figure><figcaption id="il_xz_t">Side, x-z through the axis</figcaption><canvas id="il_xz"></canvas><div class="note" id="il_xz_n"></div></figure>
+      </div>
+      <div class="t"><span>frame</span><input type="range" id="il_slider" min="0" max="0" value="0" style="flex:1"><span id="il_state"></span></div>
+      <div class="t"><span>height z</span><input type="range" id="il_z" min="0" max="8" step="0.02" value="0.5" autocomplete="off" style="flex:1"><span id="il_zval" title="double-click: back to the focus"></span></div></div>
     <div id="movie"><div class="t drag" title="Drag to move the player"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_gif" title="The movie as shown (display range), scaled up to at least 512 px">GIF</a> &nbsp; <a href="#" id="mv_mp4" title="The movie as shown (display range), scaled up to at least 512 px; WebM where the browser cannot encode H.264">MP4</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
       <canvas id="mv_cv"></canvas>
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
@@ -534,7 +549,7 @@
           <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
         </div>
         <div class="lc t-expert" id="lv_perfBox" title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display (shown at the Expert level)"><h5>Performance</h5>
-          <div id="lv_perfNote"></div><div id="lv_perfOut"></div></div>
+          <div id="lv_perfNote"></div><div id="lv_perfOut"></div><div id="lv_memOut"></div></div>
     </div>
     </div>
   </div>
@@ -549,6 +564,7 @@
 <script src="live/mm_config.js"></script>
 <script src="origami_designs.js"></script>
 <script src="insiliscope_module.js"></script>
+<script src="live/illum_preview.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="scene/core.js"></script>
 <script src="scene/compute.js"></script>
@@ -1157,6 +1173,29 @@ const UI_GROUPS = [
       num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of the imager solution over the coverslip (a tape/flow chamber, estimate): the free DNA-PAINT imager in it adds a background, collected defocused from the heights the beam lights (epi: about the beam\'s radius; HILO: the sheet; TIRF: the evanescent layer). <code>Lasers.ChamberHeightUm</code>', 0, null, 1, 100, { adv, show: FL }),
     ] }),
     { kind: 'html', html: '<div class="sub" id="bfpReadout"></div>', show: FL },
+    // Structured illumination (spec/ALGORITHM.md "Structured illumination"): the light as coherent beams in the BFP at
+    // the BFP position's radius, the pattern stepping with the frame. A type pick sets the radius and the polarization.
+    select('mv_sim-type', 'Pattern', 'Structured illumination: the light as coherent beams in the objective\'s back focal plane, whose fringes step with the frame (the live sample counts its frames; a recording starts at 0). Off: one beam at the BFP position. SIM2D: two beams at ±position, 3 phases × 3 orientations. SIM3D: + the centre beam, 5 phases × 3 orientations. LatticeSIM2D: ±x and ±y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets the BFP position to the type\'s radius (2D 0.95, 3D and the lattices 0.9) and the polarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern\'s cycle mean, each frame\'s image on its exact pattern. <code>Lasers.Pattern</code>',
+      [['0', 'Off'], ['1', 'SIM2D'], ['2', 'SIM3D'], ['3', 'LatticeSIM2D'], ['4', 'LatticeSIM3D'], ['5', 'Custom']], '0', { show: FL,
+        apply: v => { const r = { '1': 0.95, '2': 0.9, '3': 0.9, '4': 0.9 }[v]; const o = {}; if (r) o['mv_illum-bfp'] = r; if (v !== '0') o['mv_sim-polarization'] = '0'; return o; },
+        kids: [
+          select('mv_sim-polarization', 'Polarization', 'Every beam\'s polarization: S (across its plane of incidence: full fringe contrast; the lattice\'s x and y pairs then do not interfere, LatticeSIM3D\'s centre beam is linear diagonal), P, Circular, LinearX (the pupil field along the lab x axis) or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S. <code>Lasers.PatternPolarization</code>',
+            [['0', 'S'], ['1', 'P'], ['2', 'Circular'], ['3', 'LinearX'], ['4', 'Unpolarized']], '0', { adv, show: FL }),
+          select('mv_sim-anchor', 'In phase at', 'The plane the beams are in phase at, which the pattern\'s axial structure is fixed to: the focus (a grating or SLM conjugate to the focal plane: the fringes move with the focus and the sample moves through them, by the stage or the objective alike) or the coverslip (the fringes fixed to the sample: an illumination that does not move with the focus). The evanescent decay is from the coverslip either way. <code>Lasers.PatternAnchor</code>',
+            [['0', 'Focus'], ['1', 'Coverslip']], '0', { adv, show: FL }),
+          num('mv_sim-phases', 'Phases', '', 'Phase steps per orientation (0 = the type\'s: 3, 5, 9, 13). <code>Lasers.PatternPhases</code>', 0, 64, 1, 0, { adv, show: FL }),
+          num('mv_sim-angles', 'Orientations', '', 'Orientations per cycle, 180° / n apart (0 = the type\'s: 3 for SIM2D and SIM3D, 1 for the lattices). <code>Lasers.PatternAngles</code>', 0, 12, 1, 0, { adv, show: FL }),
+          select('mv_sim-order', 'Order', 'The frame program\'s order: every phase of an orientation, then the next orientation (AngleMajor), or the orientations within each phase (PhaseMajor). <code>Lasers.PatternOrder</code>', [['0', 'AngleMajor'], ['1', 'PhaseMajor']], '0', { adv, show: FL }),
+          num('mv_sim-angle0-deg', 'First orientation', '°', 'The first orientation, degrees from the x axis. <code>Lasers.PatternAngle0Deg</code>', -180, 180, 1, 0, { adv, show: FL }),
+          num('mv_sim-phase0', 'Phase offset', 'steps', 'Added to the phase index (fractional allowed): the pattern\'s starting phase. <code>Lasers.PatternPhase0</code>', -100, 100, 0.1, 0, { adv, show: FL }),
+          num('mv_sim-centre-amp', 'Centre beam', '×', 'The centre beam\'s field amplitude over the side beams\' (SIM3D, LatticeSIM3D; an estimate). <code>Lasers.PatternCentreAmp</code>', 0, 10, 0.1, 1, { adv, show: FL }),
+          text('simBeams', 'Beams', 'Every beam of the illumination, one row per beam, rows separated by ; and columns by spaces: <b>ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm</b> — the position in the back focal plane (u units: 1 = the critical angle, beyond it evanescent), the spot\'s 1/e² radius in the pupil (µm; 0 = from the beam FWHM: a Gaussian spot of radius w makes an envelope of 1/e² radius λf / πw, f the objective\'s focal length), the bundle\'s entry tilt (°, two axes: the envelope\'s centre moves by f tan tilt), the field amplitude, the phase (turns), the polarization angle (°; 0 s, 90 p; below −180 unpolarized), the ellipticity phase (turns; 0.25 circular), the phase step per phase index (1/phases turns) and the laser line the beam carries (nm; 0 = every line). Off shows its one beam, a pattern its beams; typed rows replace them (every column of every row goes into the spec as <code>beam.&lt;j&gt;.&lt;column&gt;</code>; Custom: the matrix alone). Example, the 2D SIM pair at 0.95: 0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0. <code>Lasers.Beams</code>', undefined, { maxlength: 2000, show: FL }),
+          num('mv_sim-phase-drift-turns-per-sqrt-sec', 'Phase walk', 'turns/√s', 'Each beam\'s phase takes a random walk: its RMS after 1 s (per seed and frame, as the sample drift). 0 = none. <code>Lasers.PatternPhaseDriftTurnsPerSqrtSec</code>', 0, 10, 0.001, 0, { adv, show: FL }),
+          num('mv_sim-phase-drift-turns-per-sec', 'Phase slide', 'turns/s', 'Each beam\'s phase drifts at its phase step × this: the pattern slides along its stepping direction. 0 = none. <code>Lasers.PatternPhaseDriftTurnsPerSec</code>', -100, 100, 0.01, 0, { adv, show: FL }),
+          num('mv_tube-length-mm', 'Tube length', 'mm', 'The tube lens\' focal length: the objective\'s focal length is it over the magnification (100), the pupil\'s radius that × NA; a beam\'s spot size and tilt map to the sample through it. <code>Objective.TubeLengthMm</code>', 50, 500, 1, 200, { adv, show: FL }),
+        ] }),
+    { kind: 'html', html: '<div class="sub" id="patternReadout"></div>', show: FL },
+    button('illumPreview', 'Preview illumination', 'Sketches the light entering the objective\'s back focal plane (from above: the pupil, the critical circle, each beam\'s spot with its size and polarization) and the pattern it makes in the sample (from below: the focal plane over 1.5× the field; from the side: an x-z section through the axis), for the current settings; a slider steps through the frame program, another moves the section seen from below up and down (double-click its value: back to the focus); the sketch follows the settings while it is open.', { show: FL }),
     select('mv_ex-filter', 'Excitation filter', 'Laser clean-up filter in front of the dichroic: each laser line is scaled by its transmission (a 640 nm clean-up blocks the 561 nm line). None, ideal ±5 nm bands or real curves (FPbase). <code>ExcitationFilter</code>',
       DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_ex-filter']), { adv, show: FL, kids: [
         num('mv_ex-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>ExcitationFilter-CustomLoNm</code>', 300, 900, 0.5, 635, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
@@ -1183,7 +1222,7 @@ const UI_GROUPS = [
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3'),
     select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
     text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. <code>Objective.ZernikeCoefficients</code>', undefined, { maxlength: 400 }),
-    button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', { adv }),
+    button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', {}),
   ] },
   // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
   { id: 'camera', host: 'lv_camHost', title: 'Camera', open: true, items: [
@@ -3991,18 +4030,21 @@ function iscEngine(M) {
     if (d.reset) M._isc_live_reset();
     if (M._isc_live_profile && !!d.profile !== !!self.iscLiveProfile) { self.iscLiveProfile = !!d.profile; M._isc_live_profile(d.profile ? 1 : 0); }
     const tw = performance.now();
-    const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(13 * 8), err = M._malloc(512);
+    const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(17 * 8), err = M._malloc(512);
     M.stringToUTF8(d.spec, s, n);
     const px = nF > 1 ? M._isc_live_frames(s, nF, d.lit === false ? 0 : 1, info, err, 512) : M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
     let res;
     if (px < 0) res = { type: 'live', id: d.id, error: M.UTF8ToString(err) };
     else {
-      const v = M.HEAPF64.slice(info / 8, info / 8 + 13), p = M._isc_live_image();
+      const v = M.HEAPF64.slice(info / 8, info / 8 + 17), p = M._isc_live_image();
       res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
         n: nF, t: v[2] + nF * (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), tStart: v[2], clock: v[3], lit: !!v[4],
         epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
+        frame: v[13], pattern: v[16] > 0 ? { frame: v[13], angle: v[14], phase: v[15], period: v[16] } : null,
         paths: M._isc_live_paths ? JSON.parse(M.UTF8ToString(M._isc_live_paths())) : null, workerMs: performance.now() - tw };
       if (d.profile && M._isc_live_profile_json) res.profile = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
+      // What the engine's caches hold and the heap's size (MemoryReport.h), with the profile (Expert).
+      if (d.profile && M._isc_memory_json) res.memory = JSON.parse(M.UTF8ToString(M._isc_memory_json()));
     }
     for (const ptr of [s, info, err]) M._free(ptr);
     return [res, res.frames ? [res.frames.buffer] : []];
@@ -4010,7 +4052,7 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'options' || d.type === 'setup' || d.type === 'psf' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'options' || d.type === 'setup' || d.type === 'psf' || d.type === 'illum' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
         // d (nm) each), on the beads' own world.
@@ -4019,6 +4061,30 @@ function iscEngine(M) {
         const [x0, y0, x1, y1] = d.rect;
         const beads = query((ptr, cap) => M._isc_fiducials_in_window(fw, x0, y0, x1, y1, ptr, cap), 7, 1024);
         return [{ type: 'fiducials', id: d.id, key: d.key, rect: d.rect, beads }, [beads.buffer]];
+      }
+      if (d.type === 'illum') {
+        // The viewer's Preview illumination (isc_illum_preview: the pupil, the focal plane, an x-z section, the beams;
+        // = web/live/illum_preview.js readIllumPreview, inlined: the workers hold the module alone).
+        if (!M._isc_illum_preview) return [{ type: 'illum', id: d.id, error: 'this viewer module has no illumination preview (regenerate web/insiliscope_module.js)' }, []];
+        const len = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(len), info = M._malloc(12 * 8), err = M._malloc(512);
+        M.stringToUTF8(d.spec, s, len);
+        let out = 0, res;
+        const zUm = d.z >= 0 ? d.z : -1;   // the section's height (-1: the focus)
+        const need = M._isc_illum_preview(s, d.frame, zUm, d.n, d.nz, 0, 0, info, err, 512);
+        if (need < 0) res = { type: 'illum', id: d.id, error: M.UTF8ToString(err) };
+        else {
+          out = M._malloc(Math.max(4, need * 4));
+          if (M._isc_illum_preview(s, d.frame, zUm, d.n, d.nz, out, need, info, err, 512) < 0) res = { type: 'illum', id: d.id, error: M.UTF8ToString(err) };
+          else {
+            const v = M.HEAPF64.slice(info / 8, info / 8 + 12), N = v[0], NZ = v[1], nb = v[6], f = M.HEAPF32.slice(out / 4, out / 4 + need);
+            let o = 0;
+            const bfp = f.slice(o, o += N * N), xy = f.slice(o, o += N * N), xz = f.slice(o, o += NZ * N), beams = [];
+            for (let k = 0; k < nb; k++) { const b = f.slice(o, o += 9); beams.push({ ux: b[0], uy: b[1], spotU: b[2], amp: b[3], phaseTurns: b[4], polDeg: b[5], u: b[6], evanescent: b[7] > 0.5, ellipTurns: b[8] }); }
+            res = { type: 'illum', id: d.id, data: { n: N, nz: NZ, xySpanUm: v[2], zMaxUm: v[3], uSpan: v[4], uMax: v[5], period: v[7], angle: v[8], phase: v[9], patterned: v[10] > 0.5, zUm: v[11], frame: d.frame, bfp, xy, xz, beams } };
+          }
+        }
+        for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
+        return [res, res.data ? [res.data.bfp.buffer, res.data.xy.buffer, res.data.xz.buffer] : []];
       }
       if (d.type === 'psf') {
         // The viewer's Preview PSF: the movie's own kernel and splat (isc_scope_psf_preview), planes then camera images.
@@ -4376,28 +4442,82 @@ function initGenWorkers() {
         : e.data.type === 'fiducials' ? onFiducialsResult(e.data) : onCellResult(i, e.data));
       genWorkers.cells.push(w); genWorkers.busy.push(null);
     }
-    genWorkers.dyes = spawnGenWorker();
-    genWorkers.dyes.onmessage = e => {
-      const t = e.data.type;
-      if (t === 'movie') onMovieResult(e.data);
-      else if (t === 'events') onEventsResult(e.data);
-      else if (t === 'movie-progress') onMovieProgress(e.data);
-      else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
-      else if (t === 'bf-begin') onBfBegin(e.data);
-      else if (t === 'origami') onOrigamiResult(e.data);
-      else if (t === 'options') {
-        // the engine's options by name: default, settings-file part, value names (web/live/settings_file.js)
-        self.ISC_ENGINE_OPTIONS = new Map(e.data.names.map((n, i) => [n, { def: e.data.defaults[i], part: e.data.parts[i], names: e.data.valueNames[i] }]));
-        if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults);
-      }
-      else if (t === 'setup') onSetupResult(e.data);
-      else if (t !== 'bf-end') onDyeResult(e);
-    };
+    genWorkers.dyes = spawnDyesWorker();
     genWorkers.ok = true;
     flushSetupWaiting();
     genWorkers.dyes.postMessage({ type: 'options', id: 0 });
     schedulePrepare();
   } catch (e) { console.warn('generator workers unavailable:', e); disableGenWorkers(); }
+}
+// A worker's error in words: an aborted engine is out of memory (its WebAssembly heap has a cap and never shrinks).
+function workerErrorText(msg) {
+  return /Aborted|out of memory|Cannot enlarge memory/i.test(msg || '')
+    ? 'out of memory: the engine needed more than its WebAssembly heap allows, and was restarted. A coarser pixel ' +
+      'size, a smaller field, fewer labelled targets or a shorter PSF z range need less.'
+    : (msg || 'the worker failed');
+}
+// The movie worker (genWorkers.dyes) with its jobs in flight, by reply type and id: when it dies (2026-10-31: an
+// out-of-memory abort in a movie job) it is replaced alone -- a fresh heap -- and its jobs are answered with the
+// error, instead of moving the whole engine to the main thread, where the same job would abort the page.
+const dyesInflight = new Map();
+const DYES_REPLY = { 'bf-movie': 'movie' };
+function spawnDyesWorker() {
+  const w = spawnGenWorker(), post = w.postMessage.bind(w);
+  w.answered = false;
+  w.postMessage = (m, t) => {
+    if (m && m.id !== undefined && m.type !== 'init') dyesInflight.set((DYES_REPLY[m.type] || m.type) + ':' + m.id, m);
+    post(m, t);
+  };
+  w.onmessage = e => {
+    const d = e.data;
+    w.answered = true;
+    if (d && d.id !== undefined && !/-progress$/.test(d.type)) dyesInflight.delete(d.type + ':' + d.id);
+    onDyesMessage(e);
+  };
+  w.onerror = e => {
+    // Never answered: the worker cannot run here (the old fallback, the core on the main thread).
+    if (!w.answered) { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); return; }
+    e.preventDefault();
+    onDyesWorkerDied(w, e.message);
+  };
+  return w;
+}
+function onDyesWorkerDied(w, msg) {
+  if (genWorkers.dyes !== w) return;
+  const error = workerErrorText(msg);
+  console.warn('the movie worker failed and was restarted:', msg);
+  w.terminate();
+  const jobs = [...dyesInflight.values()];
+  dyesInflight.clear();
+  genWorkers.dyes = spawnDyesWorker();
+  dyePending = null; oriPending = null;   // (asked again by the next draw)
+  for (const j of jobs) {
+    if (j.type === 'movie' || j.type === 'bf-movie') onMovieResult({ type: 'movie', id: j.id, error, prepared: !!j.prepare });
+    else if (j.type === 'bf-begin') onBfBegin({ type: 'bf-begin', id: j.id, h: -1, error });
+    else if (j.type === 'events') onEventsResult({ type: 'events', id: j.id, error });
+    else if (j.type === 'psf') onPsfResult({ type: 'psf', id: j.id, error });
+    else if (j.type === 'illum') onIllumResult({ type: 'illum', id: j.id, error });
+    else if (j.type === 'setup') onSetupResult({ type: 'setup', id: j.id, error });
+    else if (j.type === 'options') genWorkers.dyes.postMessage(j);
+  }
+  requestDraw();
+}
+function onDyesMessage(e) {
+  const t = e.data.type;
+  if (t === 'movie') onMovieResult(e.data);
+  else if (t === 'events') onEventsResult(e.data);
+  else if (t === 'movie-progress') onMovieProgress(e.data);
+  else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
+  else if (t === 'illum') onIllumResult(e.data);
+  else if (t === 'bf-begin') onBfBegin(e.data);
+  else if (t === 'origami') onOrigamiResult(e.data);
+  else if (t === 'options') {
+    // the engine's options by name: default, settings-file part, value names (web/live/settings_file.js)
+    self.ISC_ENGINE_OPTIONS = new Map(e.data.names.map((n, i) => [n, { def: e.data.defaults[i], part: e.data.parts[i], names: e.data.valueNames[i] }]));
+    if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults);
+  }
+  else if (t === 'setup') onSetupResult(e.data);
+  else if (t !== 'bf-end') onDyeResult(e);
 }
 function disableGenWorkers() {
   genWorkers.ok = false;
@@ -5811,6 +5931,7 @@ function movieSpec(ov) {
   for (const k in mmExtra) if (!has(k) && !MOVIE_KEYS.includes(k)) o.push(k + '=' + mmExtra[k]);
   // Zernike modes typed over the preset's (ZERN, below): all 28
   if (self.ISC_ZERN && ISC_ZERN.user) ISC_ZERN.user.forEach((v, j) => { if (!has('zern.' + j)) o.push('zern.' + j + '=' + v); });
+  if (self.ISC_BEAMS && ISC_BEAMS.user) ISC_BEAMS.user.forEach((row, j) => row.forEach((v, c) => { const k = 'beam.' + j + '.' + BEAM_COLUMNS[c]; if (!has(k)) o.push(k + '=' + v); }));
   if (!has('seed')) o.push('seed=' + noiseSeed());
   o.push('world-seed=' + (worldSeed() >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
@@ -6805,6 +6926,133 @@ zernEl.addEventListener('blur', showZern);
 document.getElementById('mv_psf-zernike-preset').addEventListener('change', () => { ZERN.user = null; forgetZern(); showZern(); });
 window.addEventListener('isc-reset', () => ZERN.clear());
 setTimeout(showZern, 0);
+// The beam matrix (Lasers.Beams; spec/ALGORITHM.md "Structured illumination"): every beam of the light as the setup
+// job resolves it (the type's beams at the BFP position, the legacy beam under Off), or the rows typed over them
+// (then every column of every row goes into the spec as beam.<j>.<column>, like the Zernike modes).
+const BEAM_COLUMNS = ['ux', 'uy', 'spot', 'tiltX', 'tiltY', 'amp', 'phase', 'pol', 'ellip', 'phaseStep', 'nm'];
+const beamsEl = document.getElementById('simBeams'), BEAMS = self.ISC_BEAMS = { user: null, setup: null };
+const beamsText = rows => rows.map(r => r.map(v => +(+v).toFixed(6)).join(' ')).join('; ');
+const forgetBeams = () => { try { localStorage.removeItem('isc.set.simBeams'); } catch (e) { /* private window */ } };
+async function showBeams() {
+  beamsEl.style.outline = '';
+  if (BEAMS.user) { if (document.activeElement !== beamsEl) beamsEl.value = beamsText(BEAMS.user); return; }
+  try {
+    const S = await setupJob(movieSpec());
+    const ex = S.excitation;
+    if (ex && ex.beams) BEAMS.setup = ex.beams.map(b => [b.ux, b.uy, b.spot_from_fwhm ? 0 : b.spot_um, b.tilt_x_deg, b.tilt_y_deg, b.amp, b.phase_turns, b.pol_deg, b.ellip_turns, b.phase_step, b.nm]);
+    if (!BEAMS.user && BEAMS.setup && document.activeElement !== beamsEl) beamsEl.value = beamsText(BEAMS.setup);
+  } catch (e) { /* the readout follows with the next change */ }
+}
+BEAMS.clear = () => { BEAMS.user = null; forgetBeams(); showBeams(); };
+BEAMS.set = (j, c, v) => {   // one cell (a settings file's beam.<j>.<column>), over the rows as they are now
+  BEAMS.user = (BEAMS.user || BEAMS.setup || []).map(r => r.slice());
+  while (BEAMS.user.length <= j) BEAMS.user.push([0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]);
+  BEAMS.user[j][c] = v;
+  showBeams();
+};
+beamsEl.addEventListener('input', () => {   // (typing arrives settled, settle.js)
+  const rows = beamsEl.value.split(/[;\n]/).map(r => r.trim()).filter(Boolean).map(r => r.split(/[\s,]+/).map(Number));
+  const ok = rows.length > 0 && rows.every(r => r.length <= 11 && r.every(Number.isFinite));
+  beamsEl.style.outline = ok ? '' : '1px solid #e0a64a';
+  if (!ok) return;
+  BEAMS.user = rows.map(r => { const full = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]; r.forEach((v, c) => { full[c] = v; }); return full; });
+  schedulePrepare();
+  scheduleBfpReadout();
+});
+beamsEl.addEventListener('blur', showBeams);
+for (const k of ['mv_sim-type', 'mv_sim-polarization', 'mv_sim-centre-amp', 'mv_illum-bfp', 'mv_sim-angles', 'mv_sim-angle0-deg'])
+  document.getElementById(k).addEventListener('input', () => { if (!BEAMS.user) showBeams(); });
+document.getElementById('mv_sim-type').addEventListener('change', () => { BEAMS.user = null; forgetBeams(); showBeams(); });
+window.addEventListener('isc-reset', () => BEAMS.clear());
+setTimeout(showBeams, 0);
+
+// ---- the illumination preview (Illumination & light path, Basic+) ----
+// The pupil seen from above, a section from below (at the focus until the height slider moves it) and an x-z section
+// from the side (web/live/illum_preview.js draws; the data from the module's isc_illum_preview through a worker job),
+// with a slider over the frame program and one over the section's height; while the dialog is open it follows every
+// settings change (2026-10-31: the user's request).
+let illumJob = null, illumJobId = 0, illumData = null, illumZ = -1, illumTimer = 0, illumKey = '';
+function requestIllum(frame, z) {
+  const b = document.getElementById('illumPreview');
+  const spec = movieSpec({ frames: 1 });
+  const key = spec + '|' + frame + '|' + z;
+  if (key === illumKey && (illumJob || illumData)) return;   // the same picture: nothing to do
+  illumKey = key;
+  b.textContent = 'Computing…';
+  illumJob = { id: ++illumJobId, frame };
+  const job = { type: 'illum', id: illumJob.id, spec, frame, z, n: 192, nz: 112 };
+  if (genWorkers.ok) genWorkers.dyes.postMessage(job);
+  else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job, onIllumResult)).then(r => onIllumResult(r[0])), 0);
+  else { b.textContent = 'Preview illumination'; illumKey = ''; alert('Illumination preview: the workers are not ready yet.'); }
+}
+// A redraw of the open dialog at its frame and height, debounced (a slider drag, a settings change).
+function scheduleIllum(ms) {
+  clearTimeout(illumTimer);
+  illumTimer = setTimeout(() => requestIllum(+document.getElementById('il_slider').value, illumZ), ms || 80);
+}
+function onIllumResult(d) {
+  if (!illumJob || d.id !== illumJob.id || d.type !== 'illum') return;
+  illumJob = null;
+  document.getElementById('illumPreview').textContent = 'Preview illumination';
+  if (d.error) { illumKey = ''; alert('Illumination preview failed: ' + d.error); return; }
+  illumData = d.data;
+  const dlg = document.getElementById('illumDlg'), sl = document.getElementById('il_slider'), zs = document.getElementById('il_z');
+  sl.max = Math.max(0, illumData.period - 1);
+  sl.value = ((illumData.frame % illumData.period) + illumData.period) % illumData.period;
+  zs.max = illumData.zMaxUm;
+  zs.value = illumData.zUm;
+  document.getElementById('il_zval').textContent = illumData.zUm.toFixed(2) + ' µm' + (illumZ < 0 ? ' (the focus)' : '');
+  dlg.style.display = 'block';
+  dlg.dataset.period = illumData.period;
+  dlg.dataset.beams = illumData.beams.length;
+  dlg.dataset.frame = sl.value;
+  dlg.dataset.z = illumData.zUm.toFixed(2);
+  const P = self.ISC_ILLUM_PREVIEW;
+  P.drawIllumPreview(illumData, { bfp: document.getElementById('il_bfp'), xy: document.getElementById('il_xy'), xz: document.getElementById('il_xz') });
+  const L = P.illumPreviewLabels(illumData);
+  for (const v of ['bfp', 'xy', 'xz']) {
+    document.getElementById('il_' + v + '_t').textContent = L[v].title;
+    document.getElementById('il_' + v + '_n').textContent = L[v].note;
+  }
+  document.getElementById('il_state').textContent = P.illumPreviewCaption(illumData);
+  document.getElementById('il_title').textContent = 'Illumination: ' + (illumData.patterned ? document.getElementById('mv_sim-type').selectedOptions[0].textContent : 'one beam') +
+    ', BFP position ' + (+document.getElementById('mv_illum-bfp').value).toFixed(2);
+}
+const illumOpen = () => document.getElementById('illumDlg').style.display === 'block';
+document.getElementById('illumPreview').addEventListener('click', () => requestIllum(+document.getElementById('il_slider').value, illumZ));
+document.getElementById('il_slider').addEventListener('input', () => scheduleIllum(40));
+document.getElementById('il_z').addEventListener('input', e => {
+  if (!illumOpen()) return;   // (a browser restoring the slider's value at load is not the user)
+  illumZ = +e.target.value; document.getElementById('il_zval').textContent = illumZ.toFixed(2) + ' µm'; scheduleIllum(40);
+});
+document.getElementById('il_zval').addEventListener('dblclick', () => { illumZ = -1; scheduleIllum(0); });   // back to the focus
+document.getElementById('il_close').addEventListener('click', e => { e.preventDefault(); document.getElementById('illumDlg').style.display = 'none'; });
+// Auto-update: any settings change (an mv_ control, the beam matrix, the Zernike entry, a restore) redraws the open dialog.
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (illumOpen() && t && t.id && (t.id.startsWith('mv_') || t.id === 'simBeams' || t.id === 'zernCoeffs')) scheduleIllum();
+}, true);
+window.addEventListener('isc-restored', () => { if (illumOpen()) scheduleIllum(); });
+// The pattern readout under the rows: the type's state, the fringe period at the strongest line, the frames per cycle.
+async function drawPatternReadout() {
+  const out = document.getElementById('patternReadout');
+  if (!out) return;
+  try {
+    const ex = (await setupJob(movieSpec())).excitation;
+    const p = ex && ex.pattern;
+    if (!p || p.type === 'Off') { out.textContent = ex && ex.pattern ? `one beam; its spot ${p.spot_radius_um.toFixed(0)} µm in the pupil` : ''; return; }
+    const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
+    const nm = lit.length ? lit[lit.length - 1] : 640, per = (p.period_nm[nm] || []).map(v => v.toFixed(0)).join(', ');
+    out.textContent = `${p.type}, ${p.polarization}: ${ex.beams.length} beams, ${p.phases} phases × ${p.angles} orientations = ${p.period} frames per cycle` +
+      (per ? `; fringe period ${per} nm at ${nm} nm` : '') + `; the pupil ${p.pupil_radius_um.toFixed(0)} µm, each spot ${ex.beams[0].spot_um.toFixed(0)} µm`;
+  } catch (e) { out.textContent = ''; }
+}
+let patternTimer = 0;
+function schedulePatternReadout() { clearTimeout(patternTimer); patternTimer = setTimeout(drawPatternReadout, 150); }
+for (const k of ['mv_sim-type', 'mv_sim-polarization', 'mv_sim-phases', 'mv_sim-angles', 'mv_sim-order', 'mv_sim-centre-amp', 'mv_illum-bfp', 'mv_illum-fwhm', 'mv_tube-length-mm', 'mv_bf-n-medium', 'mv_na', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
+  document.getElementById(k)?.addEventListener('input', schedulePatternReadout);
+beamsEl.addEventListener('input', schedulePatternReadout);
+schedulePatternReadout();
 // The dyes' colour, density and fluorescent fraction redraw the dye overlay.
 for (const k of [...DYE_UI.targets.flatMap(t => [t.prefix + '-dye', t.prefix + '-label-pct', t.prefix + '-dye.fluorescent-pct']),
   'dye1.source', 'dye2.source', 'dye3.source', 'dye1.fluorescent-pct', 'dye2.fluorescent-pct', 'dye3.fluorescent-pct'])
@@ -6957,12 +7205,20 @@ async function drawBfpReadout() {
     if (!ex) { out.textContent = ''; return; }
     const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
     const nm = lit.length ? lit[lit.length - 1] : 640, d = ex.depth_nm[nm];
+    if (ex.pattern && ex.pattern.type !== 'Off') {
+      // A beam set: the outermost beams' regime (several beams make no sheet).
+      const ang = (Math.asin(Math.min(1, ex.u)) * 180 / Math.PI).toFixed(0);
+      out.textContent = ex.regime === 'TIRF' ? `TIRF-SIM: the beams evanescent, 1/e depth ${d.toFixed(0)} nm at ${nm} nm`
+        : ex.regime === 'Clipped' ? `the beams beyond the pupil edge (${ex.u_max.toFixed(3)}), no light`
+        : `the beams ${ang}° from the axis in the medium (propagating)`;
+      return;
+    }
     out.textContent = ex.regime + (ex.regime === 'TIRF' ? `: 1/e depth ${d.toFixed(0)} nm at ${nm} nm, field x${ex.field_factor.toFixed(2)}`
       : ex.regime === 'HILO' ? `: sheet ${(Math.asin(Math.min(1, ex.u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium` + (d > 0 ? `, ${(d / 1000).toFixed(1)} µm thick` : '')
       : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.u_max.toFixed(3)}), no light` : ': the beam straight up');
   } catch (e) { out.textContent = ''; }
 }
-for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
+for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', 'mv_sim-type', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
   document.getElementById(k)?.addEventListener('input', scheduleBfpReadout);
 scheduleBfpReadout();
 

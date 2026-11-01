@@ -3,7 +3,8 @@ imager background, and mean field vs per-dye rendering of continuous populations
 import numpy as np
 from matplotlib.legend_handler import HandlerTuple
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
+import matplotlib.pyplot as plt
+from matplotlib.patches import Arc, Patch
 
 from .common import (BUILD_INFO, COLORS, SPOT, figure, img, load, register, robust_range, secs, sig, stack, table)
 
@@ -316,3 +317,154 @@ def light_geometry_images(ctx):
         "the beam's width over tan θ<sub>s</sub> cos θ<sub>i</sub> thick, here (a 9.6 µm beam) about 6 µm: about " \
         "the column epi collects from a beam this narrow, so it changes little; its gain is against a wide epi " \
         "beam. In the cell field TIRF leaves the microtubules above the evanescent layer dark.\n"
+
+
+# ---- structured illumination (spec/ALGORITHM.md "Structured illumination") ----
+WF_SIM = {"mt-mode": "WideField", "mt-dye": -1, "light-preset": "auto", "illum-bfp": 0.5}
+
+
+def sim_setup(ctx, opts, tag, size=128):
+    """The cli's excitation block (beams, pattern, pattern_xy, the x-z section) at a pattern setting."""
+    r = ctx.cli(dict(SPOT, size=size, frames=1, **dict(WF_SIM, **opts)), tag=tag, setup_json=True)
+    return load(r["setup_json"])["excitation"]
+
+
+def draw_bfp(ax, e, st):
+    """The pupil from above: the critical circle (dashed), the pupil edge, each beam's spot with its polarization."""
+    p = e["pattern"]
+    f_n = p["f_obj_um"] * e.get("n_medium", 1.337)
+    ax.add_patch(plt.Circle((0, 0), 1.0, fill=False, ls=":", lw=0.8, color=st["muted"]))
+    ax.add_patch(plt.Circle((0, 0), e["u_max"], fill=False, lw=0.9, color=st["fg"]))
+    for b in e["beams"]:
+        r = max(0.02, b["spot_um"] / f_n)
+        ev = b["regime"] in ("TIRF", "Clipped")
+        col = COLORS[1] if ev else COLORS[3]
+        ax.add_patch(plt.Circle((b["ux"], b["uy"]), r, fill=True, alpha=0.5, color=col))
+        if abs(abs(b["ellip_turns"]) - 0.25) < 0.05:
+            ax.add_patch(Arc((b["ux"], b["uy"]), 2 * (r + 0.06), 2 * (r + 0.06), theta1=-80, theta2=200, lw=0.9, color=col))
+        else:
+            phi = np.arctan2(b["uy"], b["ux"])
+            d = phi + np.pi / 2 - np.deg2rad(45 if b["pol_deg"] < -180 else b["pol_deg"])
+            L = r + 0.08
+            ax.plot([b["ux"] - L * np.cos(d), b["ux"] + L * np.cos(d)], [b["uy"] - L * np.sin(d), b["uy"] + L * np.sin(d)], lw=1.1, color=col)
+    ax.set_xlim(-1.15, 1.15)
+    ax.set_ylim(-1.15, 1.15)
+    ax.set_aspect("equal")
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+
+@register("sim-patterns", "dyes-and-light-path")
+def sim_patterns(ctx):
+    types = ["SIM2D", "SIM3D", "LatticeSIM2D", "LatticeSIM3D"]
+    ex = [sim_setup(ctx, {"sim-type": t}, t) for t in types]
+
+    def draw(fig, st):
+        gs = fig.add_gridspec(3, 4, height_ratios=[1.0, 1.0, 0.75])
+        for i, (t, e) in enumerate(zip(types, ex)):
+            ax = fig.add_subplot(gs[0, i])
+            draw_bfp(ax, e, st)
+            p = e["pattern"]
+            ax.set_title("%s: %d beams, %d frames" % (t, len(e["beams"]), p["period"]), fontsize=8)
+            ax = fig.add_subplot(gs[1, i])
+            ps = np.array(e["pattern_xy_um"])
+            a = np.array(e["pattern_xy"]).reshape(len(ps), len(ps))
+            ax.imshow(a, origin="lower", cmap="magma", vmin=0, extent=[ps[0], ps[-1], ps[0], ps[-1]])
+            ax.set_xlim(-3, 3)
+            ax.set_ylim(-3, 3)
+            ax.set_xlabel("x (µm)", fontsize=7)
+            if i == 0:
+                ax.set_ylabel("y (µm), focal plane", fontsize=7)
+            ax.tick_params(labelsize=6)
+            ax = fig.add_subplot(gs[2, i])
+            xs, zs = np.array(e["section_x_um"]), np.array(e["section_z_um"])
+            s = np.array(e["section"]).reshape(len(zs), len(xs))
+            ax.imshow(s, origin="lower", aspect="auto", cmap="magma", vmin=0, extent=[xs[0], xs[-1], zs[0], zs[-1]])
+            ax.set_xlim(-3, 3)
+            ax.set_ylim(0, 3)
+            ax.set_xlabel("x (µm)", fontsize=7)
+            if i == 0:
+                ax.set_ylabel("z (µm), x-z section", fontsize=7)
+            ax.tick_params(labelsize=6)
+
+    body = ctx.plot("", draw, h=6.6, alt="The SIM types: the beams in the pupil, the pattern on the focal plane and in an x-z section")
+    e0 = ex[0]
+    per = e0["pattern"].get("period_nm", {})
+    per_nm = list(per.values())[0] if isinstance(per, dict) and per else per
+    if isinstance(per_nm, (list, tuple)):
+        per_nm = per_nm[0] if per_nm else None
+    return figure(body,
+                  "The four pattern types at frame 0, the beams at 0.5 in the pupil (below the types' defaults, so the "
+                  "fringes are resolved here; %s nm, the widefield microtubules' line). Top: the pupil from above, the "
+                  "critical circle dotted, each beam's spot (the default beam's %.0f µm radius) with its polarization "
+                  "(S: a bar across its plane of incidence; the lattice's diagonal centre beam a bar at 45 degrees). "
+                  "Middle: the excitation on the focal plane over the centre 6 µm (period %s nm for a pair at 0.5). "
+                  "Bottom: an x-z section through the axis: 2D SIM's stripes reach every height alike, the centre beam "
+                  "of 3D SIM and the 3D lattice adds an axial modulation.\n"
+                  % (e0["lambda_nm"] if "lambda_nm" in e0 else e0["pattern"]["lambda_ref_nm"],
+                     e0["pattern"]["spot_radius_um"], sig(float(per_nm), 3) if per_nm else "?"))
+
+
+@register("sim-cycle", "dyes-and-light-path")
+def sim_cycle(ctx):
+    sim, ph, setup, _ = movie(ctx, dict(WF_SIM, **{"sim-type": "SIM2D"}), "sim2d", frames=9)
+    off, ph_off, _, _ = movie(ctx, dict(WF_SIM), "off", frames=9)
+    s9 = np.sum(ph, axis=0)
+    o9 = 2.0 * np.sum(ph_off, axis=0)   # the pair carries two beams at the laser power: twice one beam's mean light
+    vmax = float(np.percentile(ph, 99.8))
+    tiles = [ctx.tile("f%d" % k, ph[k], vmin=0, vmax=vmax) for k in (0, 1, 2, 3)]
+    vs = float(np.percentile(o9, 99.8))
+    tiles += [ctx.tile("sum9", s9, vmin=0, vmax=vs), ctx.tile("off9", o9, vmin=0, vmax=vs)]
+    lit = o9 > 0.1 * o9.max()
+    ratio = float(np.median(s9[lit] / o9[lit]))
+    spread = float(np.std(s9[lit] / o9[lit]))
+    body = table(["frame 0 (angle 0, phase 0)", "frame 1 (phase 1)", "frame 2 (phase 2)", "frame 3 (angle 1)",
+                  "the 9 frames summed", "2 x 9 x one beam"], [[img(t) for t in tiles]], label_col=False)
+    return body + (
+        "\nThe photon images (before the camera) of a 2D SIM cycle on the widefield microtubules (mEGFP, 488 nm, "
+        "the beams at 0.5): the fringe moves by a third of its period per frame and turns by 60° every three frames. "
+        "Summed over the cycle the fringes cancel: the sum equals twice nine frames under the single beam at the "
+        "same power (the pair carries two beams), per pixel %.3f ± %.3f over the lit field -- the cycle mean the "
+        "dyes' kinetics run on.\n" % (ratio, spread))
+
+
+@register("sim-spot", "dyes-and-light-path")
+def sim_spot(ctx):
+    e0 = sim_setup(ctx, {"illum-bfp": 0.0}, "spot0")
+    narrow = sim_setup(ctx, {"illum-bfp": 0.0, "sim-beams": "0 0 100 0 0 1 0 0 0 0 0"}, "spot100")
+    tilted = sim_setup(ctx, {"illum-bfp": 0.0, "sim-beams": "0 0 0 0.1 0 1 0 0 0 0 0"}, "tilt")
+    p = e0["pattern"]
+    f_um, lam = p["f_obj_um"], p["lambda_ref_nm"]
+    w_default = p["spot_radius_um"]
+
+    def draw(fig, st):
+        gs = fig.add_gridspec(1, 3, width_ratios=[1.3, 1, 1])
+        ax = fig.add_subplot(gs[0, 0])
+        wb = np.linspace(5, 400, 200)
+        for nm, c in ((488, COLORS[1]), (561, COLORS[2]), (640, COLORS[3])):
+            ax.plot(wb, nm * 1e-3 * f_um / (np.pi * wb), lw=1.1, color=c, label="%d nm" % nm)
+        ax.axvline(w_default, color=st["muted"], lw=0.7, ls=":")
+        ax.set_xlabel("spot 1/e² radius in the pupil (µm)")
+        ax.set_ylabel("beam 1/e² radius in the sample (µm)")
+        ax.set_yscale("log")
+        ax.set_xscale("log")
+        ax.legend(fontsize=7)
+        ax.set_title("w_s = λ f / (π w_b), f = %.0f mm" % (f_um / 1000), fontsize=8)
+        for i, (e, t) in enumerate(((narrow, "a 100 µm spot"), (tilted, "the default spot, tilt 0.1°"))):
+            ax = fig.add_subplot(gs[0, 1 + i])
+            ps = np.array(e["pattern_xy_um"])
+            a = np.array(e["pattern_xy"]).reshape(len(ps), len(ps))
+            ax.imshow(a, origin="lower", cmap="magma", vmin=0, extent=[ps[0], ps[-1], ps[0], ps[-1]])
+            ax.set_title(t, fontsize=8)
+            ax.set_xlabel("x (µm)", fontsize=7)
+            ax.tick_params(labelsize=6)
+
+    body = ctx.plot("", draw, h=3.2, alt="The spot size and tilt in the pupil against the envelope in the sample")
+    return figure(body,
+                  "Left: a Gaussian spot of 1/e² radius w<sub>b</sub> in the pupil is a Gaussian beam of 1/e² radius "
+                  "λ f / (π w<sub>b</sub>) in the sample (f = %.0f mm, the tube length over the magnification); "
+                  "the dotted line is the default beam (a FWHM of the whole 12.8 µm field: a %.0f µm spot at %g nm). "
+                  "Middle: the beam matrix row `0 0 100 0 0 1 0 0 0 0 0` -- a 100 µm spot -- lights only a %.1f µm "
+                  "beam in the centre of the field. Right: the default spot entering the pupil 0.1° off axis "
+                  "(`tiltX 0.1`) lands its envelope f tan(0.1°) = %.1f µm off centre.\n"
+                  % (f_um / 1000, w_default, lam, lam * 1e-3 * f_um / (np.pi * 100), f_um * np.tan(np.deg2rad(0.1))))

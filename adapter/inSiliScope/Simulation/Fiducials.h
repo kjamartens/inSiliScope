@@ -50,6 +50,7 @@
 #include "PsfGeneratorBridge.h"
 
 #include <map>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -92,9 +93,10 @@ class BeadHalo
 public:
    explicit BeadHalo(const PsfKernelCache& wide);   // keeps its geometry and block sums
    const PsfKernelCache& Geom() const { return geom_; }
-   const std::vector<float>& Plane(int k) const { return sums_[static_cast<size_t>(k)]; }
+   const std::vector<float>& Plane(int k) const { return (*sums_)[static_cast<size_t>(k)]; }
    int Nz() const { return geom_.nz; }
    uint64_t Id() const { return id_; }
+   double Bytes() const;   // the planes held (MemoryReport.h)
    // Plane k's spread per axis, camera pixels: sqrt(<r^2> / 2) over its window.
    double SigmaPx(int k) const;
    // The camera half-width a splat of `photons` at plane k needs: beyond it every sample x |photons| is below
@@ -103,13 +105,16 @@ public:
 
 private:
    PsfKernelCache geom_;   // the geometry only (no data)
-   std::vector<std::vector<float>> sums_;
+   std::shared_ptr<const std::vector<std::vector<float>>> sums_;   // the wide kernel's planes (os 1), or a copy
+   bool ownSums_ = false;
    std::vector<std::vector<float>> beyond_;   // per plane and Chebyshev radius r: the largest sample at r or beyond
    uint64_t id_;
 };
 // The halo of a request (oversampling 1, its half-width set by the caller; GibsonLanniZernike; memoized, a few
 // entries apart from the point kernels' memo, so the beads do not push the dyes' kernels out). False with err.
 bool BeadHaloFor(const PsfGeneratorRequest& req, std::shared_ptr<const BeadHalo>& out, std::string& err);
+// The halos and bead kernels these memos hold (MemoryReport.h; the bead kernels' point kernel stacks once).
+void AddFiducialMemory(MemoryReport& r);
 // The halo's camera half-width for a W x H frame of pixelNm and a point kernel of camRad camera pixels (JS
 // beadHaloHalfWidthPx).
 int BeadHaloHalfWidthPx(unsigned W, unsigned H, double pixelNm, int camRad);
@@ -120,6 +125,7 @@ class BeadKernel
 public:
    BeadKernel(const PsfKernelCache& K, double pixelNm);
    const PsfKernelCache& Point() const { return K_; }
+   double CoreBytes();   // the bead cores held (MemoryReport.h)
    // Splat one bead of diameter dNm with `photons` (any sign: a Taylor image's odd orders are negative) at (xPx, yPx)
    // (camera pixels) and plane k into img's rows [rowLo, rowHi) (rowHi < 0: H), its halo from halo when given (on the
    // same z planes) (JS splatBead, which takes every row).
@@ -210,6 +216,9 @@ struct FiducialMovie
    double expSec = 0.05;
    long N = 0;
    double sec = 0;
+   // A light that changes per frame (a structured pattern stepping with the frame): each bead's photons of frame f x
+   // this (the frame's excitation over the cycle mean at the bead); set: no Taylor images (splatted per frame).
+   std::function<double(long f, const FiducialMovieComponent& c, const FiducialBeadSite& e)> frameScale;
 };
 // The beads' photons of frame f into img (JS renderFiducials): per component, each bead's rate x the integral of its
 // survival over the frame. staticFocus: no drift and the focus zf the same in every frame: through the Taylor images

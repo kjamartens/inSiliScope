@@ -2,6 +2,7 @@
 // the same render code as the inSiliScope camera and insiliscope_cli, in
 // the viewer's module next to the core's C ABI.
 #include "LiveScope.h"
+#include "MemoryReport.h"
 #include "ScopeMovie.h"
 #include "Timing.h"
 #include "WidefieldRender.h"
@@ -236,6 +237,52 @@ ISC_API int32_t isc_scope_psf_preview(const char* spec, float* out, int32_t cap,
          std::memcpy(out + last.planes.size(), last.cams.data(), last.cams.size() * sizeof(float));
          last = sim::ScopePsfPreview();   // delivered: free its ~40 MB
          lastSpec.clear();
+      }
+      return static_cast<int32_t>(need);
+   } catch (...) {
+      return Fail(errOut, errCap, "exception");
+   }
+}
+
+// The illumination as pictures (probes::IllumPreviewOf, the viewer's Preview illumination): for the pattern state
+// of `frame` (the frame program), n x n images of the pupil (bfp) and the focal plane (xy) and nz x n of the x-z
+// section (xz), then the beams (8 doubles each: ux, uy, spotU, amp, phase, pol, u, evanescent) as floats. info[0..9]
+// = n, nz, xySpanUm, zMaxUm, uSpan, uMax, beams, period, angle, phase, patterned. Returns the float count; fills out
+// when cap >= that (kept from the sizing call to the filling call). -1 on a failure (message in errOut).
+// zUm: the height of the section seen from below (< 0: the focus); info[11] returns the height used.
+ISC_API int32_t isc_illum_preview(const char* spec, double frame, double zUm, int32_t n, int32_t nz, float* out,
+                                  int32_t cap, double* info, char* errOut, int32_t errCap)
+{
+   static std::string lastKey;
+   static probes::IllumPreview last;
+   if (!spec) return Fail(errOut, errCap, "no spec");
+   try {
+      const std::string key = std::string(spec) + "|" + std::to_string(frame) + "|" + std::to_string(zUm) + "|" +
+                              std::to_string(n) + "|" + std::to_string(nz);
+      if (lastKey != key || last.n == 0) {
+         sim::ScopeSpec s;
+         std::string err;
+         if (!sim::ParseScopeSpec(spec, s, err)) return Fail(errOut, errCap, err);
+         lastKey.clear();
+         if (!probes::IllumPreviewOf(s, static_cast<long long>(frame), zUm, n, nz, last, err)) return Fail(errOut, errCap, err);
+         lastKey = key;
+      }
+      const size_t nb = last.beams.size() / probes::IllumPreview::kBeamStride;
+      const double v[12] = { double(last.n), double(last.nz), last.xySpanUm, last.zMaxUm, last.uSpan, last.uMax,
+                             double(nb), double(last.period), double(last.angle), double(last.phase),
+                             last.patterned ? 1.0 : 0.0, last.zUm };
+      if (info) std::memcpy(info, v, sizeof v);
+      const size_t need = last.bfp.size() + last.xy.size() + last.xz.size() + last.beams.size();
+      if (need > 0x7fffffff) return Fail(errOut, errCap, "preview too large");
+      if (out && static_cast<size_t>(cap) >= need) {
+         float* o = out;
+         std::memcpy(o, last.bfp.data(), last.bfp.size() * sizeof(float));
+         o += last.bfp.size();
+         std::memcpy(o, last.xy.data(), last.xy.size() * sizeof(float));
+         o += last.xy.size();
+         std::memcpy(o, last.xz.data(), last.xz.size() * sizeof(float));
+         o += last.xz.size();
+         for (double b : last.beams) *o++ = static_cast<float>(b);
       }
       return static_cast<int32_t>(need);
    } catch (...) {
@@ -542,8 +589,9 @@ ISC_API void isc_bf_end(int32_t h) { g_bf.erase(h); }
 // ---- live imaging (sim::LiveScope: the camera's live mode, the sample's history) ----
 // One sample per module instance (the viewer's live worker). isc_live_frame renders the next frame of `spec` and
 // returns its pixel count (-1: a failure, message in errOut); the frame is at isc_live_image() until the next call.
-// info[0..12] = width, height, t (s), lit seconds at the FOV centre before the frame, lit (0/1), epi, trans, blinks,
-// dyes, drift x, y, z (nm), render ms. countLight 0: the frame's light does not go into the history.
+// info[0..16] = width, height, t (s), lit seconds at the FOV centre before the frame, lit (0/1), epi, trans, blinks,
+// dyes, drift x, y, z (nm), render ms, the frame's index in the sample's frame sequence, the pattern's angle and phase
+// indices and its period (0: no pattern). countLight 0: the frame's light does not go into the history.
 // isc_live_frames: the next n frames at once (a recording, LiveScope::Frames), one after another at isc_live_image();
 // returns n x the pixel count, info as above (the first frame's t and lit seconds, the last one's drift).
 // isc_live_paths(): how the last frame's fluorescence was drawn (LiveFrameInfo::paths, a JSON array of strings).
@@ -570,10 +618,12 @@ ISC_API int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight,
    }
    if (info)
    {
-      const double v[13] = { static_cast<double>(li.width), static_cast<double>(li.height), li.tSec, li.litSec,
+      const double v[17] = { static_cast<double>(li.width), static_cast<double>(li.height), li.tSec, li.litSec,
                              li.lit ? 1.0 : 0.0, li.epi ? 1.0 : 0.0, li.trans ? 1.0 : 0.0,
                              static_cast<double>(li.blinks), static_cast<double>(li.dyes), li.drift.x, li.drift.y,
-                             li.drift.z, li.renderMs };
+                             li.drift.z, li.renderMs, static_cast<double>(li.frame),
+                             static_cast<double>(li.patternAngle), static_cast<double>(li.patternPhase),
+                             static_cast<double>(li.patternPeriod) };
       std::memcpy(info, v, sizeof v);
    }
    g_livePaths = li.paths;
@@ -606,6 +656,32 @@ ISC_API void isc_live_profile(int32_t on)
    g_liveProfile = "{}";
 }
 ISC_API const char* isc_live_profile_json() { return g_liveProfile.c_str(); }
+
+// What the engine's caches hold (MemoryReport.h: ScopeMemoryReport, the live sample's light history and image, the
+// open WebGPU movie sessions) and the heap's size: {"heapMB", "totalMB", "owners": [[name, MB], ...]}, largest first.
+ISC_API const char* isc_memory_json()
+{
+   static std::string json;
+   sim::MemoryReport r;
+   sim::ScopeMemoryReport(r);
+   r.Add("light-history", static_cast<double>(g_live.History().Bytes()));
+   r.Add("live.image", sim::VectorBytes(g_liveImage));
+   double wf = 0.0;
+   for (const auto& kv : g_wf)
+   {
+      for (const auto& p : kv.second->job.planes)
+         wf += sim::VectorBytes(p.cells) + sim::VectorBytes(p.values);
+      wf += sim::VectorBytes(kv.second->cpu);
+   }
+   r.Add("wf.gpu-jobs", wf);
+#if defined(__EMSCRIPTEN__)
+   const double heap = static_cast<double>(__builtin_wasm_memory_size(0)) * 65536.0;
+#else
+   const double heap = 0.0;
+#endif
+   json = r.Json(heap);
+   return json.c_str();
+}
 
 ISC_API void isc_wf_end(int32_t h)
 {

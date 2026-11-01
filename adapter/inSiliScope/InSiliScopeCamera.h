@@ -224,6 +224,7 @@ private:
       uint32_t noiseSeed = 0, noiseBase = 0;
       bool useGpu = false;
       long firstSlot = 0;           // the live frame counter of its first frame
+      long long patternFrame0 = 0;  // the frame program's index of its first frame (spec frame0)
    };
    struct LiveBatch
    {
@@ -233,6 +234,7 @@ private:
       long zClamped = 0, zTotal = 0;
       std::string err;
       long firstSlot = 0;
+      long long patternFrame0 = 0;
       double ms = 0.0;              // how long it took to render
    };
    void StartLiveAhead();
@@ -344,6 +346,10 @@ private:
    std::atomic<long> liveSeqEpoch_{0};
    std::atomic<bool> liveSeqCapture_{false};
    std::atomic<bool> liveSeqSkipStale_{false};
+   // The producer waits for the consumer to take each frame of this acquisition before rendering the next: an armed
+   // z sequence (a position per frame) or a structured pattern whose frame program steps per frame (Lasers.Pattern:
+   // a frame the consumer missed would shift every later frame's state).
+   std::atomic<bool> liveSeqWaitTake_{false};
    long liveFrameEpoch_ = 0;
    // The liveConfigVersion_ and light version the frame in the front buffer
    // was rendered with (under frontFrameLock_): a frame taken after a property
@@ -360,6 +366,8 @@ private:
    long driftResetApplied_ = -1;
    // The drift of the last frame taken (Camera.Test_DriftNm), nm.
    std::atomic<double> takenDriftNm_[3] = {};
+   // The frame program's index of the frame last taken (-1: none): the frame's metadata tag inSiliScope-PatternFrame.
+   std::atomic<long long> takenPatternFrame_{ -1 };
    // When the frame in the front buffer started (under frontFrameLock_): its
    // stage pose, focus, settings and illumination clocks were read after this.
    // A snap takes only a frame started after the snap was called, a sequence
@@ -378,6 +386,8 @@ private:
    struct LitFrame
    {
       bool valid = false, counted = false;
+      bool patternCounted = false;   // the pattern frame counter stepped for it at publish (a sequence's frame)
+      long long patternFrame = -1;   // the frame program's index it was rendered with (-1: none; the frame's metadata)
       double dtSec = 0;
       sim::LightState light;
       double driftNm[3] = { 0, 0, 0 };

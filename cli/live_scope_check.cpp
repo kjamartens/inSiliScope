@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -138,7 +139,8 @@ int main()
    // moves a Poisson draw by one electron in a few pixels (also on the frame-by-frame drift path). So: >= 99.5 % of
    // the pixels identical, the rest within one electron (4 ADU at 0.25 e-/ADU), the next live frame bit for bit.
    const int nRec = 8;
-   for (const char* mode : { "", "mt-mode=DNA-PAINT", "drift-xy-nm-per-sqrt-sec=20" })
+   for (const char* mode : { "", "mt-mode=DNA-PAINT", "drift-xy-nm-per-sqrt-sec=20",
+                             "sim-type=SIM2D illum-bfp=0.5 mt-mode=WideField" })
    {
       const ScopeSpec rs = Spec(mode);
       LiveScope one, batch;
@@ -186,7 +188,8 @@ int main()
    // A saved session replayed (Advance: the frames' light, drift, time and noise counter without rendering; the
    // viewer's Load settings, insiliscope_cli --settings): the next frame is the session's, bit for bit. The session's
    // frames as the viewer logs them: runs of the same spec as one call of n.
-   for (const char* mode : { "", "mt-mode=DNA-PAINT", "drift-xy-nm-per-sqrt-sec=20" })
+   for (const char* mode : { "", "mt-mode=DNA-PAINT", "drift-xy-nm-per-sqrt-sec=20",
+                             "sim-type=SIM2D illum-bfp=0.5 mt-mode=WideField" })
    {
       const std::vector<std::pair<ScopeSpec, int>> runs = {
          { Spec(mode), 3 }, { Spec(std::string(mode) + " x=8"), 2 }, { Spec(std::string(mode) + " laser-561=0 laser-640=0 light-preset=-1"), 1 },
@@ -205,6 +208,51 @@ int main()
       Check(aok && a.ok && b.ok && a.adu == b.adu && a.info.tSec == b.info.tSec && a.info.litSec == b.info.litSec &&
             a.info.drift.x == b.info.drift.x, msg);
       if (!aok) std::printf("      (%s)\n", err.c_str());
+   }
+
+   // The sample's frame counter (the frame program's input): every frame counts, dark and uncounted ones too; a
+   // structured pattern's state follows it, and a fresh sample starts at 0.
+   {
+      LiveScope sim;
+      const ScopeSpec pat = Spec("sim-type=SIM2D illum-bfp=0.5 mt-mode=WideField");
+      std::vector<Shot> ps;
+      for (int k = 0; k < 4; k++)
+         ps.push_back(Take(sim, pat));
+      bool cok = sim.FrameCounter() == 4;
+      for (int k = 0; k < 4; k++)
+         cok = cok && ps[static_cast<size_t>(k)].ok && ps[static_cast<size_t>(k)].info.frame == k &&
+               ps[static_cast<size_t>(k)].info.patternPhase == k % 3 && ps[static_cast<size_t>(k)].info.patternAngle == k / 3 &&
+               ps[static_cast<size_t>(k)].info.patternPeriod == 9;
+      Take(sim, Spec("sim-type=SIM2D illum-bfp=0.5 mt-mode=WideField laser-561=0 laser-640=0 light-preset=-1"));
+      Take(sim, pat, false);
+      std::vector<uint16_t> adu;
+      LiveFrameInfo fi;
+      std::string err;
+      cok = cok && sim.FrameCounter() == 6 && sim.Frames(pat, 3, true, adu, fi, err) && fi.frame == 6 &&
+            fi.patternPhase == 0 && fi.patternAngle == 2 && sim.FrameCounter() == 9 && sim.Advance(pat, 2, true, err) &&
+            sim.FrameCounter() == 11;
+      const Shot c0 = Take(sim, pat);   // frame 11: angle 0 phase 2
+      Check(cok && c0.info.frame == 11 && c0.info.patternAngle == 0 && c0.info.patternPhase == 2,
+            "the frame counter: 4 frames, a dark one, an uncounted one, 3 at once, 2 advanced = 11; the pattern's state follows it");
+      sim.Reset();
+      Check(sim.FrameCounter() == 0, "Reset: the counter at 0");
+      // A stack of 9 frames at once = 9 single frames in their pattern states (one movie's frames step the program).
+      LiveScope one, many;
+      std::vector<uint16_t> stack;
+      LiveFrameInfo si;
+      bool sok = many.Frames(pat, 9, true, stack, si, err);
+      size_t same = 0;
+      for (int k = 0; k < 9 && sok; k++)
+      {
+         const Shot sk = Take(one, pat);
+         sok = sok && sk.ok;
+         const size_t px = sk.adu.size();
+         for (size_t i = 0; i < px; i++)
+            same += std::abs(static_cast<int>(stack[static_cast<size_t>(k) * px + i]) - static_cast<int>(sk.adu[i])) <= 4;
+      }
+      Check(sok && same >= 0.995 * stack.size(),
+            "9 frames at once step the pattern as 9 single frames do (" + std::to_string(same) + " of " +
+               std::to_string(stack.size()) + " pixels within 4 ADU)");
    }
 
    std::printf("live_scope: %d failure(s), %.1f s\n", g_failures,

@@ -29,6 +29,9 @@
 
 #include "Excitation.h"
 #include "LightPath.h"
+#include "PsfGeneratorBridge.h"
+#include <complex>
+#include <map>
 
 #include <memory>
 #include <string>
@@ -68,6 +71,21 @@ bool SlidePhotophysics(const SlideOptions& o, const LightPath& lp, double pixelU
 // filters of the dye's WideField preset (its default mode's when it has none), else Slide-561.
 std::string SlideLightPresetId(int dye);
 
+// A structured pattern's fringes over the layer (sim-type; spec/ALGORITHM.md "Structured illumination": the slide),
+// for one frame state: per geometry its fringe terms, each a lateral frequency (rad/um, in the pattern's frame: pixel
+// (x, y) at (x0Um + x pxUm, y0Um + y pxUm)) and per pixel the complex coefficient c relative to the layer's mean light,
+// so the frame's slide image is the mean's x (1 + sum_t Re[c_t e^{i (qx x + qy y)}]). Each height's fringe is imaged
+// through the PSF at its defocus (its OTF at q: amplitude and phase), the heights weighted as the mean light's.
+struct SlideFringes
+{
+   struct Term
+   {
+      double qx = 0, qy = 0;
+      std::vector<std::complex<float>> c;
+   };
+   double x0Um = 0, y0Um = 0, pxUm = 0;
+   std::vector<std::vector<Term>> geos;
+};
 // The slide of a movie (FluorescenceMovie::Begin): per component its unbleached photons per pixel per frame, and per
 // excitation geometry (components with the same line shares share one) each pixel's excitation at kSlideNodes heights
 // (or one), its emission weights, and each pixel's past light as seconds of the light now (t0).
@@ -89,6 +107,13 @@ struct SlideMovie
    double expSec = 0.05;
    std::vector<Geometry> geos;
    std::vector<Comp> comps;
+   // Per geometry: the heights the layer is read over (TIRF: ten decay lengths), its first dye's wavelength and (a
+   // pattern) the PSF kernel at it for the fringes' OTF (!valid: the Gaussian PSF's).
+   std::vector<double> zTop, lambdaNm;
+   std::vector<PsfKernelCache> kernels;
+   // A pattern: the fringes per pattern state (SlideFringesFor; RenderSlide takes the frame's).
+   std::map<long, std::shared_ptr<const SlideFringes>> fringes;
+   std::vector<long> fringeOrder;   // the states in fringes, least recently used first (Render keeps 32)
    // The past light: none (empty): t0Sec of the movie's own light at every height; under a light history per pixel
    // (LightPast) seconds of the light now (each height at its own excitation) plus seconds at excitation 1 (every
    // height alike), then the frames from t0Sec on at each height's own excitation.
@@ -110,6 +135,6 @@ struct SlideMovie
 struct LightPast { double sec = 0, exc = 0; };
 LightPast LightPastAt(double doseNow, double doseOther, double rate, double peakRate, double F);
 // The slide's photons of frame f into img: each pixel's base x the mean survival of its column over the frame.
-void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f);
+void RenderSlide(std::vector<float>& img, const SlideMovie& M, long f, const SlideFringes* fringes = nullptr);
 
 } // namespace sim

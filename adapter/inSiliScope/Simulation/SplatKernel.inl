@@ -46,16 +46,32 @@ inline int CeilDivI(int a, int b) { return -FloorDivI(-a, b); }
 // in [iLo, iHi) (the taps inside the block-sum array), in index order -- the
 // order and the operations of the original all-taps loop, which skipped the
 // same taps.
-inline double PixelTaps(const float* B, int bw, int r0, int c0, int jLo, int jHi, int iLo, int iHi,
-                        const double* wx, const double* wy)
+// The block sums are row-major (a.B) or column-polyphase (a.P, a.B null): the
+// same numbers, B[r*bw + c] = P[(r*os + c%os)*qw + c/os].
+inline double PixelTaps(const SplatArgs& a, int r0, int c0, int jLo, int jHi, int iLo, int iHi)
 {
+   const int bw = a.bw, os = a.os, qw = a.qw;
+   const double* wx = a.wx;
+   const double* wy = a.wy;
    double sum = 0.0;
    for (int j = jLo; j < jHi; ++j)
    {
-      const float* brow = B + static_cast<size_t>(r0 + j) * bw;
       double row = 0.0;
-      for (int i = iLo; i < iHi; ++i)
-         row += wx[i] * brow[c0 + i];
+      if (a.B)
+      {
+         const float* brow = a.B + static_cast<size_t>(r0 + j) * bw;
+         for (int i = iLo; i < iHi; ++i)
+            row += wx[i] * brow[c0 + i];
+      }
+      else
+      {
+         const float* prow = a.P + static_cast<size_t>(r0 + j) * os * qw;
+         for (int i = iLo; i < iHi; ++i)
+         {
+            const int c = c0 + i;
+            row += wx[i] * prow[static_cast<size_t>(c % os) * qw + c / os];
+         }
+      }
       sum += wy[j] * row;
    }
    return sum;
@@ -109,7 +125,7 @@ void Rows(const SplatArgs& a)
       {
          const int c0 = base + dx * os;
          const int iLo = MaxI(0, -c0), iHi = MinI(NT, bw - c0);
-         rowOut[a.x0 + dx] += static_cast<float>(a.photons * PixelTaps(a.B, bw, r0, c0, jLo, jHi, iLo, iHi, a.wx, a.wy));
+         rowOut[a.x0 + dx] += static_cast<float>(a.photons * PixelTaps(a, r0, c0, jLo, jHi, iLo, iHi));
       }
       // Interior: per pixel k the same `row = 0; row += wx[i]*B; sum += wy[j]*row;
       // out += float(photons*sum)` sequence as PixelTaps, on lanes.
@@ -145,7 +161,7 @@ void Rows(const SplatArgs& a)
       {
          const int c0 = base + dx * os;
          const int iLo = MaxI(0, -c0), iHi = MinI(NT, bw - c0);
-         rowOut[a.x0 + dx] += static_cast<float>(a.photons * PixelTaps(a.B, bw, r0, c0, jLo, jHi, iLo, iHi, a.wx, a.wy));
+         rowOut[a.x0 + dx] += static_cast<float>(a.photons * PixelTaps(a, r0, c0, jLo, jHi, iLo, iHi));
       }
    }
 }

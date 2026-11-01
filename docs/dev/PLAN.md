@@ -201,3 +201,26 @@ Upcoming ideas:
   `BrightfieldRender.cpp`; >= 99.5% identical ADU, intensity within 1e-4 relative: complex float32 FFTs), the
   optical-volume query (`World.opticalVolume`, bit-identical), the fractal cells' reach, the PRNU 0.5% default and the
   `bf-*` options; the lab shows BrightField.
+- 2026-10-30 (branch `claude/sim-illumination`): [x] structured illumination in the engine: the light as coherent beams
+  in the back focal plane (`Simulation/SimPattern.*`: position, spot size, tilt, amplitude, phase, polarization,
+  phase step, line per beam; the types SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D, Custom), the frame program (phase
+  and orientation per frame), the kinetics on the cycle mean (the light history's components), the emission on each
+  frame's pattern (blinks, per-dye windows, one mean-field scene per state, the background, the beads), cli
+  `--sim-beams` and `<out>.pattern.csv`, the setup JSON's beams and pattern; ctest `sim_pattern`, `history_check`,
+  `live_scope`. [x] MM `Lasers.Pattern*` rows, the frame counter (`PatternFrame`, `PatternRestart`, the producer waits
+  for each frame to be taken under a pattern) and `tools/test_sim.py` (26 s); [x] the viewer's rows, readout and
+  **Preview illumination** (`web/live/illum_preview.js`, `isc_illum_preview`; `web/illumination.html` the docs'
+  interactive figure; 2026-10-31: a height slider for the section seen from below, captions as page text, the open
+  dialog follows the settings; `sim-anchor` Focus / Coverslip, the beams in phase at the focus by default), the live
+  info's pattern state, figures `sim-patterns`, `sim-cycle`, `sim-spot`, gallery
+  `sim-2d`, `sim-3d`, `sim-lattice-3d`, `tests/web/viewer_sim.mjs`. Next: [ ] the GPU mean field under a pattern, [ ] the exact per-frame dose,
+  [ ] stroboscopic / every-n-th-frame programs on `FrameLight.scale`.
+  2026-10-31: [x] the RAM of the SIM path and under it (bit for bit): a memory report per owner (`MemoryReport.h`,
+  `isc_memory_json`, the Expert box), PSF splat sums lazy in one layout, SIM state scenes not deferred on the WebGPU
+  path and their spectra streamed, the slide's fringes capped, stale pattern slots freed, an aborted movie worker
+  replaced alone, the module's heap up to 4 GB; `tests/web/wasm_heap_check.mjs`, `viewer_oom.mjs`. Open: [ ] the light
+  history's per-component footprints over a long pan (measure with the report), [ ] sharing a population's dye
+  planes / per-cell arrays across its states.
+  2026-10-31: [x] live SIM with blinking labels: the frame counter out of the excitation key (bit for bit; DNA-PAINT
+  SIM2D at 256 px 320 -> 105 ms), [x] dSTORM's initial ON and PALM's pre state under the cycle-mean light (Quality
+  Exhaustive: each frame's pattern, `sim-frame-pattern-continuous`).

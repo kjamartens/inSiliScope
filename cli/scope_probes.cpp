@@ -234,6 +234,23 @@ bool SetupJson(const sim::ScopeSpec& spec, const std::string& path, std::string&
          j.Array(za.data(), za.size());
          j.Key("axis");
          j.Array(va.data(), va.size());
+         // The beams and the pattern (SimPattern.h), and the pattern on the focal plane over the FOV (pattern_xy: x
+         // fastest, at the focus pivot; a 121 x 121 grid) for the figures.
+         ExcitationBeamsJson(j, ex);
+         {
+            const int np = 121;
+            const double p0 = -0.5 * fovUm, dp = fovUm / (np - 1), zf = ex.Spec().pivotUm;
+            std::vector<double> ps(np), v2(static_cast<size_t>(np) * np);
+            for (int i = 0; i < np; ++i)
+               ps[static_cast<size_t>(i)] = p0 + i * dp;
+            for (int k = 0; k < np; ++k)
+               for (int i = 0; i < np; ++i)
+                  v2[static_cast<size_t>(k) * np + i] = ex.At(ps[static_cast<size_t>(i)], ps[static_cast<size_t>(k)], zf, shares);
+            j.Key("pattern_xy_um");
+            j.Array(ps.data(), ps.size());
+            j.Key("pattern_xy");
+            j.Array(v2.data(), v2.size());
+         }
          j.Close('}');
       }
    }
@@ -390,6 +407,7 @@ bool PresetsJson(const std::string& path, std::string& err)
       j.KNum("psf-halo-cut", q.halo);
       j.KNum("blink-min-photons", q.minPhotons);
       j.KNum("fid-clumps-as-one", q.clumpsAsOne);
+      j.KNum("sim-frame-pattern-continuous", q.framePattern);
       j.Close('}');
    }
    j.Close(']');

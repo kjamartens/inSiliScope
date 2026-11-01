@@ -67,14 +67,18 @@ older builds refuse the DLL.
     - `Illumination` (`Epi` / `HILO` / `TIRF`: where the laser spot sits in the objective's back focal plane,
       `Lasers.BfpPosition` 0 / 0.95 / 1.03) and `BfpPosition` (the same as an editable field, 0 = epi, 1 = the critical
       angle). The channels' light presets set it too: the DNA-PAINT channel HILO, the nanorulers TIRF, the others epi
-      ([Illumination geometry](physics/dyes-and-light-path.md#illumination-geometry));
+      ([Illumination geometry](physics/dyes-and-light-path.md#illumination-geometry)); `Lasers.Pattern` (a property,
+      not a group) makes the light several coherent beams at that radius for structured illumination (SIM2D, SIM3D,
+      the lattices), stepping with every frame an acquisition takes
+      ([Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim));
     - `Laser 561 nm (kW/cm2)` and `Laser 640 nm (kW/cm2)`: the two lines' powers at the sample as editable fields in
       the main window (one property each, `Lasers.Laser561KWcm2` / `Laser640KWcm2`; 0 = off), e.g. 561 alone for the
       nuclear pores, 640 alone for the microtubules;
       **Quality also sets how much of each blink's PSF halo is drawn**: Fast and Realistic leave out pixels below 1e-5
       and 3e-6 of the emitter's photons, Exhaustive draws the whole kernel ([the halo cut](physics/optics.md)); and
       **which dim blinks are skipped**: a blink giving a frame fewer than 100 (Fast) or 50 (Realistic) photons is not
-      drawn in it, Exhaustive draws every one;
+      drawn in it, Exhaustive draws every one; under a SIM pattern Exhaustive also lights dSTORM's initial-ON and
+      PALM's pre-state dyes with each frame's pattern (Fast and Realistic: the cycle mean, faster);
     - and the pixel-size calibration of every objective and camera.
 
    `inSiliScope_Advanced.cfg` adds the excitation filter, dichroic and emission filter wheels and the

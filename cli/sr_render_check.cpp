@@ -13,6 +13,8 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <map>
+#include <mutex>
 #include <random>
 #include <vector>
 
@@ -153,13 +155,27 @@ std::vector<float> FftShiftKernelTile(const float* kernel, int n, double shiftX,
 }
 
 
+// Plane z's block sums row-major, as the stack held them before 2026-10-31 (BuildBlockSums of the plane; the stack
+// now keeps only the polyphase layout, made on first use), kept per stack for the verbatim splat below.
+const float* RowMajorSums(const PsfKernelCache& cache, int z)
+{
+   static std::mutex mu;
+   static std::map<std::pair<uint64_t, int>, std::vector<float>> memo;
+   std::lock_guard<std::mutex> lock(mu);
+   std::vector<float>& v = memo[{ cache.Serial(), z }];
+   if (v.empty())
+      v = BuildBlockSums(cache.Planes()[static_cast<size_t>(z)].data(), cache.sizeOversampled,
+                         std::max(1, cache.oversampling));
+   return v.data();
+}
+
 // The pre-2026-09-28 SplatPsfKernel, verbatim.
 void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, const PsfKernelCache& cache,
                      int zIndex, double xPx, double yPx, double totalPhotons, PsfInterpMode interpMode)
 {
    if (!cache.valid || totalPhotons <= 0.0)
       return;
-   if (zIndex < 0 || zIndex >= cache.nz || cache.BlockSums().size() != static_cast<size_t>(cache.nz))
+   if (zIndex < 0 || zIndex >= cache.nz || cache.Planes().size() != static_cast<size_t>(cache.nz))
       return;
 
    const int os = std::max(1, cache.oversampling);
@@ -170,7 +186,7 @@ void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height, co
 
    SplatSetupResult st;
    std::vector<float> shiftedSums; // Fft mode only
-   const float* B = cache.BlockSums()[static_cast<size_t>(zIndex)].data();
+   const float* B = RowMajorSums(cache, zIndex);
    if (interpMode == PsfInterpMode::Fft)
    {
       // Align the shared sub-cell fraction onto the grid with ONE Fourier
@@ -267,11 +283,9 @@ PsfKernelCache SyntheticKernel(int os, int halfPx, int nz, PsfInterpMode mode)
          }
       for (float& v : pl)
          v = static_cast<float>(v / s);
-      d.blockSums.push_back(BuildBlockSums(pl.data(), n, os));
       d.planes.push_back(std::move(pl));
    }
    c.blockSumWidth = n + os - 1;
-   BuildPolyphaseSums(d, c.blockSumWidth, os);
    c.SetData(std::move(d));
    return c;
 }
@@ -361,6 +375,23 @@ int main(int argc, char** argv)
    const char* names[] = {"Nearest", "Linear", "Cubic", "Fft"};
    const bool haveAvx2 = splat_avx2::Available();
    std::printf("AVX2 splat copy: %s\n", haveAvx2 ? "available" : "not available on this CPU/build");
+   {
+      // The stack's one layout (polyphase, made on first use) = the block sums row-major, bit for bit.
+      bool same = true;
+      for (int os : {1, 4, 5, 6})
+      {
+         const PsfKernelCache kc = SyntheticKernel(os, 8, 5, PsfInterpMode::Cubic);
+         for (int z = 0; z < kc.nz; ++z)
+         {
+            const std::vector<float> want =
+               BuildBlockSums(kc.Planes()[static_cast<size_t>(z)].data(), kc.sizeOversampled, os);
+            const std::vector<float> got = kc.BlockSums(z).RowMajor();
+            same = same && got.size() == want.size() &&
+                   std::memcmp(got.data(), want.data(), want.size() * sizeof(float)) == 0;
+         }
+      }
+      Check(same, "block sums read through the stack's layout = BuildBlockSums of each plane (memcmp)");
+   }
    for (int m = 0; m < 4; ++m)
    {
       // Oversampling 4 and 5 (odd/even kernel grids), emitters on and off

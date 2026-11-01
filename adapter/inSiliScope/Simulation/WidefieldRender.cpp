@@ -15,6 +15,7 @@
 
 #include "insiliscope/insiliscope.h"
 
+#include "MemoryReport.h"
 #include "Parallel.h"
 #include "Timing.h"
 
@@ -804,7 +805,7 @@ void WidefieldScene::StartAsyncBasis(const std::vector<float>& wb)
       BackgroundPriority();
       const auto t = TimingClock::now();
       a->scene->SetBleachWeights(wb, false);
-      a->scene->kernels_.clear();   // (the take reads the basis, its spectra and images only)
+      a->scene->kernels_ = std::make_shared<KernelStore>();   // (the take reads the basis, its spectra and images only)
       a->scene->dyes_ = WidefieldDyePlanes();
       a->seconds = TimingSince(t);
       a->done.store(true, std::memory_order_release);
@@ -1190,7 +1191,8 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
                    spec.psfVersion != kernelsVersion_;
       if (fftChanged)
       {
-         kernels_.clear();
+         std::lock_guard<std::mutex> lk(kernels_->mutex);
+         kernels_->map.clear();
          kernelsVersion_ = spec.psfVersion;
       }
       if (fftChanged || rectChanged)
@@ -1400,7 +1402,7 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
    const long kLo = SnapFloor(g.zMinUm / dz), kHi = -SnapFloor(-g.zMaxUm / dz);
    std::vector<int> missing;
    auto want = [&](int p) {
-      if (!kernels_.count(p) && std::find(missing.begin(), missing.end(), p) == missing.end())
+      if (!KernelAt(p) && std::find(missing.begin(), missing.end(), p) == missing.end())
          missing.push_back(p);
    };
    struct Raw { long k; int p0; double frac; };
@@ -1433,8 +1435,10 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
       const auto tK = TimingClock::now();
       std::vector<KernelSpec> made(missing.size());
       ParallelFor(static_cast<unsigned>(missing.size()), [&](unsigned i) { MakeKernel(psf, missing[i], made[i]); });
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
       for (size_t i = 0; i < missing.size(); ++i)
-         kernels_[missing[i]] = std::move(made[i]);
+         if (!kernels_->map.count(missing[i]))   // (a sharer may have made it meanwhile)
+            kernels_->map[missing[i]] = std::move(made[i]);
       TimingLog("wf.kernels", TimingSince(tK), std::to_string(missing.size()).c_str());
    }
    for (const Raw& r : raw)
@@ -1444,9 +1448,9 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
       d.p0 = r.p0;
       d.w0 = static_cast<float>(1.0 - r.frac);
       d.w1 = static_cast<float>(r.frac);
-      d.level = kernels_[r.p0].level;
+      d.level = KernelAt(r.p0)->level;
       if (r.frac > 0.0)
-         d.level = std::min(d.level, kernels_[r.p0 + 1].level);
+         d.level = std::min(d.level, KernelAt(r.p0 + 1)->level);
       plan.perLevel[d.level]++;
       plan.deps.push_back(d);
    }
@@ -1567,6 +1571,53 @@ void WidefieldScene::FillSpectra(const std::vector<const Channel*>& chans, const
    TrimCache(stamp);
 }
 
+void WidefieldScene::AddMemory(MemoryReport& r) const
+{
+   double spectra = 0.0;
+   for (const auto& kv : cache_)
+      spectra += VectorBytes(kv.second.spec);
+   r.Add("mf.plane-spectra", spectra);
+   if (r.Once(kernels_.get()))
+   {
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
+      double k = 0.0;
+      for (const auto& kv : kernels_->map)
+         for (const std::vector<cfloat>& s : kv.second.spec)
+            k += VectorBytes(s);
+      r.Add("mf.kernel-spectra", k);
+   }
+   if (r.Once(tiles_.get()))
+      r.Add("mf.dye-tiles", static_cast<double>(tiles_->Bytes()));
+   double planes = 0.0;
+   for (const auto& kv : dyes_.planes)
+      for (int pop = 0; pop < 2; ++pop)
+         planes += VectorBytes(kv.second.cell[pop]) + VectorBytes(kv.second.count[pop]) + 64.0;
+   r.Add("mf.dye-planes", planes);
+   double cells = VectorBytes(illum_) + VectorBytes(dD_) + VectorBytes(wp_) + VectorBytes(dDLevel_) +
+                  VectorBytes(cellChannel_) + VectorBytes(wbRef_) + VectorBytes(lwRef_) +
+                  VectorBytes(persistent_.weight) + VectorBytes(persistent_.logw);
+   for (const Channel& c : bleach_)
+      cells += VectorBytes(c.weight) + VectorBytes(c.logw);
+   if (weightMap_ && r.Once(weightMap_.get()))
+      cells += VectorBytes(weightMap_->tile) + VectorBytes(weightMap_->corner) + VectorBytes(weightMap_->fx) +
+               VectorBytes(weightMap_->fy);
+   r.Add("mf.cell-arrays", cells);
+   double images = VectorBytes(images_.persistent) + VectorBytes(images_.specPersistent);
+   for (const auto& b : images_.bleach)
+      images += VectorBytes(b);
+   for (const auto& b : images_.specBleach)
+      images += VectorBytes(b);
+   r.Add("mf.images", images);
+}
+
+void WidefieldScene::ReleaseSpectra()
+{
+   const size_t budget = cacheBudget_;
+   cacheBudget_ = 0;
+   TrimCache(~0ull);
+   cacheBudget_ = budget;
+}
+
 void WidefieldScene::TrimCache(unsigned long long keepStamp)
 {
    // Least recently used first (ties in key order), never what these plans use (used == keepStamp). (One sort: the
@@ -1601,54 +1652,86 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
    img.assign(static_cast<size_t>(cw) * ch, 0.0f);
    std::vector<cfloat> S[kLevels];
    bool any = false;
+   // Streaming: the plan's spectra a batch at a time (made, added, dropped); the sums take the planes in plan order per
+   // bin either way, so a batch boundary changes no bit.
+   const bool stream = Streaming();
+   const size_t kStreamBatch = 32;
+   double streamSec = 0.0;
+   size_t streamMade = 0;
    for (int L = 0; L < levels_; ++L)
    {
-      std::vector<const FocusPlan::Dep*> deps;
-      std::vector<const std::vector<cfloat>*> specs;
+      std::vector<const FocusPlan::Dep*> all;
       for (const FocusPlan::Dep& d : plan.deps)
+         if (d.level == L)
+            all.push_back(&d);
+      for (size_t q0 = 0; q0 < all.size(); q0 += stream ? kStreamBatch : all.size())
       {
-         if (d.level != L)
-            continue;
-         const std::vector<cfloat>* a = CachedSpectrum(c, d.k, L);
-         if (!a || a->empty())
-            continue;
-         deps.push_back(&d);
-         specs.push_back(a);
-      }
-      if (deps.empty())
-         continue;
-      any = true;
-      const RealFft2d& fft = fft_[L];
-      const unsigned W = fft.SpecW(), rows = fft.Ny();
-      S[L].assign(fft.SpecSize(), cfloat(0.0f, 0.0f));
-      // Rows of the spectrum in parallel; planes in plan order per bin.
-      const unsigned B = 8;
-      ParallelForOn(pool_, (rows + B - 1) / B, [&](unsigned blk) {
-         const unsigned r0 = blk * B, r1 = std::min(rows, r0 + B);
-         const size_t b0 = static_cast<size_t>(r0) * W, b1 = static_cast<size_t>(r1) * W;
-         float* s = reinterpret_cast<float*>(S[L].data());
-         for (size_t j = 0; j < deps.size(); ++j)
+         const size_t q1 = stream ? std::min(all.size(), q0 + kStreamBatch) : all.size();
+         std::vector<const FocusPlan::Dep*> deps;
+         std::vector<const std::vector<cfloat>*> specs;
+         std::vector<std::vector<cfloat>> made(stream ? q1 - q0 : 0);
+         if (stream)
          {
-            const FocusPlan::Dep& d = *deps[j];
-            const float* a = reinterpret_cast<const float*>(specs[j]->data());
-            const float* k0 = reinterpret_cast<const float*>(kernels_.at(d.p0).spec[L].data());
-            const float* k1 = d.w1 > 0.0f ? reinterpret_cast<const float*>(kernels_.at(d.p0 + 1).spec[L].data()) : nullptr;
-            const float w0 = d.w0, w1 = d.w1;
-            for (size_t i = b0; i < b1; ++i)
-            {
-               float kr = w0 * k0[2 * i], ki = w0 * k0[2 * i + 1];
-               if (k1)
-               {
-                  kr += w1 * k1[2 * i];
-                  ki += w1 * k1[2 * i + 1];
-               }
-               const float ar = a[2 * i], ai = a[2 * i + 1];
-               s[2 * i] += ar * kr - ai * ki;
-               s[2 * i + 1] += ar * ki + ai * kr;
-            }
+            const auto tS = TimingClock::now();
+            ParallelForOn(pool_, static_cast<unsigned>(q1 - q0), [&](unsigned i) {
+               const FocusPlan::Dep& d = *all[q0 + i];
+               const auto& pl = dyes_.planes.at(d.k);
+               if (pl.Empty(c.pop) || CachedSpectrum(c, d.k, L) || (cancel_ && cancel_->load(std::memory_order_relaxed)))
+                  return;
+               PlaneSpectrum(c, d.k, pl, L, made[i]);
+            });
+            streamSec += TimingSince(tS);
+            streamMade += q1 - q0;
          }
-      });
+         for (size_t i = q0; i < q1; ++i)
+         {
+            const FocusPlan::Dep& d = *all[i];
+            const std::vector<cfloat>* a = CachedSpectrum(c, d.k, L);
+            if (!a && stream)
+               a = &made[i - q0];
+            if (!a || a->empty())
+               continue;
+            deps.push_back(&d);
+            specs.push_back(a);
+         }
+         if (deps.empty())
+            continue;
+         any = true;
+         const RealFft2d& fft = fft_[L];
+         const unsigned W = fft.SpecW(), rows = fft.Ny();
+         if (S[L].empty())
+            S[L].assign(fft.SpecSize(), cfloat(0.0f, 0.0f));
+         // Rows of the spectrum in parallel; planes in plan order per bin.
+         const unsigned B = 8;
+         ParallelForOn(pool_, (rows + B - 1) / B, [&](unsigned blk) {
+            const unsigned r0 = blk * B, r1 = std::min(rows, r0 + B);
+            const size_t b0 = static_cast<size_t>(r0) * W, b1 = static_cast<size_t>(r1) * W;
+            float* s = reinterpret_cast<float*>(S[L].data());
+            for (size_t j = 0; j < deps.size(); ++j)
+            {
+               const FocusPlan::Dep& d = *deps[j];
+               const float* a = reinterpret_cast<const float*>(specs[j]->data());
+               const float* k0 = reinterpret_cast<const float*>(KernelAt(d.p0)->spec[L].data());
+               const float* k1 = d.w1 > 0.0f ? reinterpret_cast<const float*>(KernelAt(d.p0 + 1)->spec[L].data()) : nullptr;
+               const float w0 = d.w0, w1 = d.w1;
+               for (size_t i = b0; i < b1; ++i)
+               {
+                  float kr = w0 * k0[2 * i], ki = w0 * k0[2 * i + 1];
+                  if (k1)
+                  {
+                     kr += w1 * k1[2 * i];
+                     ki += w1 * k1[2 * i + 1];
+                  }
+                  const float ar = a[2 * i], ai = a[2 * i + 1];
+                  s[2 * i] += ar * kr - ai * ki;
+                  s[2 * i + 1] += ar * ki + ai * kr;
+               }
+            }
+         });
+      }
    }
+   if (stream)
+      TimingLog("wf.plane-spectra-streamed", streamSec, std::to_string(streamMade).c_str());
    if (!any)
       return;
    const unsigned nx = nx_, ny = ny_, W = nx / 2 + 1;
@@ -1745,7 +1828,8 @@ void WidefieldScene::Refocus(const WidefieldPsf& psf)
 
 void WidefieldScene::ComputeCpuImages()
 {
-   FillSpectra(ActiveChannels(), {&plan_});
+   if (!Streaming())
+      FillSpectra(ActiveChannels(), {&plan_});
    ImagesFor(plan_, images_);
 }
 
@@ -1821,7 +1905,7 @@ bool WidefieldScene::JobFor(const FocusPlan& plan, const std::vector<const Chann
    }
    std::sort(ps.begin(), ps.end());
    for (int p : ps)
-      job.kernels.push_back({p, &kernels_.at(p).spec[0]});
+      job.kernels.push_back({p, &KernelAt(p)->spec[0]});
    return true;
 }
 
@@ -2136,7 +2220,8 @@ void WidefieldScene::MakeBleachImages()
          return;
       }
    }
-   FillSpectra(chans, {&plan_});
+   if (!Streaming())
+      FillSpectra(chans, {&plan_});
    images_.bleach.resize(bleach_.size());
    images_.specBleach.assign(keepSpectra_ ? bleach_.size() : 0, std::vector<cfloat>());
    for (size_t j = 0; j < bleach_.size(); ++j)

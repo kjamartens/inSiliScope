@@ -31,7 +31,9 @@
 
 #include <cstdint>
 #include <functional>
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -155,6 +157,23 @@ struct PsfGeneratorRequest
    PsfInterpMode interpMode = PsfInterpMode::Nearest;
 };
 
+// One plane's block sums (see PsfKernelPlanes::Sums) read through the layout
+// the stack keeps: B row-major, or P the column-polyphase layout,
+// B[r*bw + c] = P[(r*os + c%os)*qw + c/os] -- the same numbers.
+struct BlockSumsView
+{
+   const float* B = nullptr;
+   const float* P = nullptr;
+   int bw = 0, os = 1, qw = 0;
+   float At(int r, int c) const
+   {
+      return B ? B[static_cast<size_t>(r) * bw + c]
+               : P[(static_cast<size_t>(r) * os + static_cast<size_t>(c % os)) * qw + c / os];
+   }
+   // A row-major copy (bw x bw).
+   std::vector<float> RowMajor() const;
+};
+
 // The arrays of one kernel stack, shared (immutable) by every copy of the
 // PsfKernelCache that refers to it: the memo, the camera, the WideField PSF
 // and the GPU host hand the same hundreds of MB around by pointer.
@@ -164,8 +183,10 @@ struct PsfKernelPlanes
    // fastest), each normalized to sum 1 (a photon probability mass per
    // oversampled cell) by ComputePsfKernelCache.
    std::vector<std::vector<float>> planes;
-   // The oversampling x oversampling block sums of every plane (webSMLM's
-   // buildSummedKernel): blockSums[z][ai*W + bi] = sum over sy,sx in
+   // What the splat reads, made from the planes on first use (Sums(); 2026-10-31: a stack held them from the start,
+   // twice -- a WideField label's mean field reads the planes only, and at a 40 nm pixel one stack's copy was 220 MB):
+   // the oversampling x oversampling block sums of every plane (webSMLM's
+   // buildSummedKernel): block[z][ai*W + bi] = sum over sy,sx in
    // [0,os) of planes[z][a+sy][b+sx], a = ai-(os-1), b = bi-(os-1), kernel
    // = 0 outside the array; W = blockSumWidth = sizeOversampled + os - 1.
    // Every sub-cell centre of a camera pixel sits at the SAME fraction
@@ -173,14 +194,23 @@ struct PsfKernelPlanes
    // camera pixel equals interpolating all os^2 sub-cells and summing --
    // 16 reads per pixel instead of 16*os^2 for Cubic. Float, as the GPU
    // holds them too, so CPU and GPU interpolate the same numbers.
-   std::vector<std::vector<float>> blockSums;
-   // Column-polyphase copy of blockSums (2026-10-03, speed only): with
-   // qw = blockSumWidth / os, polySums[z][(r*os + p)*qw + q] =
-   // blockSums[z][r*W + q*os + p]. The splat's taps for consecutive camera
-   // pixels are os columns apart in blockSums and adjacent here, so a pixel
-   // row is a few contiguous multiply-add loops (SplatKernel.h). Empty when
-   // W is not a multiple of os (never for the kernels built here).
-   std::vector<std::vector<float>> polySums;
+   // Kept in ONE layout: the column-polyphase one (2026-10-03, speed) when W is
+   // a multiple of os (always for the kernels built here), poly[z][(r*os + p)*qw + q] =
+   // block[z][r*W + q*os + p], qw = W / os -- the splat's taps for consecutive camera
+   // pixels are os columns apart in the block sums and adjacent here, so a pixel
+   // row is a few contiguous multiply-add loops (SplatKernel.h); the block
+   // sums row-major otherwise. BlockSumsView reads either.
+   struct SplatSums
+   {
+      std::once_flag once;
+      std::atomic<bool> built{false};
+      std::vector<std::vector<float>> block, poly;
+   };
+   std::unique_ptr<SplatSums> sums = std::make_unique<SplatSums>();
+   int oversampling = 1, blockSumWidth = 0;   // the sums' (PsfKernelCache::SetData copies them)
+   // The sums, made once (thread-safe; a ParallelFor inside a ParallelFor worker runs serially, so a host makes them
+   // up front: PsfKernelCache::PrepareSplat).
+   const SplatSums& Sums() const;
    // Process-wide unique per stack (PsfKernelCache::SetData), so a consumer
    // can tell a new kernel from a repeat without comparing the arrays.
    uint64_t serial = 0;
@@ -229,8 +259,14 @@ struct PsfKernelCache
    std::shared_ptr<const PsfHaloSpans> halo;
 
    const std::vector<std::vector<float>>& Planes() const { return data ? data->planes : NoPlanes(); }
-   const std::vector<std::vector<float>>& BlockSums() const { return data ? data->blockSums : NoPlanes(); }
-   const std::vector<std::vector<float>>& PolySums() const { return data ? data->polySums : NoPlanes(); }
+   // Plane z's block sums (PsfKernelPlanes::Sums: made on first use); an empty view (B = P = nullptr) without data.
+   BlockSumsView BlockSums(int z) const;
+   // Makes the splat's sums now (a host about to splat, outside its parallel loops).
+   void PrepareSplat() const
+   {
+      if (data)
+         data->Sums();
+   }
    uint64_t Serial() const { return data ? data->serial : 0; }
    // Serial of what a splat reads: the kernel and its halo cut (a GPU
    // holding the block sums and the spans reloads when it changes).
@@ -319,14 +355,17 @@ void SetPsfKernelDiskCacheDir(const std::string& dir);
 // dye state) keeps its groups + 1, so a repeat recomputes none.
 void SetPsfKernelMemoEntries(size_t n);
 std::string PsfKernelDiskCacheDir();
+class MemoryReport;
+// A kernel stack's arrays (MemoryReport.h: "psf.planes", "psf.splat-sums"; a stack held by several caches once), and
+// those of every stack ComputePsfKernelCache's memo holds.
+void AddPsfStackMemory(MemoryReport& r, const PsfKernelCache& c);
+void AddPsfKernelMemory(MemoryReport& r);
 
-// Builds the block sums of one plane (see PsfKernelPlanes::blockSums).
+// Builds the block sums of one plane (see PsfKernelPlanes::SplatSums).
 std::vector<float> BuildBlockSums(const float* kernel, int n, int os);
 // The column-polyphase copy of one plane's block sums (bw x bw; see
-// PsfKernelPlanes::polySums). Empty when bw is not a multiple of os.
+// PsfKernelPlanes::SplatSums). Empty when bw is not a multiple of os.
 std::vector<float> BuildPolyphaseSums(const float* blockSums, int bw, int os);
-// Fills d.polySums from d.blockSums (every plane; bw = the block-sum width).
-void BuildPolyphaseSums(PsfKernelPlanes& d, int bw, int os);
 
 // Everything about one emitter's splat that does not depend on the camera
 // pixel -- webSMLM's simSplatSetup(): the centre pixel (x0, y0) =
@@ -354,7 +393,7 @@ PsfKernelCache WithHaloCut(const PsfKernelCache& cache, double threshold);
 // Splats totalPhotons worth of the cached (sum-1) kernel plane at zIndex,
 // centred at camera position (xPx, yPx) (pixel X spans [X-0.5, X+0.5)),
 // into img: per camera pixel within the kernel's half-width, one
-// interpolated read of the block sums (see PsfKernelCache::blockSums and
+// interpolated read of the block sums (see PsfKernelPlanes::SplatSums and
 // SplatSetup). No-op if !cache.valid or totalPhotons <= 0. Photons that
 // fall outside the image are lost, as on a real sensor.
 void SplatPsfKernel(std::vector<float>& img, unsigned width, unsigned height,

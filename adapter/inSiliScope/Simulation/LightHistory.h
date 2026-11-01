@@ -263,10 +263,19 @@ private:
       bool lit = false;
       double refTotal = 0;
       std::shared_ptr<const Excitation> ex;
-      bool flat = true, sheared = false;
-      double tanS = 0, cosI = 1, F = 1, h = kLightTileUm;
-      SparseGrid grid;          // the merged records
-      double mergedSec = 0;     // their duration (lit or dark)
+      bool flat = true;
+      double h = kLightTileUm;
+      // The light's components (Excitation::ComponentCount: one per beam of the cycle; the legacy beam one): each its
+      // factor F, its footprint's shear per um of height (HILO: tan theta_s along its azimuth) and stretch, and whether
+      // it is the legacy beam (its footprint in the old arithmetic, bit for bit).
+      struct Comp
+      {
+         double F = 1, sx = 0, sy = 0, cosI = 1;
+         bool sheared = false, legacy = true;
+      };
+      std::vector<Comp> comps;
+      std::vector<SparseGrid> grids;   // the merged records, per component
+      double mergedSec = 0;            // their duration (lit or dark)
       // The labels of its light under the current spec (memo: the current spec's key).
       std::string labelsKey;
       std::shared_ptr<const std::vector<LabelPhysics>> labels;
@@ -278,12 +287,14 @@ private:
       bool lit = false;
       double mag = 0;
       std::vector<LightPose> poses;
-      std::shared_ptr<const Footprint> fp;   // lit: on the chapter's lattice
+      std::vector<std::shared_ptr<const Footprint>> fps;   // lit: on the chapter's lattice, per component
    };
    static void SetReference(Chapter& c, const LightState& light);
    static bool SameChapter(const Chapter& c, const LightState& light);
    static bool SamePoses(const Chapter& c, const std::vector<LightPose>& a, const std::vector<LightPose>& b);
-   static std::shared_ptr<const Footprint> MakeFootprint(const Chapter& c, const std::vector<LightPose>& poses);
+   static std::vector<std::shared_ptr<const Footprint>> MakeFootprints(const Chapter& c,
+                                                                       const std::vector<LightPose>& poses);
+   static std::shared_ptr<const Footprint> MakeFootprint(const Chapter& c, int j, const std::vector<LightPose>& poses);
    void CloseOpen();
    void Merge(const Record& r);
    static bool LabelsOf(Chapter& c, const ScopeSpec& cur, const std::string& curKey, std::string& err);

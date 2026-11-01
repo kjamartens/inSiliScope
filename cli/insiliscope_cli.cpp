@@ -13,6 +13,8 @@
 // read-only views of the same movie for the docs' physics figures. --serve
 // runs many commands in one process (one per stdin line).
 #include "LiveScope.h"
+#include "MemoryReport.h"
+#include "Excitation.h"
 #include "ScopeMovie.h"
 #include "scope_probes.h"
 #include "settings_file.h"
@@ -137,6 +139,17 @@ int RunCli(int argc, char** argv)
                break;
             }
          if (took) continue;
+      }
+      if (a == "--sim-beams" && i + 1 < argc) {
+         // The beam matrix as one argument (rows "ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm" separated
+         // by ';'): its values as beam.<j>.<column> keys.
+         std::vector<std::vector<double>> rows;
+         std::string perr;
+         if (!sim::ParseBeamMatrix(argv[++i], rows, perr)) { std::fprintf(stderr, "--sim-beams: %s\n", perr.c_str()); return 1; }
+         for (size_t r = 0; r < rows.size(); ++r)
+            for (size_t c = 0; c < rows[r].size(); ++c)
+               spec["beam." + std::to_string(r) + "." + sim::BeamColumnNames()[c]] = rows[r][c];
+         continue;
       }
       if (a == "--spec" && i + 1 < argc) {
          // A spec file (name=value per line, e.g. Micro-Manager's Renderer
@@ -300,6 +313,12 @@ int RunCli(int argc, char** argv)
    }, info, err);
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
    if (!writeOk) { std::fprintf(stderr, "write error\n"); return 1; }
+   if (sim::TimingPrinting()) {
+      // What the caches hold after the movie (ISC_MEMORY lines).
+      sim::MemoryReport mem;
+      sim::ScopeMemoryReport(mem);
+      mem.Log();
+   }
    if (!info.driftNm.empty()) {
       // The true sample drift per frame (ground truth for drift correction).
       const std::string csv = (out.size() > 4 && out.compare(out.size() - 4, 4, ".tif") == 0 ? out.substr(0, out.size() - 4) : out) +
@@ -311,6 +330,29 @@ int RunCli(int argc, char** argv)
          std::fprintf(f, "%zu,%.6f,%.6f,%.6f\n", k / 3, info.driftNm[k], info.driftNm[k + 1], info.driftNm[k + 2]);
       std::fclose(f);
       std::printf("%s: sample drift per frame\n", csv.c_str());
+   }
+   if (!info.patternStates.empty()) {
+      // The structured pattern per frame (the frame program's state: ground truth for a reconstruction), with each
+      // beam's phase in turns.
+      const std::string csv = (out.size() > 4 && out.compare(out.size() - 4, 4, ".tif") == 0 ? out.substr(0, out.size() - 4) : out) +
+                              ".pattern.csv";
+      FILE* f = std::fopen(csv.c_str(), "wb");
+      if (!f) { std::fprintf(stderr, "cannot write %s\n", csv.c_str()); return 1; }
+      const sim::BeamSet set = sim::ScopeBeamSet(spec);
+      const sim::ExcitationSpec es = sim::ScopeExcitationSpec(spec);
+      std::fprintf(f, "frame,angle,phase,rotation_deg");
+      for (size_t j = 0; j < set.beams.size(); ++j) std::fprintf(f, ",beam%zu_phase_turns", j);
+      std::fprintf(f, "\n");
+      for (size_t k = 0; k + 2 < info.patternStates.size(); k += 3) {
+         const long fr = static_cast<long>(k / 3);
+         const sim::PatternState st = sim::PatternStateAt(set, static_cast<long long>(es.frame) + fr, es.seed, es.expSec);
+         std::fprintf(f, "%ld,%d,%d,%.6f", fr, static_cast<int>(info.patternStates[k]),
+                      static_cast<int>(info.patternStates[k + 1]), info.patternStates[k + 2]);
+         for (double ph : st.phaseTurns) std::fprintf(f, ",%.9f", ph);
+         std::fprintf(f, "\n");
+      }
+      std::fclose(f);
+      std::printf("%s: the pattern's state per frame\n", csv.c_str());
    }
    bool epi = false, trans = false;
    sim::ScopeLights(spec, epi, trans);

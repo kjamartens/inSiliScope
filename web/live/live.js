@@ -120,7 +120,7 @@ function worker() {
   L.worker = spawnGenWorker();
   L.worker.onmessage = e => onResult(e.data);
   // a failure here stops live only (the shared handler would move every worker to the main thread)
-  L.worker.onerror = e => { e.preventDefault(); L.err = e.message || 'the live worker failed'; L.pending = null; L.worker.terminate(); L.worker = null; L.worldKey = null; setLive(false); };
+  L.worker.onerror = e => { e.preventDefault(); L.err = workerErrorText(e.message || 'the live worker failed'); L.pending = null; L.worker.terminate(); L.worker = null; L.worldKey = null; setLive(false); };
   return L.worker;
 }
 // The live session follows the sample: a new world (seed, cell or specimen parameters) is a fresh sample, as the
@@ -156,9 +156,10 @@ function onResult(d) {
   L.t = d.t !== undefined ? d.t : L.t + exposureSec();
   L.clock = d.clock;
   L.drift = d.drift;
+  L.pattern = d.pattern || null;
   L.engine = d.engine;
   L.paths = d.paths || null;
-  L.perf = { roundMs: L.ms, workerMs: d.workerMs, profile: d.profile || null };
+  L.perf = { roundMs: L.ms, workerMs: d.workerMs, profile: d.profile || null, memory: d.memory || null };
   const due = L.lastShown + exposureSec() * 1000, now = performance.now();
   L.perf.waitMs = L.on ? Math.max(0, due - now) : 0;
   const show = () => {
@@ -440,7 +441,8 @@ function showInfo() {
     : REC.on ? `● recording ${REC.got}/${REC.n}` + size
     : REC.msg && !L.on ? REC.msg
     : !L.frames ? (L.on ? 'starting…' : '')
-    : (L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + L.ms.toFixed(1) + ' ms/frame' + size;
+    : (L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + L.ms.toFixed(1) + ' ms/frame' + size +
+      (L.pattern ? ` · pattern ${L.pattern.frame % L.pattern.period + 1}/${L.pattern.period}` : '');
   el.textContent = text;
   el.title = text;
   showPerfNote();
@@ -455,6 +457,7 @@ function showPerfNote() {
   if (how) lines.push('render: ' + how);
   lines.push(`sample time ${L.t.toFixed(1)} s` + (L.clock !== undefined ? ` · lit here ${L.clock.toFixed(1)} s` : ''));
   if (L.drift && L.drift.some(v => Math.abs(v) >= 0.5)) lines.push(`drift ${L.drift.map(v => v.toFixed(0)).join(', ')} nm`);
+  if (L.pattern) lines.push(`pattern: angle ${L.pattern.angle}, phase ${L.pattern.phase} (frame ${L.pattern.frame % L.pattern.period} of ${L.pattern.period})`);
   el.innerHTML = lines.map(s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('<br>');
 }
 // How the frame was drawn (LiveScope's render paths, spec/ALGORITHM.md "Blink render regimes"): blinks splatted one by
@@ -490,7 +493,7 @@ const PHASES = [
   ['bf.image', 'BrightField image', 2], ['bf.frame.noise', 'BrightField noise', 2], ['bf.frame.onFrame', 'BrightField hand-over', 2],
   ['bf.focus-cached', 'BrightField focus (cached)', 2], ['bf.prefetch-image', 'BrightField prefetch', 2],
   ['psf.compute', 'PSF kernel (compute)', 1], ['psf.zernike-planes', 'PSF planes', 2],
-  ['psf.normalize+block-sums', 'PSF normalize, block sums', 2], ['psf.memo-hit', 'PSF kernel (memo)', 1],
+  ['psf.normalize', 'PSF normalize', 2], ['psf.block-sums', 'PSF block sums', 2], ['psf.memo-hit', 'PSF kernel (memo)', 1],
   ['psf.disk-hit', 'PSF kernel (disk)', 1],
 ];
 const KNOWN = new Set(PHASES.map(r => r[0]));
@@ -519,7 +522,18 @@ function showPerf() {
   row('to and from the worker', P.workerMs !== undefined ? Math.max(0, P.roundMs - P.workerMs) : undefined, 1);
   row('display (image, histogram)', P.paintMs !== undefined ? P.paintMs + (P.histMs || 0) : undefined, 0, 'tot');
   row('wait (paced to the exposure)', L.on ? P.waitMs || 0 : undefined, 0, 'tot');
+  // Memory (MemoryReport.h): the live worker's heap (it never shrinks: its high-water mark) and what the
+  // engine's caches hold, the largest owners; a block of its own under the times (its rows come and go with the owners).
+  const M = P.memory, mem = [];
+  if (M) {
+    const mb = v => (v >= 1000 ? (v / 1024).toFixed(2) + ' GB' : v.toFixed(0) + ' MB');
+    mem.push(`<span class="tot" title="The live worker's WASM heap: it never shrinks, so this is its high-water mark">memory: worker heap</span><span class="tot">${mb(M.heapMB)}</span>`);
+    mem.push(`<span style="padding-left:8px">engine caches</span><span>${mb(M.totalMB)}</span>`);
+    for (const [name, v] of M.owners.slice(0, 6)) if (v >= 1)
+      mem.push(`<span style="padding-left:16px">${name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span><span>${mb(v)}</span>`);
+  }
   out.innerHTML = rows.join('');
+  $('lv_memOut').innerHTML = mem.join('');
 }
 // the performance box shows at the Expert level (a frame taken there is profiled; a snap fills it)
 new MutationObserver(() => { showPerf(); showPerfNote(); if (expert() && !L.on && !REC.on && L.frame && !L.pending) request(); })
@@ -612,7 +626,7 @@ function onRecChunk(d, job) {
     REC.engineMs += d.workerMs || 0;
   }
   L.err = '';
-  L.t = d.t; L.clock = d.clock; L.drift = d.drift; L.engine = d.engine; L.paths = d.paths || null;
+  L.t = d.t; L.clock = d.clock; L.drift = d.drift; L.pattern = d.pattern || null; L.engine = d.engine; L.paths = d.paths || null;
   const s = (performance.now() - REC.t0) / 1000;
   L.ms = REC.got ? s * 1000 / REC.got : 0;
   L.frames++;

@@ -18,8 +18,11 @@ Ideas, roughly in order of interest. Contributions welcome; see [Extending](exte
 - **Labels**: DNA-PAINT kinetics from the imager and docking sequences (now one k_on and bound time per target,
   set by hand), SPT (the `motion` field is reserved), off-target labelling (reserved), dye orientation in the PSF
   (orientations are drawn but not rendered), labels on more structures, imager depletion and its exclusion from cells.
-- **Excitation**: epi, HILO and TIRF are one slider (the BFP position, 2026-10-14); still missing: a light sheet,
-  structured illumination, supercritical-angle emission near the coverslip and the beam's angular spread.
+- **Excitation**: epi, HILO and TIRF are one slider (the BFP position, 2026-10-14); structured illumination as
+  coherent beams in the back focal plane with a frame program (2026-10-30; the kinetics on the pattern's cycle mean,
+  the mean field on the CPU under a pattern); still missing: a light sheet, the exact per-frame dose under a
+  pattern, the GPU mean field under a pattern, stroboscopic light through the frame program, supercritical-angle
+  emission near the coverslip and the beam's angular spread.
 - **Widefield**: a defocus law for the optional Gaussian PSF (`WidefieldGaussianSigmaUm`), and a check of the Direct3D
   11 path on more GPUs. (A drifting sample renders on the CPU: measured on 2026-10-29, the GPU would not be faster there.)
 - **Ground-truth export** (emitter positions and frames as CSV) for scoring localisation software.

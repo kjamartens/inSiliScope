@@ -76,8 +76,8 @@ load_scope(core, detail="Basic", devices=[d for d in ALL_DEVICES if d not in WHE
 basic = own_props([d for d in ALL_DEVICES if d not in WHEELS])
 assert not set(WHEELS) & set(core.getInstalledDevices("Hub")), "Basic: the hub should not offer the Advanced filter wheels"
 assert basic < expert, "Basic should show a subset of Expert"
-assert len(basic) <= 30, f"Basic shows {len(basic)} properties (cap 30): {sorted(basic)}"
-for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("Lasers", "BfpPosition"),
+assert len(basic) <= 35, f"Basic shows {len(basic)} properties (cap 35): {sorted(basic)}"
+for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("Lasers", "BfpPosition"), ("Lasers", "Pattern"),
              ("CellField", "Microtubules_Label"),
              ("CellField", "Microtubules_Mode"), ("CellField", "NuclearPores_Label"), ("CellField", "NuclearPores_Mode"),
              ("EmissionPath", "EmissionMagnification"),

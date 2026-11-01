@@ -138,6 +138,7 @@ bool MakeLightState(const ScopeSpec& spec, bool lightOn, LightState& out, std::s
                   Num(g.nMed);
    if (g.profile != ILLUM_FLAT)
       out.lightKey += ";fw" + Num(g.fwhmPct) + ";fov" + Num(g.fovWidthUm);
+   out.lightKey += ScopeBeamMeanKey(g);   // a beam set: the components the kinetics run on (empty for one beam)
    for (const LaserLine& l : out.lines)
    {
       char b[64];
@@ -436,11 +437,22 @@ void LightHistory::SetReference(Chapter& c, const LightState& light)
    c.refTotal = light.total;
    c.ex = light.ex;
    c.flat = FlatBeam(*light.ex);
-   c.sheared = ShearedBeam(*light.ex);
-   c.tanS = light.ex->TanS();
-   c.cosI = light.ex->CosI();
-   c.F = light.ex->F();
    c.h = c.flat ? kLightTileUm : LightLatticeUm(*light.ex);
+   c.comps.clear();
+   for (int j = 0; j < light.ex->ComponentCount(); ++j)
+   {
+      const Excitation::Component& k = light.ex->ComponentAt(j);
+      Chapter::Comp q;
+      q.F = k.F;
+      q.cosI = k.cosI;
+      q.legacy = !light.ex->Patterned();
+      // The legacy beam: sheared only when tilted (not TIRF); a pattern's component: its own shear vector.
+      q.sheared = q.legacy ? ShearedBeam(*light.ex) : (!c.flat && (k.sx != 0.0 || k.sy != 0.0));
+      q.sx = q.sheared ? (q.legacy ? k.tanS : k.sx) : 0.0;
+      q.sy = q.sheared && !q.legacy ? k.sy : 0.0;
+      c.comps.push_back(q);
+   }
+   c.grids.assign(c.comps.size(), SparseGrid());
    c.labels.reset();   // (a dark chapter's came from its env)
 }
 
@@ -454,11 +466,27 @@ bool LightHistory::SamePoses(const Chapter& c, const std::vector<LightPose>& a, 
    return a.size() == 1 && b.size() == 1 && SamePose(*c.ex, a[0], b[0]);
 }
 
-std::shared_ptr<const LightHistory::Footprint> LightHistory::MakeFootprint(const Chapter& c,
+std::vector<std::shared_ptr<const LightHistory::Footprint>> LightHistory::MakeFootprints(
+   const Chapter& c, const std::vector<LightPose>& poses)
+{
+   std::vector<std::shared_ptr<const Footprint>> out;
+   for (size_t j = 0; j < c.comps.size(); ++j)
+      out.push_back(MakeFootprint(c, static_cast<int>(j), poses));
+   return out;
+}
+
+// Component j's footprint: the beam's envelope on the pivot plane in the chapter's sheared coordinates (u, w) = (x - z
+// sx, y - z sy): value(u, w) = ComponentLateral(u - ax + pivot sx, w - ay + pivot sy, pivot) (= Lateral(x - ax,
+// y - ay, z) at every height). The legacy beam keeps the old arithmetic: ProfileAt((u - au) cos theta_i, w - ay) with
+// au = ax - pivot tan theta_s.
+std::shared_ptr<const LightHistory::Footprint> LightHistory::MakeFootprint(const Chapter& c, int j,
                                                                            const std::vector<LightPose>& poses)
 {
    auto fp = std::make_shared<Footprint>();
-   const double R = c.flat ? 0.0 : c.ex->ReachUm(kLightReach), Rx = R / c.cosI;
+   const Chapter::Comp& q = c.comps[static_cast<size_t>(j)];
+   const Excitation::Component& k = c.ex->ComponentAt(j);
+   const double R = c.flat ? 0.0 : c.ex->ReachUm(kLightReach), Rx = R / q.cosI;
+   const double Ry = q.legacy ? R : R / q.cosI;
    std::vector<std::array<long, 4>> rects;
    long i0 = LONG_MAX, j0 = LONG_MAX, i1 = LONG_MIN, j1 = LONG_MIN;
    for (const LightPose& p : poses)
@@ -466,11 +494,18 @@ std::shared_ptr<const LightHistory::Footprint> LightHistory::MakeFootprint(const
       std::array<long, 4> r;
       if (c.flat)
          StopNodes(p, r[0], r[1], r[2], r[3]);
-      else
+      else if (q.legacy)
       {
          const double au = PoseU(*c.ex, p);
          r = { NodeAtOrAbove(au - Rx, c.h), NodeAtOrAbove(p.ay - R, c.h), NodeAtOrBelow(au + Rx, c.h),
                NodeAtOrBelow(p.ay + R, c.h) };
+      }
+      else
+      {
+         // The envelope's centre in sheared coordinates: the axis + the tilt offset, moved to the coverslip.
+         const double cu = p.ax + k.ox - p.pivot * q.sx, cw = p.ay + k.oy - p.pivot * q.sy;
+         r = { NodeAtOrAbove(cu - Rx, c.h), NodeAtOrAbove(cw - Ry, c.h), NodeAtOrBelow(cu + Rx, c.h),
+               NodeAtOrBelow(cw + Ry, c.h) };
       }
       rects.push_back(r);
       if (r[2] >= r[0] && r[3] >= r[1])
@@ -495,14 +530,23 @@ std::shared_ptr<const LightHistory::Footprint> LightHistory::MakeFootprint(const
       const std::array<long, 4>& r = rects[k];
       if (r[2] < r[0] || r[3] < r[1])
          continue;
-      const double au = c.flat ? 0.0 : PoseU(*c.ex, p);
+      const double au = c.flat || !q.legacy ? 0.0 : PoseU(*c.ex, p);
       ParallelFor(static_cast<unsigned>(r[3] - r[1] + 1), [&](unsigned jj) {
-         const long j = r[1] + static_cast<long>(jj);
-         double* row = fp->v.data() + static_cast<size_t>(j - fp->j0) * fp->nx;
-         const double dy = NodeAt(j, c.h) - p.ay;
+         const long jn = r[1] + static_cast<long>(jj);
+         double* row = fp->v.data() + static_cast<size_t>(jn - fp->j0) * fp->nx;
+         const double dy = NodeAt(jn, c.h) - p.ay;
          for (long i = r[0]; i <= r[2]; ++i)
          {
-            const double f = c.flat ? 1.0 : c.ex->ProfileAt((NodeAt(i, c.h) - au) * c.cosI, dy);
+            double f;
+            if (c.flat)
+               f = 1.0;
+            else if (q.legacy)
+               f = c.ex->ProfileAt((NodeAt(i, c.h) - au) * q.cosI, dy);
+            else
+               // (On the envelope's own pivot plane: the pose's pivot moved the centre above; the Excitation's pivot
+               // need not be this record's.)
+               f = c.ex->ComponentLateral(j, NodeAt(i, c.h) - p.ax + p.pivot * q.sx, dy + p.pivot * q.sy,
+                                          c.ex->Spec().pivotUm);
             double& v = row[i - fp->i0];
             v = one ? f : v + p.w * f;
          }
@@ -516,8 +560,10 @@ void LightHistory::Merge(const Record& r)
    Chapter& c = chapters_[r.chapter];
    const double dt = r.t1 - r.t0;
    c.mergedSec += dt;
-   if (r.lit && r.fp)
-      c.grid.Add(*r.fp, r.mag * dt, r.mag * r.mag * dt);
+   if (r.lit)
+      for (size_t j = 0; j < r.fps.size() && j < c.grids.size(); ++j)
+         if (r.fps[j])
+            c.grids[j].Add(*r.fps[j], r.mag * dt, r.mag * r.mag * dt);
 }
 
 void LightHistory::CloseOpen()
@@ -574,7 +620,7 @@ void LightHistory::Advance(double dtSec, const LightState& light)
       open_.lit = light.lit;
       open_.mag = mag;
       open_.poses = light.poses;
-      open_.fp = light.lit ? MakeFootprint(c, light.poses) : nullptr;
+      open_.fps = light.lit ? MakeFootprints(c, light.poses) : std::vector<std::shared_ptr<const Footprint>>();
       haveOpen_ = true;
       ++version_;
    }
@@ -692,7 +738,7 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          rateRec.lit = true;
          rateRec.mag = mag;
          rateRec.poses = light.poses;
-         rateRec.fp = MakeFootprint(lc, light.poses);
+         rateRec.fps = MakeFootprints(lc, light.poses);
          rate = &rateRec;
       }
    }
@@ -706,32 +752,36 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
 
    // The grids, each once: a chapter's merged G (and G2), a record's footprint (and its square), over the box in the
    // chapter's coordinates.
-   auto nodeRect = [&](const Chapter& c, long& ia, long& ja, long& ib, long& jb) {
-      double ua = x0, ub = x1;
-      if (c.sheared)
+   auto nodeRect = [&](const Chapter& c, int cj, long& ia, long& ja, long& ib, long& jb) {
+      const Chapter::Comp& q = c.comps[static_cast<size_t>(cj)];
+      double ua = x0, ub = x1, wa = y0, wb = y1;
+      if (q.sheared)
       {
-         ua = std::min(x0 - z0 * c.tanS, x0 - z1 * c.tanS);
-         ub = std::max(x1 - z0 * c.tanS, x1 - z1 * c.tanS);
+         ua = std::min(x0 - z0 * q.sx, x0 - z1 * q.sx);
+         ub = std::max(x1 - z0 * q.sx, x1 - z1 * q.sx);
+         wa = std::min(y0 - z0 * q.sy, y0 - z1 * q.sy);
+         wb = std::max(y1 - z0 * q.sy, y1 - z1 * q.sy);
       }
       ia = NodeAtOrBelow(ua, c.h) - 1;
       ib = NodeAtOrAbove(ub, c.h) + 1;
-      ja = NodeAtOrBelow(y0, c.h) - 1;
-      jb = NodeAtOrAbove(y1, c.h) + 1;
+      ja = NodeAtOrBelow(wa, c.h) - 1;
+      jb = NodeAtOrAbove(wb, c.h) + 1;
    };
    std::map<std::pair<const void*, int>, int32_t> gridOf;
-   auto chapterGrid = [&](const Chapter& c, bool sq) -> int32_t {
-      const std::pair<const void*, int> k(&c, sq ? 1 : 0);
+   auto chapterGrid = [&](const Chapter& c, int cj, bool sq) -> int32_t {
+      const SparseGrid& grid = c.grids[static_cast<size_t>(cj)];
+      const std::pair<const void*, int> k(&grid, sq ? 1 : 0);
       auto it = gridOf.find(k);
       if (it != gridOf.end())
          return it->second;
       int32_t idx = -1;
       long ia, ja, ib, jb;
-      nodeRect(c, ia, ja, ib, jb);
-      ia = std::max(ia, c.grid.i0);
-      ja = std::max(ja, c.grid.j0);
-      ib = std::min(ib, c.grid.i1);
-      jb = std::min(jb, c.grid.j1);
-      if (!c.grid.Empty() && ib >= ia && jb >= ja)
+      nodeRect(c, cj, ia, ja, ib, jb);
+      ia = std::max(ia, grid.i0);
+      ja = std::max(ja, grid.j0);
+      ib = std::min(ib, grid.i1);
+      jb = std::min(jb, grid.j1);
+      if (!grid.Empty() && ib >= ia && jb >= ja)
       {
          MapGrid gr;
          gr.x0 = NodeAt(ia, c.h);
@@ -743,23 +793,25 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          for (long j = ja; j <= jb; ++j)
             for (long i = ia; i <= ib; ++i)
                gr.v[static_cast<size_t>(j - ja) * gr.nx + static_cast<size_t>(i - ia)] =
-                  sq ? c.grid.G2(i, j) : c.grid.G(i, j);
+                  sq ? grid.G2(i, j) : grid.G(i, j);
          idx = static_cast<int32_t>(m.grids.size());
          m.grids.push_back(std::move(gr));
       }
       gridOf[k] = idx;
       return idx;
    };
-   auto recordGrid = [&](const Record& r, bool sq) -> int32_t {
-      const std::pair<const void*, int> k(r.fp.get(), sq ? 1 : 0);
+   auto recordGrid = [&](const Record& r, int cj, bool sq) -> int32_t {
+      if (static_cast<size_t>(cj) >= r.fps.size() || !r.fps[static_cast<size_t>(cj)])
+         return -1;
+      const std::pair<const void*, int> k(r.fps[static_cast<size_t>(cj)].get(), sq ? 1 : 0);
       auto it = gridOf.find(k);
       if (it != gridOf.end())
          return it->second;
       int32_t idx = -1;
-      const Footprint& f = *r.fp;
+      const Footprint& f = *r.fps[static_cast<size_t>(cj)];
       const Chapter& c = *chs[r.chapter];
       long ia, ja, ib, jb;
-      nodeRect(c, ia, ja, ib, jb);
+      nodeRect(c, cj, ia, ja, ib, jb);
       ia = std::max(ia, f.i0);
       ja = std::max(ja, f.j0);
       ib = std::min(ib, f.i0 + f.nx - 1);
@@ -785,12 +837,14 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
       gridOf[k] = idx;
       return idx;
    };
-   // TIRF's depth factor of a structure's main (or pre) state in a chapter (and its square), on kLightDepthStepUm.
+   // TIRF's depth factor of a structure's main (or pre) state in a chapter's component (and its square), on
+   // kLightDepthStepUm.
    std::map<std::pair<std::pair<const void*, int>, int>, int32_t> depthOf;
-   auto depthFor = [&](const Chapter& c, int st, bool sq, bool pre = false) -> int32_t {
-      if (!c.lit || !c.ex->Tirf())
+   auto depthFor = [&](const Chapter& c, int cj, int st, bool sq, bool pre = false) -> int32_t {
+      if (!c.lit || !c.ex->ComponentAt(cj).tirf)
          return -1;
-      const auto k = std::make_pair(std::make_pair(static_cast<const void*>(&c), st), (sq ? 1 : 0) + (pre ? 2 : 0));
+      const auto k = std::make_pair(std::make_pair(static_cast<const void*>(&c.comps[static_cast<size_t>(cj)]), st),
+                                    (sq ? 1 : 0) + (pre ? 2 : 0));
       auto it = depthOf.find(k);
       if (it != depthOf.end())
          return it->second;
@@ -800,7 +854,7 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
       for (const StatePhysics::LineShare& l : (pre ? C.pre : C.main).lineShares)
       {
          sh.push_back({ l.nm, l.share });
-         dMax = std::max(dMax, c.ex->DecayUm(l.nm));
+         dMax = std::max(dMax, c.ex->ComponentDecayUm(cj, l.nm));
       }
       MapDepth d;
       d.z0 = 0;
@@ -809,7 +863,7 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
       const size_t n = static_cast<size_t>(std::ceil(top / d.dz)) + 1;
       for (size_t i = 0; i < n; ++i)
       {
-         const double v = c.ex->Depth(static_cast<double>(i) * d.dz, sh);
+         const double v = c.ex->ComponentDepth(cj, static_cast<double>(i) * d.dz, sh);
          d.v.push_back(sq ? v * v : v);
       }
       const int32_t idx = static_cast<int32_t>(m.depths.size());
@@ -875,15 +929,18 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
             KinOf(L, e.kin);
             mc.epochs.push_back(e);
          }
-         // A term per merged grid and record, in time order (each epoch's bound is the terms before it).
-         auto term = [&](size_t ci, int32_t grid, double factor) {
+         // A term per merged grid and record (and component), in time order (each epoch's bound is the terms before
+         // it).
+         auto term = [&](size_t ci, int cj, int32_t grid, double factor) {
             const Chapter& c = *chs[ci];
+            const Chapter::Comp& q = c.comps[static_cast<size_t>(cj)];
             const double dscale = labelOf(ci).main.excitationPerSec / mc.epochs[static_cast<size_t>(epochOf[ci])].xRef;
             MapTerm t;
             t.grid = grid;
-            t.depth = depthFor(c, st, false);
-            t.sx = c.sheared ? c.tanS : 0.0;
-            t.scale = c.F * dscale * factor;
+            t.depth = depthFor(c, cj, st, false);
+            t.sx = q.sx;
+            t.sy = q.sy;
+            t.scale = q.F * dscale * factor;
             return t;
          };
          std::vector<int> termEpoch;
@@ -891,25 +948,30 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          for (size_t ci = 0; ci < chs.size(); ++ci)
          {
             const bool counts = epochOf[ci] >= 0;
+            const int nc = static_cast<int>(chs[ci]->comps.size());
             if (counts)
-            {
-               const int32_t gi = chapterGrid(*chs[ci], false);
-               if (gi >= 0)
+               for (int cj = 0; cj < nc; ++cj)
                {
-                  mc.total.push_back(term(ci, gi, 1.0));
-                  termEpoch.push_back(epochOf[ci]);
+                  const int32_t gi = chapterGrid(*chs[ci], cj, false);
+                  if (gi >= 0)
+                  {
+                     mc.total.push_back(term(ci, cj, gi, 1.0));
+                     termEpoch.push_back(epochOf[ci]);
+                  }
                }
-            }
             for (; ri < closed.size() && closed[ri]->chapter == ci; ++ri)
             {
                const Record& r = *closed[ri];
-               if (!counts || !r.lit || !r.fp)
+               if (!counts || !r.lit)
                   continue;
-               const int32_t gi = recordGrid(r, false);
-               if (gi >= 0)
+               for (int cj = 0; cj < nc; ++cj)
                {
-                  mc.total.push_back(term(ci, gi, r.mag * (r.t1 - r.t0)));
-                  termEpoch.push_back(epochOf[ci]);
+                  const int32_t gi = recordGrid(r, cj, false);
+                  if (gi >= 0)
+                  {
+                     mc.total.push_back(term(ci, cj, gi, r.mag * (r.t1 - r.t0)));
+                     termEpoch.push_back(epochOf[ci]);
+                  }
                }
             }
          }
@@ -922,11 +984,12 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
             mc.bound.push_back(std::move(b));
          }
          if (rate && epochOf[rate->chapter] >= 0)
-         {
-            const int32_t gi = recordGrid(*rate, false);
-            if (gi >= 0)
-               mc.rate.push_back(term(rate->chapter, gi, rate->mag));
-         }
+            for (int cj = 0; cj < static_cast<int>(chs[rate->chapter]->comps.size()); ++cj)
+            {
+               const int32_t gi = recordGrid(*rate, cj, false);
+               if (gi >= 0)
+                  mc.rate.push_back(term(rate->chapter, cj, gi, rate->mag));
+            }
          continue;
       }
       // ACTIVATION (PALM): the hazard's steps and rate; blinks in T with the chapters' rows (their activation rates
@@ -941,28 +1004,30 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          if (mc.epochs.empty() || !SameKin(e.kin, mc.epochs.back().kin, ISC_KIN_ON_SEC))
             mc.epochs.push_back(e);
       }
-      auto lightTerms = [&](size_t ci, int32_t g1, int32_t g2, double a, MapField& f) {
+      auto lightTerms = [&](size_t ci, int cj, int32_t g1, int32_t g2, double a, MapField& f) {
          const Chapter& c = *chs[ci];
          const LabelPhysics& C = labelOf(ci);
          if (!c.lit)
             return;
-         const double sx = c.sheared ? c.tanS : 0.0;
+         const Chapter::Comp& q = c.comps[static_cast<size_t>(cj)];
          if (C.actLin != 0 && g1 >= 0)
          {
             MapTerm t;
             t.grid = g1;
-            t.depth = depthFor(c, st, false);
-            t.sx = sx;
-            t.scale = C.actLin * c.F * a;
+            t.depth = depthFor(c, cj, st, false);
+            t.sx = q.sx;
+            t.sy = q.sy;
+            t.scale = C.actLin * q.F * a;
             f.push_back(t);
          }
          if (C.actQuad != 0 && g2 >= 0)
          {
             MapTerm t;
             t.grid = g2;
-            t.depth = depthFor(c, st, true);
-            t.sx = sx;
-            t.scale = C.actQuad * (c.F * c.F) * (a * a);
+            t.depth = depthFor(c, cj, st, true);
+            t.sx = q.sx;
+            t.sy = q.sy;
+            t.scale = C.actQuad * (q.F * q.F) * (a * a);
             f.push_back(t);
          }
       };
@@ -978,14 +1043,15 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          {
             const Chapter& c = *chs[ci];
             p.c += labelOf(ci).actSpont * c.mergedSec;
-            if (!c.grid.Empty())
-            {
-               // G and G2 hold mag and mag^2 already.
-               const LabelPhysics& C = labelOf(ci);
-               const int32_t g1 = C.actLin != 0 ? chapterGrid(c, false) : -1;
-               const int32_t g2 = C.actQuad != 0 ? chapterGrid(c, true) : -1;
-               lightTerms(ci, g1, g2, 1.0, p.field);
-            }
+            for (int cj = 0; cj < static_cast<int>(c.comps.size()); ++cj)
+               if (!c.grids[static_cast<size_t>(cj)].Empty())
+               {
+                  // G and G2 hold mag and mag^2 already.
+                  const LabelPhysics& C = labelOf(ci);
+                  const int32_t g1 = C.actLin != 0 ? chapterGrid(c, cj, false) : -1;
+                  const int32_t g2 = C.actQuad != 0 ? chapterGrid(c, cj, true) : -1;
+                  lightTerms(ci, cj, g1, g2, 1.0, p.field);
+               }
          }
          if (p.t1 > p.t0)
             mc.steps.push_back(std::move(p));
@@ -999,30 +1065,35 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          p.t1 = r.t1;
          const double dt = r.t1 - r.t0;
          p.c = C.actSpont * dt;
-         if (r.lit && r.fp)
+         if (r.lit)
          {
-            // lin x mag dt, quad x mag^2 dt over the footprint and its square.
-            const int32_t g1 = C.actLin != 0 ? recordGrid(r, false) : -1;
-            const int32_t g2 = C.actQuad != 0 ? recordGrid(r, true) : -1;
+            // lin x mag dt, quad x mag^2 dt over the footprint and its square, per component.
             const Chapter& c = *chs[r.chapter];
-            const double sx = c.sheared ? c.tanS : 0.0;
-            if (g1 >= 0)
+            for (int cj = 0; cj < static_cast<int>(c.comps.size()); ++cj)
             {
-               MapTerm t;
-               t.grid = g1;
-               t.depth = depthFor(c, st, false);
-               t.sx = sx;
-               t.scale = C.actLin * c.F * r.mag * dt;
-               p.field.push_back(t);
-            }
-            if (g2 >= 0)
-            {
-               MapTerm t;
-               t.grid = g2;
-               t.depth = depthFor(c, st, true);
-               t.sx = sx;
-               t.scale = C.actQuad * (c.F * c.F) * (r.mag * r.mag) * dt;
-               p.field.push_back(t);
+               const int32_t g1 = C.actLin != 0 ? recordGrid(r, cj, false) : -1;
+               const int32_t g2 = C.actQuad != 0 ? recordGrid(r, cj, true) : -1;
+               const Chapter::Comp& q = c.comps[static_cast<size_t>(cj)];
+               if (g1 >= 0)
+               {
+                  MapTerm t;
+                  t.grid = g1;
+                  t.depth = depthFor(c, cj, st, false);
+                  t.sx = q.sx;
+                  t.sy = q.sy;
+                  t.scale = C.actLin * q.F * r.mag * dt;
+                  p.field.push_back(t);
+               }
+               if (g2 >= 0)
+               {
+                  MapTerm t;
+                  t.grid = g2;
+                  t.depth = depthFor(c, cj, st, true);
+                  t.sx = q.sx;
+                  t.sy = q.sy;
+                  t.scale = C.actQuad * (q.F * q.F) * (r.mag * r.mag) * dt;
+                  p.field.push_back(t);
+               }
             }
          }
          mc.steps.push_back(std::move(p));
@@ -1032,9 +1103,12 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
       if (rate)
       {
          const LabelPhysics& C = labelOf(rate->chapter);
-         const int32_t g1 = C.actLin != 0 ? recordGrid(*rate, false) : -1;
-         const int32_t g2 = C.actQuad != 0 ? recordGrid(*rate, true) : -1;
-         lightTerms(rate->chapter, g1, g2, rate->mag, mc.rate);
+         for (int cj = 0; cj < static_cast<int>(chs[rate->chapter]->comps.size()); ++cj)
+         {
+            const int32_t g1 = C.actLin != 0 ? recordGrid(*rate, cj, false) : -1;
+            const int32_t g2 = C.actQuad != 0 ? recordGrid(*rate, cj, true) : -1;
+            lightTerms(rate->chapter, cj, g1, g2, rate->mag, mc.rate);
+         }
       }
    }
    // Each epoch's labels, and the photon-budget bleach hazard of a WideField dye or a PALM pre state: per lit record
@@ -1057,41 +1131,49 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          const double budget = pre ? C.prePhotonBudget : C.photonBudget;
          return chs[ci]->lit && sp.emits && budget > 0 && sp.emissionPerSec > 0 ? sp.emissionPerSec / budget : 0.0;
       };
-      auto term = [&](size_t ci, int32_t grid, double factor) {
+      auto term = [&](size_t ci, int cj, int32_t grid, double factor) {
          const Chapter& c = *chs[ci];
+         const Chapter::Comp& q = c.comps[static_cast<size_t>(cj)];
          MapTerm t;
          t.grid = grid;
-         t.depth = depthFor(c, st, false, pre);
-         t.sx = c.sheared ? c.tanS : 0.0;
-         t.scale = c.F * lam(ci) * factor;
+         t.depth = depthFor(c, cj, st, false, pre);
+         t.sx = q.sx;
+         t.sy = q.sy;
+         t.scale = q.F * lam(ci) * factor;
          return t;
       };
       size_t ri = 0;
       for (size_t ci = 0; ci < chs.size(); ++ci)
       {
          const bool counts = lam(ci) > 0;
+         const int nc = static_cast<int>(chs[ci]->comps.size());
          if (counts)
-         {
-            const int32_t gi = chapterGrid(*chs[ci], false);
-            if (gi >= 0)
-               mc.bleachTotal.push_back(term(ci, gi, 1.0));
-         }
+            for (int cj = 0; cj < nc; ++cj)
+            {
+               const int32_t gi = chapterGrid(*chs[ci], cj, false);
+               if (gi >= 0)
+                  mc.bleachTotal.push_back(term(ci, cj, gi, 1.0));
+            }
          for (; ri < closed.size() && closed[ri]->chapter == ci; ++ri)
          {
             const Record& r = *closed[ri];
-            if (!counts || !r.lit || !r.fp)
+            if (!counts || !r.lit)
                continue;
-            const int32_t gi = recordGrid(r, false);
-            if (gi >= 0)
-               mc.bleachTotal.push_back(term(ci, gi, r.mag * (r.t1 - r.t0)));
+            for (int cj = 0; cj < nc; ++cj)
+            {
+               const int32_t gi = recordGrid(r, cj, false);
+               if (gi >= 0)
+                  mc.bleachTotal.push_back(term(ci, cj, gi, r.mag * (r.t1 - r.t0)));
+            }
          }
       }
       if (rate && lam(rate->chapter) > 0)
-      {
-         const int32_t gi = recordGrid(*rate, false);
-         if (gi >= 0)
-            mc.bleachRate.push_back(term(rate->chapter, gi, rate->mag));
-      }
+         for (int cj = 0; cj < static_cast<int>(chs[rate->chapter]->comps.size()); ++cj)
+         {
+            const int32_t gi = recordGrid(*rate, cj, false);
+            if (gi >= 0)
+               mc.bleachRate.push_back(term(rate->chapter, cj, gi, rate->mag));
+         }
    }
    m.Encode();
    memo_[1] = std::move(memo_[0]);
@@ -1125,18 +1207,23 @@ double LightHistory::DoseAt(double xUm, double yUm, double* perSec) const
       const Chapter& c = chapters_[ci];
       if (!c.lit)
          continue;
-      double v = c.grid.Empty() ? 0.0 : Bilinear([&](long i, long j) { return c.grid.G(i, j); }, xUm, yUm, c.h);
-      for (const Record& r : recent_)
-         if (r.chapter == ci && r.lit && r.fp)
-            v += r.mag * (r.t1 - r.t0) * FootprintAt(*r.fp, xUm, yUm, c.h);
-      if (haveOpen_ && open_.chapter == ci && open_.lit && open_.fp)
+      for (size_t cj = 0; cj < c.comps.size(); ++cj)
       {
-         const double now = open_.mag * FootprintAt(*open_.fp, xUm, yUm, c.h);
-         v += (T_ - open_.t0) * now;
-         if (perSec)
-            *perSec = c.F * (c.refTotal / ref) * now;
+         const SparseGrid& grid = c.grids[cj];
+         const double F = c.comps[cj].F;
+         double v = grid.Empty() ? 0.0 : Bilinear([&](long i, long j) { return grid.G(i, j); }, xUm, yUm, c.h);
+         for (const Record& r : recent_)
+            if (r.chapter == ci && r.lit && cj < r.fps.size() && r.fps[cj])
+               v += r.mag * (r.t1 - r.t0) * FootprintAt(*r.fps[cj], xUm, yUm, c.h);
+         if (haveOpen_ && open_.chapter == ci && open_.lit && cj < open_.fps.size() && open_.fps[cj])
+         {
+            const double now = open_.mag * FootprintAt(*open_.fps[cj], xUm, yUm, c.h);
+            v += (T_ - open_.t0) * now;
+            if (perSec)
+               *perSec += F * (c.refTotal / ref) * now;
+         }
+         dose += F * (c.refTotal / ref) * v;
       }
-      dose += c.F * (c.refTotal / ref) * v;
    }
    return dose;
 }
@@ -1167,17 +1254,21 @@ void LightHistory::DosesAt(const LightState& light, const std::vector<double>& x
          const Chapter& c = chapters_[ci];
          if (!c.lit)
             continue;
-         const double s = c.F * (c.refTotal / ref);
-         for (size_t k = 0; k < n; ++k)
+         for (size_t cj = 0; cj < c.comps.size(); ++cj)
          {
-            const double x = xy[2 * k], y = xy[2 * k + 1];
-            double v = c.grid.Empty() ? 0.0 : Bilinear([&](long i, long j) { return c.grid.G(i, j); }, x, y, c.h);
-            for (const Record& r : recent_)
-               if (r.chapter == ci && r.lit && r.fp)
-                  v += r.mag * (r.t1 - r.t0) * FootprintAt(*r.fp, x, y, c.h);
-            if (haveOpen_ && open_.chapter == ci && open_.lit && open_.fp)
-               v += (T_ - open_.t0) * (open_.mag * FootprintAt(*open_.fp, x, y, c.h));
-            (last && ci + 1 == chapters_.size() ? doseNow : doseOther)[k] += s * v;
+            const SparseGrid& grid = c.grids[cj];
+            const double s = c.comps[cj].F * (c.refTotal / ref);
+            for (size_t k = 0; k < n; ++k)
+            {
+               const double x = xy[2 * k], y = xy[2 * k + 1];
+               double v = grid.Empty() ? 0.0 : Bilinear([&](long i, long j) { return grid.G(i, j); }, x, y, c.h);
+               for (const Record& r : recent_)
+                  if (r.chapter == ci && r.lit && cj < r.fps.size() && r.fps[cj])
+                     v += r.mag * (r.t1 - r.t0) * FootprintAt(*r.fps[cj], x, y, c.h);
+               if (haveOpen_ && open_.chapter == ci && open_.lit && cj < open_.fps.size() && open_.fps[cj])
+                  v += (T_ - open_.t0) * (open_.mag * FootprintAt(*open_.fps[cj], x, y, c.h));
+               (last && ci + 1 == chapters_.size() ? doseNow : doseOther)[k] += s * v;
+            }
          }
       }
    // DoseRate's, with one footprint, and at the beam's peak (footprint 1).
@@ -1195,16 +1286,23 @@ void LightHistory::DosesAt(const LightState& light, const std::vector<double>& x
          break;
       }
    const double mag = light.total / c.refTotal;
-   std::shared_ptr<const Footprint> fp;
+   std::vector<std::shared_ptr<const Footprint>> fps;
    if (last && haveOpen_ && open_.chapter == chapters_.size() - 1 && open_.lit && open_.mag == mag &&
        SamePoses(c, open_.poses, light.poses))
-      fp = open_.fp;
+      fps = open_.fps;
    else
-      fp = MakeFootprint(c, light.poses);
-   const double s = c.F * (c.refTotal / rref);
-   for (size_t k = 0; k < n; ++k)
-      rate[k] = s * (mag * FootprintAt(*fp, xy[2 * k], xy[2 * k + 1], c.h));
-   peakRate = s * mag;
+      fps = MakeFootprints(c, light.poses);
+   // (A beam set: the components summed; the peak = their F summed, as Excitation::F.)
+   peakRate = 0.0;
+   for (size_t cj = 0; cj < c.comps.size() && cj < fps.size(); ++cj)
+   {
+      if (!fps[cj])
+         continue;
+      const double s = c.comps[cj].F * (c.refTotal / rref);
+      for (size_t k = 0; k < n; ++k)
+         rate[k] += s * (mag * FootprintAt(*fps[cj], xy[2 * k], xy[2 * k + 1], c.h));
+      peakRate += s * mag;
+   }
 }
 
 bool LightHistory::Lit() const
@@ -1235,13 +1333,17 @@ double LightHistory::DoseRate(const LightState& light, double xUm, double yUm) c
          break;
       }
    const double mag = light.total / c.refTotal;
-   std::shared_ptr<const Footprint> fp;
+   std::vector<std::shared_ptr<const Footprint>> fps;
    if (last && haveOpen_ && open_.chapter == chapters_.size() - 1 && open_.lit && open_.mag == mag &&
        SamePoses(c, open_.poses, light.poses))
-      fp = open_.fp;   // the open record's light: its footprint
+      fps = open_.fps;   // the open record's light: its footprints
    else
-      fp = MakeFootprint(c, light.poses);
-   return c.F * (c.refTotal / ref) * (mag * FootprintAt(*fp, xUm, yUm, c.h));
+      fps = MakeFootprints(c, light.poses);
+   double r = 0.0;
+   for (size_t cj = 0; cj < c.comps.size() && cj < fps.size(); ++cj)
+      if (fps[cj])
+         r += c.comps[cj].F * (c.refTotal / ref) * (mag * FootprintAt(*fps[cj], xUm, yUm, c.h));
+   return r;
 }
 
 void LightHistory::Reset()
@@ -1261,12 +1363,22 @@ size_t LightHistory::Bytes() const
 {
    std::lock_guard<std::mutex> g(mutex_);
    size_t b = 0;
+   auto fpBytes = [](const Record& r) {
+      size_t n = 0;
+      for (const auto& f : r.fps)
+         n += f ? f->Bytes() : 0;
+      return n;
+   };
    for (const Chapter& c : chapters_)
-      b += sizeof(Chapter) + c.grid.chunks.size() * (kChunkNodes * (sizeof(double) + sizeof(float)) + 64);
+   {
+      b += sizeof(Chapter);
+      for (const SparseGrid& g : c.grids)
+         b += g.chunks.size() * (kChunkNodes * (sizeof(double) + sizeof(float)) + 64);
+   }
    for (const Record& r : recent_)
-      b += sizeof(Record) + (r.fp ? r.fp->Bytes() : 0) + r.poses.size() * sizeof(LightPose);
+      b += sizeof(Record) + fpBytes(r) + r.poses.size() * sizeof(LightPose);
    if (haveOpen_)
-      b += sizeof(Record) + (open_.fp ? open_.fp->Bytes() : 0);
+      b += sizeof(Record) + fpBytes(open_);
    for (const auto& e : memo_)
       if (e.second)
          b += e.second->buffer.capacity() * sizeof(double) * 2;   // the buffer and the grids it copies

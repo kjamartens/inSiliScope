@@ -196,7 +196,22 @@
       "options": {"illum-profile": "Flat"} },
     { "id": "light-flattop", "title": "FlatTop beam profile",
       "text": "illum-profile FlatTop: a disc with a soft edge (the logistic edge of the SMLM Challenge simulator), FWHM 100 % of the field's width, instead of the default Gaussian: even over most of the field, dimmer only in the corners.",
-      "options": {"illum-profile": "FlatTop"} }
+      "options": {"illum-profile": "FlatTop"} },
+    { "id": "sim-2d", "title": "2D SIM",
+      "text": "sim-type SIM2D on the widefield microtubules (mEGFP, 488 nm): two coherent beams at +-0.5 in the back focal plane (illum-bfp 0.5, below the type's default 0.95 so the fringe is resolved: period 365 nm) make a sinusoidal pattern that steps through 3 phases x 3 orientations over 9 frames; the first frames show the fringe over the cell.",
+      "options": {"npc-dye": "None", "mt-dye": "mEGFP", "light-preset": "auto", "sim-type": "SIM2D", "illum-bfp": 0.5, "frames": 9} },
+    { "id": "sim-3d", "title": "3D SIM",
+      "text": "sim-type SIM3D: the pair and the centre beam, 5 phases x 3 orientations (15 frames); the centre beam adds an axial modulation, so the lateral fringe's contrast changes with the height of the dyes.",
+      "options": {"npc-dye": "None", "mt-dye": "mEGFP", "light-preset": "auto", "sim-type": "SIM3D", "illum-bfp": 0.5, "frames": 15} },
+    { "id": "sim-lattice-3d", "title": "3D lattice SIM",
+      "text": "sim-type LatticeSIM3D: five beams (+-x, +-y and the centre) interfere to a lattice of spots that steps through 13 phases, the x and y pairs 2:3; one orientation.",
+      "options": {"npc-dye": "None", "mt-dye": "mEGFP", "light-preset": "auto", "sim-type": "LatticeSIM3D", "illum-bfp": 0.5, "frames": 13} },
+    { "id": "sim-dstorm-initial-on", "title": "dSTORM under 2D SIM, the first seconds",
+      "text": "dSTORM (AF647) from t = 0 under sim-type SIM2D: the blinks take each frame's fringe, the dyes still in their initial ON glow under the cycle's mean light (the default; one image per frame as without a pattern, much faster live).",
+      "options": {"npc-dye": "None", "mt-dye": "AF647", "light-preset": "auto", "start-sec": 0, "sim-type": "SIM2D", "illum-bfp": 0.5, "frames": 9} },
+    { "id": "sim-dstorm-initial-on-frame", "title": "dSTORM under 2D SIM, initial ON in the fringes",
+      "text": "The same with sim-frame-pattern-continuous 1 (as Renderer.Quality Exhaustive): the initial-ON dyes glow under each frame's fringe too.",
+      "options": {"npc-dye": "None", "mt-dye": "AF647", "light-preset": "auto", "start-sec": 0, "sim-type": "SIM2D", "illum-bfp": 0.5, "frames": 9, "sim-frame-pattern-continuous": 1} }
   ],
   "sections": [
     { "title": "One sample, three microscopes",
@@ -240,7 +255,9 @@
       "story": "Where the laser spot sits in the objective's back focal plane decides the light's path: in its centre the beam goes straight up (epi), towards the edge it leaves at a slant as a thin sheet (HILO), past the critical angle it is reflected and only an evanescent layer reaches the cells (TIRF). The beam is a Gaussian as wide as the field by default.",
       "rows": [
         {"panels": [["light-epi", "epi"], ["sr-default", "HILO (default)"], ["light-tirf", "TIRF"]], "shared": true, "caption": "Epi lights the free imager through the whole chamber, HILO only a sheet, TIRF only the first ~150 nm: the background falls, and in TIRF the microtubules higher in the cell go dark."},
-        {"panels": [["sr-default", "Gaussian beam (default)"], ["light-flattop", "FlatTop beam"], ["light-flat", "Flat beam"]], "shared": true, "caption": "A Gaussian beam dims steadily towards the edges, a flat-top one only in the corners; a flat one lights the field evenly."}
+        {"panels": [["sr-default", "Gaussian beam (default)"], ["light-flattop", "FlatTop beam"], ["light-flat", "Flat beam"]], "shared": true, "caption": "A Gaussian beam dims steadily towards the edges, a flat-top one only in the corners; a flat one lights the field evenly."},
+        {"panels": [["wf-default", "one beam (widefield)"], ["sim-2d", "2D SIM"], ["sim-3d", "3D SIM"], ["sim-lattice-3d", "3D lattice SIM"]], "shared": true, "caption": "Several coherent beams in the back focal plane interfere to a pattern that steps with the frame: stripes for 2D and 3D SIM (3 orientations), a lattice of spots for the five-beam lattice. The beams sit at 0.5 here so the fringe is resolved; at the types' defaults (0.9-0.95) it is near the resolution limit and the raw frames show mostly its moire with the sample."},
+        {"panels": [["sim-dstorm-initial-on", "initial ON at the cycle mean (default)"], ["sim-dstorm-initial-on-frame", "initial ON in each frame's fringe (Exhaustive)"]], "shared": true, "caption": "dSTORM's first seconds under 2D SIM: the blinks take each frame's fringe either way; the dyes still in their initial ON glow under the cycle's mean light by default, under the frame's fringe at Exhaustive."}
       ] },
     { "title": "Shaping the PSF",
       "story": "The default PSF is a Gibson-Lanni model with Zernike aberrations of a realistic objective. Aberrations can be dialled in on purpose: astigmatism makes spots stretch with their height, which is how 3D SMLM works.",

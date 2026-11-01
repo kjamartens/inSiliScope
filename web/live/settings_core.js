@@ -19,6 +19,7 @@ function partOf(eng, k) {
   if (o) return o.part;
   if (/^p\./.test(k)) return 'sample';
   if (/^zern\.\d+$/.test(k)) return 'instrument';
+  if (/^beam\.\d+\.[A-Za-z]+$/.test(k)) return 'instrument';
   if (/^([a-z]+-dye|dye\d)\./.test(k)) return 'sample';
   return null;
 }

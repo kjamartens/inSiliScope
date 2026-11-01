@@ -179,6 +179,8 @@ struct SceneState
    // Between acquisitions the sample's time runs (0: drift, and light through
    // an opened lasers' shutter) or stands still (1: Paused).
    std::atomic<int> timeWhileIdle{0};
+   // Lasers.PatternRestart: 0 Sequence (the pattern frame counter restarts at every sequence start), 1 Never.
+   std::atomic<int> patternRestart{0};
    std::atomic<double> backgroundPhotonsPerSec{0.0};
    std::atomic<double> bgDecaySec{0.0};
    std::atomic<double> driftXyNmPerSqrtSec{0.0};
@@ -224,6 +226,8 @@ struct SceneState
    // option -> value; an option never set reads the engine default.
    double Option(const std::string& option) const;
    void SetOption(const std::string& option, double v);
+   // Removes an option the registry set (the engine's default applies again); nothing for one not set.
+   void ClearOption(const std::string& option);
    // Dye fields the user edited ("<prefix>.<field>" -> value); the others read the library.
    bool DyeEdit(const std::string& key, double& v) const;
    void SetDyeEdit(const std::string& key, double v);
