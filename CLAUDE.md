@@ -142,8 +142,9 @@ that finishes them.
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
-  layout (2026-10-14): a bar `#liveBar` level with the title bar (Live / Snap / Record / fresh, the one-line info: speed,
-  size, pixel size; at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
+  layout (2026-10-14): a bar `#liveBar` level with the title bar (Live / Snap / Record / fresh, the one-line info: fps
+  and ms/frame only, the sizes, pattern state and recording message in its tooltip (2026-11-03; only it gives way,
+  `flex:none` on the rest, a narrow bar drops `#setIcons`); at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
   reach the column's boxes; View ▾ sits in the world view's info box `#hud`, one item per line, the View options opening in
   it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the settings under it at its width (`#sideMain`) and the controls
   column `#liveCtl` to the bottom (focus, configuration, the settings groups Illumination & light path and Objective & PSF
@@ -151,8 +152,8 @@ that finishes them.
   performance); the settings search highlights matching rows (`.opt.hit`, the column's too) and opens every group with
   a match; render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
   **● Record** (2026-10-14): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
-  `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames on
-  the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
+  `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames from the box's
+  `lv_recT` start time, default 0 s (2026-11-03; not `mv_start-sec`, which live keeps), on the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
   replacing the worker); with "continue the live sample" (Advanced, `lv_recLive`, off by default; the user's choice,
   unlike MM) the next N frames unpaced, the sample going on, in chunks of ~2 M pixels, each one
   `LiveScope::Frames` call (`isc_live_frames`: one movie of n frames on the light history's map, as the adapter's

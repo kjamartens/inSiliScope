@@ -15,7 +15,8 @@ through it step by step.
   options (layers, look, tilt and rotation, z clip) are under **View ▾** in the info box at its top left, which lists
   one item per line where the view is (seed, centre, scale, tilt) and what is still loading; View ▾ opens the options
   in the same box. The microscope is on the right: its bar (level with the title bar) holds ▶ Live / Snap / ● Record /
-  ↺ and one line with the frame rate, the time per frame, the image size and the pixel size (nm, one decimal); under it the live camera image, always square, with every
+  ↺ and one short line with the frame rate and the time per frame (its tooltip adds the image size, the pixel size
+  and a recording's message); under it the live camera image, always square, with every
   sample and microscope setting below it at the same width (a search box filters the rows); beside them, down to the
   bottom of the window, a column of the microscope's controls that scrolls: the focus, the configuration, the
   illumination and light path, the objective and PSF (from the Advanced level: it has no Basic setting), the display
@@ -57,17 +58,19 @@ through it step by step.
   and what the engine's caches hold, the largest first (the PSF kernel per label colour is usually most of it; a
   finer pixel size or a longer PSF z range makes it bigger). If a movie needs more memory than the browser gives it,
   the movie stops with an "out of memory" message and its worker starts afresh; the viewer goes on.
-- **● Record** opens a small box for the number of frames; its **Start** (or Enter) records N frames at the stage
+- **● Record** opens a small box for the number of frames and the sample's time at the first frame (**starting at**,
+  default 0 s: the light just coming on, every dSTORM dye ON, nothing bleached or converted yet); its **Start** (or Enter) records N frames at the stage
   position with the current settings, rendered as fast as the engine goes, not paced to the exposure. The recording
   then plays in the live view in real time at the exposure it was taken with (100 frames of 1 ms play in 0.1 s; the
   screen shows the frame current at each refresh), with play/pause, a frame slider and ✕ to close it (Live, Snap or a
   new recording close it too),
   and **Save .tif** there saves it as one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; nothing is saved by
   itself. A recording is a fresh sample: a movie starting at
-  the Start time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
+  that time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
   Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.
-  With **continue the live sample** (in the box, Advanced level) the frames go on from the live sample instead: its
+  With **continue the live sample** (in the box, Advanced level; the start time is then hidden) the frames go on from the
+  live sample instead: its
   illumination history, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition. They
   are rendered in batches, each one movie on the sample's clock, so the slow parts of a frame (above all the
   blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
@@ -165,7 +168,7 @@ through it step by step.
   illumination in every mode, one row per beam, `ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm`, pre-filled
   with the type's beams, which typed rows replace; the column table and worked examples are on the physics page under
   [Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)). The live sample counts its
-  frames (the info line shows the frame's place in the cycle, the performance box its angle and phase), a recording
+  frames (the info line's tooltip shows the frame's place in the cycle, the performance box its angle and phase), a recording
   of a fresh sample starts at frame 0. **Preview illumination** sketches the light entering the objective's back
   focal plane (from above: the pupil, the critical circle, each beam's spot with its size and polarization) and the
   pattern it makes in the sample (from below: a section over 1.5x the field, at the focus until its height slider

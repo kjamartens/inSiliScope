@@ -57,7 +57,7 @@ function current() {
   const viewer = {
     instrument: { objectiveMag: self.mmConfig ? self.mmConfig.objectiveMag() : undefined, emissionMag: +$('emissionMag').value },
     sample: { userDyes: [1, 2, 3].filter(n => USER_DYES.added[n - 1]).map(n => ({ slot: n, name: $('ud' + n + '-name').value, mode: +$('ud' + n + '-mode').value })) },
-    measurement: { recordFrames: +$('lv_recN').value || 100 },
+    measurement: { recordFrames: +$('lv_recN').value || 100, recordStartSec: Math.max(0, +$('lv_recT').value || 0) },
   };
   return { values, viewer };
 }
@@ -206,6 +206,7 @@ async function applyFile(file, parts) {
       }
     const mv = want.includes('measurement') && file.parts.measurement.viewer;
     if (mv && mv.recordFrames) { $('lv_recN').value = mv.recordFrames; fire($('lv_recN')); }
+    if (mv && mv.recordStartSec !== undefined) { $('lv_recT').value = mv.recordStartSec; fire($('lv_recT')); }
     if (want.includes('view')) applyView(file.parts.view.values, note);
   } finally { self.ISC_QUIET = false; }
   uiSync();

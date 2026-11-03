@@ -80,11 +80,11 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
     const n = await page.evaluate(() => liveState.frames);
     await page.evaluate(() => document.getElementById('lv_snap').click());
     await page.waitForFunction(k => liveState.frames > k && !liveState.pending, n, { timeout: 120000 });
-    return page.evaluate(() => ({ p: liveState.pattern, info: document.getElementById('lv_info').textContent }));
+    return page.evaluate(() => ({ p: liveState.pattern, info: document.getElementById('lv_info').title }));
   };
   const s1 = await snap(), s2 = await snap();
   check(s1.p && s1.p.period === 9 && s2.p && s2.p.frame === s1.p.frame + 1 && /pattern \d+\/9/.test(s2.info),
-    `snaps: pattern state ${JSON.stringify(s1.p)} then frame ${s2.p && s2.p.frame} (info "${s2.info.split('·').pop().trim()}")`);
+    `snaps: pattern state ${JSON.stringify(s1.p)} then frame ${s2.p && s2.p.frame} (info tooltip "${s2.info.split('\n').pop().trim()}")`);
 
   // LatticeSIM3D: five beams, 13 frames, the radius 0.9 -- the open dialog follows the pick by itself
   await page.evaluate(() => document.getElementById('illumPreview').click());

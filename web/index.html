@@ -89,6 +89,13 @@
      controls column (focus, configuration, illumination, display, performance), which scrolls, down to the bottom. */
   #liveBar{position:relative;display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);min-width:0}
   #liveBar>button,#lv_recWrap>button{padding:3px 8px;white-space:nowrap}
+  /* only the info line gives way (it takes the room left, from a zero basis): a long text or a busy marker never
+     squeezes or moves the buttons; Record keeps one width as its text turns into the frame count */
+  #liveBar>:not(#lv_info,#lv_busy){flex:none}
+  #liveBar{container-type:inline-size}
+  /* a narrow panel: the settings-file icons go (☰ has Save / Load) so the speed keeps its room */
+  @container (max-width:600px){#setIcons{display:none!important} #liveBar #levelSeg button{padding:3px 5px}}
+  #lv_rec{min-width:66px;font-variant-numeric:tabular-nums}
   /* Live: clearly a button to press (red outline, red play triangle); red when on; the same size as Stop */
   #lv_live{width:74px;border:1px solid #e5484d!important;font-weight:600}
   #lv_live .ico{color:#e5484d}
@@ -96,10 +103,10 @@
   #lv_live.on .ico{color:#fff}
   #lv_recWrap{position:relative;display:inline-block}
   /* one line, always (reserved before the first frame too); the full text in its tooltip */
-  #lv_busy{flex:none;margin-left:4px;font-size:11px;line-height:1.4;color:var(--accent);white-space:nowrap}
+  #lv_busy{flex:0 1 auto;min-width:0;overflow:hidden;margin-left:4px;font-size:11px;line-height:1.4;color:var(--accent);white-space:nowrap}
   #lv_busy[hidden]{display:none}
   #lv_busy+#lv_info{margin-left:2px}
-  #lv_info{flex:1 1 auto;min-width:0;margin-left:4px;font-size:11px;line-height:1.4;height:1.4em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #lv_info{flex:1 1 0;min-width:0;margin-left:4px;font-size:11px;line-height:1.4;height:1.4em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--ctl-w,274px)}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--border)}
   #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:#000;overflow:hidden}
@@ -185,6 +192,7 @@
   #lv_recPop[hidden]{display:none}
   #lv_recPop .recrow{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
   #lv_recPop .recrow input[type=number]{width:72px}
+  #lv_recPop .recrow[hidden]{display:none}
   #lv_recPop .recrow button{margin-left:auto;padding:3px 10px}
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
   #liveCtl .zrow input[type=number]{width:46px}
@@ -502,10 +510,11 @@
     <div id="liveBar">
       <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button>
       <button id="lv_snap" title="Snap: one frame">Snap</button>
-      <span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save .tif&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header); asks for the number of frames. A fresh sample, as a movie starting at the Start time (insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
+      <span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save .tif&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header); asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
         <div id="lv_recPop" hidden role="dialog" aria-label="Record">
           <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
-          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the Start time, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
+          <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
+          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
         </div></span>
       <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
       <span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span>

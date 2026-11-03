@@ -431,20 +431,23 @@ window.addEventListener('isc-reset', () => {
 $('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
 
 const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
-// One line, always: the speed and the image size (or the recording, its saved file, an error); the full text in its
-// tooltip. How the frame was rendered, the drift and the sample time are in the performance box (Expert).
+// One short line, always: the speed alone (fps and ms per frame; a snap the ms), or an error. The rest -- the image and
+// pixel size, the pattern state, the recording's message (frames, its saved file) -- is in its tooltip. How the frame
+// was rendered, the drift and the sample time are in the performance box (Expert).
 function showInfo() {
   syncIdle();
-  // the image size and the pixel size in the sample (one decimal)
-  const el = $('lv_info'), size = L.frames ? ` · ${L.w}×${L.h} px · ${(+$('mv_pixel-nm').value || 100).toFixed(1)} nm/px` : '';
+  const el = $('lv_info'), ms = L.ms.toFixed(1) + ' ms/frame', fps = L.ms > 0 ? (1000 / L.ms).toFixed(1) + ' fps · ' : '';
   const text = L.err ? 'live failed: ' + L.err
-    : REC.on ? `● recording ${REC.got}/${REC.n}` + size
-    : REC.msg && !L.on ? REC.msg
+    : REC.on ? (REC.live && REC.got ? fps + ms : '')   // a fresh sample's movie: its count is on the button
+    : REC.msg && !L.on ? (L.ms > 0 ? fps + ms : '')
     : !L.frames ? (L.on ? 'starting…' : '')
-    : (L.on ? '● ' + L.fps.toFixed(1) + ' fps' : 'snap') + ' · ' + L.ms.toFixed(1) + ' ms/frame' + size +
-      (L.pattern ? ` · pattern ${L.pattern.frame % L.pattern.period + 1}/${L.pattern.period}` : '');
+    : L.on ? L.fps.toFixed(1) + ' fps · ' + ms
+    : ms;
+  const more = [L.frames ? `${L.w}×${L.h} px · ${(+$('mv_pixel-nm').value || 100).toFixed(1)} nm/px` : '',
+    L.pattern ? `pattern ${L.pattern.frame % L.pattern.period + 1}/${L.pattern.period}` : '',
+    REC.on ? `recording ${REC.got}/${REC.n}` : REC.msg && !L.on ? REC.msg : ''].filter(Boolean);
   el.textContent = text;
-  el.title = text;
+  el.title = [text, ...more].filter(Boolean).join('\n');
   showPerfNote();
 }
 function expert() { return document.body.dataset.level === 'expert'; }
@@ -555,17 +558,24 @@ window.addEventListener('resize', drawScale);
 // ---- Record: the next N frames at the stage position, as fast as the engine goes ----
 // The live sample goes on (its light history, drift, noise counter), the frames are not paced to the exposure:
 // Record: N frames rendered as fast as the engine goes, saved as one 16-bit TIFF: ImageJ's header (frames, frame
-// interval, pixel size) and every setting (the engine spec). By default a fresh sample: one movie job of N frames on
-// the live worker (= "Make movie here", = insiliscope_cli --spec with the header's spec), the live sample untouched;
+// interval, pixel size) and every setting (the engine spec). By default a fresh sample: one movie job of N frames from
+// the box's start time (default 0 s) on the live worker (= "Make movie here", = insiliscope_cli --spec with the header's spec), the live sample untouched;
 // Record again cancels it (the worker is replaced, so the live sample starts afresh). With "continue the live sample"
 // (Advanced): chunks of frames, each one movie on the sample's clock (isc_live_frames; ~2 M pixels per chunk), back to
 // back, the last frame of each chunk shown; Record again stops early and saves the frames so far. At most 1 GB.
 const REC = L.rec = { on: false, stop: false, live: false, n: 0, got: 0, buf: null, w: 0, h: 0, spec: '', tStart: 0,
   litStart: 0, t0: 0, engineMs: 0, msg: '' };
+// the fresh sample's time at its first frame (the movie's start-sec; 0 = the light comes on): not the Start time
+// setting, which live keeps; hidden with "continue the live sample", which runs on from the live sample's time
+const syncRecT = () => { $('lv_recTRow').hidden = $('lv_recLive').checked; };
 $('lv_recLive').checked = store.get('recLive', '0') === '1';
-$('lv_recLive').addEventListener('change', () => store.set('recLive', $('lv_recLive').checked ? '1' : '0'));
+$('lv_recLive').addEventListener('change', () => { store.set('recLive', $('lv_recLive').checked ? '1' : '0'); syncRecT(); });
+syncRecT();
 $('lv_recN').value = store.get('recN', '100');
 $('lv_recN').addEventListener('change', () => store.set('recN', $('lv_recN').value));
+$('lv_recT').value = store.get('recT', '0');
+$('lv_recT').addEventListener('change', () => store.set('recT', $('lv_recT').value));
+const recStartSec = () => Math.max(0, +$('lv_recT').value || 0);
 function startRec() {
   if (REC.on && !REC.live) {   // cancel the movie: replace the worker (its live sample goes with it)
     if (L.worker) L.worker.terminate();
@@ -588,7 +598,7 @@ function startRec() {
 function recMovie() {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; REC.on = false; syncButtons(); showInfo(); return; }
-  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n }), fresh: true, t0: performance.now() };
+  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec() }), fresh: true, t0: performance.now() };
   L.pending = job;
   w.postMessage(job);
 }
@@ -720,7 +730,7 @@ const recPop = (open) => {
 $('lv_rec').addEventListener('click', () => { if (REC.on) startRec(); else recPop($('lv_recPop').hidden); });
 $('lv_recGo').addEventListener('click', () => { recPop(false); startRec(); });
 $('lv_recPop').addEventListener('keydown', ev => {
-  if (ev.key === 'Enter') { ev.preventDefault(); $('lv_recN').dispatchEvent(new Event('change')); recPop(false); startRec(); }
+  if (ev.key === 'Enter') { ev.preventDefault(); for (const id of ['lv_recN', 'lv_recT']) $(id).dispatchEvent(new Event('change')); recPop(false); startRec(); }
   else if (ev.key === 'Escape') { ev.preventDefault(); recPop(false); $('lv_rec').focus(); }
 });
 document.addEventListener('pointerdown', ev => {
