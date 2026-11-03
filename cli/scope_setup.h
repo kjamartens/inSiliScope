@@ -122,7 +122,7 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
 // u, evanescent (0/1). The excitation factor of the first emitting label's main state (none: 640 nm).
 struct IllumPreview
 {
-   int n = 0, nz = 0;
+   int n = 0, nz = 0, nxz = 0;   // the x-y (and pupil) side, the x-z image's rows and columns
    double xySpanUm = 0, zMaxUm = 0, uSpan = 0, uMax = 0, uCrit = 1;
    double zUm = 0;   // the x-y section's height above the coverslip (the focus when asked for < 0)
    long long frame = 0;
@@ -132,7 +132,22 @@ struct IllumPreview
    std::vector<double> beams;
    static constexpr int kBeamStride = 9;
 };
+// A part of the x-y or x-z image (a zoomed view): its top-left corner (x0, y0) and side (span) as fractions of the
+// whole image as shown (x from the left, y from the top: the largest y, or z, first). Sampling: ss x ss samples
+// averaged per pixel, or with sigmaPx > 0 under a pattern of several beams anti-aliased: sampled finely enough for the
+// finest fringe (3 samples per lambda / 2 NA, at most 8 per pixel), smoothed by a Gaussian of sigmaPx pixels and taken
+// at the pixel centres, so stripes finer than the pixels turn grey instead of into moire (a box average leaves ~10 %
+// beats). The default is the whole image, one sample per pixel.
+struct IllumWindow
+{
+   double x0 = 0, y0 = 0, span = 1;
+   int ss = 1;
+   double sigmaPx = 0;
+   bool Whole() const { return x0 == 0 && y0 == 0 && span == 1 && ss == 1 && sigmaPx == 0; }
+};
+// n: the x-y image's (and the pupil's) side, nz and nxz the x-z image's rows and columns (0: n).
 bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int n, int nz, IllumPreview& out,
-                    std::string& err);
+                    std::string& err, const IllumWindow& xyWin = IllumWindow(), const IllumWindow& xzWin = IllumWindow(),
+                    int nxz = 0);
 
 } // namespace probes

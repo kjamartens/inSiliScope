@@ -29,8 +29,44 @@ that finishes them.
   (2026-10-28): a `setup` worker job = `isc_scope_setup(spec)` (`cli/scope_setup.*` `ViewerSetupJson`, shared with the
   cli's `--setup-json`): the light path's curves and names, the lasers at the sample, the excitation (regime, u,
   F, TIRF depth per line), every label's vector and physics (main/pre states, spectra) and the legacy linkages; it
-  feeds the BFP readout, the spectra plot (`#specPlot` `data-lasers`), the data layers' labels (`dataLabelsReady`)
-  and `panelLinkage`. `cli/` -- `insiliscope_cli` (headless TIFF movies) and
+  feeds the BFP readout, the data layers' labels (`dataLabelsReady`) and `panelLinkage`.
+- **The Microscope view (2026-11-03):** the title bar's Sample | Microscope pill (`#leftSeg`, kept in `localStorage`
+  `isc.ui.leftView`) swaps the world view for `#scopeHost`: **the C++ describes the panels** (`cli/scope_panels.*`
+  `kPanels`: id, title, slot centre/side, a maker giving a JSON header of typed views -- `image` (map heat/grey, gamma,
+  overlays circle/line/rect/arc), `curves` (series, laser lines, legend), `rows`, `schematic` (elements with a station =
+  the panel a click opens, beams excitation/emission/transmitted) -- plus controls shared by name, and one float
+  buffer); the module's `isc_scope_panels` (the list) and `isc_scope_panel(spec, id, params, scale, ...)` (sizing then
+  filling) on the movie worker's `panel` job; `web/live/scope_panels.js` (page-free, `self.ISC_SCOPE_PANELS`) draws
+  any panel (an unknown element kind as a labelled box), so a new panel is C++ only. Panels: `lightpath` (the drawing in
+  the middle), `illumination` (`IllumPreviewOf`: from below at the focus or `z`, x-z; `frame`), `psf`
+  (`ScopePsfPreview`, cached per spec; `dz`; a tile: the kernel's x-y cropped to the square of every sample above 1 %
+  of the in-focus peak (`kPsfTilePeak`, `PsfCropHalf`; 99 % of the light would take ~4x the side) scaled to the whole
+  stack's peak (an image's `peak`: defocus dims it), and its x-z (gamma 0.5); at scale 2 a 2 x 2 grid (header `columns`): kernel / camera x-y and x-z along the cut `angle`), `bfp`, `spectra` (curves + what reaches the camera per label). Layout (2026-11-03,
+  second round): `#scopeHost` lies over the world view (absolute, below `#viewBar`; the world keeps drawing and loading
+  under it), the light path on top (`.sTop`), the tiles in a grid (`.sGrid`); the drawing lies down unless the view is
+  narrow (`data-orient`; lying, the BFP just behind the objective in a 0.4 slot, its name below the axis), names only in a tile, values / legend / clickable stations filled (`data-detail`); beams fade
+  by each part's pass fraction (`pass`, spectrum-weighted for the emission) and end in a bar where blocked
+  (`data-blocked`, e.g. `emission@emfilter`); a pointer over a tile marks its parts (`data-for` = the element's
+  station + `also`, `highlightParts`); the tiles' images share one height (`--tile-img-h`, `sizeImages`); images draw
+  at their on-screen size with the overlays in screen pixels (even dashes on a stretched x-z; dashed ones thin, at
+  half opacity). Every image zooms with the wheel (`attachZoom`: 1-32x about the pointer, drag pans, an inset
+  `.pvNav` as `#lv_zoomNav` without text; kept across redraws); an image's `link` zooms images together (the PSF's
+  x-y pair, centre in um); a `resample` image is made again for the part shown (`viewChanged` -> the element's
+  `_viewParams` `<name>.x0/.y0/.span` in its request; the header's `window`): the illumination's xy and x-z
+  (`IllumWindow` in `IllumPreviewOf`, one scale at every zoom: the whole section's peak), made at the canvas's device
+  pixels (`<name>.px`, `PixelsParam`, up to `kIllumMaxPx`; a 160 px image scaled by the browser beat ~4 px SIM fringes
+  into moire) and anti-aliased under a pattern (`IllumWindow::sigmaPx` 0.7: fine samples per lambda / 2 NA, a Gaussian,
+  taken at the pixel centres). Filled, the illumination and PSF images carry a scale bar (`scalebarUm`, the whole
+  image's width; the renderer's 1-2-5 bar follows the zoom); the PSF's x-y images all scale to the stack's peaks; the
+  x-z cut runs edge to edge (`reach`). The drawing: an instant pop-up (`.pTip`, `data-tip`) on a part or a beam (wide
+  `pBeamHit` paths: a laser's power and pass fractions, an emission's), the thing marked (`pHov`) and its tiles
+  (`isc-part-hover` -> `.pnlHov`); lasers in wavelength order (the custom line's power `laser-custom`); a line the
+  dichroic passes (>= 10 %) goes on past it; the mirror reaches just past its beams on each side (`MUp`, `MDown`).
+  An image-only tile never wraps (`.imgs`). A tile or a station
+  fills the view at scale 2 (Esc back); they follow every settings change (one job per panel in flight); on a phone
+  one column above the stage. It replaced Preview illumination, Preview PSF, `#specPlot` and `#specBig`. Checks: ctest `scope_panels` (`cli/scope_panels_check.cpp`,
+  ~2.5 s), `tests/web/viewer_scope_view.mjs`.
+- `cli/` -- `insiliscope_cli` (headless TIFF movies) and
   the viewer's WASM module target, both on `adapter/inSiliScope/Simulation/ScopeMovie.*` (the
   adapter's render code, no MM). `dist/cellfield_block.js` = the webSMLM block (generated by `tools/make_cellfield_block.mjs`
   from the `insiliscope_block` target, `cli/CMakeLists.txt`: the core's C ABI + `cli/block_entry.cpp`
@@ -165,8 +201,7 @@ that finishes them.
   rows (`self.ISC_SHOW_DATA`)), `mm_config_ui.js` (the
   Configuration: the MM config groups as selects (the Channel group shows as "Mode", its presets without the dye names,
   viewer only; the laser-power slider groups are skipped: the lasers are sliders in
-  the column's Illumination & light path, made in live.js beside each `mv_laser-*` number; the spectra plot there
-  enlarges on click, `#specBig`); a preset sets the `mv_<option>` controls, options without a
+  the column's Illumination & light path, made in live.js beside each `mv_laser-*` number); a preset sets the `mv_<option>` controls, options without a
   control go into every spec via `self.ISC_MM_EXTRA`; camera-type/em-gain/qe-curve follow the camera preset; the pixel
   size from the optics, read-only in the settings, set at load and on a camera change) and `mm_config.js` (**generated by `tools/gen_mm_configs.py` in the same run as the `.cfg`
   files**, `--check` covers it: each preset applied on a fresh hub at Startup, the adapter's engine spec via
@@ -478,10 +513,9 @@ a frame is the acquisition's as of its publish (`seqFrameNow`: a frame in flight
 to step the new sequence's program and light although the consumer skips it as stale -- the SIM sequence began at 1); `tools/test_sim.py` (26 s: the rows, the fringe's Fourier peak and
 2 pi / 3 steps on the difference image, the restart, the cycle sum = 2 x 9 x Off). Viewer: `mv_sim-type` (Basic, a pick
 counted as `pattern`), the readout `#patternReadout`, the `simBeams` matrix (Expert, `beam.<j>.<col>` in the spec),
-**Preview illumination** (Basic+, as Preview PSF now; `web/live/illum_preview.js` + the `illum` worker job on
-`isc_illum_preview(spec, frame, zUm, ...)`: the section seen from below at a height, the focus for zUm < 0, a slider
-in the dialog (2026-10-31); the captions are page text, not on the canvases (`illumPreviewLabels`); the open dialog
-follows every settings change; the beam record 9 floats with the ellipticity: a circular beam drawn as a circular arrow), the live
+the Microscope view's `illumination` and `bfp` panels (2026-11-03; were Preview illumination, `illum_preview.js`,
+`isc_illum_preview`: the section seen from below at a height, the focus for z < 0; the beam record 9 floats with the
+ellipticity: a circular beam drawn as a circular arrow), the live
 info's pattern state (`info[13..16]`); `web/illumination.html` = the docs' interactive figure (an iframe in the physics
 page, copied beside the viewer by `build_site.sh`); `tests/web/viewer_sim.mjs`. LatticeSIM3D's centre beam is
 linear diagonal under S and P (the user's choice, 2026-10-31; circular before: the x and y first orders a quarter

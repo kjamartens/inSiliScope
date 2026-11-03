@@ -32,7 +32,7 @@
   /* Layout: the world view (left, with its View bar) | a splitter | the live microscope (right: the live camera with
      its controls beside it, then every setting). --live-w: the right panel's width (33-62 % of the window, dragged; 50 % by default). */
   #wrap{display:grid;grid-template-columns:minmax(0,1fr) 6px var(--live-w,50vw);height:100vh}
-  #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0}
+  #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
   #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);flex-wrap:wrap}
   #viewBar h1{font-size:14px;margin:0 6px 0 0;white-space:nowrap}
   #viewBar a.back{font-size:11px;color:var(--link);text-decoration:none;white-space:nowrap}
@@ -151,11 +151,6 @@
   #liveCtl .opt .ctl select{max-width:none;width:100%}
   .opt.text:has(#zernCoeffs),.opt.text:has(#simBeams){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val,.opt.text:has(#simBeams)>.val{display:none}
   #simBeams{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}
-  #illumDlg{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:60;background:var(--panel,#1d2430);color:var(--fg,#eee);border:1px solid #556;border-radius:6px;padding:8px;box-shadow:0 8px 30px rgba(0,0,0,.5);max-width:96vw}
-  #illumDlg .views{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:flex-start} #illumDlg canvas{width:100%;height:auto;image-rendering:pixelated;background:#000}
-  #illumDlg figure{margin:0;width:min(30vw,300px);display:flex;flex-direction:column;gap:3px} #illumDlg figcaption{font-size:12px;font-weight:600;text-align:center}
-  #illumDlg .note{font-size:11px;opacity:.8;line-height:1.3;text-align:center}
-  #illumDlg .t{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:12px}
   #zernCoeffs{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}   /* (the 28 Zernike modes under their name) */
   #liveCtl .sub{font-size:10px;line-height:1.35}
   #liveCtl .opt .unit,#liveCtl .opt .u{font-size:10px}
@@ -173,20 +168,83 @@
   #liveCtl details.grp{border:0;margin:0;background:none}
   #liveCtl details.grp>summary{padding:0;background:none;cursor:pointer}
   #liveCtl details.grp>.body{padding:0}
-  #liveCtl canvas#specPlot{max-width:100%!important}
   /* the laser rows of Illumination & light path: a slider beside the number, as the Configuration had */
   #liveCtl .opt.number:has(>.ctl.lsl){grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w)}
   #liveCtl .ctl.lsl{display:flex;gap:4px;align-items:center}
   #liveCtl .ctl.lsl input[type=range]{flex:1 1 auto;min-width:0;width:0}
-  /* the spectra plot enlarged (click it) */
-  #specBig{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}
-  #specBig[hidden]{display:none}
-  #specBig>div{position:relative;width:min(92vw,900px);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.5)}
-  #specBig canvas{display:block;width:100%;height:auto}
-  #specBig .sub{font-size:12px;color:var(--muted);line-height:1.45;margin-top:8px}
-  #specBig .specLegend{display:flex;flex-wrap:wrap;gap:3px 16px;margin-top:8px;font-size:12px;color:var(--text)}
-  #specBig .specLegend span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-  #specBig button{position:absolute;top:6px;right:8px;padding:2px 8px}
+  /* the left view's switch (title bar): the sample or the microscope (#scopeHost, its panels: web/live/scope_panels.js) */
+  #leftSeg{display:flex;border:1px solid var(--in-border);border-radius:var(--radius);overflow:hidden;flex:none}
+  #leftSeg button{border:0;border-radius:0;padding:3px 9px;background:var(--in-bg);color:var(--muted);font-size:11px;cursor:pointer}
+  #leftSeg button+button{border-left:1px solid var(--in-border)}
+  #leftSeg button.on{background:color-mix(in srgb,var(--accent) 28%,var(--in-bg));color:var(--text)}
+  #scopeHost{display:none;flex-direction:column;gap:10px;flex:1;min-height:0;overflow:auto;padding:10px;box-sizing:border-box;background:var(--bg)}
+  #worldCol.scope #scopeHost{display:flex}
+  body:not(.mobile) #worldCol.scope #scopeHost{position:absolute;left:0;right:0;bottom:0;top:var(--scope-top,34px);z-index:40}
+  /* the light path on top in the middle, the other panels in a grid under it */
+  #scopeHost .sTop{display:flex;justify-content:center;flex:none}
+  #scopeHost .sTop>.pnl{flex:0 1 1100px}
+  #scopeHost .sGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;align-items:stretch;flex:none}
+  #worldCol.scope #scopeHost.filled{display:block}
+  #scopeHost.filled :is(.sTop,.sGrid){display:none}
+  #scopeHost:not(.filled)>.pnl.big{display:none}
+  #scopeHost .pnl.busy .pnlTitle::after{content:' \2026';color:var(--muted)}
+  #scopeHost .pnl[data-error] .pnlCap{color:#e0a64a}
+  #scopeHost .pnl{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
+    padding:8px 10px;min-width:0;font-size:11px;color:var(--text);box-sizing:border-box}
+  #scopeHost .pnl:not(.big){cursor:zoom-in}
+  #scopeHost .pnl:not(.big):hover{border-color:var(--accent)}
+  #scopeHost .pnl.big{cursor:default;font-size:12px;max-width:1200px;margin:0 auto}
+  .pnlHead{display:flex;align-items:center;gap:8px;margin-bottom:6px;min-height:22px} .pnlTitle{flex:1;min-width:0;font-weight:600;font-size:12px;line-height:1.3}
+  .pnl.big .pnlTitle{font-size:14px}
+  .pnlBtn{flex:none;width:24px;height:22px;padding:0;font-size:13px;line-height:20px;text-align:center}
+  .pnlViews{display:flex;gap:8px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+  .pnl.big .pnlViews{gap:16px;align-items:flex-end}
+  /* a grid panel (the PSF's 2 x 2): its rows share the view's height, the images' bottoms on a line */
+  .pnlViews.grid{display:grid;align-items:end;gap:12px 16px;margin:0 auto;width:100%;
+    max-width:calc(var(--img-h) / var(--rows) * var(--aRow) + 16px * (var(--cols) - 1))}
+  .pnlViews.grid .pv-image{max-width:none}
+  .pv{margin:0;min-width:0;display:flex;flex-direction:column;gap:4px}
+  /* an image at most --img-h high: its width caps at that times its aspect */
+  /* in the tiles every image is --tile-img-h high (one height for all: the square ones equal; scopeView sizeImages), filling
+     the view at most --img-h high (its width capped at that times its aspect) */
+  .pnl:not(.big) .pv-image{flex:0 1 auto;width:calc(var(--tile-img-h,120px) * var(--a,1))}
+  /* a tile of images only keeps them side by side: they shrink together (the same height) while the view narrows, until
+     sizeImages sets the new height (wrapping meanwhile made the x-z jump under the x-y and back while the divider moved) */
+  .pnl:not(.big) .pnlViews.imgs{flex-wrap:nowrap}
+  .pnl.big .pv-image{flex:var(--a,1) 1 0;max-width:calc(var(--img-h) * var(--a,1))} .pnl.big{--img-h:max(240px, calc(100vh - 330px))}
+  .pv-image canvas{display:block;width:100%;height:auto;background:#000;border-radius:2px;cursor:inherit}
+  /* a panel image's zoom (the wheel; scope_panels.js attachZoom): the inset shows the part shown, as #lv_zoomNav without its text */
+  .pvImg{position:relative;overflow:hidden;border-radius:2px}
+  .pvNav{position:absolute;top:4px;left:4px;width:clamp(18px,18%,44px);border:1px solid rgba(255,255,255,.55);background:rgba(10,14,20,.55);cursor:pointer;border-radius:2px}
+  .pvNav[hidden]{display:none} .pvNav i{position:absolute;border:1px solid #fff;box-sizing:border-box;min-width:2px;min-height:2px}
+  .pv-curves,.pv-rows,.pv-schematic{flex:1 1 100%}
+  .pv-curves canvas{display:block;width:100%;height:auto;cursor:inherit}
+  .pnl.big .pv-curves canvas{max-width:900px;margin:0 auto}
+  .pv figcaption{font-size:11px;font-weight:600;text-align:center} .pv figcaption:empty,.pvNote:empty{display:none}
+  .pvNote{font-size:11px;color:var(--muted);line-height:1.35;text-align:center}
+  .pv-rows .pvBody{line-height:1.5} .pnl:not(.big) .pv-rows{display:none}
+  .pLegend{display:flex;flex-wrap:wrap;justify-content:center;gap:3px 16px;margin-top:6px;color:var(--text);font-size:11px;line-height:1.4}
+  .pLegend span{display:inline-flex;align-items:center;gap:6px}
+  .pnlCtl{display:flex;flex-direction:column;gap:4px;margin-top:8px} .pnlCtl:empty{display:none}
+  .pc{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;cursor:default} .pcL{flex:1;color:var(--muted)} .pc input{order:3;flex:1 1 100%;min-width:0;margin:2px 0 0}
+  .pcV{flex:none;text-align:right;font-variant-numeric:tabular-nums;cursor:pointer}
+  .pnl.big .pnlCtl{max-width:720px;width:100%;margin:10px auto 0}
+  .pnl.big .pc{flex-wrap:nowrap} .pnl.big .pcL{flex:none;width:100px} .pnl.big .pc input{order:0;flex:1 1 auto;margin:0} .pnl.big .pcV{min-width:84px}
+  .pnlCap{margin-top:8px;color:var(--muted);line-height:1.4;text-align:center} .pnlCap:empty{display:none}
+  .pSchem{display:flex;flex-direction:column;align-items:center;position:relative}
+  .pTip{position:absolute;z-index:3;max-width:280px;padding:5px 8px;border-radius:6px;background:var(--panel,#1b2430);color:var(--text,#dde3ea);border:1px solid var(--border,#3a4656);font-size:11.5px;line-height:1.35;white-space:pre-line;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+  .pTip[hidden]{display:none}
+  .pSchem svg.pDraw{display:block;width:100%;height:auto;font-family:inherit;overflow:visible}
+  .pDraw .pClick{cursor:pointer} .pDraw g.pClick:hover{filter:brightness(1.3)} .pDraw text.pClick:hover{fill:var(--accent)}
+  /* the parts of the panel under the pointer */
+  .pDraw g.pHl{filter:drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 5px var(--accent))} .pDraw text.pHl{fill:var(--accent)}
+  /* the pointer on a part or a beam of the light path: no zoom-in cursor (the tile's), the thing marked, its panels too */
+  .pDraw [data-tip]{cursor:default} .pDraw .pClick[data-tip]{cursor:pointer}
+  .pDraw g.pHov{filter:drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 5px var(--accent))} .pDraw text.pHov{fill:var(--accent)}
+  .pDraw path.pBeamVis.pHov{stroke-width:4.5px;stroke-opacity:1}
+  #scopeHost .pnl.pnlHov{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .pBeamLegend{max-width:900px}
+  body.mobile #scopeHost .sGrid{grid-template-columns:minmax(0,1fr)}
   #lv_recPop{position:absolute;z-index:20;left:0;top:calc(100% + 4px);width:230px;display:flex;flex-direction:column;gap:5px;padding:7px 8px;
     border:1px solid var(--border);border-radius:var(--radius);background:var(--panel,var(--in-bg));box-shadow:0 4px 14px rgba(0,0,0,.35)}
   #lv_recPop[hidden]{display:none}
@@ -475,6 +533,7 @@
     <h1>inSiliScope</h1>
     <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; the live camera on the right starts by itself (■ Stop stops it).">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt</span>
     <span class="sp"></span>
+    <div id="leftSeg" role="radiogroup" aria-label="Left view" title="What the left view shows: the sample (the world view) or the microscope (the light path, the light in the sample, the PSF, the back focal plane, the spectra)"><button data-left="sample" role="radio" class="on" aria-checked="true">Sample</button><button data-left="scope" role="radio" aria-checked="false">Microscope</button></div>
     <a id="mmLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="micro-manager" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>
@@ -485,14 +544,6 @@
     <canvas id="cvXZ"></canvas>
     <div id="hud"><button id="viewBtn" title="What the world view draws: camera angle, layers, z clip" aria-expanded="false">View ▾</button><div id="hudText"></div><div id="viewPanel" hidden></div></div>
     <div id="loading">Loading the cell field (WebAssembly core, packing cells)…</div>
-    <div id="illumDlg"><div class="t"><span id="il_title">Illumination</span><span style="flex:1"></span><a href="#" id="il_close">close</a></div>
-      <div class="views">
-        <figure><figcaption id="il_bfp_t">Back focal plane, from above</figcaption><canvas id="il_bfp"></canvas><div class="note" id="il_bfp_n"></div></figure>
-        <figure><figcaption id="il_xy_t">Section, from below</figcaption><canvas id="il_xy"></canvas><div class="note" id="il_xy_n"></div></figure>
-        <figure><figcaption id="il_xz_t">Side, x-z through the axis</figcaption><canvas id="il_xz"></canvas><div class="note" id="il_xz_n"></div></figure>
-      </div>
-      <div class="t"><span>frame</span><input type="range" id="il_slider" min="0" max="0" value="0" style="flex:1"><span id="il_state"></span></div>
-      <div class="t"><span>height z</span><input type="range" id="il_z" min="0" max="8" step="0.02" value="0.5" autocomplete="off" style="flex:1"><span id="il_zval" title="double-click: back to the focus"></span></div></div>
     <div id="movie"><div class="t drag" title="Drag to move the player"><span id="mv_info"></span><span><a href="#" id="mv_save">save TIFF</a> &nbsp; <a href="#" id="mv_gif" title="The movie as shown (display range), scaled up to at least 512 px">GIF</a> &nbsp; <a href="#" id="mv_mp4" title="The movie as shown (display range), scaled up to at least 512 px; WebM where the browser cannot encode H.264">MP4</a> &nbsp; <a href="#" id="mv_close">close</a></span></div>
       <canvas id="mv_cv"></canvas>
       <div class="t"><button id="mv_play">▶</button><input type="range" id="mv_slider" min="0" max="0" value="0" style="flex:1"><span id="mv_fno"></span></div></div>
@@ -500,6 +551,9 @@
     <div id="legend"></div>
     <div id="xzSplit" title="Drag to resize the x-z view (down to hide it); double-click: fit it to the cells again"></div>
   </div>
+  <!-- The Microscope view (the left view's switch): the light path drawn in the middle, its panels beside it, from
+       the module (cli/scope_panels.h), drawn by web/live/scope_panels.js. -->
+  <div id="scopeHost" aria-label="Microscope"></div>
   </div>
 
   <div id="splitter" title="Drag to resize the microscope panel"></div>
@@ -573,7 +627,7 @@
 <script src="live/mm_config.js"></script>
 <script src="origami_designs.js"></script>
 <script src="insiliscope_module.js"></script>
-<script src="live/illum_preview.js"></script>
+<script src="live/scope_panels.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="scene/core.js"></script>
 <script src="scene/compute.js"></script>
@@ -1204,7 +1258,6 @@ const UI_GROUPS = [
           num('mv_tube-length-mm', 'Tube length', 'mm', 'The tube lens\' focal length: the objective\'s focal length is it over the magnification (100), the pupil\'s radius that × NA; a beam\'s spot size and tilt map to the sample through it. <code>Objective.TubeLengthMm</code>', 50, 500, 1, 200, { adv, show: FL }),
         ] }),
     { kind: 'html', html: '<div class="sub" id="patternReadout"></div>', show: FL },
-    button('illumPreview', 'Preview illumination', 'Sketches the light entering the objective\'s back focal plane (from above: the pupil, the critical circle, each beam\'s spot with its size and polarization) and the pattern it makes in the sample (from below: the focal plane over 1.5× the field; from the side: an x-z section through the axis), for the current settings; a slider steps through the frame program, another moves the section seen from below up and down (double-click its value: back to the focus); the sketch follows the settings while it is open.', { show: FL }),
     select('mv_ex-filter', 'Excitation filter', 'Laser clean-up filter in front of the dichroic: each laser line is scaled by its transmission (a 640 nm clean-up blocks the 561 nm line). None, ideal ±5 nm bands or real curves (FPbase). <code>ExcitationFilter</code>',
       DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_ex-filter']), { adv, show: FL, kids: [
         num('mv_ex-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>ExcitationFilter-CustomLoNm</code>', 300, 900, 0.5, 635, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
@@ -1220,7 +1273,6 @@ const UI_GROUPS = [
         num('mv_em-hi-nm', 'To', 'nm', 'Custom band pass: high edge. <code>EmissionFilter.CustomHiNm</code>', 300, 900, 0.5, 694.5, { adv, show: () => DD.emissionFilters[+$('mv_em-filter').value].id === 'Custom' }),
       ] }),
     num('mv_background-per-sec', 'Background', 'ph/px/s', 'Uniform fluorescence background per camera pixel. <code>SampleHolder.BackgroundPhotonsPerSec</code>', 0, null, 10, 0, { adv }),
-    { kind: 'html', html: '<canvas id="specPlot" width="300" height="96" title="Click to enlarge (with what reaches the camera per label)" style="cursor:zoom-in;width:100%;max-width:300px;height:auto;display:block;margin:0 auto"></canvas><div class="sub" id="specReadout"></div>', show: FL },
     num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>TransmittedLamp.IntensityPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>TransmittedLamp.CondenserNA</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
@@ -1231,7 +1283,6 @@ const UI_GROUPS = [
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3'),
     select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
     text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. <code>Objective.ZernikeCoefficients</code>', undefined, { maxlength: 400 }),
-    button('psfPreview', 'Preview PSF', 'Shows the PSF a movie would use (this model, aberrations, pixel size and the dye\'s detected wavelength) in the player: the oversampled kernel beside the camera image of one emitter at a pixel centre. The slider is the emitter\'s distance from the focal plane.', {}),
   ] },
   // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
   { id: 'camera', host: 'lv_camHost', title: 'Camera', open: true, items: [
@@ -4061,7 +4112,7 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'options' || d.type === 'setup' || d.type === 'psf' || d.type === 'illum' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
         // d (nm) each), on the beads' own world.
@@ -4071,50 +4122,29 @@ function iscEngine(M) {
         const beads = query((ptr, cap) => M._isc_fiducials_in_window(fw, x0, y0, x1, y1, ptr, cap), 7, 1024);
         return [{ type: 'fiducials', id: d.id, key: d.key, rect: d.rect, beads }, [beads.buffer]];
       }
-      if (d.type === 'illum') {
-        // The viewer's Preview illumination (isc_illum_preview: the pupil, the focal plane, an x-z section, the beams;
-        // = web/live/illum_preview.js readIllumPreview, inlined: the workers hold the module alone).
-        if (!M._isc_illum_preview) return [{ type: 'illum', id: d.id, error: 'this viewer module has no illumination preview (regenerate web/insiliscope_module.js)' }, []];
-        const len = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(len), info = M._malloc(12 * 8), err = M._malloc(512);
-        M.stringToUTF8(d.spec, s, len);
-        let out = 0, res;
-        const zUm = d.z >= 0 ? d.z : -1;   // the section's height (-1: the focus)
-        const need = M._isc_illum_preview(s, d.frame, zUm, d.n, d.nz, 0, 0, info, err, 512);
-        if (need < 0) res = { type: 'illum', id: d.id, error: M.UTF8ToString(err) };
-        else {
-          out = M._malloc(Math.max(4, need * 4));
-          if (M._isc_illum_preview(s, d.frame, zUm, d.n, d.nz, out, need, info, err, 512) < 0) res = { type: 'illum', id: d.id, error: M.UTF8ToString(err) };
-          else {
-            const v = M.HEAPF64.slice(info / 8, info / 8 + 12), N = v[0], NZ = v[1], nb = v[6], f = M.HEAPF32.slice(out / 4, out / 4 + need);
-            let o = 0;
-            const bfp = f.slice(o, o += N * N), xy = f.slice(o, o += N * N), xz = f.slice(o, o += NZ * N), beams = [];
-            for (let k = 0; k < nb; k++) { const b = f.slice(o, o += 9); beams.push({ ux: b[0], uy: b[1], spotU: b[2], amp: b[3], phaseTurns: b[4], polDeg: b[5], u: b[6], evanescent: b[7] > 0.5, ellipTurns: b[8] }); }
-            res = { type: 'illum', id: d.id, data: { n: N, nz: NZ, xySpanUm: v[2], zMaxUm: v[3], uSpan: v[4], uMax: v[5], period: v[7], angle: v[8], phase: v[9], patterned: v[10] > 0.5, zUm: v[11], frame: d.frame, bfp, xy, xz, beams } };
-          }
+      if (d.type === 'panel') {
+        // A panel of the Microscope view (isc_scope_panel: its JSON header and floats; = web/live/scope_panels.js
+        // readPanel, inlined: the workers hold the module alone). No panel: the list (isc_scope_panels).
+        if (!M._isc_scope_panel) return [{ type: 'panel', id: d.id, error: 'this viewer module has no panels (regenerate web/insiliscope_module.js)' }, []];
+        if (!d.panel) {
+          const n = M._isc_scope_panels(0, 0), b = M._malloc(n + 1);
+          M._isc_scope_panels(b, n + 1);
+          const list = JSON.parse(M.UTF8ToString(b));
+          M._free(b);
+          return [{ type: 'panel', id: d.id, list }, []];
         }
-        for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
-        return [res, res.data ? [res.data.bfp.buffer, res.data.xy.buffer, res.data.xz.buffer] : []];
-      }
-      if (d.type === 'psf') {
-        // The viewer's Preview PSF: the movie's own kernel and splat (isc_scope_psf_preview), planes then camera images.
-        const n = M.lengthBytesUTF8(d.spec) + 1, s = M._malloc(n), info = M._malloc(7 * 8), err = M._malloc(512);
-        M.stringToUTF8(d.spec, s, n);
-        let out = 0, res;
-        const need = M._isc_scope_psf_preview ? M._isc_scope_psf_preview(s, 0, 0, info, err, 512) : -2;
-        if (need === -2) res = { type: 'psf', id: d.id, error: 'this viewer module has no PSF preview (regenerate web/insiliscope_module.js)' };
-        else
-        if (need < 0) res = { type: 'psf', id: d.id, error: M.UTF8ToString(err) };
+        const str = t => { const n = M.lengthBytesUTF8(t) + 1, p = M._malloc(n); M.stringToUTF8(t, p, n); return p; };
+        const s = str(d.spec), pid = str(d.panel), pr = str(d.params || ''), sizes = M._malloc(8), err = M._malloc(512);
+        let hb = 0, fb = 0, res;
+        if (M._isc_scope_panel(s, pid, pr, d.scale || 1, 0, 0, 0, 0, sizes, err, 512) < 0) res = { type: 'panel', id: d.id, error: M.UTF8ToString(err) };
         else {
-          out = M._malloc(Math.max(4, need * 4));
-          if (M._isc_scope_psf_preview(s, out, need, info, err, 512) < 0) res = { type: 'psf', id: d.id, error: M.UTF8ToString(err) };
-          else {
-            const v = M.HEAPF64.slice(info / 8, info / 8 + 7), size = v[2], nz = v[3], cam = v[4], np = nz * size * size;
-            res = { type: 'psf', id: d.id, gaussian: v[0] === 1, oversampling: v[1], size, nz, camSize: cam, zStepNm: v[5], lambdaNm: v[6],
-              planes: M.HEAPF32.slice(out / 4, out / 4 + np), cams: M.HEAPF32.slice(out / 4 + np, out / 4 + need) };
-          }
+          const hn = M.HEAP32[sizes / 4], fn = M.HEAP32[sizes / 4 + 1];
+          hb = M._malloc(hn + 1); fb = M._malloc(Math.max(4, fn * 4));
+          if (M._isc_scope_panel(s, pid, pr, d.scale || 1, hb, hn + 1, fb, fn, sizes, err, 512) < 0) res = { type: 'panel', id: d.id, error: M.UTF8ToString(err) };
+          else res = { type: 'panel', id: d.id, header: JSON.parse(M.UTF8ToString(hb)), data: M.HEAPF32.slice(fb / 4, fb / 4 + fn) };
         }
-        for (const ptr of [s, info, err, out]) if (ptr) M._free(ptr);
-        return [res, res.planes ? [res.planes.buffer, res.cams.buffer] : []];
+        for (const ptr of [s, pid, pr, sizes, err, hb, fb]) if (ptr) M._free(ptr);
+        return [res, res.data ? [res.data.buffer] : []];
       }
       if (d.type === 'block') {
         // One packing block (8x8 chunks) for the page's scheduler, on whichever worker is free: the
@@ -4504,8 +4534,7 @@ function onDyesWorkerDied(w, msg) {
     if (j.type === 'movie' || j.type === 'bf-movie') onMovieResult({ type: 'movie', id: j.id, error, prepared: !!j.prepare });
     else if (j.type === 'bf-begin') onBfBegin({ type: 'bf-begin', id: j.id, h: -1, error });
     else if (j.type === 'events') onEventsResult({ type: 'events', id: j.id, error });
-    else if (j.type === 'psf') onPsfResult({ type: 'psf', id: j.id, error });
-    else if (j.type === 'illum') onIllumResult({ type: 'illum', id: j.id, error });
+    else if (j.type === 'panel') onPanelResult({ type: 'panel', id: j.id, error });
     else if (j.type === 'setup') onSetupResult({ type: 'setup', id: j.id, error });
     else if (j.type === 'options') genWorkers.dyes.postMessage(j);
   }
@@ -4516,8 +4545,7 @@ function onDyesMessage(e) {
   if (t === 'movie') onMovieResult(e.data);
   else if (t === 'events') onEventsResult(e.data);
   else if (t === 'movie-progress') onMovieProgress(e.data);
-  else if (t === 'psf' || t === 'psf-progress') onPsfResult(e.data);
-  else if (t === 'illum') onIllumResult(e.data);
+  else if (t === 'panel') onPanelResult(e.data);
   else if (t === 'bf-begin') onBfBegin(e.data);
   else if (t === 'origami') onOrigamiResult(e.data);
   else if (t === 'options') {
@@ -6102,7 +6130,6 @@ let movieImg = null, movieU32 = null, movieLut = null, movieLutKey = '';
 const PIX_LE = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
 function showMovieFrame(f) {
   const d = movie, cvm = document.getElementById('mv_cv'), g = cvm.getContext('2d');
-  if (d.psf) { showPsfPlane(f); return; }
   if (!movieImg || movieImg.width !== d.w || movieImg.height !== d.h) {
     movieImg = g.createImageData(d.w, d.h);
     movieU32 = new Uint32Array(movieImg.data.buffer);
@@ -6123,10 +6150,10 @@ function showMovieFrame(f) {
   g.putImageData(movieImg, 0, 0);
   document.getElementById('mv_fno').textContent = `${f + 1}/${d.n}`;
 }
-// A movie plays at its own exposure time per frame (a PSF preview at 100 ms per plane).
+// A movie plays at its own exposure time per frame.
 function movieFrameMs() {
   const m = movie && /(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(movie.spec || '');
-  return movie && movie.psf ? 100 : Math.max(1, m ? +m[1] : +document.getElementById('mv_exposure-ms').value || 50);
+  return Math.max(1, m ? +m[1] : +document.getElementById('mv_exposure-ms').value || 50);
 }
 function toggleMoviePlay() {
   const b = document.getElementById('mv_play'), sl = document.getElementById('mv_slider');
@@ -6187,7 +6214,7 @@ function writeTiff16(frames, w, h, n, desc, pxUm) {
 }
 function saveMovieTiff(e) {
   e.preventDefault();
-  if (!movie || movie.psf) return;
+  if (!movie) return;
   iscTrack('save-tiff', { source: 'movie', frames: iscTrack.framesBucket(movie.n) });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(writeTiff16(movie.frames, movie.w, movie.h, movie.n, 'insiliscope viewer ' + movie.spec));
@@ -6975,83 +7002,180 @@ document.getElementById('mv_sim-type').addEventListener('change', () => { BEAMS.
 window.addEventListener('isc-reset', () => BEAMS.clear());
 setTimeout(showBeams, 0);
 
-// ---- the illumination preview (Illumination & light path, Basic+) ----
-// The pupil seen from above, a section from below (at the focus until the height slider moves it) and an x-z section
-// from the side (web/live/illum_preview.js draws; the data from the module's isc_illum_preview through a worker job),
-// with a slider over the frame program and one over the section's height; while the dialog is open it follows every
-// settings change (2026-10-31: the user's request).
-let illumJob = null, illumJobId = 0, illumData = null, illumZ = -1, illumTimer = 0, illumKey = '';
-// open: the button's click (shows the dialog); else a redraw of the open dialog, dropped if it was closed meanwhile.
-function requestIllum(frame, z, open) {
-  const b = document.getElementById('illumPreview');
-  const spec = movieSpec({ frames: 1 });
-  const key = spec + '|' + frame + '|' + z;
-  if (key === illumKey && (illumJob || illumData)) {   // the same picture: show it again (a click after a close)
-    if (illumJob) illumJob.open = illumJob.open || !!open;
-    else if (open) showIllum();
-    return;
+// ---- the Microscope view (the left view's switch, 2026-11-03) ----
+// The title bar's Sample | Microscope: the world view, or #scopeHost with the module's panels (cli/scope_panels.h:
+// isc_scope_panels, isc_scope_panel; web/live/scope_panels.js draws them): the light path drawn on top in the middle,
+// the other panels in a grid under it. A click on a tile or on a part of the light
+// path fills the view with that panel (✕ or Esc: back). While shown the panels follow every settings change (one
+// job per panel in flight, the latest settings after it); a control's value (the frame, the section's height, the
+// PSF's defocus) is one per name across the panels. The choice is kept (localStorage isc.ui.leftView). The world view
+// lies under the panels meanwhile at its own size and goes on loading and drawing (hiding it stopped the cells from
+// loading: a page opened on the Microscope never got its sample); on a phone it stays the stage's inset and the panels
+// show under the title bar.
+const scopeView = (() => {
+  const host = document.getElementById('scopeHost'), col = document.getElementById('worldCol'), seg = document.getElementById('leftSeg');
+  const SP = self.ISC_SCOPE_PANELS, KEY = 'isc.ui.leftView';
+  let on = false, list = null, listAsked = false, filled = '', timer = 0, jobId = 5e9, hovered = '';
+  const params = {}, els = new Map(), state = new Map(), jobs = new Map();
+  const big = document.createElement('div');
+  big.className = 'pnl big';
+  const paramText = () => Object.entries(params).map(([k, v]) => k + '=' + v).join(' ');
+  const light = () => document.body.dataset.uiStyle === 'light';
+  function post(job, done) {
+    jobs.set(job.id, done);
+    if (genWorkers.ok) genWorkers.dyes.postMessage(job);
+    else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job)).then(r => onResult(r[0])), 0);
+    else setupWaiting.push(() => { jobs.delete(job.id); post(job, done); });
   }
-  illumKey = key;
-  b.textContent = 'Computing…';
-  illumJob = { id: ++illumJobId, frame, open: !!open };
-  const job = { type: 'illum', id: illumJob.id, spec, frame, z, n: 192, nz: 112 };
-  if (genWorkers.ok) genWorkers.dyes.postMessage(job);
-  else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job, onIllumResult)).then(r => onIllumResult(r[0])), 0);
-  else { b.textContent = 'Preview illumination'; illumKey = ''; alert('Illumination preview: the workers are not ready yet.'); }
-}
-// A redraw of the open dialog at its frame and height, debounced (a slider drag, a settings change).
-function scheduleIllum(ms) {
-  clearTimeout(illumTimer);
-  illumTimer = setTimeout(() => requestIllum(+document.getElementById('il_slider').value, illumZ), ms || 80);
-}
-function onIllumResult(d) {
-  if (!illumJob || d.id !== illumJob.id || d.type !== 'illum') return;
-  const open = illumJob.open;
-  illumJob = null;
-  document.getElementById('illumPreview').textContent = 'Preview illumination';
-  if (d.error) { illumKey = ''; alert('Illumination preview failed: ' + d.error); return; }
-  illumData = d.data;
-  if (open || illumOpen()) showIllum();   // (closed while it was computed: kept for the next click)
-}
-// The dialog with illumData (its settings = the panel's now: illumKey).
-function showIllum() {
-  const dlg = document.getElementById('illumDlg'), sl = document.getElementById('il_slider'), zs = document.getElementById('il_z');
-  sl.max = Math.max(0, illumData.period - 1);
-  sl.value = ((illumData.frame % illumData.period) + illumData.period) % illumData.period;
-  zs.max = illumData.zMaxUm;
-  zs.value = illumData.zUm;
-  document.getElementById('il_zval').textContent = illumData.zUm.toFixed(2) + ' µm' + (illumZ < 0 ? ' (the focus)' : '');
-  dlg.style.display = 'block';
-  dlg.dataset.period = illumData.period;
-  dlg.dataset.beams = illumData.beams.length;
-  dlg.dataset.frame = sl.value;
-  dlg.dataset.z = illumData.zUm.toFixed(2);
-  const P = self.ISC_ILLUM_PREVIEW;
-  P.drawIllumPreview(illumData, { bfp: document.getElementById('il_bfp'), xy: document.getElementById('il_xy'), xz: document.getElementById('il_xz') });
-  const L = P.illumPreviewLabels(illumData);
-  for (const v of ['bfp', 'xy', 'xz']) {
-    document.getElementById('il_' + v + '_t').textContent = L[v].title;
-    document.getElementById('il_' + v + '_n').textContent = L[v].note;
+  function onResult(d) {
+    const done = jobs.get(d.id);
+    jobs.delete(d.id);
+    if (done) done(d);
   }
-  document.getElementById('il_state').textContent = P.illumPreviewCaption(illumData);
-  document.getElementById('il_title').textContent = 'Illumination: ' + (illumData.patterned ? document.getElementById('mv_sim-type').selectedOptions[0].textContent : 'one beam') +
-    ', BFP position ' + (+document.getElementById('mv_illum-bfp').value).toFixed(2);
-}
-const illumOpen = () => document.getElementById('illumDlg').style.display === 'block';
-document.getElementById('illumPreview').addEventListener('click', () => requestIllum(+document.getElementById('il_slider').value, illumZ, true));
-document.getElementById('il_slider').addEventListener('input', () => scheduleIllum(40));
-document.getElementById('il_z').addEventListener('input', e => {
-  if (!illumOpen()) return;   // (a browser restoring the slider's value at load is not the user)
-  illumZ = +e.target.value; document.getElementById('il_zval').textContent = illumZ.toFixed(2) + ' µm'; scheduleIllum(40);
-});
-document.getElementById('il_zval').addEventListener('dblclick', () => { illumZ = -1; scheduleIllum(0); });   // back to the focus
-document.getElementById('il_close').addEventListener('click', e => { e.preventDefault(); document.getElementById('illumDlg').style.display = 'none'; });
-// Auto-update: any settings change (an mv_ control, the beam matrix, the Zernike entry, a restore) redraws the open dialog.
-document.addEventListener('input', e => {
-  const t = e.target;
-  if (illumOpen() && t && t.id && (t.id.startsWith('mv_') || t.id === 'simBeams' || t.id === 'zernCoeffs')) scheduleIllum();
-}, true);
-window.addEventListener('isc-restored', () => { if (illumOpen()) scheduleIllum(); });
+  function askList() {
+    if (list || listAsked) return;
+    listAsked = true;
+    post({ type: 'panel', id: ++jobId }, d => {
+      if (d.error || !d.list) { listAsked = false; host.textContent = 'Microscope view: ' + (d.error || 'no panels'); return; }
+      list = d.list;
+      build();
+      refresh(0);
+    });
+  }
+  // The light path on top (slot "centre"), the other panels in a grid under it, in the list's order.
+  function build() {
+    host.textContent = '';
+    const top = document.createElement('div'), grid = document.createElement('div');
+    top.className = 'sTop';
+    grid.className = 'sGrid';
+    for (const p of list) {
+      const el = document.createElement('div');
+      el.className = 'pnl';
+      el.dataset.panel = p.id;
+      el.innerHTML = '<div class="pnlHead"><span class="pnlTitle"></span></div><div class="pnlCap">Computing\u2026</div>';
+      el.querySelector('.pnlTitle').textContent = p.title;
+      el.addEventListener('click', e => { if (!el._pShape && !e.target.closest('button,input')) open(p.id); });
+      // the pointer over a panel marks its parts in the light path
+      if (p.slot !== 'centre') {
+        el.addEventListener('pointerenter', () => { hovered = p.id; SP.highlightParts(els.get('lightpath'), hovered); });
+        el.addEventListener('pointerleave', () => { hovered = ''; SP.highlightParts(els.get('lightpath'), ''); });
+      }
+      els.set(p.id, el);
+      (p.slot === 'centre' ? top : grid).append(el);
+    }
+    host.append(top, grid, big);
+    host.dataset.panels = list.length;
+  }
+  const titleOf = id => (list.find(p => p.id === id) || {}).title || id;
+  // The panel id into el (big: filling the view, at scale 2), unless it already shows these settings.
+  function request(id, el, isBig, spec, ps) {
+    if (el._viewParams) ps += ' ' + el._viewParams;   // the parts its zoomed images show (scope_panels.js viewChanged)
+    const k = isBig ? '#big' : id, key = id + '|' + spec + '|' + ps;
+    const st = state.get(k) || {};
+    state.set(k, st);
+    if (st.busy) { st.next = () => request(id, el, isBig, movieSpec(), paramText()); return; }   // (its view params added again)
+    if (st.shown === key) return;
+    st.busy = true;
+    el.classList.add('busy');
+    post({ type: 'panel', id: ++jobId, spec, panel: id, params: ps, scale: isBig ? 2 : 1 }, d => {
+      st.busy = false;
+      el.classList.remove('busy');
+      if (d.error) {
+        el.dataset.error = d.error;
+        const c = el.querySelector('.pnlCap');
+        if (c) c.textContent = workerErrorText(d.error);
+      } else if (!isBig || filled === id) {
+        delete el.dataset.error;
+        st.shown = key;
+        SP.drawPanel(el, d, { big: isBig, light: light(), title: titleOf(id), onParam, onOpen: open, onClose: close, onView: () => refresh(60) });
+        if (id === 'lightpath' && !isBig) SP.highlightParts(el, hovered);
+        if (!isBig) sizeImages();
+      }
+      const n = st.next;
+      st.next = null;
+      if (n) n();
+    });
+  }
+  // One height for every tile's images, the largest at which each tile's images fit side by side (at most 190 px).
+  function sizeImages() {
+    let h = 190;
+    for (const el of els.values()) {
+      const figs = el.querySelectorAll('.pv-image'), views = el.querySelector('.pnlViews');
+      if (!figs.length || !views || !views.clientWidth) continue;
+      let sum = 0;
+      for (const f of figs) sum += +f.style.getPropertyValue('--a') || 1;
+      h = Math.min(h, (views.clientWidth - 8 * (figs.length - 1)) / sum);
+    }
+    host.style.setProperty('--tile-img-h', Math.max(40, Math.floor(h)) + 'px');
+  }
+  function update() {
+    if (!on || !list) return;
+    const spec = movieSpec(), ps = paramText();
+    if (filled) request(filled, big, true, spec, ps);
+    else for (const p of list) request(p.id, els.get(p.id), false, spec, ps);
+  }
+  function refresh(ms) {
+    if (!on) return;
+    clearTimeout(timer);
+    timer = setTimeout(update, ms === undefined ? 120 : ms);
+  }
+  function onParam(name, value) { params[name] = value; refresh(40); }
+  function open(id) {
+    if (!list || !list.some(p => p.id === id)) return;
+    filled = id;
+    host.classList.add('filled');
+    host.dataset.filled = id;
+    host.scrollTop = 0;
+    refresh(0);
+  }
+  function close() {
+    if (!filled) return;
+    filled = '';
+    host.classList.remove('filled');
+    delete host.dataset.filled;
+    refresh(0);
+  }
+  // the panels start under the title bar (its height can change with the window)
+  function place() { col.style.setProperty('--scope-top', document.getElementById('viewBar').offsetHeight + 'px'); }
+  function set(v) {
+    on = !!v;
+    col.classList.toggle('scope', on);
+    for (const b of seg.querySelectorAll('button')) {
+      const me = (b.dataset.left === 'scope') === on;
+      b.classList.toggle('on', me);
+      b.setAttribute('aria-checked', String(me));
+    }
+    try { localStorage.setItem(KEY, on ? 'scope' : 'sample'); } catch (e) { /* private window */ }
+    place();
+    if (on) { askList(); refresh(0); }
+  }
+  seg.addEventListener('click', e => { const b = e.target.closest('button'); if (b) set(b.dataset.left === 'scope'); });
+  // the pointer on a part or a beam of the light path drawing (scope_panels.js): the tiles it belongs to marked
+  host.addEventListener('isc-part-hover', e => {
+    const ids = (e.detail && e.detail.panels) || [];
+    for (const [id, el] of els) el.classList.toggle('pnlHov', id !== 'lightpath' && ids.includes(id));
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && on && filled) close(); });
+  // every settings change (the settings, the controls column, the Configuration; a restore, a reset)
+  for (const t of ['input', 'change'])
+    document.addEventListener(t, e => { if (on && e.target && e.target.closest && e.target.closest('#side')) refresh(); }, true);
+  for (const t of ['isc-restored', 'isc-reset']) window.addEventListener(t, () => refresh());
+  window.addEventListener('resize', place);
+  // a new width: the panels drawn again (the light path lies down or stands up with its width)
+  let resizeTimer = 0, lastW = 0;
+  if (self.ResizeObserver) new ResizeObserver(() => {
+    const w = host.clientWidth;
+    if (!on || !w || w === lastW) return;
+    lastW = w;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { for (const el of [...els.values(), big]) SP.redrawPanel(el); sizeImages(); }, 120);
+  }).observe(host);
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) { /* private window */ }
+  if (saved === 'scope') set(true);
+  return { onResult, set, open, close, refresh, get on() { return on; }, get filled() { return filled; } };
+})();
+function onPanelResult(d) { scopeView.onResult(d); }
 // The pattern readout under the rows: the type's state, the fringe period at the strongest line, the frames per cycle.
 async function drawPatternReadout() {
   const out = document.getElementById('patternReadout');
@@ -7140,79 +7264,6 @@ els.mv_specimen.addEventListener('input', () => {
 });
 syncSpecimen();
 
-// ---- PSF preview (Objective & PSF, advanced) ----
-// The kernel a movie uses and its splat (isc_scope_psf_preview = sim::MakeScopePsfPreview): each z plane oversampled (sum 1) beside the camera image of one emitter at a pixel
-// centre, shown in the movie player; the slider is the emitter's defocus. A job for the movie worker (it shares the
-// kernel memo with the movies and works from file:// pages), or the main-thread engine with ?nw.
-let psfJob = null, psfJobId = 0;
-function previewPsf() {
-  const b = document.getElementById('psfPreview');
-  b.textContent = 'Computing PSF…';
-  psfJob = { id: ++psfJobId, spec: movieSpec(), na: 1.4, pixelNm: +document.getElementById('mv_pixel-nm').value,
-    psf: document.getElementById('mv_psf-model').value === '0' ? 'Gaussian (no defocus)'
-      : 'Gibson-Lanni + Zernike, ' + document.getElementById('mv_psf-zernike-preset').selectedOptions[0].textContent };
-  const job = { type: 'psf', id: psfJob.id, spec: psfJob.spec };
-  if (genWorkers.ok) genWorkers.dyes.postMessage(job);
-  else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job, onPsfResult)).then(r => onPsfResult(r[0])), 0);
-  else { b.textContent = 'Preview PSF'; alert('PSF preview: the workers are not ready yet.'); }
-}
-function onPsfResult(d) {
-  if (!psfJob || d.id !== psfJob.id) return;
-  const b = document.getElementById('psfPreview');
-  if (d.type === 'psf-progress') { b.textContent = `Computing PSF ${Math.round(100 * d.frac)} %…`; return; }
-  if (d.type !== 'psf') return;
-  const job = psfJob;
-  psfJob = null;
-  b.textContent = 'Preview PSF';
-  if (d.error) { alert('PSF preview failed: ' + d.error); return; }
-  showPsfPreview(Object.assign(d, { title: job.psf, na: job.na, pixelNm: job.pixelNm }));
-}
-// The player shows the two panels side by side at the same scale: the kernel (os x os samples per camera pixel) and
-// the camera pixels drawn os x os each; each panel scaled to its own peak in the plane shown.
-function showPsfPreview(d) {
-  if (movieRaf) toggleMoviePlay();
-  const gap = 6, cw = d.camSize * d.oversampling;
-  movie = { psf: d, n: d.nz, w: d.size + gap + cw, h: Math.max(d.size, cw), rect: null };
-  const cvm = document.getElementById('mv_cv');
-  cvm.width = movie.w; cvm.height = movie.h;
-  const scale = Math.min(1, 768 / movie.w);
-  cvm.style.width = Math.round(movie.w * scale) + 'px'; cvm.style.height = Math.round(movie.h * scale) + 'px';
-  const sl = document.getElementById('mv_slider');
-  sl.max = d.nz - 1; sl.value = (d.nz - 1) >> 1;
-  document.getElementById('mv_save').style.display = 'none';
-  document.getElementById('mv_info').textContent = `PSF: ${d.title}, ${d.lambdaNm} nm, NA ${d.na}. ` +
-    `Left: kernel, ${d.oversampling}x oversampled (${(d.pixelNm / d.oversampling).toFixed(1)} nm); right: ${d.pixelNm} nm camera pixels, ` +
-    `emitter at a pixel centre. Each scaled to its peak.`;
-  document.getElementById('movie').style.display = 'block';
-  showMovieFrame(+sl.value);
-  requestDraw();
-}
-function showPsfPlane(f) {
-  const d = movie.psf, W = movie.w, H = movie.h, g = document.getElementById('mv_cv').getContext('2d');
-  const img = g.createImageData(W, H), u32 = new Uint32Array(img.data.buffer);
-  const grey = v => { const b = Math.max(0, Math.min(255, Math.round(255 * v))); return PIX_LE ? (0xff000000 | (b << 16) | (b << 8) | b) >>> 0 : ((b << 24) | (b << 16) | (b << 8) | 0xff) >>> 0; };
-  u32.fill(PIX_LE ? 0xff2a2018 : 0x18202aff);   // the gap and margins
-  const panel = (data, n, rep, x0) => {
-    let max = 0;
-    for (let i = 0; i < n * n; i++) if (data[i] > max) max = data[i];
-    const k = max > 0 ? 1 / max : 0, y0 = (H - n * rep) >> 1;
-    for (let y = 0; y < n * rep; y++) for (let x = 0; x < n * rep; x++)
-      u32[(y0 + y) * W + x0 + x] = grey(data[((y / rep) | 0) * n + ((x / rep) | 0)] * k);
-  };
-  panel(d.planes.subarray(f * d.size * d.size, (f + 1) * d.size * d.size), d.size, 1, 0);
-  panel(d.cams.subarray(f * d.camSize * d.camSize, (f + 1) * d.camSize * d.camSize), d.camSize, d.oversampling, d.size + 6);
-  g.putImageData(img, 0, 0);
-  const zUm = (f - (d.nz - 1) / 2) * d.zStepNm / 1000;
-  document.getElementById('mv_fno').textContent = d.gaussian ? 'in focus' : `z − focus = ${zUm >= 0 ? "+" : "−"}${Math.abs(zUm).toFixed(2)} µm`;
-}
-document.getElementById('psfPreview').addEventListener('click', previewPsf);
-
-// ---- light path: spectra plot and detection readout (issue 16) ----
-// From the movie's own setup (the setup job: the C++ light path and labels a movie uses): the dye's excitation and
-// emission (and its pre state), the laser lines, the dichroic's and the emission filter's transmission and the camera
-// QE; below, the detected fraction, effective wavelength and photons per second while ON.
-let specTimer = 0;
-
 // ---- the BFP position's readout: regime and depth (the setup job's excitation, as a movie uses it) ----
 let bfpTimer = 0;
 function scheduleBfpReadout() { clearTimeout(bfpTimer); bfpTimer = setTimeout(drawBfpReadout, 120); }
@@ -7241,141 +7292,9 @@ for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-m
   document.getElementById(k)?.addEventListener('input', scheduleBfpReadout);
 scheduleBfpReadout();
 
-// The spectra plot's colour of a wavelength (violet 400 nm .. red 700 nm, beyond it red): bright on the dark looks,
-// darker on Light. The laser lines and the dye curves both use it, so every line has contrast (the library's emission
-// colours can be very dark, Cy3B's is black); a dye's excitation and emission take the colour of its weighted
-// emission wavelength (the emission spectrum's centroid).
-// The hue follows the spectrum piecewise (400 violet, 450 blue, 490 cyan, 520 green, 570 yellow, 590 orange, >= 625 red).
-const WAVE_HUE = [[400, 275], [450, 235], [490, 185], [520, 125], [570, 58], [590, 32], [625, 2]];
-function waveColour(nm, light) {
-  let hue = WAVE_HUE[WAVE_HUE.length - 1][1];
-  if (nm <= WAVE_HUE[0][0]) hue = WAVE_HUE[0][1];
-  else for (let i = 1; i < WAVE_HUE.length; i++) if (nm <= WAVE_HUE[i][0]) {
-    const [a, ha] = WAVE_HUE[i - 1], [b, hb] = WAVE_HUE[i];
-    hue = ha + (hb - ha) * (nm - a) / (b - a); break;
-  }
-  return light ? `hsl(${hue.toFixed(0)},85%,42%)` : `hsl(${hue.toFixed(0)},100%,${nm >= 625 ? 66 : 62}%)`;
-}
-const centroidNm = vals => { let s = 0, w = 0; for (let i = 0; i < vals.length; i++) { s += vals[i] * (300 + i); w += vals[i]; } return w > 0 ? s / w : 600; };
-function scheduleSpecPlot() {
-  clearTimeout(specTimer);
-  specTimer = setTimeout(() => { drawSpecPlot(false); if (!document.getElementById('specBig').hidden) drawSpecPlot(true); }, 120);
-}
-// big: the enlarged plot (#specBig, click the small one), drawn at k = 2 (its canvas has twice the CSS pixels); the
-// small one (laid out on 300 x 96) at the screen pixels it covers (k = its CSS width / 300 x devicePixelRatio, up to 4:
-// sharp on a phone, the same size and look on the page).
-const SPEC_W = 300, SPEC_H = 96;
-async function drawSpecPlot(big) {
-  const cv2 = document.getElementById(big ? 'specPlotBig' : 'specPlot'), out = document.getElementById(big ? 'specBigReadout' : 'specReadout');
-  if (!cv2 || !cv2.offsetParent) return;
-  const k = big ? 2 : Math.min(4, Math.max(1, (cv2.clientWidth || SPEC_W) / SPEC_W * (devicePixelRatio || 1)));
-  if (!big && cv2.width !== Math.round(SPEC_W * k)) { cv2.width = Math.round(SPEC_W * k); cv2.height = Math.round(SPEC_H * k); }
-  try {
-    const S = await setupJob(movieSpec()), lp = S.light_path, AL = S.labels;
-    const shown = DYE_UI.targets.filter(t => t.specimen === DYE_UI.specimen() && !AL[t.structure].off).map(t => [t, AL[t.structure]]);
-    const g = cv2.getContext('2d'), W = cv2.width, H = cv2.height, x0 = 350, x1 = 800, top = 8 * k, bot = H - 16 * k;
-    const X = nm => (nm - x0) / (x1 - x0) * W, Y = v => bot - v * (bot - top);
-    const light = document.body.dataset.uiStyle === 'light';
-    // the palette: the dark looks get brighter, thicker lines (dye colours lifted to a readable lightness)
-    const P = light
-      ? { text: '#555', lw: 1.2, emFill: 'rgba(0,120,255,0.12)', emEdge: null, dich: '#888', exF: '#777', qe: '#bbb', laserW: 2, laserEdge: '#111',
-          laser: nm => waveColour(nm, true) }
-      : { text: '#cfd6df', lw: 1.7, emFill: 'rgba(110,180,255,0.26)', emEdge: 'rgba(150,205,255,0.9)', dich: '#f2f2f2', exF: '#ffcf70', qe: '#a3b1c4', laserW: 3, laserEdge: '#ffffff',
-          laser: nm => waveColour(nm, false) };
-    const legend = [];   // [label, style] for the enlarged plot's legend
-    g.clearRect(0, 0, W, H);
-    g.font = (big ? 22 : 10 * k) + 'px sans-serif'; g.fillStyle = P.text;
-    const step = big ? 50 : 100;
-    for (let nm = 400; nm <= 800; nm += step) { g.fillText(String(nm), X(nm) - 9 * k, H - 3 * k); g.fillRect(X(nm), bot, k, 3 * k); }
-    if (big) g.fillText('nm', X(x0) + 4 * k, H - 3 * k);
-    const curve = (vals, style, dash, fill) => {
-      g.beginPath();
-      for (let nm = x0; nm <= x1; nm++) { const v = vals[nm - 300] || 0; if (nm === x0) g.moveTo(X(nm), Y(v)); else g.lineTo(X(nm), Y(v)); }
-      if (fill) { g.lineTo(X(x1), Y(0)); g.lineTo(X(x0), Y(0)); g.closePath(); g.fillStyle = fill; g.fill(); return; }
-      g.setLineDash((dash || []).map(v => v * k)); g.strokeStyle = style; g.lineWidth = P.lw * k; g.stroke(); g.setLineDash([]);
-    };
-    curve(lp.emission_T, null, null, P.emFill);
-    if (P.emEdge) curve(lp.emission_T, P.emEdge);
-    legend.push(['emission filter: ' + lp.emission_filter, { fill: P.emFill, stroke: P.emEdge }]);
-    curve(lp.dichroic_T, P.dich, [2, 2]);
-    legend.push(['dichroic: ' + lp.dichroic, { stroke: P.dich, dash: [2, 2] }]);
-    if (lp.excitation_T.some(v => v !== 1)) {
-      curve(lp.excitation_T, P.exF, [6, 2, 1, 2]);
-      legend.push(['excitation filter: ' + lp.excitation_filter, { stroke: P.exF, dash: [6, 2, 1, 2] }]);
-    }
-    curve(lp.qe, P.qe, [1, 3]);
-    legend.push(['camera QE' + (lp.qe_name ? ': ' + lp.qe_name : ''), { stroke: P.qe, dash: [1, 3] }]);
-    for (const [t, L] of shown) {
-      const name = DYE_UI.dyeNameOf(t.prefix);
-      for (const [role, dash] of [['main', null], ['pre', [5, 3]]]) {
-        const sp = L['dye_' + role];
-        if (!sp.present || sp.is_dark || (role === 'pre' && L.mode !== 'PALM')) continue;
-        const who = name + (role === 'pre' ? ' (pre state)' : '');
-        const c = waveColour(sp.em ? centroidNm(sp.em) : sp.ex ? centroidNm(sp.ex) : 600, light);   // its weighted emission wavelength
-        if (sp.ex) { curve(sp.ex, c, [3, 3]); legend.push([who + ' excitation', { stroke: c, dash: [3, 3] }]); }
-        if (sp.em) { curve(sp.em, c, dash); legend.push([who + ' emission', { stroke: c, dash }]); }
-      }
-    }
-    let lines = 0;
-    for (const l of lp.lasers) {
-      if (!(l.kw_per_cm2 > 0)) continue;   // blocked by the excitation filter
-      lines++;
-      // a laser line: its colour with an edge on both sides (white on the dark looks), so it stands apart from a dye
-      // curve of the same hue
-      const c = P.laser(l.nm), x = X(l.nm), w = P.laserW * k, e = (light ? 1 : 1.5) * k;
-      g.fillStyle = P.laserEdge; g.fillRect(x - w / 2 - e, top, w + 2 * e, bot - top);
-      g.fillStyle = c; g.fillRect(x - w / 2, top, w, bot - top);
-      legend.push([`${l.nm} nm laser, ${+l.kw_per_cm2.toFixed(3)} kW/cm²`, { stroke: c, width: P.laserW, edge: P.laserEdge }]);
-    }
-    cv2.dataset.lasers = lines;
-    const fmt = st => st ? `${(100 * st.detected_fraction).toFixed(1)} % detected at ${st.lambda_nm.toFixed(0)} nm, ${Math.round(st.detected_per_s).toLocaleString()} ph/s` : 'dark';
-    const parts = [];
-    if (!shown.length) parts.push('no labelled target (every dye None, 0 % labelled or no structure)');
-    for (const [t, L] of shown) {
-      const who = shown.length > 1 ? t.name + ': ' : '';
-      parts.push(`${who}<b>${DYE_UI.dyeNameOf(t.prefix)}</b>, ${L.mode}: ${fmt(L.main)}${L.mode === 'WideField' ? '' : ' while ON'}`);
-      if (L.pre) parts.push(`pre state: ${fmt(L.pre)}`);
-      if (L.mode === 'dSTORM') parts.push(`ON ${(1000 * L.on_s_now).toPrecision(3)} ms, initial ON ${L.initial_on_s.toPrecision(3)} s (excitation x${L.excitation_scale.toPrecision(3)} of Dempsey 2011's)`);
-      if (L.k_act_per_s > 0) parts.push(`activation ${L.k_act_per_s.toPrecision(3)} /s per dye`);
-      const bg = L.imager_background_per_px_per_s;
-      if (bg > 0) parts.push(`free imager: ${bg.toFixed(0)} ph/px/s`);
-      if (L.generic) parts.push('<i>generic values: no data for this dye in this mode</i>');
-    }
-    // the legend and the readout (what reaches the camera per label) only under the enlarged plot
-    if (big) {
-      const sw = s => `<svg width="30" height="12" aria-hidden="true">` + (s.fill
-        ? `<rect x="1" y="2" width="28" height="8" fill="${s.fill}"${s.stroke ? ` stroke="${s.stroke}"` : ''}/>`
-        : (s.edge ? `<line x1="1" y1="6" x2="29" y2="6" stroke="${s.edge}" stroke-width="${(s.width || 2) + 3}"/>` : '') +
-          `<line x1="1" y1="6" x2="29" y2="6" stroke="${s.stroke}" stroke-width="${s.width || P.lw + 0.3}"${s.dash ? ` stroke-dasharray="${s.dash.join(' ')}"` : ''}/>`) + '</svg>';
-      document.getElementById('specBigLegend').innerHTML = legend.map(([t, s]) => `<span>${sw(s)}${t}</span>`).join('');
-    }
-    out.innerHTML = !big ? '' : parts.join('<br>');
-  } catch (e) {
-    out.textContent = 'light path: ' + (e && e.message || e);
-  }
-}
-// the plot follows the settings and the controls column (where Illumination & light path is)
-for (const id of ['panel', 'liveCtl']) {
-  document.getElementById(id).addEventListener('input', scheduleSpecPlot);
-  document.getElementById(id).addEventListener('change', scheduleSpecPlot);
-  document.getElementById(id).addEventListener('toggle', scheduleSpecPlot, true);
-}
-// click the plot: a larger copy over the page (Esc, a click beside it or ✕ closes it)
-(function () {
-  const ov = document.createElement('div');
-  ov.id = 'specBig'; ov.hidden = true;
-  ov.innerHTML = '<div role="dialog" aria-label="Spectra"><button title="Close (Esc)">✕</button><canvas id="specPlotBig" width="1720" height="560"></canvas><div class="specLegend" id="specBigLegend"></div><div class="sub" id="specBigReadout"></div></div>';
-  document.body.append(ov);
-  const close = () => { ov.hidden = true; };
-  ov.addEventListener('click', e => { if (e.target === ov || e.target.tagName === 'BUTTON') close(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !ov.hidden) close(); });
-  document.getElementById('specPlot').addEventListener('click', () => { ov.hidden = false; drawSpecPlot(true); });
-})();
 // the planned movie square follows the Acquisition group's state and the camera size / pixel size
 document.getElementById('panel').addEventListener('toggle', e => { if (e.target.dataset && e.target.dataset.group === 'acq') requestDraw(); }, true);
 for (const id of ['mv_size', 'mv_pixel-nm', 'mv_modality', 'mv_z']) document.getElementById(id).addEventListener('input', requestDraw);
-scheduleSpecPlot();
-window.addEventListener('resize', scheduleSpecPlot);   // (a new pixel density: another screen, a page zoom, the phone layout)
 document.getElementById('mv_psf-model').addEventListener('change', e => {
   document.getElementById('mv_psf-zernike-preset').disabled = e.target.value === '0';
 });

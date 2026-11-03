@@ -6,20 +6,36 @@
 <title>Illumination preview</title>
 <!-- The docs' interactive illumination figure (docs/physics/dyes-and-light-path.md "Structured illumination"): the
      light entering the objective's back focal plane and the pattern it makes in the sample, from the viewer's own
-     engine (web/insiliscope_module.js, isc_illum_preview) and drawing (web/live/illum_preview.js), with the type, the
-     BFP position, the polarization and the frame to pick. Embedded by the docs in an iframe; standalone too. -->
+     engine (web/insiliscope_module.js: the Microscope view's panels bfp and illumination, isc_scope_panel) and drawing
+     (web/live/scope_panels.js), with the type, the BFP position, the polarization and the beam width to pick (the
+     frame and the section's height are the panels' own sliders). Embedded by the docs in an iframe; standalone too. -->
 <style>
-  :root{color-scheme:light dark;--fg:#ddd;--bg:#14181f;--line:rgba(255,255,255,.85)}
-  @media (prefers-color-scheme: light){:root{--fg:#222;--bg:#fff;--line:rgba(0,0,0,.75)}}
-  body{margin:0;padding:10px;font:13px/1.4 system-ui,sans-serif;color:var(--fg);background:var(--bg)}
+  :root{color-scheme:light dark;--text:#ddd;--muted:#aab;--bg:#14181f;--panel:#1b2129;--border:#3a4350;--accent:#559ded}
+  @media (prefers-color-scheme: light){:root{--text:#222;--muted:#5d6672;--bg:#fff;--panel:#f5f6f8;--border:#d9dde3;--accent:#4051b5}}
+  body{margin:0;padding:10px;font:13px/1.4 system-ui,sans-serif;color:var(--text);background:var(--bg)}
   .row{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-bottom:8px}
   label{display:flex;align-items:center;gap:5px}
   select,input[type=number]{font:inherit}
-  .views{display:flex;flex-wrap:wrap;gap:8px}
-  canvas{width:100%;height:auto;image-rendering:pixelated;background:#000;border:1px solid #555}
-  figure{margin:0;width:min(32vw,260px);display:flex;flex-direction:column;gap:3px} figcaption{font-size:12px;font-weight:600;text-align:center}
-  .note{font-size:11px;opacity:.8;line-height:1.3;text-align:center}
   .sub{opacity:.8;font-size:12px}
+  .panels{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+  #bfpHost{flex:1 1 200px;max-width:290px} #illHost{flex:2 1 380px}
+  /* the panels' look (as the viewer's Microscope view, web/index.html) */
+  .pnl{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:6px 8px;min-width:0;font-size:12px}
+  .pnlHead{display:flex;align-items:center;gap:6px;margin-bottom:5px} .pnlTitle{flex:1;font-weight:600} .pnlBtn{display:none}
+  .pnlViews{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+  .pv{margin:0;min-width:0;display:flex;flex-direction:column;gap:3px} .pv-rows{flex:1 1 100%}
+  .pv-image canvas{display:block;width:100%;height:auto;background:#000}
+  /* the zoom inset (the wheel over an image; scope_panels.js) */
+  .pvImg{position:relative;overflow:hidden}
+  .pvNav{position:absolute;top:4px;left:4px;width:clamp(18px,18%,44px);border:1px solid rgba(255,255,255,.55);background:rgba(10,14,20,.55);cursor:pointer;border-radius:2px}
+  .pvNav[hidden]{display:none} .pvNav i{position:absolute;border:1px solid #fff;box-sizing:border-box;min-width:2px;min-height:2px}
+  .pv figcaption{font-size:12px;font-weight:600;text-align:center} .pv figcaption:empty,.pvNote:empty{display:none}
+  .pvNote{font-size:11px;color:var(--muted);line-height:1.3;text-align:center}
+  .pnlCtl{display:flex;flex-direction:column;gap:2px;margin-top:4px} .pnlCtl:empty{display:none}
+  .pc{display:flex;align-items:center;gap:6px} .pcL{flex:none;width:80px;color:var(--muted)} .pc input{flex:1;min-width:0}
+  .pcV{flex:none;min-width:70px;text-align:right;font-variant-numeric:tabular-nums;cursor:pointer}
+  .pnlCap{margin-top:5px;color:var(--muted)} .pnlCap:empty{display:none}
+  #bfpHost .pnlCtl{display:none}   /* (the frame: the illumination panel's slider moves both) */
 </style>
 </head>
 <body>
@@ -28,21 +44,14 @@
   <label>BFP position <input type="range" id="bfp" min="0" max="1.1" step="0.01" value="0.95"><span id="bfpVal">0.95</span></label>
   <label>Polarization <select id="pol"><option value="0">S</option><option value="1">P</option><option value="2">Circular</option><option value="3">LinearX</option><option value="4">Unpolarized</option></select></label>
   <label>Beam FWHM <input type="number" id="fwhm" min="10" max="300" step="5" value="100" style="width:4em"> % of the field</label>
-</div>
-<div class="row">
-  <label>Frame <input type="range" id="frame" min="0" max="8" step="1" value="0" style="width:180px"><span id="state"></span></label>
-  <label>Section height z <input type="range" id="z" min="0" max="8" step="0.02" value="0.5" style="width:180px"><span id="zVal"></span></label>
   <span class="sub" id="note"></span>
 </div>
-<div class="views">
-  <figure><figcaption id="bfpT">Back focal plane, from above</figcaption><canvas id="bfpCv"></canvas><div class="note" id="bfpN"></div></figure>
-  <figure><figcaption id="xyT">Section, from below</figcaption><canvas id="xyCv"></canvas><div class="note" id="xyN"></div></figure>
-  <figure><figcaption id="xzT">Side, x-z through the axis</figcaption><canvas id="xzCv"></canvas><div class="note" id="xzN"></div></figure>
-</div>
+<div class="panels"><div id="bfpHost" class="pnl"></div><div id="illHost" class="pnl"></div></div>
 <p class="sub">A 12.8 µm field, the 640 nm line, NA 1.40 in water (n 1.337), the focus 0.5 µm above the coverslip. The section seen
-from below starts at the focus; its slider moves it up and down (the dashed line in the side view).</p>
+from below starts at the focus; its slider moves it up and down (the dashed line in the side view; double-click its
+value: back to the focus).</p>
 <script src="insiliscope_module.js"></script>
-<script src="live/illum_preview.js"></script>
+<script src="live/scope_panels.js"></script>
 <script>
 (async () => {
   const $ = id => document.getElementById(id);
@@ -53,35 +62,32 @@ from below starts at the focus; its slider moves it up and down (the dashed line
     (0, eval)(self.ISC_MODULE_SRC);
     M = await createInsiliscope();
   } catch (e) { note.textContent = 'the engine could not start: ' + e.message; return; }
-  const P = self.ISC_ILLUM_PREVIEW;
-  let busy = false, again = false, zUser = -1;   // zUser: the section's height once the slider moved (-1: the focus)
-  async function draw() {
-    if (busy) { again = true; return; }
-    busy = true;
-    const type = $('type').value, bfp = +$('bfp').value, pol = $('pol').value, fwhm = +$('fwhm').value;
-    $('bfpVal').textContent = bfp.toFixed(2);
-    const spec = `size=128 pixel-nm=100 frames=1 illum-bfp=${bfp} illum-fwhm=${fwhm} sim-type=${type} sim-polarization=${pol} ` +
-      `npc-dye=None mt-mode=WideField laser-640=1 light-preset=-1 psf-kernel-half-width-nm=1500`;
-    const d = P.readIllumPreview(M, spec, +$('frame').value, 160, 96, zUser);
-    if (d.error) { note.textContent = d.error; busy = false; return; }
-    $('frame').max = Math.max(0, d.period - 1);
-    if (+$('frame').value > d.period - 1) $('frame').value = 0;
-    $('z').max = d.zMaxUm; $('z').value = d.zUm; $('zVal').textContent = d.zUm.toFixed(2) + ' µm';
-    const line = getComputedStyle(document.documentElement).getPropertyValue('--line').trim();
-    P.drawIllumPreview(d, { bfp: $('bfpCv'), xy: $('xyCv'), xz: $('xzCv') }, { line });
-    const L = P.illumPreviewLabels(d);
-    for (const v of ['bfp', 'xy', 'xz']) { $(v + 'T').textContent = L[v].title; $(v + 'N').textContent = L[v].note; }
-    $('state').textContent = P.illumPreviewCaption(d);
-    const u = d.beams.length ? Math.max(...d.beams.map(b => b.u)) : 0;
-    note.textContent = u > 1 ? 'the beams are evanescent (TIRF-SIM)' : u > 0 ? `the beams ${(Math.asin(Math.min(1, u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium` : 'epi: the beam straight up';
-    document.body.dataset.period = d.period;
-    document.body.dataset.beams = d.beams.length;
-    busy = false;
-    if (again) { again = false; draw(); }
+  const P = self.ISC_SCOPE_PANELS, params = {};
+  const light = () => matchMedia('(prefers-color-scheme: light)').matches;
+  let queued = false;
+  function draw() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      const type = $('type').value, bfp = +$('bfp').value, pol = $('pol').value, fwhm = +$('fwhm').value;
+      $('bfpVal').textContent = bfp.toFixed(2);
+      const spec = `size=128 pixel-nm=100 frames=1 illum-bfp=${bfp} illum-fwhm=${fwhm} sim-type=${type} sim-polarization=${pol} ` +
+        `npc-dye=None mt-mode=WideField laser-640=1 light-preset=-1 psf-kernel-half-width-nm=1500`;
+      const ps = Object.entries(params).map(([k, v]) => k + '=' + v).join(' ');
+      const opts = { big: true, light: light(), onParam: (k, v) => { params[k] = v; draw(); } };
+      for (const [id, host] of [['bfp', $('bfpHost')], ['illumination', $('illHost')]]) {
+        const d = P.readPanel(M, spec, id, ps, 1);
+        if (d.error) { note.textContent = d.error; return; }
+        P.drawPanel(host, d, opts);
+        const fr = d.header.controls.find(c => c.name === 'frame');
+        document.body.dataset.period = fr ? fr.max + 1 : 1;
+      }
+      note.textContent = '';
+    });
   }
-  for (const id of ['type', 'bfp', 'pol', 'fwhm', 'frame']) $(id).addEventListener('input', draw);
-  $('z').addEventListener('input', () => { zUser = +$('z').value; draw(); });
-  $('type').addEventListener('change', () => { const r = { '1': 0.95, '2': 0.9, '3': 0.9, '4': 0.9 }[$('type').value]; if (r) $('bfp').value = r; });
+  for (const id of ['type', 'bfp', 'pol', 'fwhm']) $(id).addEventListener('input', draw);
+  $('type').addEventListener('change', () => { const r = { '1': 0.95, '2': 0.9, '3': 0.9, '4': 0.9 }[$('type').value]; if (r) $('bfp').value = r; delete params.frame; draw(); });
   draw();
 })();
 </script>
