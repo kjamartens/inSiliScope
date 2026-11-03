@@ -930,7 +930,11 @@ whose PSF period was shorter than the window: folded light); option `psf-pupil-s
 out camera pixels below `psf-halo-cut` of the emitter's photons (`WithHaloCut`: per plane and row a column span, no
 renormalization; MM `Renderer.PsfHaloCut`, `Renderer.Quality` Fast 1e-5 / Realistic 3e-6 / Exhaustive 0; CPU splat, D3D11
 gather and JS); continuous populations (WideField, mean field, per dye) keep the whole kernel. Keep the docs' warning
-(docs/physics/optics.md) in step. The Linux test `.so`, the
+(docs/physics/optics.md) in step. **Sample spacing** (2026-11-03, spec/ALGORITHM.md "PSF kernel sample spacing"):
+`psf-max-sample-nm` / `Renderer.PsfMaxSampleNm` (Expert; Quality Fast 30 / Realistic 15 / Exhaustive 0 = none; the
+user's choice) lowers the kernel's samples per pixel to min(os, ceil(pixel / cap)) (`CappedPsfOversampling`): the
+default pixels keep 4 / 6 (bit for bit), a 20 nm pixel takes 2 (cli 128 px DNA-PAINT SIM2D 8.9 s / 3.5 GB -> 1.5 s /
+392 MB); ctest `cli_probes`. The Linux test `.so`, the
 cli and the viewer get the real model too.
 
 **Licensing (2026-10-01):** this project's own source is BSD-3-Clause (`LICENSE`);

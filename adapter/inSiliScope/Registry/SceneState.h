@@ -199,6 +199,7 @@ struct SceneState
    // ---- renderer ----
    std::atomic<int> psfModel{static_cast<int>(sim::PsfModelKind::GibsonLanniZernike)};
    std::atomic<int> psfOversampling{6};
+   std::atomic<double> psfMaxSampleNm{15.0};   // Renderer.Quality Realistic
    std::atomic<int> psfInterp{static_cast<int>(sim::PsfInterpMode::Cubic)};
    std::atomic<int> psfPupilSamples{0};
    std::atomic<double> psfHaloCut{3e-6};   // Renderer.Quality Realistic

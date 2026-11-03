@@ -406,6 +406,7 @@ const OptionTable& Options()
          { "psf-mask-modes", 5, "double-helix Gauss-Laguerre modes (2-8)" },
          { "psf-mask-waist", 1.0, "double-helix waist, pupil radii" },
          { "psf-oversampling", 6, "Renderer.PsfOversampling: kernel samples per camera pixel, per axis (1-16)" },
+         { "psf-max-sample-nm", 15, "Renderer.PsfMaxSampleNm: the kernel's samples are made no finer than needed to keep them at most this far apart, nm: samples per pixel = min(psf-oversampling, ceil(pixel / this)) (Quality Fast 30, Realistic 15, Exhaustive 0 = no cap)" },
          { "psf-kernel-half-width-nm", 7000, "Objective.PsfKernelHalfWidthNm (a minimum: grown to 3x the Rayleigh radius)" },
          { "psf-z-range-um", 7.0, "Objective.PsfZRangeUm: span of the PSF z stack" },
          { "psf-z-step-um", 0.1, "Objective.PsfZStepUm: PSF z plane spacing" },
@@ -1821,7 +1822,8 @@ bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorReq
    req.na = O("na");
    req.immersionIndex = O("immersion-index");
    req.pixelSizeNm = O("pixel-nm");
-   req.oversampling = static_cast<int>(std::min(16.0, std::max(1.0, O("psf-oversampling"))));
+   req.oversampling = CappedPsfOversampling(static_cast<int>(std::min(16.0, std::max(1.0, O("psf-oversampling")))),
+                                            req.pixelSizeNm, O("psf-max-sample-nm"));
    req.kernelHalfWidthPx =
       PsfKernelHalfWidthPx(std::min(20000.0, std::max(100.0, O("psf-kernel-half-width-nm"))), req.pixelSizeNm,
                            req.wavelengthNm, req.na);
@@ -2765,7 +2767,8 @@ bool MakeScopePsfPreview(const ScopeSpec& spec, ScopePsfPreview& out, std::strin
    }
    // Gaussian: no defocus, one plane.
    const double sigma = GaussianSigmaPx(out.lambdaNm, ScopeSpecGet(spec, "na"), ScopeSpecGet(spec, "pixel-nm"));
-   const int os = static_cast<int>(std::min(16.0, std::max(1.0, ScopeSpecGet(spec, "psf-oversampling"))));
+   const int os = CappedPsfOversampling(static_cast<int>(std::min(16.0, std::max(1.0, ScopeSpecGet(spec, "psf-oversampling")))),
+                                        ScopeSpecGet(spec, "pixel-nm"), ScopeSpecGet(spec, "psf-max-sample-nm"));
    const int camRad = static_cast<int>(std::ceil(4 * sigma)) + 1, n = 2 * camRad + 1;
    out.gaussian = true;
    out.oversampling = os;

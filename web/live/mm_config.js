@@ -487,6 +487,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 0.0,
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
+       "psf-max-sample-nm": 0.0,
        "psf-oversampling": 8.0,
        "sim-frame-pattern-continuous": 1.0,
        "wf-upscale": 2.0
@@ -498,6 +499,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 100.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
+       "psf-max-sample-nm": 30.0,
        "psf-oversampling": 4.0,
        "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
@@ -509,6 +511,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
+       "psf-max-sample-nm": 15.0,
        "psf-oversampling": 6.0,
        "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
@@ -1094,6 +1097,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 0.0,
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
+       "psf-max-sample-nm": 0.0,
        "psf-oversampling": 8.0,
        "sim-frame-pattern-continuous": 1.0,
        "wf-upscale": 2.0
@@ -1105,6 +1109,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 100.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
+       "psf-max-sample-nm": 30.0,
        "psf-oversampling": 4.0,
        "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
@@ -1116,6 +1121,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
+       "psf-max-sample-nm": 15.0,
        "psf-oversampling": 6.0,
        "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
@@ -1702,6 +1708,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 0.0,
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
+       "psf-max-sample-nm": 0.0,
        "psf-oversampling": 8.0,
        "sim-frame-pattern-continuous": 1.0,
        "wf-upscale": 2.0
@@ -1713,6 +1720,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 100.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
+       "psf-max-sample-nm": 30.0,
        "psf-oversampling": 4.0,
        "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
@@ -1724,6 +1732,7 @@ self.ISC_MM_CONFIG = {
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
+       "psf-max-sample-nm": 15.0,
        "psf-oversampling": 6.0,
        "sim-frame-pattern-continuous": 0.0,
        "wf-upscale": 1.0
@@ -2434,6 +2443,10 @@ self.ISC_MM_TIERS = {
 "tier": "Advanced",
 "prop": "Objective.PsfKernelHalfWidthNm"
 },
+"psf-max-sample-nm": {
+"tier": "Expert",
+"prop": "Renderer.PsfMaxSampleNm"
+},
 "psf-model": {
 "tier": "Expert",
 "prop": "Renderer.PsfModel"
@@ -2887,6 +2900,7 @@ self.ISC_MM_TIERS = {
 "Renderer.PsfGeneratorJavaHome": "Expert",
 "Renderer.PsfHaloCut": "Expert",
 "Renderer.PsfInterp": "Expert",
+"Renderer.PsfMaxSampleNm": "Expert",
 "Renderer.PsfModel": "Expert",
 "Renderer.PsfOversampling": "Expert",
 "Renderer.PsfPupilSamples": "Expert",

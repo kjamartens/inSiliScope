@@ -8,8 +8,10 @@
 //   - --history-before: a past equal to the movie's settings changes nothing, a power step acts from then on.
 //
 //   probes_check          exit code 0 = all checks passed (writes probes_check_* files in the working directory)
+#include "PsfGeneratorBridge.h"
 #include "RenderPresets.h"
 #include "ScopeResolved.h"
+#include "ScopeMovie.h"
 #include "scope_probes.h"
 
 #include <cmath>
@@ -214,15 +216,32 @@ int main()
       Check(unchanged > 0 && std::fabs(same / unchanged - 1) < 1e-5 && std::fabs(stepped / unchanged - 4) < 0.1 &&
             reread / unchanged < 3, msg);
    }
+   // The kernel's sample spacing cap (psf-max-sample-nm): a small pixel takes the fewest samples at most the cap apart,
+   // never more than psf-oversampling; 0 = no cap; the default pixel keeps its 6.
+   {
+      const bool f = CappedPsfOversampling(6, 20, 15) == 2 && CappedPsfOversampling(6, 100, 15) == 6 &&
+                     CappedPsfOversampling(4, 97.45, 30) == 4 && CappedPsfOversampling(6, 30, 15) == 2 &&
+                     CappedPsfOversampling(8, 20, 0) == 8 && CappedPsfOversampling(6, 10, 15) == 1;
+      std::string err;
+      ScopePsfPreview p20, p20x, p100;
+      const std::string s = "disk-cache=0 psf-z-range-um=0.2 psf-kernel-half-width-nm=600 ";
+      const bool ok = MakeScopePsfPreview(Spec((s + "pixel-nm=20").c_str()), p20, err) &&
+                      MakeScopePsfPreview(Spec((s + "pixel-nm=20 psf-max-sample-nm=0").c_str()), p20x, err) &&
+                      MakeScopePsfPreview(Spec((s + "pixel-nm=100").c_str()), p100, err);
+      std::snprintf(msg, sizeof msg, "psf-max-sample-nm: the rule %s; kernel samples per pixel at 20 nm %d (no cap %d), at "
+                    "100 nm %d %s", f ? "ok" : "WRONG", p20.oversampling, p20x.oversampling, p100.oversampling, err.c_str());
+      Check(f && ok && p20.oversampling == 2 && p20x.oversampling == 6 && p100.oversampling == 6, msg);
+   }
    // Renderer.Quality's Realistic = the cli/viewer option defaults (one table, RenderPresets.h).
    {
       auto def = [](const char* n) { return ScopeSpecGet(ScopeSpec(), n); };
       const QualityPreset& r = kQualityPresets[1];
-      std::snprintf(msg, sizeof msg, "Quality %s = defaults: bf-quality %g, psf-oversampling %g, wf-upscale %g, psf-halo-cut %g, "
+      std::snprintf(msg, sizeof msg, "Quality %s = defaults: bf-quality %g, psf-oversampling %g, psf-max-sample-nm %g, wf-upscale %g, psf-halo-cut %g, "
                     "blink-min-photons %g, fid-clumps-as-one %g, sim-frame-pattern-continuous %g", r.name,
-                    def("bf-quality"), def("psf-oversampling"), def("wf-upscale"), def("psf-halo-cut"),
+                    def("bf-quality"), def("psf-oversampling"), def("psf-max-sample-nm"), def("wf-upscale"), def("psf-halo-cut"),
                     def("blink-min-photons"), def("fid-clumps-as-one"), def("sim-frame-pattern-continuous"));
       Check(!std::strcmp(r.name, "Realistic") && def("bf-quality") == r.bf && def("psf-oversampling") == r.os &&
+            def("psf-max-sample-nm") == r.maxSampleNm &&
             def("wf-upscale") == r.wf && def("psf-halo-cut") == r.halo && def("blink-min-photons") == r.minPhotons &&
             def("fid-clumps-as-one") == r.clumpsAsOne && def("sim-frame-pattern-continuous") == r.framePattern, msg);
    }
