@@ -236,10 +236,9 @@
   .pSpecLegend .lgItems{display:flex;flex-wrap:wrap;gap:3px 16px;align-items:center}
   .pSpecLegend .lgItems.dyes{flex-direction:column;align-items:flex-start}
   .pSpecLegend .lgSub{gap:10px} .pSpecLegend .lgSub b{font-weight:600;min-width:9em}
-  /* the legend and the plot linked (filled): an entry under the pointer, or the curve's, marked; the others faint */
+  /* the legend and the plot linked (filled): the entries other than the one under the pointer, or the curve's, faint */
   .pSpecLegend [data-i]{cursor:default;transition:opacity .1s}
   .pSpecLegend.lgHov [data-i]:not(.lgOn){opacity:.35}
-  .pSpecLegend .lgOn:not(.lgHead):not(b){text-decoration:underline;text-underline-offset:3px}
   .pv-curves{position:relative}
   .pnlCtl{display:flex;flex-direction:column;gap:4px;margin-top:8px} .pnlCtl:empty{display:none}
   .pc{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;cursor:default} .pcL{flex:1;color:var(--muted)} .pc input{order:3;flex:1 1 100%;min-width:0;margin:2px 0 0}
