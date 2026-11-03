@@ -6972,14 +6972,19 @@ setTimeout(showBeams, 0);
 // with a slider over the frame program and one over the section's height; while the dialog is open it follows every
 // settings change (2026-10-31: the user's request).
 let illumJob = null, illumJobId = 0, illumData = null, illumZ = -1, illumTimer = 0, illumKey = '';
-function requestIllum(frame, z) {
+// open: the button's click (shows the dialog); else a redraw of the open dialog, dropped if it was closed meanwhile.
+function requestIllum(frame, z, open) {
   const b = document.getElementById('illumPreview');
   const spec = movieSpec({ frames: 1 });
   const key = spec + '|' + frame + '|' + z;
-  if (key === illumKey && (illumJob || illumData)) return;   // the same picture: nothing to do
+  if (key === illumKey && (illumJob || illumData)) {   // the same picture: show it again (a click after a close)
+    if (illumJob) illumJob.open = illumJob.open || !!open;
+    else if (open) showIllum();
+    return;
+  }
   illumKey = key;
   b.textContent = 'Computing…';
-  illumJob = { id: ++illumJobId, frame };
+  illumJob = { id: ++illumJobId, frame, open: !!open };
   const job = { type: 'illum', id: illumJob.id, spec, frame, z, n: 192, nz: 112 };
   if (genWorkers.ok) genWorkers.dyes.postMessage(job);
   else if (mainEngine) setTimeout(() => Promise.resolve(mainEngine.handle(job, onIllumResult)).then(r => onIllumResult(r[0])), 0);
@@ -6992,10 +6997,15 @@ function scheduleIllum(ms) {
 }
 function onIllumResult(d) {
   if (!illumJob || d.id !== illumJob.id || d.type !== 'illum') return;
+  const open = illumJob.open;
   illumJob = null;
   document.getElementById('illumPreview').textContent = 'Preview illumination';
   if (d.error) { illumKey = ''; alert('Illumination preview failed: ' + d.error); return; }
   illumData = d.data;
+  if (open || illumOpen()) showIllum();   // (closed while it was computed: kept for the next click)
+}
+// The dialog with illumData (its settings = the panel's now: illumKey).
+function showIllum() {
   const dlg = document.getElementById('illumDlg'), sl = document.getElementById('il_slider'), zs = document.getElementById('il_z');
   sl.max = Math.max(0, illumData.period - 1);
   sl.value = ((illumData.frame % illumData.period) + illumData.period) % illumData.period;
@@ -7019,7 +7029,7 @@ function onIllumResult(d) {
     ', BFP position ' + (+document.getElementById('mv_illum-bfp').value).toFixed(2);
 }
 const illumOpen = () => document.getElementById('illumDlg').style.display === 'block';
-document.getElementById('illumPreview').addEventListener('click', () => requestIllum(+document.getElementById('il_slider').value, illumZ));
+document.getElementById('illumPreview').addEventListener('click', () => requestIllum(+document.getElementById('il_slider').value, illumZ, true));
 document.getElementById('il_slider').addEventListener('input', () => scheduleIllum(40));
 document.getElementById('il_z').addEventListener('input', e => {
   if (!illumOpen()) return;   // (a browser restoring the slider's value at load is not the user)

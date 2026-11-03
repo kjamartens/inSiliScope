@@ -45,6 +45,32 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   await page.evaluate(() => { const s = document.getElementById('il_z'); s.value = 1.2; s.dispatchEvent(new Event('input')); });
   await page.waitForFunction(() => document.getElementById('illumDlg').dataset.z === '1.20' && /z = 1\.20/.test(document.getElementById('il_xy_t').textContent), null, { timeout: 90000 });
   check(true, 'the height slider moves the section to 1.20 um (its caption follows)');
+  // closed and clicked again with the same settings: the same picture shows again, no job (it used to do nothing)
+  const again = await page.evaluate(async () => {
+    const d = document.getElementById('illumDlg'), id0 = illumJobId;
+    document.getElementById('il_close').click();
+    document.getElementById('illumPreview').click();
+    return { open: d.style.display === 'block', jobs: illumJobId - id0, z: d.dataset.z };
+  });
+  check(again.open && again.jobs === 0 && again.z === '1.20', `closed, then clicked with the same settings: open again at once (${JSON.stringify(again)})`);
+  // closed while a settings change redraws it: stays closed; the next click shows that redraw
+  const caught = await page.evaluate(async () => {
+    const el = document.getElementById('mv_laser-640');
+    el.value = 0.7; el.dispatchEvent(new Event('input', { bubbles: true }));
+    for (let t = 0; t < 2000 && !illumJob; t += 5) await new Promise(r => setTimeout(r, 5));
+    const inFlight = !!illumJob;
+    document.getElementById('il_close').click();
+    return inFlight;
+  });
+  check(caught, 'a settings change starts a redraw of the open dialog');
+  await page.waitForFunction(() => !illumJob, null, { timeout: 90000 });
+  await new Promise(r => setTimeout(r, 300));
+  const late = await page.evaluate(() => {
+    const d = document.getElementById('illumDlg'), shut = d.style.display !== 'block', id0 = illumJobId;
+    document.getElementById('illumPreview').click();
+    return { shut, open: d.style.display === 'block', jobs: illumJobId - id0, current: illumKey.startsWith(movieSpec({ frames: 1 }) + '|') };
+  });
+  check(late.shut && late.open && late.jobs === 0 && late.current, `closed during a redraw: stays closed, the next click shows the redraw (${JSON.stringify(late)})`);
   await page.evaluate(() => { illumZ = -1; });   // back to the focus for the rest
   await page.evaluate(() => document.getElementById('il_close').click());
 
