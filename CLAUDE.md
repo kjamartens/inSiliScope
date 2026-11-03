@@ -41,9 +41,9 @@ that finishes them.
   the middle), `illumination` (`IllumPreviewOf`: from below at the focus or `z`, x-z; `frame`), `psf`
   (`ScopePsfPreview`, cached per spec; `dz`; a tile: the kernel's x-y cropped to the square of every sample above 1 %
   of the in-focus peak (`kPsfTilePeak`, `PsfCropHalf`; 99 % of the light would take ~4x the side) scaled to the whole
-  stack's peak (an image's `peak`: defocus dims it), and its x-z (gamma 0.5); at scale 2 a 2 x 2 grid (header `columns`): kernel / camera x-y and x-z along the cut `angle`), `bfp`, `spectra` (curves + what reaches the camera per label). Layout (2026-11-03,
+  stack's peak (an image's `peak`: defocus dims it), and its x-z (gamma 0.5); at scale 2 a 2 x 2 grid (header `columns`): kernel / camera x-y and x-z along the cut `angle`), `bfp`, `spectra` (curves + what reaches the camera per label; filled: thinner lines, an axis title, the legend in rows along the light path, `legendHtml` `LEGEND_ROWS`). Layout (2026-11-03,
   second round): `#scopeHost` lies over the world view (absolute, below `#viewBar`; the world keeps drawing and loading
-  under it), the light path on top (`.sTop`), the tiles in a grid (`.sGrid`); the drawing lies down unless the view is
+  under it), the light path on top (`.sTop`), the tiles in a grid of at most two columns (`.sGrid`; the images grow instead, up to 480 px high); the drawing lies down unless the view is
   narrow (`data-orient`; lying, the BFP just behind the objective in a 0.4 slot, its name below the axis), names only in a tile, values / legend / clickable stations filled (`data-detail`); beams fade
   by each part's pass fraction (`pass`, spectrum-weighted for the emission) and end in a bar where blocked
   (`data-blocked`, e.g. `emission@emfilter`); a pointer over a tile marks its parts (`data-for` = the element's

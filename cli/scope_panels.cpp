@@ -769,14 +769,22 @@ bool SpectraPanel(const sim::ScopeSpec& spec, const std::map<std::string, double
    b.j.Close(']');
    b.j.Key("lines");
    b.j.Open('[');
-   for (const sim::LaserLine& l : lp.lasers)
+   // the lines by wavelength (the custom one, laser-custom-nm, last in lp.lasers, among the others)
+   const double customNm = sim::ScopeSpecGet(spec, "laser-custom-nm");
+   std::vector<size_t> byNm(lp.lasers.size());
+   for (size_t k = 0; k < byNm.size(); ++k)
+      byNm[k] = k;
+   std::stable_sort(byNm.begin(), byNm.end(), [&](size_t a, size_t c) { return lp.lasers[a].nm < lp.lasers[c].nm; });
+   for (size_t k : byNm)
    {
+      const sim::LaserLine& l = lp.lasers[k];
       if (!(l.kWPerCm2 > 0))
          continue;   // blocked by the excitation filter
+      const bool custom = customNm > 0 && k + 1 == lp.lasers.size();
       b.j.Open('{');
       b.j.KNum("x", l.nm);
       b.j.KNum("nm", l.nm);
-      b.j.KStr("label", Fmt("%g", l.nm) + " nm laser, " + Fmt("%.3g", l.kWPerCm2) + " kW/cm\xC2\xB2");
+      b.j.KStr("label", Fmt("%g", l.nm) + " nm" + (custom ? " (custom)" : "") + ", " + Fmt("%.3g", l.kWPerCm2) + " kW/cm\xC2\xB2");
       b.j.Close('}');
    }
    b.j.Close(']');

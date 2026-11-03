@@ -29,7 +29,7 @@ through it step by step.
   the lasers and their excitation filter coming in from below, the emission filter, the camera; each lit laser's light
   going to the sample and each label's emission coming back, in their wavelengths' colours, with arrows; a beam fades
   with what each part lets through and ends in a bar at a part that stops it, e.g. a far-red dye's emission at a
-  600/37 emission filter), and the panels in a grid under it: **Light in the sample** (a section seen from below at
+  600/37 emission filter), and the panels under it, two side by side: **Light in the sample** (a section seen from below at
   the focus, or at the height its slider sets, over 1.5x the field, and an x-z section through the axis with that
   height dashed; a frame slider under a structured-illumination pattern), **PSF** (the kernel seen from above, zoomed
   to the square holding everything brighter than 1 % of the in-focus peak, about 1 um at NA 1.4, and an x-z section
@@ -38,7 +38,8 @@ through it step by step.
   **Back focal plane** (the pupil, the critical circle, each beam's spot with its polarization, the regime) and
   **Spectra** (the filters, the dichroic, the camera's QE, each label's excitation (dashed) and emission, the laser
   lines; and what reaches the camera per label: detected fraction and wavelength, photons per second, activation,
-  free-imager background). The tiles' square images are all one size; in its tile the drawing names the parts only. A
+  free-imager background; filled, with a wavelength axis and a legend in rows along the light path: lasers, excitation
+  filter, dichroic, the sample's dyes, emission filter, camera). The tiles' square images are all one size; in its tile the drawing names the parts only. A
   pointer over a panel marks its parts in the drawing (the PSF: the objective and the camera; the spectra: the sample,
   the filters, the dichroic, the lasers and the camera). A pointer on a part or a beam of the drawing shows what it is
   at once (a laser's power at the sample and what the excitation filter and the dichroic pass; an emission's mean

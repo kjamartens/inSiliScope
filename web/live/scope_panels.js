@@ -269,14 +269,24 @@
     if (s.role === 'ex' || s.role === 'em') return { stroke: waveColour(s.nm, light), dash: s.dash };
     return { stroke: P[s.role] || P.text, dash: s.dash };
   }
-  // On a canvas of W x H device pixels laid out on 300 x 110 (k = W / 300); returns the legend [label, style].
-  function drawCurves(canvas, v, data, light) {
+  // On a canvas of W x H device pixels laid out on 300 x 110 (k = W / 300); returns the legend [label, style, role].
+  // Filled (big), the view is drawn larger: the lines a quarter thinner, the wavelengths half the size, an axis title.
+  function drawCurves(canvas, v, data, light, big) {
     const g = canvas.getContext('2d'), W = canvas.width, H = canvas.height, k = W / 300, P = curvePalette(light);
-    const top = 8 * k, bot = H - 16 * k, X = x => (x - v.x0) / (v.x1 - v.x0) * W, Y = y => bot - y * (bot - top);
+    if (big) { P.lw *= 0.75; P.laserW *= 0.75; }
+    const fs = (big ? 5 : 10) * k;   // the wavelengths' font
+    const top = 8 * k, bot = H - (big ? 2 * fs + 9 * k : 16 * k), X = x => (x - v.x0) / (v.x1 - v.x0) * W, Y = y => bot - y * (bot - top);
     g.clearRect(0, 0, W, H);
-    g.font = 10 * k + 'px sans-serif'; g.fillStyle = P.text;
-    const step = (v.x1 - v.x0) > 300 ? 100 : 50;
-    for (let x = Math.ceil(v.x0 / step) * step; x <= v.x1; x += step) { g.fillText(String(x), X(x) - 9 * k, H - 3 * k); g.fillRect(X(x), bot, k, 3 * k); }
+    g.font = fs + 'px sans-serif'; g.fillStyle = P.text;
+    g.textAlign = 'center';
+    const step = (v.x1 - v.x0) > 300 ? (big ? 50 : 100) : 50;
+    for (let x = Math.ceil(v.x0 / step) * step; x <= v.x1; x += step) {
+      const tx = Math.min(W - fs, Math.max(fs, X(x)));
+      g.fillText(String(x), tx, big ? bot + 4 * k + fs : H - 3 * k);
+      g.fillRect(X(x) - k / 2, bot, k, (big ? 2 : 3) * k);
+    }
+    if (big) g.fillText('wavelength (' + (v.unit || 'nm') + ')', W / 2, H - 2 * k);
+    g.textAlign = 'start';
     const legend = [];
     for (const s of v.series) {
       const st = seriesStyle(s, P, light), dx = (v.x1 - v.x0) / Math.max(1, s.len - 1);
@@ -287,25 +297,48 @@
       } else {
         path(); g.setLineDash((st.dash || []).map(d => d * k)); g.strokeStyle = st.stroke; g.lineWidth = P.lw * k; g.stroke(); g.setLineDash([]);
       }
-      legend.push([s.label, st]);
+      legend.push([s.label, st, s.role]);
     }
     for (const l of v.lines || []) {
       // a laser line: its colour with an edge on both sides, so it stands apart from a dye curve of the same hue
       const c = waveColour(l.nm, light), x = X(l.x), w = P.laserW * k, e = (light ? 1 : 1.5) * k;
       g.fillStyle = P.laserEdge; g.fillRect(x - w / 2 - e, top, w + 2 * e, bot - top);
       g.fillStyle = c; g.fillRect(x - w / 2, top, w, bot - top);
-      legend.push([l.label, { stroke: c, width: P.laserW, edge: P.laserEdge }]);
+      legend.push([l.label, { stroke: c, width: P.laserW, edge: P.laserEdge }, 'laser']);
     }
     canvas.dataset.lasers = (v.lines || []).length;
-    return legend.map(([t, s]) => [t, Object.assign({ lw: P.lw }, s)]);
+    return legend.map(([t, s, r]) => [t, Object.assign({ lw: P.lw }, s), r]);
   }
+  // The legend in rows along the light path: the lasers, the excitation filter, the dichroic, the sample's dyes (each
+  // its excitation and emission), the emission filter, the camera; a row's name left, its items after it.
+  const LEGEND_ROWS = [['laser', 'Lasers'], ['exfilter', 'Excitation filter'], ['dichroic', 'Dichroic'], ['dye', 'Sample'],
+    ['emfilter', 'Emission filter'], ['qe', 'Camera QE']];
   function legendHtml(legend) {
     const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
     const sw = s => '<svg width="30" height="12" aria-hidden="true">' + (s.fill
       ? `<rect x="1" y="2" width="28" height="8" fill="${s.fill}"${s.stroke ? ` stroke="${s.stroke}"` : ''}/>`
       : (s.edge ? `<line x1="1" y1="6" x2="29" y2="6" stroke="${s.edge}" stroke-width="${(s.width || 2) + 3}"/>` : '') +
         `<line x1="1" y1="6" x2="29" y2="6" stroke="${s.stroke}" stroke-width="${s.width || s.lw + 0.3}"${s.dash && s.dash.length ? ` stroke-dasharray="${s.dash.join(' ')}"` : ''}/>`) + '</svg>';
-    return legend.map(([t, s]) => `<span>${sw(s)}${esc(t)}</span>`).join('');
+    const item = (s, t) => `<span>${sw(s)}${esc(t)}</span>`;
+    const rows = [];
+    for (const [role, name] of LEGEND_ROWS) {
+      let items = '';
+      if (role === 'dye') {
+        // one line per dye: its excitation and emission (the labels "<dye> excitation" / "<dye> emission")
+        const dyes = new Map();
+        for (const [t, s, r] of legend) if (r === 'ex' || r === 'em') {
+          const who = t.replace(/ (excitation|emission)$/, ''), d = dyes.get(who) || [];
+          d.push(item(s, r === 'ex' ? 'excitation' : 'emission'));
+          dyes.set(who, d);
+        }
+        for (const [who, d] of dyes) items += `<span class="lgSub"><b>${esc(who)}</b>${d.join('')}</span>`;
+      } else {
+        // the part's name is the row's: an item says which one ("dichroic: Chroma ..." -> "Chroma ...")
+        for (const [t, s, r] of legend) if (r === role) items += item(s, role === 'laser' ? t : t.replace(/^[^:]*:\s*/, ''));
+      }
+      if (items) rows.push(`<span class="lgHead">${name}</span><span class="lgItems${role === 'dye' ? ' dyes' : ''}">${items}</span>`);
+    }
+    return rows.join('');
   }
 
   // ---- the drawn light path ----
@@ -720,8 +753,8 @@
       else if (v.type === 'curves') {
         const c = f.querySelector('canvas'), k = big ? 4 : 2;
         c.width = 300 * k; c.height = 110 * k;
-        const legend = drawCurves(c, v, data, !!opts.light);
-        f.querySelector('.pvNote').innerHTML = big ? '<div class="pLegend">' + legendHtml(legend) + '</div>' : '';
+        const legend = drawCurves(c, v, data, !!opts.light, big);
+        f.querySelector('.pvNote').innerHTML = big ? '<div class="pLegend pSpecLegend">' + legendHtml(legend) + '</div>' : '';
       } else if (v.type === 'rows') {
         const b = f.querySelector('.pvBody');
         b.textContent = '';

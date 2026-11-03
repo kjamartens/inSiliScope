@@ -183,7 +183,8 @@
   /* the light path on top in the middle, the other panels in a grid under it */
   #scopeHost .sTop{display:flex;justify-content:center;flex:none}
   #scopeHost .sTop>.pnl{flex:0 1 1100px}
-  #scopeHost .sGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;align-items:stretch;flex:none}
+  /* the tiles: two columns (never three: the images grow instead), one where two would be under 260 px */
+  #scopeHost .sGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(max(260px,calc((100% - 10px) / 2)),1fr));gap:10px;align-items:stretch;flex:none}
   #worldCol.scope #scopeHost.filled{display:block}
   #scopeHost.filled :is(.sTop,.sGrid){display:none}
   #scopeHost:not(.filled)>.pnl.big{display:none}
@@ -225,6 +226,12 @@
   .pv-rows .pvBody{line-height:1.5} .pnl:not(.big) .pv-rows{display:none}
   .pLegend{display:flex;flex-wrap:wrap;justify-content:center;gap:3px 16px;margin-top:6px;color:var(--text);font-size:11px;line-height:1.4}
   .pLegend span{display:inline-flex;align-items:center;gap:6px}
+  /* the spectra's legend: rows along the light path, the part's name left, its items after it */
+  .pLegend.pSpecLegend{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;justify-content:start;text-align:left;margin:8px 0 0}
+  .pSpecLegend .lgHead{font-weight:600;color:var(--muted)}
+  .pSpecLegend .lgItems{display:flex;flex-wrap:wrap;gap:3px 16px;align-items:center}
+  .pSpecLegend .lgItems.dyes{flex-direction:column;align-items:flex-start}
+  .pSpecLegend .lgSub{gap:10px} .pSpecLegend .lgSub b{font-weight:600;min-width:9em}
   .pnlCtl{display:flex;flex-direction:column;gap:4px;margin-top:8px} .pnlCtl:empty{display:none}
   .pc{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;cursor:default} .pcL{flex:1;color:var(--muted)} .pc input{order:3;flex:1 1 100%;min-width:0;margin:2px 0 0}
   .pcV{flex:none;text-align:right;font-variant-numeric:tabular-nums;cursor:pointer}
@@ -7096,9 +7103,9 @@ const scopeView = (() => {
       if (n) n();
     });
   }
-  // One height for every tile's images, the largest at which each tile's images fit side by side (at most 190 px).
+  // One height for every tile's images, the largest at which each tile's images fit side by side (at most 480 px).
   function sizeImages() {
-    let h = 190;
+    let h = 480;
     for (const el of els.values()) {
       const figs = el.querySelectorAll('.pv-image'), views = el.querySelector('.pnlViews');
       if (!figs.length || !views || !views.clientWidth) continue;
