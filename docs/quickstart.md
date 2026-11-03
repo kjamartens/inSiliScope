@@ -28,8 +28,9 @@ A first tour, about five minutes:
 4. **Switch the microscope.** In **Configuration**, **Mode** changes the experiment: dSTORM, DNA-PAINT, PALM,
    WideField or BrightField, each with its typical dye, lasers and filters. Try **WideField**, then **BrightField**:
    the same cells, three very different pictures. **Drift** makes the sample wander, **Camera** swaps the sCMOS for an
-   EMCCD. Under **Illumination & light path** each laser is a slider; click the spectra plot for what reaches the
-   camera.
+   EMCCD. Under **Illumination & light path** each laser is a slider. **Microscope** in the title bar swaps the sample
+   on the left for the microscope: the light path drawn from the lasers to the camera, the illumination profile, the
+   PSF, the back focal plane and the spectra (click any of them for a larger view; **Sample** goes back).
 5. **Change the sample.** The settings under the image hold the sample and its labels: the microtubules and the
    nuclear pores each have a mode and a dye (**None** switches a target off). **Specimen** mounts DNA-origami
    **Nanorulers** instead of cells (set the focus to about 0.02 µm, their dyes lie on the glass), a **Bead sample**:

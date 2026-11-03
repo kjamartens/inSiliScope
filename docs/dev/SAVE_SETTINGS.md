@@ -32,7 +32,7 @@ the workers alone take ~5 s).
     "sample":      { ..., "values": { "specimen": "CellField", "mt-dye": "ATTO655", "p.cellDiamMin": 18, ... },
                      "viewer": { "userDyes": [ { "slot": 1, "name": "My dye 1", "mode": 0 } ] } },
     "measurement": { ..., "values": { "x": 14.8, "y": -6, "z": 0.5, "exposure-ms": 50, ... },
-                     "viewer": { "recordFrames": 100 },
+                     "viewer": { "recordFrames": 100, "recordStartSec": 0 },
                      "history": { "tSec": 132.5, "records": [ { "n": 240, "lit": true, "set": { "x": 14.8, ... } }, ... ] } },
     "view":        { ..., "values": { "tiltDeg": 30, "mtMap": "...", "view.scale": 9, "ui.settingsLevel": "advanced" } } } }
 ```

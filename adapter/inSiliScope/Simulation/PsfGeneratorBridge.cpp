@@ -1008,6 +1008,16 @@ int PsfKernelHalfWidthPx(double halfWidthNm, double pixelSizeNm, double waveleng
    return std::max(requested, minHalf);
 }
 
+int CappedPsfOversampling(int oversampling, double pixelSizeNm, double maxSampleNm)
+{
+   oversampling = std::max(1, oversampling);
+   if (!(maxSampleNm > 0.0) || !(pixelSizeNm > 0.0))
+      return oversampling;
+   // 1e-9: a pixel of exactly n x the cap takes n samples, not n + 1.
+   const int need = static_cast<int>(std::ceil(pixelSizeNm / maxSampleNm - 1e-9));
+   return std::min(oversampling, std::max(1, need));
+}
+
 std::vector<float> BuildBlockSums(const float* kernel, int n, int os)
 {
    // Port of webSMLM's buildSummedKernel(): horizontal block sums per kernel

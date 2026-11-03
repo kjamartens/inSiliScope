@@ -406,6 +406,7 @@ const OptionTable& Options()
          { "psf-mask-modes", 5, "double-helix Gauss-Laguerre modes (2-8)" },
          { "psf-mask-waist", 1.0, "double-helix waist, pupil radii" },
          { "psf-oversampling", 6, "Renderer.PsfOversampling: kernel samples per camera pixel, per axis (1-16)" },
+         { "psf-max-sample-nm", 15, "Renderer.PsfMaxSampleNm: the kernel's samples are made no finer than needed to keep them at most this far apart, nm: samples per pixel = min(psf-oversampling, ceil(pixel / this)) (Quality Fast 30, Realistic 15, Exhaustive 0 = no cap)" },
          { "psf-kernel-half-width-nm", 7000, "Objective.PsfKernelHalfWidthNm (a minimum: grown to 3x the Rayleigh radius)" },
          { "psf-z-range-um", 7.0, "Objective.PsfZRangeUm: span of the PSF z stack" },
          { "psf-z-step-um", 0.1, "Objective.PsfZStepUm: PSF z plane spacing" },
@@ -1821,7 +1822,8 @@ bool ScopePsfRequest(const ScopeSpec& spec, double wavelengthNm, PsfGeneratorReq
    req.na = O("na");
    req.immersionIndex = O("immersion-index");
    req.pixelSizeNm = O("pixel-nm");
-   req.oversampling = static_cast<int>(std::min(16.0, std::max(1.0, O("psf-oversampling"))));
+   req.oversampling = CappedPsfOversampling(static_cast<int>(std::min(16.0, std::max(1.0, O("psf-oversampling")))),
+                                            req.pixelSizeNm, O("psf-max-sample-nm"));
    req.kernelHalfWidthPx =
       PsfKernelHalfWidthPx(std::min(20000.0, std::max(100.0, O("psf-kernel-half-width-nm"))), req.pixelSizeNm,
                            req.wavelengthNm, req.na);
@@ -2765,7 +2767,8 @@ bool MakeScopePsfPreview(const ScopeSpec& spec, ScopePsfPreview& out, std::strin
    }
    // Gaussian: no defocus, one plane.
    const double sigma = GaussianSigmaPx(out.lambdaNm, ScopeSpecGet(spec, "na"), ScopeSpecGet(spec, "pixel-nm"));
-   const int os = static_cast<int>(std::min(16.0, std::max(1.0, ScopeSpecGet(spec, "psf-oversampling"))));
+   const int os = CappedPsfOversampling(static_cast<int>(std::min(16.0, std::max(1.0, ScopeSpecGet(spec, "psf-oversampling")))),
+                                        ScopeSpecGet(spec, "pixel-nm"), ScopeSpecGet(spec, "psf-max-sample-nm"));
    const int camRad = static_cast<int>(std::ceil(4 * sigma)) + 1, n = 2 * camRad + 1;
    out.gaussian = true;
    out.oversampling = os;
@@ -2841,6 +2844,9 @@ struct MeanFieldNode
    std::vector<float> driftAnchor;
    bool driftAnchored = false;
    bool deferred = false;   // a weighted scene's images left to the GPU host (BuildMeanField)
+   // A stepping pattern's state drawn in fewer of the movie's frames than a bleach basis has images: each of its frames
+   // made alone at its own weights (WidefieldScene::RenderExact; BuildMeanFieldNode).
+   bool perFrame = false;
    // AnchorMeanField: the scene's images go to the FOV shifted by these (grid cells).
    bool shifted = false;
    double shiftX = 0, shiftY = 0;
@@ -3656,6 +3662,8 @@ struct FluorescenceMovie::Impl
             wb[i] = p.wb0[i] == 0.0f || k == 0.0 ? p.wb0[i] : static_cast<float>(p.wb0[i] * std::exp(-k * rate[i]));
          if (nd.shifted)
             nd.slot->scene.RenderFrameShifted(wb, nd.shiftX, nd.shiftY, frame);
+         else if (nd.perFrame)
+            nd.slot->scene.RenderExact(wb, frame);
          else
             nd.slot->scene.RenderFrame(wb, frame);
       }
@@ -3700,6 +3708,11 @@ constexpr double kWindowAliveMin = 1e-4;
 // A rate population's bleach basis holds this long (s) before it is rebuilt (its Chebyshev terms,
 // WidefieldScene::SetWeightRates: few under a slow bleach; every term is an image to make at each refocus).
 constexpr double kBasisSpanSec = 4.0;
+// A stepping pattern's state scene makes no bleach basis for a movie that draws it in fewer frames than this (each such
+// frame one image at its own weights, WidefieldScene::RenderExact): a basis is ~12 images (the Chebyshev terms of a
+// 4 s span; 2026-11-03: a 20-frame SIM2D Record of a WideField label made 9 of them, 108 images of 149 plane FFTs
+// each, 20 s in the viewer's worker, where its 20 frames need 20 images).
+constexpr long kStateBasisImages = 12;
 // The pivot's index in Impl::exciteKey (the plane factor's key zeroes it for a beam that is not tilted).
 constexpr size_t kExciteKeyPivot = 7;
 // MapEntries' height bands: adjacent dye planes share a band while their photons per dye (the weights) differ by at
@@ -4273,7 +4286,16 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
          // renders from its images, one it does not anchors a new one --, unless the scene's holds frame 0 already (a
          // host's next movie at the same pose).
          nd.anchored = false;
-         if (S.N > 1 || nd.deferred)
+         // A stepping pattern's state in few of the movie's frames: those frames alone (kStateBasisImages).
+         nd.perFrame = false;
+         if (varies && !p.meanLight && !shifts && !nd.deferred && S.N > 1)
+         {
+            long uses = 0;
+            for (long f = 0; f < S.N; ++f)
+               uses += StateOf(f) == nd.patternState ? 1 : 0;
+            nd.perFrame = uses < kStateBasisImages;
+         }
+         if ((S.N > 1 || nd.deferred) && !nd.perFrame)
          {
             slot.scene.TakeAsyncBasis(false);   // (one made: taken)
             nd.anchored = slot.scene.AnchorDecay(p.wb0, nd.anchor);
@@ -4309,6 +4331,12 @@ void FluorescenceMovie::Impl::WeightedImage(Population& p, size_t j, std::vector
    const MeanFieldNode& nd = p.mf[j];
    if (nd.shifted)
       nd.slot->scene.RenderFrameShifted(p.wb0, nd.shiftX, nd.shiftY, img);
+   else if (nd.perFrame)
+   {
+      // (Only frame 0 reads this image, RateWeightedFrame: another state's node leaves it dark.)
+      if (nd.patternState == StateOf(0))
+         nd.slot->scene.RenderExact(p.wb0, img);
+   }
    else
       nd.slot->scene.RenderFrame(p.wb0, img);
 }

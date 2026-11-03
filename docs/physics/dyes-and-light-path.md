@@ -175,7 +175,7 @@ sample to a fringe pattern that steps with the frame (`sim-type`, MM `Lasers.Pat
 
 <figure markdown="span" class="isc-fig">
 <iframe src="../../../illumination.html" title="Illumination preview" loading="lazy" style="width:100%;height:470px;border:0"></iframe>
-<figcaption markdown="span">The light entering the objective's back focal plane and the pattern it makes, from the viewer's engine (the same sketch as the viewer's **Preview illumination** button): pick a pattern type, the BFP position, the polarization and the beam width, step through the frame program and move the section's height. From above: the pupil, each beam's spot ringed with its polarization (a bar for linear, a circular arrow for circular; evanescent beams in blue); from below: the excitation on a plane at the chosen height (the focus to start); from the side: an x-z section through the axis, the section's height dashed.</figcaption>
+<figcaption markdown="span">The light entering the objective's back focal plane and the pattern it makes, from the viewer's engine (the same panels as the viewer's Microscope view: **Back focal plane (BFP)** and **Illumination profile**): pick a pattern type, the BFP position, the polarization and the beam width, step through the frame program and move the section's height. From above: the pupil, each beam's spot ringed with its polarization (a bar for linear, a circular arrow for circular; evanescent beams in blue); from below: the excitation on a plane at the chosen height (the focus to start); from the side: an x-z section through the axis, the section's height dashed.</figcaption>
 </figure>
 
 The beams sit at radius r = `illum-bfp` in the pupil: the BFP slider is the beams' radius, so past 1 the beams are

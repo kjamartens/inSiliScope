@@ -224,3 +224,11 @@ Upcoming ideas:
   2026-10-31: [x] live SIM with blinking labels: the frame counter out of the excitation key (bit for bit; DNA-PAINT
   SIM2D at 256 px 320 -> 105 ms), [x] dSTORM's initial ON and PALM's pre state under the cycle-mean light (Quality
   Exhaustive: each frame's pattern, `sim-frame-pattern-continuous`).
+- 2026-11-03 (branch `general_fixes`): [x] the Microscope view: a Sample | Microscope switch in the title bar swaps
+  the world view for panels the C++ describes (`cli/scope_panels.*`: typed views, controls, one float buffer;
+  `isc_scope_panels` / `isc_scope_panel`), drawn by `web/live/scope_panels.js`: the light path drawn in the middle
+  (clickable stations), the light in the sample, the PSF, the back focal plane, the spectra; a tile fills the view at
+  twice the size. It replaced Preview illumination, Preview PSF and the spectra plot. ctest `scope_panels`,
+  `tests/web/viewer_scope_view.mjs`. [x] Second round: the panels over the world view (the sample keeps loading), the
+  light path on top lying down (names only in the tile, details filled), beams dimmed / stopped by the filters, the
+  hover marks, equal tile images, the PSF filled as a 2 x 2 grid with the cut's angle. Next: [ ] more panels (camera noise, BrightField pupils) as C++ additions.

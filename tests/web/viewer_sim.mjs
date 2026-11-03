@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Structured illumination in the viewer (spec/ALGORITHM.md "Structured illumination") in headless Chromium: a Pattern
 // pick sets the BFP position to the type's radius and the polarization to S and goes into the movie spec; the readout
-// and the Beams matrix come from the setup job (the type's rows); Preview illumination opens the dialog with the
-// program's period and beam count, its slider steps the frame, the height slider moves the section seen from below
-// (captions as page text), the open dialog follows a settings change; a snap's info carries the pattern state and the
-// live sample's counter steps per frame; LatticeSIM3D's five beams and its section's change with height; Off again.
+// and the Beams matrix come from the setup job (the type's rows); the Microscope view's illumination panel (filling the
+// left view) shows the program's period and beam count, its slider steps the frame, the height slider moves the section
+// seen from below, Esc and back in shows it at once, the open panel follows a settings change; a snap's info carries the
+// pattern state and the live sample's counter steps per frame; LatticeSIM3D's five beams and its section's change with
+// height; Off again.
 //   node tests/web/viewer_sim.mjs [--channel=chrome] [--swiftshader]
 import { runViewer } from './browser.mjs';
 
@@ -27,26 +28,54 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   check(/9 frames|frames per cycle|per cycle/.test(ro.text) && /^0\.95 0 /.test(ro.beams.trim()) && / -0\.95 0 /.test(ro.beams),
     `the readout (${ro.text.slice(0, 80)}) and the two rows at ±0.95`);
 
-  // Preview illumination: the dialog, its period and beams, the slider
-  await page.evaluate(() => document.getElementById('illumPreview').click());
-  await page.waitForFunction(() => { const d = document.getElementById('illumDlg'); return d.style.display !== 'none' && d.dataset.period === '9'; }, null, { timeout: 90000 });
-  const d0 = await page.evaluate(() => { const d = document.getElementById('illumDlg'); return { beams: d.dataset.beams, frame: d.dataset.frame, state: document.getElementById('il_state').textContent,
-    px: ['il_bfp', 'il_xy', 'il_xz'].map(id => { const c = document.getElementById(id); const a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < a.length; i += 4) if (a[i] + a[i + 1] + a[i + 2] > 60) n++; return n; }) }; });
-  check(d0.beams === '2' && d0.frame === '0' && /frame 0 of 9/.test(d0.state) && d0.px.every(n => n > 100),
-    `the preview: 2 beams, ${d0.state}, the three views drawn (${d0.px.join(', ')} lit px)`);
-  await page.evaluate(() => { const s = document.getElementById('il_slider'); s.value = 4; s.dispatchEvent(new Event('input')); });
-  await page.waitForFunction(() => document.getElementById('illumDlg').dataset.frame === '4' && /frame 4 of 9: angle 1, phase 1/.test(document.getElementById('il_state').textContent), null, { timeout: 90000 });
-  check(true, 'the slider steps the preview to frame 4 (angle 1, phase 1)');
-  // the captions are page text; the section starts at the focus (0.5 um) and the height slider moves it
-  const cap = await page.evaluate(() => ({ z: document.getElementById('illumDlg').dataset.z, t: document.getElementById('il_xy_t').textContent,
-    zv: document.getElementById('il_zval').textContent, n: document.getElementById('il_xz_n').textContent }));
-  check(cap.z === '0.50' && /Section at z = 0\.50 µm/.test(cap.t) && /the focus/.test(cap.zv) && /dashed line/.test(cap.n),
-    `the captions: "${cap.t}", "${cap.zv}"; the side note "${cap.n.slice(0, 40)}…"`);
-  await page.evaluate(() => { const s = document.getElementById('il_z'); s.value = 1.2; s.dispatchEvent(new Event('input')); });
-  await page.waitForFunction(() => document.getElementById('illumDlg').dataset.z === '1.20' && /z = 1\.20/.test(document.getElementById('il_xy_t').textContent), null, { timeout: 90000 });
-  check(true, 'the height slider moves the section to 1.20 um (its caption follows)');
-  await page.evaluate(() => { illumZ = -1; });   // back to the focus for the rest
-  await page.evaluate(() => document.getElementById('il_close').click());
+  // The Microscope view's illumination panel, filling the left view: the period and beams, the frame slider, the height
+  const big = () => page.evaluate(() => { const b = document.querySelector('#scopeHost > .pnl.big[data-panel=illumination]');
+    return b ? { busy: b.classList.contains('busy'), cap: b.querySelector('.pnlCap').textContent, title: b.querySelector('.pnlTitle').textContent } : null; });
+  const waitCap = (re, why) => page.waitForFunction(r => { const b = document.querySelector('#scopeHost > .pnl.big[data-panel=illumination]');
+    return b && !b.classList.contains('busy') && new RegExp(r).test(b.querySelector('.pnlCap').textContent); }, re.source, { timeout: 90000 })
+    .then(() => true, async () => { check(false, why + ': ' + JSON.stringify(await big())); return false; });
+  const ctl = (name, v) => page.evaluate(([n, x]) => { const s = document.querySelector(`#scopeHost > .pnl.big .pnlCtl input[data-name=${n}]`);
+    s.value = x; s.dispatchEvent(new Event('input')); }, [name, v]);
+  const reset = name => page.evaluate(n => document.querySelector(`#scopeHost > .pnl.big .pnlCtl input[data-name=${n}]`).nextElementSibling
+    .dispatchEvent(new MouseEvent('dblclick')), name);
+  const lit = () => page.evaluate(() => [...document.querySelectorAll('#scopeHost > .pnl.big canvas')].map(c => {
+    const a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < a.length; i += 4) if (a[i] + a[i + 1] + a[i + 2] > 60) n++; return n; }));
+  await page.evaluate(() => scopeView.set(true));
+  await page.waitForFunction(() => +document.getElementById('scopeHost').dataset.panels > 0, null, { timeout: 60000 });
+  await page.evaluate(() => scopeView.open('illumination'));
+  if (await waitCap(/^frame 0 of 9: angle 0, phase 0 \(2 beams\); the section at z = 0\.50 µm \(the focus\)$/, 'the illumination panel: frame 0 of 9, 2 beams, at the focus')) {
+    const px = await lit(), b0 = await big();
+    check(px.length === 2 && px.every(n => n > 100) && /SIM2D, BFP position 0\.95/.test(b0.title), `the illumination panel filling the view: "${b0.cap}", "${b0.title}" (${px.join(', ')} lit px)`);
+  }
+  await ctl('frame', 4);
+  if (await waitCap(/frame 4 of 9: angle 1, phase 1/, 'the frame slider')) check(true, 'the frame slider steps the panel to frame 4 (angle 1, phase 1)');
+  await ctl('z', 1.2);
+  if (await waitCap(/the section at z = 1\.20 µm$/, 'the height slider')) {
+    const t = await page.evaluate(() => document.querySelector('#scopeHost > .pnl.big .pv[data-name=xy] figcaption').textContent);
+    check(/Section at z = 1\.20 µm/.test(t), `the height slider moves the section to 1.20 um (its view's caption: "${t}")`);
+  }
+  // back to every panel and in again with the same settings: shown at once, no job
+  const again = await page.evaluate(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    const closed = !scopeView.filled && !document.getElementById('scopeHost').classList.contains('filled');
+    scopeView.open('illumination');
+    await new Promise(r => setTimeout(r, 60));
+    const b = document.querySelector('#scopeHost > .pnl.big');
+    return { closed, busy: b.classList.contains('busy'), cap: b.querySelector('.pnlCap').textContent };
+  });
+  check(again.closed && !again.busy && /z = 1\.20/.test(again.cap), `Esc goes back; in again with the same settings: shown at once (${JSON.stringify(again)})`);
+  // a settings change redraws the open panel
+  const went = await page.evaluate(async () => {
+    const el = document.getElementById('mv_laser-640'), b = document.querySelector('#scopeHost > .pnl.big');
+    el.value = 0.7; el.dispatchEvent(new Event('input', { bubbles: true }));
+    for (let t = 0; t < 3000; t += 5) { if (b.classList.contains('busy')) return true; await new Promise(r => setTimeout(r, 5)); }
+    return false;
+  });
+  check(went, 'a settings change redraws the open panel');
+  await reset('z');
+  await reset('frame');
+  await waitCap(/frame 0 of 9.*\(the focus\)$/, 'double-click on the values: back to frame 0 at the focus');
+  await page.evaluate(() => scopeView.close());
 
   // a snap: the frame's pattern state in the info, the sample's counter stepping
   const snap = async () => {
@@ -54,28 +83,29 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
     const n = await page.evaluate(() => liveState.frames);
     await page.evaluate(() => document.getElementById('lv_snap').click());
     await page.waitForFunction(k => liveState.frames > k && !liveState.pending, n, { timeout: 120000 });
-    return page.evaluate(() => ({ p: liveState.pattern, info: document.getElementById('lv_info').textContent }));
+    return page.evaluate(() => ({ p: liveState.pattern, info: document.getElementById('lv_info').title }));
   };
   const s1 = await snap(), s2 = await snap();
   check(s1.p && s1.p.period === 9 && s2.p && s2.p.frame === s1.p.frame + 1 && /pattern \d+\/9/.test(s2.info),
-    `snaps: pattern state ${JSON.stringify(s1.p)} then frame ${s2.p && s2.p.frame} (info "${s2.info.split('·').pop().trim()}")`);
+    `snaps: pattern state ${JSON.stringify(s1.p)} then frame ${s2.p && s2.p.frame} (info tooltip "${s2.info.split('\n').pop().trim()}")`);
 
-  // LatticeSIM3D: five beams, 13 frames, the radius 0.9 -- the open dialog follows the pick by itself
-  await page.evaluate(() => document.getElementById('illumPreview').click());
-  await page.waitForFunction(() => { const d = document.getElementById('illumDlg'); return d.style.display !== 'none' && d.dataset.period === '9'; }, null, { timeout: 90000 });
+  // LatticeSIM3D: five beams, 13 frames, the radius 0.9 -- the open panel follows the pick by itself
+  await page.evaluate(() => scopeView.open('illumination'));
+  await waitCap(/of 9/, 'the panel again');
   await set('mv_sim-type', '4');
-  await page.waitForFunction(() => { const d = document.getElementById('illumDlg'); return d.style.display !== 'none' && d.dataset.period === '13' && d.dataset.beams === '5' && d.dataset.z === '0.50'; }, null, { timeout: 90000 });
-  const l = await page.evaluate(() => ({ bfp: +document.getElementById('mv_illum-bfp').value, title: document.getElementById('il_title').textContent }));
-  check(l.bfp === 0.9 && /LatticeSIM3D/.test(l.title), `LatticeSIM3D: 5 beams, 13 frames, BFP position 0.9 (${l.title}), the dialog updated without a click`);
+  await waitCap(/^frame 0 of 13: .*\(5 beams\).*\(the focus\)$/, 'LatticeSIM3D in the open panel');
+  const l = await page.evaluate(() => ({ bfp: +document.getElementById('mv_illum-bfp').value }));
+  const lb = await big();
+  check(l.bfp === 0.9 && /LatticeSIM3D/.test(lb.title), `LatticeSIM3D: 5 beams, 13 frames, BFP position 0.9 (${lb.title}), the panel updated without a click`);
   // the lattice's section changes with height (the centre beam's fringes swap direction every quarter axial period)
-  const fp = () => page.evaluate(() => { const c = document.getElementById('il_xy'), a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let h = 0; for (let i = 0; i < a.length; i += 4) h = (h * 31 + a[i]) >>> 0; return h; });
+  const fp = () => page.evaluate(() => { const c = document.querySelector('#scopeHost > .pnl.big .pv[data-name=xy] canvas'), a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let h = 0; for (let i = 0; i < a.length; i += 4) h = (h * 31 + a[i]) >>> 0; return h; });
   const f0 = await fp();
-  await page.evaluate(() => { const s = document.getElementById('il_z'); s.value = 0.66; s.dispatchEvent(new Event('input')); });
-  await page.waitForFunction(() => document.getElementById('illumDlg').dataset.z === '0.66', null, { timeout: 90000 });
+  await ctl('z', 0.66);
+  await waitCap(/z = 0\.66 µm$/, 'the lattice at 0.66 um');
   const f1 = await fp();
   check(f0 !== f1, `the lattice's section at 0.66 um differs from the focus's (${f0} vs ${f1})`);
-  await page.evaluate(() => { illumZ = -1; });
-  await page.evaluate(() => document.getElementById('il_close').click());
+  await reset('z');
+  await page.evaluate(() => { scopeView.close(); scopeView.set(false); });
 
   // Off: one beam, no pattern in the spec
   await set('mv_sim-type', '0');

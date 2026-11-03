@@ -29,8 +29,44 @@ that finishes them.
   (2026-10-28): a `setup` worker job = `isc_scope_setup(spec)` (`cli/scope_setup.*` `ViewerSetupJson`, shared with the
   cli's `--setup-json`): the light path's curves and names, the lasers at the sample, the excitation (regime, u,
   F, TIRF depth per line), every label's vector and physics (main/pre states, spectra) and the legacy linkages; it
-  feeds the BFP readout, the spectra plot (`#specPlot` `data-lasers`), the data layers' labels (`dataLabelsReady`)
-  and `panelLinkage`. `cli/` -- `insiliscope_cli` (headless TIFF movies) and
+  feeds the BFP readout, the data layers' labels (`dataLabelsReady`) and `panelLinkage`.
+- **The Microscope view (2026-11-03):** the title bar's Sample | Microscope pill (`#leftSeg`, kept in `localStorage`
+  `isc.ui.leftView`) swaps the world view for `#scopeHost`: **the C++ describes the panels** (`cli/scope_panels.*`
+  `kPanels`: id, title, slot centre/side, a maker giving a JSON header of typed views -- `image` (map heat/grey, gamma,
+  overlays circle/line/rect/arc), `curves` (series, laser lines, legend), `rows`, `schematic` (elements with a station =
+  the panel a click opens, beams excitation/emission/transmitted) -- plus controls shared by name, and one float
+  buffer); the module's `isc_scope_panels` (the list) and `isc_scope_panel(spec, id, params, scale, ...)` (sizing then
+  filling) on the movie worker's `panel` job; `web/live/scope_panels.js` (page-free, `self.ISC_SCOPE_PANELS`) draws
+  any panel (an unknown element kind as a labelled box), so a new panel is C++ only. Panels (titles Overview, Illumination profile, Point spread function (PSF), Back focal plane (BFP), Spectral info): `lightpath` (the drawing in
+  the middle), `illumination` (`IllumPreviewOf`: from below at the focus or `z`, x-z; `frame`), `psf`
+  (`ScopePsfPreview`, cached per spec; `dz`; a tile: the kernel's x-y cropped to the square of every sample above 1 %
+  of the in-focus peak (`kPsfTilePeak`, `PsfCropHalf`; 99 % of the light would take ~4x the side) scaled to the whole
+  stack's peak (an image's `peak`: defocus dims it), and its x-z (gamma 0.5); at scale 2 a 2 x 2 grid (header `columns`): kernel / camera x-y and x-z along the cut `angle`), `bfp`, `spectra` (curves + what reaches the camera per label; filled: thinner lines, an axis title, the legend in rows along the light path, `legendHtml` `LEGEND_ROWS`; the legend and the plot linked by the pointer, `linkCurves` / `curveAt`, the canvas's `data-marked`). Layout (2026-11-03,
+  second round): `#scopeHost` lies over the world view (absolute, below `#viewBar`; the world keeps drawing and loading
+  under it), the light path on top (`.sTop`), the tiles in a grid of at most two columns (`.sGrid`; the images grow instead, up to 480 px high); the drawing lies down unless the view is
+  narrow (`data-orient`; lying, the BFP just behind the objective in a 0.4 slot, its name below the axis), names only in a tile, values / legend / clickable stations filled (`data-detail`); beams fade
+  by each part's pass fraction (`pass`, spectrum-weighted for the emission) and end in a bar where blocked
+  (`data-blocked`, e.g. `emission@emfilter`); a pointer over a tile marks its parts (`data-for` = the element's
+  station + `also`, `highlightParts`); the tiles' images share one height (`--tile-img-h`, `sizeImages`); images draw
+  at their on-screen size with the overlays in screen pixels (even dashes on a stretched x-z; dashed ones thin, at
+  half opacity). Every image zooms with the wheel (`attachZoom`: 1-32x about the pointer, drag pans, an inset
+  `.pvNav` as `#lv_zoomNav` without text; kept across redraws); an image's `link` zooms images together (the PSF's
+  x-y pair, centre in um); a `resample` image is made again for the part shown (`viewChanged` -> the element's
+  `_viewParams` `<name>.x0/.y0/.span` in its request; the header's `window`): the illumination's xy and x-z
+  (`IllumWindow` in `IllumPreviewOf`, one scale at every zoom: the whole section's peak), made at the canvas's device
+  pixels (`<name>.px`, `PixelsParam`, up to `kIllumMaxPx`; a 160 px image scaled by the browser beat ~4 px SIM fringes
+  into moire) and anti-aliased under a pattern (`IllumWindow::sigmaPx` 0.7: fine samples per lambda / 2 NA, a Gaussian,
+  taken at the pixel centres). Filled, the illumination and PSF images carry a scale bar (`scalebarUm`, the whole
+  image's width; the renderer's 1-2-5 bar follows the zoom); the PSF's x-y images all scale to the stack's peaks; the
+  x-z cut runs edge to edge (`reach`). The drawing: an instant pop-up (`.pTip`, `data-tip`) on a part or a beam (wide
+  `pBeamHit` paths: a laser's power and pass fractions, an emission's), the thing marked (`pHov`) and its tiles
+  (`isc-part-hover` -> `.pnlHov`); lasers in wavelength order (the custom line's power `laser-custom`); a line the
+  dichroic passes (>= 10 %) goes on past it; the mirror reaches just past its beams on each side (`MUp`, `MDown`).
+  An image-only tile never wraps (`.imgs`). A tile or a station
+  fills the view at scale 2 (Esc back); they follow every settings change (one job per panel in flight); on a phone
+  one column above the stage. It replaced Preview illumination, Preview PSF, `#specPlot` and `#specBig`. Checks: ctest `scope_panels` (`cli/scope_panels_check.cpp`,
+  ~2.5 s), `tests/web/viewer_scope_view.mjs`.
+- `cli/` -- `insiliscope_cli` (headless TIFF movies) and
   the viewer's WASM module target, both on `adapter/inSiliScope/Simulation/ScopeMovie.*` (the
   adapter's render code, no MM). `dist/cellfield_block.js` = the webSMLM block (generated by `tools/make_cellfield_block.mjs`
   from the `insiliscope_block` target, `cli/CMakeLists.txt`: the core's C ABI + `cli/block_entry.cpp`
@@ -142,8 +178,9 @@ that finishes them.
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
-  layout (2026-10-14): a bar `#liveBar` level with the title bar (Live / Snap / Record / fresh, the one-line info: speed,
-  size, pixel size; at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
+  layout (2026-10-14): a bar `#liveBar` level with the title bar (Live / Snap / Record / fresh, the one-line info: fps
+  and ms/frame only, the sizes, pattern state and recording message in its tooltip (2026-11-03; only it gives way,
+  `flex:none` on the rest, a narrow bar drops `#setIcons`); at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
   reach the column's boxes; View ▾ sits in the world view's info box `#hud`, one item per line, the View options opening in
   it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the settings under it at its width (`#sideMain`) and the controls
   column `#liveCtl` to the bottom (focus, configuration, the settings groups Illumination & light path and Objective & PSF
@@ -151,8 +188,8 @@ that finishes them.
   performance); the settings search highlights matching rows (`.opt.hit`, the column's too) and opens every group with
   a match; render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
   **● Record** (2026-10-14): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
-  `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames on
-  the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
+  `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames from the box's
+  `lv_recT` start time, default 0 s (2026-11-03; not `mv_start-sec`, which live keeps), on the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
   replacing the worker); with "continue the live sample" (Advanced, `lv_recLive`, off by default; the user's choice,
   unlike MM) the next N frames unpaced, the sample going on, in chunks of ~2 M pixels, each one
   `LiveScope::Frames` call (`isc_live_frames`: one movie of n frames on the light history's map, as the adapter's
@@ -164,8 +201,7 @@ that finishes them.
   rows (`self.ISC_SHOW_DATA`)), `mm_config_ui.js` (the
   Configuration: the MM config groups as selects (the Channel group shows as "Mode", its presets without the dye names,
   viewer only; the laser-power slider groups are skipped: the lasers are sliders in
-  the column's Illumination & light path, made in live.js beside each `mv_laser-*` number; the spectra plot there
-  enlarges on click, `#specBig`); a preset sets the `mv_<option>` controls, options without a
+  the column's Illumination & light path, made in live.js beside each `mv_laser-*` number); a preset sets the `mv_<option>` controls, options without a
   control go into every spec via `self.ISC_MM_EXTRA`; camera-type/em-gain/qe-curve follow the camera preset; the pixel
   size from the optics, read-only in the settings, set at load and on a camera change) and `mm_config.js` (**generated by `tools/gen_mm_configs.py` in the same run as the `.cfg`
   files**, `--check` covers it: each preset applied on a fresh hub at Startup, the adapter's engine spec via
@@ -462,7 +498,7 @@ not its spectra (`WidefieldScene::ReleaseSpectra`), the states share the dye til
 (`ShareKernels`, a `KernelStore` under a mutex; 13 scenes at a 40 nm pixel aborted the viewer); 2026-10-31: a state's
 scene is a CPU scene in GPU mode too (the WebGPU host's resident spectra are per geometry, not per plane factor) and
 streams its plane spectra (`SetStreamSpectra`), the slide's fringes are made per batch (`kSlideFringeStates` 32 kept),
-the slots of states the pattern no longer takes are freed. Live speed (2026-10-31, bit for bit): `frame0` is in the excitation key (`Impl::exciteKey`) only under a phase drift (a state's light is its program index's), so a live frame finds the background map, plane factors and state scenes (DNA-PAINT SIM2D 256 px 320 -> 105 ms, Off 90); the survey keys its first frame's state, a state scene at another `frame0` drops its bleach basis (`MeanFieldSlot::frame0`, `ForgetBleachBasis`: the other states lit its dyes since; a single basis, as before). The
+the slots of states the pattern no longer takes are freed; a state a movie draws in fewer than 12 frames (`kStateBasisImages`) makes no bleach basis, each of its frames one image at its exact weights (`MeanFieldNode::perFrame`, `WidefieldScene::RenderExact`; 2026-11-03: a 20-frame SIM2D Record of a WideField label 20.5 -> 3.1 s in the viewer's worker, frames within 6e-5 of the basis'). Live speed (2026-10-31, bit for bit): `frame0` is in the excitation key (`Impl::exciteKey`) only under a phase drift (a state's light is its program index's), so a live frame finds the background map, plane factors and state scenes (DNA-PAINT SIM2D 256 px 320 -> 105 ms, Off 90); the survey keys its first frame's state, a state scene at another `frame0` drops its bleach basis (`MeanFieldSlot::frame0`, `ForgetBleachBasis`: the other states lit its dyes since; a single basis, as before). The
 blink modes' continuous dyes (dSTORM initial ON, PALM pre state) glow under the cycle mean (`Population::meanLight`,
 one node, state -1; the user's choice 2026-10-31) unless `sim-frame-pattern-continuous` 1 (`Renderer.
 PatternOnContinuousDyes`, Expert; Quality Exhaustive). cli `<out>.pattern.csv`; setup JSON `excitation.beams[]` / `pattern`, probes
@@ -477,10 +513,9 @@ a frame is the acquisition's as of its publish (`seqFrameNow`: a frame in flight
 to step the new sequence's program and light although the consumer skips it as stale -- the SIM sequence began at 1); `tools/test_sim.py` (26 s: the rows, the fringe's Fourier peak and
 2 pi / 3 steps on the difference image, the restart, the cycle sum = 2 x 9 x Off). Viewer: `mv_sim-type` (Basic, a pick
 counted as `pattern`), the readout `#patternReadout`, the `simBeams` matrix (Expert, `beam.<j>.<col>` in the spec),
-**Preview illumination** (Basic+, as Preview PSF now; `web/live/illum_preview.js` + the `illum` worker job on
-`isc_illum_preview(spec, frame, zUm, ...)`: the section seen from below at a height, the focus for zUm < 0, a slider
-in the dialog (2026-10-31); the captions are page text, not on the canvases (`illumPreviewLabels`); the open dialog
-follows every settings change; the beam record 9 floats with the ellipticity: a circular beam drawn as a circular arrow), the live
+the Microscope view's `illumination` and `bfp` panels (2026-11-03; were Preview illumination, `illum_preview.js`,
+`isc_illum_preview`: the section seen from below at a height, the focus for z < 0; the beam record 9 floats with the
+ellipticity: a circular beam drawn as a circular arrow), the live
 info's pattern state (`info[13..16]`); `web/illumination.html` = the docs' interactive figure (an iframe in the physics
 page, copied beside the viewer by `build_site.sh`); `tests/web/viewer_sim.mjs`. LatticeSIM3D's centre beam is
 linear diagonal under S and P (the user's choice, 2026-10-31; circular before: the x and y first orders a quarter
@@ -895,7 +930,11 @@ whose PSF period was shorter than the window: folded light); option `psf-pupil-s
 out camera pixels below `psf-halo-cut` of the emitter's photons (`WithHaloCut`: per plane and row a column span, no
 renormalization; MM `Renderer.PsfHaloCut`, `Renderer.Quality` Fast 1e-5 / Realistic 3e-6 / Exhaustive 0; CPU splat, D3D11
 gather and JS); continuous populations (WideField, mean field, per dye) keep the whole kernel. Keep the docs' warning
-(docs/physics/optics.md) in step. The Linux test `.so`, the
+(docs/physics/optics.md) in step. **Sample spacing** (2026-11-03, spec/ALGORITHM.md "PSF kernel sample spacing"):
+`psf-max-sample-nm` / `Renderer.PsfMaxSampleNm` (Expert; Quality Fast 30 / Realistic 15 / Exhaustive 0 = none; the
+user's choice) lowers the kernel's samples per pixel to min(os, ceil(pixel / cap)) (`CappedPsfOversampling`): the
+default pixels keep 4 / 6 (bit for bit), a 20 nm pixel takes 2 (cli 128 px DNA-PAINT SIM2D 8.9 s / 3.5 GB -> 1.5 s /
+392 MB); ctest `cli_probes`. The Linux test `.so`, the
 cli and the viewer get the real model too.
 
 **Licensing (2026-10-01):** this project's own source is BSD-3-Clause (`LICENSE`);

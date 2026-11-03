@@ -83,7 +83,8 @@ sim::PsfGeneratorRequest BuildPsfGeneratorRequest(const SceneState& s)
    req.na = s.na.load();
    req.immersionIndex = s.immersionIndex.load();
    req.pixelSizeNm = s.PixelSizeNm();
-   req.oversampling = std::max(1, s.psfOversampling.load());
+   // Lowered for a small pixel to the fewest samples at most PsfMaxSampleNm apart (shared with the cli/viewer).
+   req.oversampling = sim::CappedPsfOversampling(s.psfOversampling.load(), req.pixelSizeNm, s.psfMaxSampleNm.load());
    // The kernel half-width is physical (nm), rounded to whole camera pixels
    // and grown to cover the first Airy ring (sim::PsfKernelHalfWidthPx,
    // shared with the cli/viewer).
@@ -337,6 +338,7 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
    s["psf-mask-modes"] = st.psfMaskModes.load();
    s["psf-mask-waist"] = st.psfMaskWaist.load();
    s["psf-oversampling"] = st.psfOversampling.load();
+   s["psf-max-sample-nm"] = st.psfMaxSampleNm.load();
    s["psf-kernel-half-width-nm"] = st.psfKernelHalfWidthNm.load();
    s["psf-z-range-um"] = st.psfZRangeUm.load();
    s["psf-z-step-um"] = st.psfZStepUm.load();

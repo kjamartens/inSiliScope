@@ -187,6 +187,9 @@ jobs:
           {
             echo "inSiliScope ${VERSION}, built from ${GITHUB_SHA}."
             echo
+            # What changed: this version's CHANGELOG.md section ("## <version> ..."), when it has one.
+            changes=$(awk -v v="## ${VERSION} " 'index($0, v) == 1 {on = 1; next} on && /^## / {exit} on' CHANGELOG.md)
+            if [ -n "$changes" ]; then echo "## What changed"; echo "$changes"; echo; echo "## Assets"; echo; fi
             di=$(tr -dc '0-9' < assets/mmgr_dal_inSiliScope-windows-x64/device_interface.txt)
             echo "- \`mmgr_dal_inSiliScope.dll\`: Micro-Manager device adapter (Windows x64, GPL-3.0). Needs a [Micro-Manager 2.0 nightly build](https://micro-manager.org/Micro-Manager_Nightly_Builds) with device interface ${di} (from 21 February 2026 on); older builds refuse it. Copy it into the Micro-Manager folder; getting started: https://kjamartens.github.io/inSiliScope/docs/micro-manager/"
             echo "- \`inSiliScope_Basic.cfg\`, \`inSiliScope_Advanced.cfg\`, \`inSiliScope_Expert.cfg\`: Micro-Manager hardware configurations (the devices, Channel/Objective/Camera/Quality/Drift groups, pixel sizes) at each level of detail."

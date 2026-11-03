@@ -63,21 +63,30 @@ try {
     seen.push(await page.evaluate(() => [...document.querySelectorAll('#lv_perfOut span:nth-child(2n+1)')].map(e => e.textContent).join('|') + '#' +
       [...document.querySelectorAll('#lv_perfOut span:nth-child(2n)')].map(e => e.textContent).join('|')));
   }
-  const infoLine = await page.evaluate(() => { const e = document.getElementById('lv_info'); return { text: e.textContent, h: e.clientHeight, sh: e.scrollHeight, lh: parseFloat(getComputedStyle(e).lineHeight) }; });
-  check(/^● \d+\.\d fps · \d+\.\d ms\/frame · 64×64 px · \d+\.\d nm\/px$/.test(infoLine.text) && infoLine.h <= infoLine.lh + 1 && infoLine.sh <= infoLine.lh + 1,
-    `the info is one line: "${infoLine.text}" (${infoLine.h} px)`);
+  const infoLine = await page.evaluate(() => { const e = document.getElementById('lv_info'); return { text: e.textContent, title: e.title, h: e.clientHeight, sh: e.scrollHeight, lh: parseFloat(getComputedStyle(e).lineHeight) }; });
+  check(/^\d+\.\d fps · \d+\.\d ms\/frame$/.test(infoLine.text) && /\n64×64 px · \d+\.\d nm\/px(\n|$)/.test(infoLine.title) && infoLine.h <= infoLine.lh + 1 && infoLine.sh <= infoLine.lh + 1,
+    `the info is one line, the speed only: "${infoLine.text}" (${infoLine.h} px), the sizes in its tooltip`);
+  // the bar: only the info gives way, the buttons keep their places and sizes whatever its text
+  const bar = await page.evaluate(() => {
+    const at = () => ['lv_live', 'lv_snap', 'lv_rec', 'lv_fresh', 'levelSeg', 'menuBtn'].map(i => { const r = document.getElementById(i).getBoundingClientRect(); return r.left.toFixed(1) + '+' + r.width.toFixed(1); }).join(' ');
+    const e = document.getElementById('lv_info'), b = document.getElementById('lv_busy'), keep = e.textContent, a = at();
+    e.textContent = 'x'.repeat(400); b.hidden = false;
+    const z = at(), over = document.getElementById('liveBar').scrollWidth - document.getElementById('liveBar').clientWidth;
+    e.textContent = keep; b.hidden = true;
+    return { a, z, over };
+  });
+  check(bar.a === bar.z && bar.over <= 0, `the bar's buttons stay put under a long info and the busy marker (overflow ${bar.over} px)`);
   const sq = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect(), c = document.getElementById('liveCtl').getBoundingClientRect(),
     p = document.getElementById('panel').getBoundingClientRect(), vb = document.getElementById('viewBar').getBoundingClientRect(), lb = document.getElementById('liveBar').getBoundingClientRect();
     return { w: v.width, h: v.height, pw: p.width, ctlBottom: c.bottom, H: innerHeight, vbH: vb.height, lbH: lb.height, illum: !!document.querySelector('#liveCtl details[data-group=illum]') }; });
   check(Math.abs(sq.w - sq.h) < 1 && Math.abs(sq.pw - sq.w) < 2 && Math.abs(sq.ctlBottom - sq.H) < 2 && Math.abs(sq.vbH - sq.lbH) < 1 && sq.illum,
     `layout: the image square (${sq.w.toFixed(0)} px), the settings as wide (${sq.pw.toFixed(0)} px), the controls column to the bottom, the bars level (${sq.vbH.toFixed(0)}/${sq.lbH.toFixed(0)} px), illumination in the column ${JSON.stringify(sq)}`);
-  // the light-path readouts, from the movie spec's C++ setup (the setup job): the BFP line names a regime, the spectra
-  // plot drew the lit lasers
+  // the BFP readout, from the movie spec's C++ setup (the setup job), names a regime (the spectra: viewer_scope_view.mjs)
   const ro = await page.waitForFunction(() => {
-    const b = document.getElementById('bfpReadout'), p = document.getElementById('specPlot');
-    return b && p && /^(Epi|HILO|TIRF|Clipped)\b/.test(b.textContent) && +p.dataset.lasers > 0 && { bfp: b.textContent, lasers: +p.dataset.lasers };
+    const b = document.getElementById('bfpReadout');
+    return b && /^(Epi|HILO|TIRF|Clipped)\b/.test(b.textContent) && b.textContent;
   }, null, { timeout: 30000 }).then(h => h.jsonValue(), () => null);
-  check(!!ro, `the BFP readout and the spectra plot from the setup job: ${ro ? `"${ro.bfp}", ${ro.lasers} laser line(s)` : 'nothing drawn in 30 s'}`);
+  check(!!ro, `the BFP readout from the setup job: ${ro ? `"${ro}"` : 'nothing in 30 s'}`);
   await page.evaluate(() => document.getElementById('lv_live').click());
   const names = seen.map(s => s.split('#')[0]), vals = seen.map(s => s.split('#')[1].split('|'));
   check(names.every(n => n === names[0]) && /blink events \(core\)/.test(names[0]) && /BrightField image/.test(names[0]),
@@ -107,7 +116,7 @@ try {
     check(!early && play.shown && play.i !== i0 && play.n === 20, `the recording plays in the live view (no file saved by itself): frame ${i0 + 1} -> ${play.i + 1}/${play.n}`);
     const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.evaluate(() => document.getElementById('lv_playSave').click())]);
     const buf = fs.readFileSync(await dl.path()), pages = readTiff(buf);
-    const info = await page.evaluate(() => ({ t: liveState.t, text: document.getElementById('lv_info').textContent, btn: document.getElementById('lv_rec').textContent,
+    const info = await page.evaluate(() => ({ t: liveState.t, text: document.getElementById('lv_info').textContent, title: document.getElementById('lv_info').title, btn: document.getElementById('lv_rec').textContent,
       px: +document.getElementById('mv_pixel-nm').value, exp: +document.getElementById('mv_exposure-ms').value }));
     check(shown && hiddenAfter, 'Record opens the frames box, Start closes it and records');
     return { dl, pages, buf, info, recSec };
@@ -124,7 +133,7 @@ try {
     check(frameOf(r, 0).some((v, i) => v !== frameOf(r, 19)[i]), `${kind}: the frames differ (blinks, noise)`);
     // ImageJ / Fiji read an "ImageJ=" file's frames as one block from the first page's data, not page by page
     check(r.pages.every((p, k) => p.data === d0.data + k * 128 * 128 * 2), `${kind}: the frames lie back to back from the first page's data (as Fiji reads them)`);
-    check(r.info.btn === '● Record' && /saved insiliscope_live_128x128x20\.tif/.test(r.info.text), `${kind}: the button is back, the info line names the saved file`);
+    check(r.info.btn === '● Record' && /saved insiliscope_live_128x128x20\.tif/.test(r.info.title), `${kind}: the button is back, the info's tooltip names the saved file`);
     return d0;
   };
   await page.evaluate(() => { const n = document.getElementById('lv_recN'); n.value = 20; n.dispatchEvent(new Event('change')); });
@@ -133,8 +142,9 @@ try {
   const tBefore = await page.evaluate(() => new Promise(r => setTimeout(() => r(liveState.t), 300)));
   const fresh = await record();
   const df = fileChecks(fresh, 'fresh');
-  check(/\ninsiliscope=recording\n/.test(df.desc || '') && / frames=20( |$)/.test((/insiliscope\.spec=(.*)/.exec(df.desc) || [])[1] || ''),
-    'fresh: the header says a fresh recording, its spec is the 20-frame movie');
+  check(/\ninsiliscope=recording\n/.test(df.desc || '') && / frames=20( |$)/.test((/insiliscope\.spec=(.*)/.exec(df.desc) || [])[1] || '') &&
+    / start-sec=0( |$)/.test((/insiliscope\.spec=(.*)/.exec(df.desc) || [])[1] || ''),
+    'fresh: the header says a fresh recording, its spec is the 20-frame movie from the box\'s start time (default 0 s)');
   check(fresh.info.t === tBefore, `fresh: the live sample's time stays: ${tBefore.toFixed(2)} -> ${fresh.info.t.toFixed(2)} s`);
   console.log(`      fresh record ${fresh.recSec.toFixed(1)} s for 20 frames (wall)`);
 

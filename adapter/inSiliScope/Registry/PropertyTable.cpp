@@ -1341,6 +1341,7 @@ std::vector<PropDef> BuildTable()
       d.getText = [](H& h) {
          for (const Q& q : qs)
             if (h.State().brightField[BF_QUALITY].load() == q.bf && h.State().psfOversampling.load() == q.os &&
+                h.State().psfMaxSampleNm.load() == q.maxSampleNm &&
                 h.State().wideField[WF_UPSCALING].load() == q.wf && h.State().psfHaloCut.load() == q.halo &&
                 h.State().Option("blink-min-photons") == q.minPhotons &&
                 h.State().Option("fid-clumps-as-one") == q.clumpsAsOne &&
@@ -1356,6 +1357,7 @@ std::vector<PropDef> BuildTable()
             {
                h.State().brightField[BF_QUALITY] = q.bf;
                h.State().psfOversampling = q.os;
+               h.State().psfMaxSampleNm = q.maxSampleNm;
                h.State().wideField[WF_UPSCALING] = q.wf;
                h.State().psfHaloCut = q.halo;
                h.State().SetOption("blink-min-photons", q.minPhotons);
@@ -1363,6 +1365,7 @@ std::vector<PropDef> BuildTable()
                h.State().SetOption("sim-frame-pattern-continuous", q.framePattern);
                h.Notify("bf-quality");
                h.Notify("psf-oversampling");
+               h.Notify("psf-max-sample-nm");
                h.Notify("wf-upscale");
                h.Notify("psf-halo-cut");
                h.Notify("blink-min-photons");
@@ -1411,7 +1414,13 @@ std::vector<PropDef> BuildTable()
                 { "Gaussian", "RichardsWolf", "GibsonLanni", "GibsonLanniZernike" },
                 "The PSF model (GibsonLanniZernike: scalar Gibson-Lanni + Zernike pupil; RichardsWolf/GibsonLanni: JVM)."));
       d = Int(R, "PsfOversampling", Tier::Expert, "psf-oversampling", &SceneState::psfOversampling, 1, 16,
-              "PSF kernel samples per camera pixel.");
+              "PSF kernel samples per camera pixel (at most: PsfMaxSampleNm lowers it for a small pixel).");
+      ThenNumber(d, quality);
+      add(d);
+      d = Num(R, "PsfMaxSampleNm", Tier::Expert, "psf-max-sample-nm", &SceneState::psfMaxSampleNm, 0.0, 1000.0,
+              "The PSF kernel's samples are made only as fine as keeps them at most this far apart, nm: samples per "
+              "pixel = min(PsfOversampling, ceil(pixel / this)), so a small pixel does not multiply the kernel's size "
+              "(Quality: Fast 30, Realistic 15, Exhaustive 0 = no limit).");
       ThenNumber(d, quality);
       add(d);
       add(Names(R, "PsfInterp", Tier::Expert, "psf-interp", &SceneState::psfInterp, { "Nearest", "Linear", "Cubic", "Fft" },

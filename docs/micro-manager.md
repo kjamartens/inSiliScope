@@ -473,7 +473,8 @@ How the images are computed: quality, GPU, caches, numerics.
 | `GpuStatus` | Advanced (read-only) | Not used yet |  | What the camera renders on, or why the CPU (read-only). |
 | `DiskCache` | Advanced | Cells | `Off`, `Cells`, `CellsAndPsf` | Keep packed cells (and the PSF kernel, ~200 MB) in the per-user cache directory between sessions. |
 | `PsfModel` | Expert | GibsonLanniZernike | `Gaussian`, `RichardsWolf`, `GibsonLanni`, `GibsonLanniZernike` | The PSF model (GibsonLanniZernike: scalar Gibson-Lanni + Zernike pupil; RichardsWolf/GibsonLanni: JVM). |
-| `PsfOversampling` | Expert | 6 | 1 .. 16 | PSF kernel samples per camera pixel. |
+| `PsfOversampling` | Expert | 6 | 1 .. 16 | PSF kernel samples per camera pixel (at most: PsfMaxSampleNm lowers it for a small pixel). |
+| `PsfMaxSampleNm` | Expert | 15 | 0 .. 1000 | The PSF kernel's samples are made only as fine as keeps them at most this far apart, nm: samples per pixel = min(PsfOversampling, ceil(pixel / this)), so a small pixel does not multiply the kernel's size (Quality: Fast 30, Realistic 15, Exhaustive 0 = no limit). |
 | `PsfInterp` | Expert | Cubic | `Nearest`, `Linear`, `Cubic`, `Fft` | Sub-pixel placement of the PSF (Fft: exact, slow, CPU only). |
 | `PsfHaloCut` | Expert | 3e-06 | 0 .. 0.001 | Blink splats leave out camera pixels below this share of the emitter's photons (Quality: Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel). WideField and other continuous dyes keep the whole kernel. |
 | `PsfPupilSamples` | Expert | 0 | 0 .. 1024 | GibsonLanniZernike pupil samples per axis (0: as many as the kernel window needs; 64: webSMLM's, folds light back into a wide window). |

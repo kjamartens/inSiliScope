@@ -15,7 +15,8 @@ through it step by step.
   options (layers, look, tilt and rotation, z clip) are under **View ▾** in the info box at its top left, which lists
   one item per line where the view is (seed, centre, scale, tilt) and what is still loading; View ▾ opens the options
   in the same box. The microscope is on the right: its bar (level with the title bar) holds ▶ Live / Snap / ● Record /
-  ↺ and one line with the frame rate, the time per frame, the image size and the pixel size (nm, one decimal); under it the live camera image, always square, with every
+  ↺ and one short line with the frame rate and the time per frame (its tooltip adds the image size, the pixel size
+  and a recording's message); under it the live camera image, always square, with every
   sample and microscope setting below it at the same width (a search box filters the rows); beside them, down to the
   bottom of the window, a column of the microscope's controls that scrolls: the focus, the configuration, the
   illumination and light path, the objective and PSF (from the Advanced level: it has no Basic setting), the display
@@ -23,6 +24,40 @@ through it step by step.
   level), opens their groups and hides the rest of the settings. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser).
+- **Microscope view.** The **Sample | Microscope** switch in the title bar lays the microscope over the left half:
+  on top the **Overview**, a drawing of the light path, lying down (the sample, the objective with its back focal plane just behind it, the dichroic with
+  the lasers and their excitation filter coming in from below, the emission filter, the camera; each lit laser's light
+  going to the sample and each label's emission coming back, in their wavelengths' colours, with arrows; a beam fades
+  with what each part lets through and ends in a bar at a part that stops it, e.g. a far-red dye's emission at a
+  600/37 emission filter), and the panels under it, two side by side: **Illumination profile** (a section seen from below at
+  the focus, or at the height its slider sets, over 1.5x the field, and an x-z section through the axis with that
+  height dashed; a frame slider under a structured-illumination pattern), **Point spread function (PSF)** (the kernel seen from above, zoomed
+  to the square holding everything brighter than 1 % of the in-focus peak, about 1 um at NA 1.4, and an x-z section
+  through it over the whole kernel (as the square root of the intensity, so the rings show), both scaled to the whole
+  PSF's peak, so the view from above dims as the slider moves the emitter away from the focal plane),
+  **Back focal plane (BFP)** (the pupil, the critical circle, each beam's spot with its polarization, the regime) and
+  **Spectral info** (the filters, the dichroic, the camera's QE, each label's excitation (dashed) and emission, the laser
+  lines; and what reaches the camera per label: detected fraction and wavelength, photons per second, activation,
+  free-imager background; filled, with a wavelength axis, a legend in rows along the light path: lasers, excitation
+  filter, dichroic, the sample's dyes, emission filter, camera, and under it what reaches the camera in the same rows; a pointer on a curve or a laser line marks it and its legend entry and tells its value at that wavelength, a pointer on a legend entry marks its curves, a row's name all of the row's). The tiles' square images are all one size; in its tile the drawing names the parts only. A
+  pointer over a panel marks its parts in the drawing (the PSF: the objective and the camera; the spectra: the sample,
+  the filters, the dichroic, the lasers and the camera). A pointer on a part or a beam of the drawing shows what it is
+  at once (a laser's power at the sample and what the excitation filter and the dichroic pass; an emission's mean
+  wavelength and what the dichroic, the emission filter and the camera pass) and marks it and the panels it belongs
+  to. A custom laser line takes its place among the others by wavelength; a line the dichroic lets through is drawn
+  going on past it. A click on a panel fills the left half with it at twice the
+  size, with its captions and legend (✕ or Esc: back): the drawing then gives each part's product and setting, the
+  lasers' powers and a legend of the beams (how much of each reaches the sample or the camera), and a click on a part
+  opens its panel; the PSF becomes a 2 x 2 grid over the whole kernel, x-y and x-z, the kernel above the camera pixels (an emitter at a pixel centre), with a second slider
+  that turns the x-z cut in the x-y plane (the cut drawn dashed on the x-y images from edge to edge, corner to corner
+  at 45 degrees; an astigmatic PSF shows its two foci along x and y); its x-y images too are scaled to the whole PSF's
+  peak, so they dim out of focus. The filled illumination profile and PSF carry scale bars. The mouse wheel over any image zooms it about the pointer (up to 32x; a drag pans, a small
+  inset at its top left shows the part shown, a click on it the whole image); the PSF's two views from above zoom
+  together, and the illumination profile is computed at the screen's own pixels for the part shown (smoothed where its
+  stripes are finer than a pixel), so a structured-illumination pattern's fine stripes show cleanly, without moire,
+  at any zoom. The panels follow every settings change. The switch is remembered in your browser; the sample
+  keeps loading under the panels and is there as it was. A narrow window (a phone) stands the drawing up, the sample
+  on top; the panels show in one column above the live image.
 - **On a phone** (a window up to 700 px wide; a landscape phone or a tablet keeps the side-by-side layout) the live
   image comes first, square across the screen, with the world view as a small inset in its top-right corner: a tap on
   the inset swaps the two (remembered in your browser). ▶ Live / Snap / ● Record sit under the image and stay on screen
@@ -57,28 +92,29 @@ through it step by step.
   and what the engine's caches hold, the largest first (the PSF kernel per label colour is usually most of it; a
   finer pixel size or a longer PSF z range makes it bigger). If a movie needs more memory than the browser gives it,
   the movie stops with an "out of memory" message and its worker starts afresh; the viewer goes on.
-- **● Record** opens a small box for the number of frames; its **Start** (or Enter) records N frames at the stage
+- **● Record** opens a small box for the number of frames and the sample's time at the first frame (**starting at**,
+  default 0 s: the light just coming on, every dSTORM dye ON, nothing bleached or converted yet); its **Start** (or Enter) records N frames at the stage
   position with the current settings, rendered as fast as the engine goes, not paced to the exposure. The recording
   then plays in the live view in real time at the exposure it was taken with (100 frames of 1 ms play in 0.1 s; the
   screen shows the frame current at each refresh), with play/pause, a frame slider and ✕ to close it (Live, Snap or a
   new recording close it too),
   and **Save .tif** there saves it as one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; nothing is saved by
   itself. A recording is a fresh sample: a movie starting at
-  the Start time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
+  that time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
   Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.
-  With **continue the live sample** (in the box, Advanced level) the frames go on from the live sample instead: its
+  With **continue the live sample** (in the box, Advanced level; the start time is then hidden) the frames go on from the
+  live sample instead: its
   illumination history, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition. They
   are rendered in batches, each one movie on the sample's clock, so the slow parts of a frame (above all the
   blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
   frame of each batch is shown, and clicking ● Record again stops early and keeps the frames so far.
 - **Illumination & light path** (in the controls column, under Configuration): the light preset, each laser line as a
   slider with its power (kW/cm², three decimals; at the Basic level only the lines the labelled dyes use in their
-  modes, with 405, 488 and 561 nm for PALM, and any line that is on), the background, geometry, filters and dichroic, and the spectra plot
-  (dye excitation and emission, laser lines, filters, camera QE). Each laser line has the colour of its wavelength, and
-  each dye's excitation (dashed) and emission (solid) the colour of its weighted emission wavelength; on the dark looks
-  the lines are brighter and thicker. Click the plot for a larger copy with a legend of every line and what reaches
-  the camera per label (detected fraction and wavelength, photons per second, activation, free-imager background;
+  modes, with 405, 488 and 561 nm for PALM, and any line that is on), the background, geometry, filters and dichroic (the spectra: the Microscope view's
+  **Spectral info** panel, where each laser line has the colour of its wavelength and each dye's excitation (dashed) and
+  emission (solid) the colour of its weighted emission wavelength, with what reaches the camera per label: detected
+  fraction and wavelength, photons per second, activation, free-imager background;
   Esc or a click beside it closes it).
 - **Configuration** (in the controls column): the config groups of the adapter's Micro-Manager configurations
   (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Specimen, Mode (the
@@ -152,7 +188,7 @@ through it step by step.
   minimum spacing and the ring geometry. A third target, the **Nuclear lamina label**, is unlabelled by default (Dye
   None): pick a dye to show random lamina points on the nuclear envelope; **Nuclear lamina** (Advanced) sets their
   density (default 2000 per µm², 100 to 10 000) and the lamina-free disc around each pore (40 nm). A mode or dye pick loads the dye's fields, the mode's labelling and the light
-  preset of every labelled target combined (**Illumination & light path**: the preset, lasers and the spectra plot; dichroic and
+  preset of every labelled target combined (**Illumination & light path**: the preset and lasers; dichroic and
   filter; the **BFP position** slider, 0 = epi, 1 = the critical angle, between HILO and above TIRF, with the regime and
   how deep the light reaches shown under it; the DNA-PAINT presets set HILO, the nanorulers TIRF; in Advanced the beam
   profile, its width and the DNA-PAINT chamber height; [Dyes and light path](physics/dyes-and-light-path.md)). The
@@ -165,12 +201,9 @@ through it step by step.
   illumination in every mode, one row per beam, `ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm`, pre-filled
   with the type's beams, which typed rows replace; the column table and worked examples are on the physics page under
   [Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)). The live sample counts its
-  frames (the info line shows the frame's place in the cycle, the performance box its angle and phase), a recording
-  of a fresh sample starts at frame 0. **Preview illumination** sketches the light entering the objective's back
-  focal plane (from above: the pupil, the critical circle, each beam's spot with its size and polarization) and the
-  pattern it makes in the sample (from below: a section over 1.5x the field, at the focus until its height slider
-  moves it; from the side: an x-z section through the axis, the section's height dashed) for the current settings,
-  with a slider through the frame program; the sketch follows every settings change while it is open. The preset is also the modality: "BrightField (lasers
+  frames (the info line's tooltip shows the frame's place in the cycle, the performance box its angle and phase), a recording
+  of a fresh sample starts at frame 0. The Microscope view's **Back focal plane (BFP)** and **Illumination profile** panels
+  show the beams and the pattern they make for the current settings, each with a slider through the frame program. The preset is also the modality: "BrightField (lasers
   off)" images transmitted light, every other preset fluorescence. The label stays
   available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
   own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.
@@ -197,9 +230,9 @@ through it step by step.
   Aberrations preset's 28 coefficients in waves (OSA order 0-27), which you can type over (28 values, or 15 with the rest
   0); picking a preset replaces them again, as `Objective.ZernikeCoefficients` does in Micro-Manager. The
   kernel of the current PSF settings is computed in the background as soon as the page is ready and whenever those
-  settings change. **Preview PSF** shows that kernel in a player over the view: the oversampled kernel
-  beside the camera-pixel image of one emitter at a pixel centre, with a slider for the emitter's distance from the
-  focal plane (its title bar drags it).
+  settings change. The Microscope view's **Point spread function (PSF)** panel shows that kernel: its core from above and an x-z section, with
+  a slider for the emitter's distance from the focal plane; filled, the whole kernel and the camera-pixel image of one
+  emitter at a pixel centre, each with an x-z section along a cut whose angle a second slider sets.
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`
   reproduces a viewer recording with the CLI. Blinks also take the default halo cut (pixels below 3e-6 of the emitter's
   photons are left out) and skip a frame they give fewer than 50 photons ([Optics](physics/optics.md)).

@@ -284,11 +284,12 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
 }
 
 bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int n, int nz, IllumPreview& out,
-                    std::string& err)
+                    std::string& err, const IllumWindow& xyWin, const IllumWindow& xzWin, int nxz)
 {
    out = IllumPreview();
-   n = std::max(8, std::min(512, n));
-   nz = std::max(8, std::min(512, nz));
+   n = std::max(8, std::min(2048, n));
+   nz = std::max(8, std::min(2048, nz));
+   nxz = nxz > 0 ? std::max(8, std::min(2048, nxz)) : n;
    sim::ScopeResolved R;
    if (!sim::ScopeResolve(spec, R, err))
       return false;
@@ -302,6 +303,7 @@ bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int
    const sim::ExcitationSpec& es = ex.Spec();
    out.n = n;
    out.nz = nz;
+   out.nxz = nxz;
    out.patterned = ex.Patterned();
    out.frame = frame;
    out.period = ex.Patterned() ? std::max(1, es.beams.Period()) : 1;
@@ -361,19 +363,91 @@ bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int
    out.xy.assign(static_cast<size_t>(n) * n, 0.0f);
    const double zf = zUm < 0 ? es.pivotUm : zUm;
    out.zUm = zf;
-   for (int j = 0; j < n; ++j)
-      for (int i = 0; i < n; ++i)
+   // A window (rows x cols pixels, row 0 at the bottom; heightUm the whole image's height) of at(x, v): x in um, v the
+   // fraction of the whole height measured from the bottom. See IllumWindow for the sampling.
+   const bool fringes = ex.Patterned() && beams.size() > 1;
+   double minNm = 1e9;
+   for (const sim::ExcitationLine& l : shares)
+      minNm = std::min(minNm, l.nm);
+   const double periodMinUm = minNm / 1000.0 / (2.0 * std::max(0.1, es.na));   // the finest fringe the pupil passes
+   auto windowed = [&](const IllumWindow& w, int cols, int rows, double heightUm, std::vector<float>& dst, const auto& at) {
+      const double vBottom = 1.0 - w.y0 - w.span;   // the window's bottom edge
+      if (w.sigmaPx > 0 && fringes)
       {
-         const double x = (i + 0.5) / n * out.xySpanUm - out.xySpanUm / 2, y = (j + 0.5) / n * out.xySpanUm - out.xySpanUm / 2;
-         out.xy[static_cast<size_t>(j) * n + i] = static_cast<float>(ex.At(x, y, zf, shares));
+         // samples per pixel along x and along the height, the margins the Gaussian reaches beyond the window
+         auto perPx = [&](double pxUm) { return std::max(1, std::min(8, static_cast<int>(std::ceil(3.0 * pxUm / periodMinUm)))); };
+         const int sx = perPx(w.span * out.xySpanUm / cols), sy = perPx(w.span * heightUm / rows);
+         const int mx = static_cast<int>(std::ceil(3.0 * w.sigmaPx * sx)), my = static_cast<int>(std::ceil(3.0 * w.sigmaPx * sy));
+         const int W = cols * sx + 2 * mx, H = rows * sy + 2 * my;
+         std::vector<double> fine(static_cast<size_t>(W) * H);
+         for (int b = 0; b < H; ++b)
+         {
+            const double v = vBottom + w.span * (b - my + 0.5) / (rows * sy);
+            for (int a = 0; a < W; ++a)
+            {
+               const double fx = w.x0 + w.span * (a - mx + 0.5) / (cols * sx);
+               fine[static_cast<size_t>(b) * W + a] = at(fx * out.xySpanUm - out.xySpanUm / 2, v);
+            }
+         }
+         // the Gaussian (normalized weights) about a pixel's centre in fine samples, along x then along the height
+         auto smooth = [&](const double* src, int stride, int count, double centre, double sigma) {
+            const int lo = std::max(0, static_cast<int>(std::floor(centre - 3 * sigma))),
+                      hi = std::min(count - 1, static_cast<int>(std::ceil(centre + 3 * sigma)));
+            double sum = 0, wsum = 0;
+            for (int t = lo; t <= hi; ++t)
+            {
+               const double d = (t - centre) / sigma, wt = std::exp(-0.5 * d * d);
+               sum += wt * src[static_cast<size_t>(t) * stride];
+               wsum += wt;
+            }
+            return wsum > 0 ? sum / wsum : 0.0;
+         };
+         std::vector<double> across(static_cast<size_t>(H) * cols);
+         for (int b = 0; b < H; ++b)
+            for (int i = 0; i < cols; ++i)
+               across[static_cast<size_t>(b) * cols + i] =
+                  smooth(fine.data() + static_cast<size_t>(b) * W, 1, W, mx + (i + 0.5) * sx - 0.5, w.sigmaPx * sx);
+         for (int j = 0; j < rows; ++j)
+            for (int i = 0; i < cols; ++i)
+               dst[static_cast<size_t>(j) * cols + i] =
+                  static_cast<float>(smooth(across.data() + i, cols, H, my + (j + 0.5) * sy - 0.5, w.sigmaPx * sy));
+         return;
       }
-   out.xz.assign(static_cast<size_t>(nz) * n, 0.0f);
-   for (int k = 0; k < nz; ++k)
-      for (int i = 0; i < n; ++i)
-      {
-         const double x = (i + 0.5) / n * out.xySpanUm - out.xySpanUm / 2, z = (k + 0.5) / nz * out.zMaxUm;
-         out.xz[static_cast<size_t>(k) * n + i] = static_cast<float>(ex.At(x, 0.0, z, shares));
-      }
+      const int ss = std::max(1, w.ss);
+      for (int j = 0; j < rows; ++j)
+         for (int i = 0; i < cols; ++i)
+         {
+            double sum = 0.0;
+            for (int b = 0; b < ss; ++b)
+               for (int a = 0; a < ss; ++a)
+               {
+                  const double fx = w.x0 + w.span * (i + (a + 0.5) / ss) / cols;
+                  sum += at(fx * out.xySpanUm - out.xySpanUm / 2, vBottom + w.span * (j + (b + 0.5) / ss) / rows);
+               }
+            dst[static_cast<size_t>(j) * cols + i] = static_cast<float>(sum / (ss * ss));
+         }
+   };
+   if (xyWin.Whole())
+      for (int j = 0; j < n; ++j)
+         for (int i = 0; i < n; ++i)
+         {
+            const double x = (i + 0.5) / n * out.xySpanUm - out.xySpanUm / 2, y = (j + 0.5) / n * out.xySpanUm - out.xySpanUm / 2;
+            out.xy[static_cast<size_t>(j) * n + i] = static_cast<float>(ex.At(x, y, zf, shares));
+         }
+   else
+      windowed(xyWin, n, n, out.xySpanUm, out.xy, [&](double x, double v) {
+         return ex.At(x, v * out.xySpanUm - out.xySpanUm / 2, zf, shares);
+      });
+   out.xz.assign(static_cast<size_t>(nz) * nxz, 0.0f);
+   if (xzWin.Whole())
+      for (int k = 0; k < nz; ++k)
+         for (int i = 0; i < nxz; ++i)
+         {
+            const double x = (i + 0.5) / nxz * out.xySpanUm - out.xySpanUm / 2, z = (k + 0.5) / nz * out.zMaxUm;
+            out.xz[static_cast<size_t>(k) * nxz + i] = static_cast<float>(ex.At(x, 0.0, z, shares));
+         }
+   else
+      windowed(xzWin, nxz, nz, out.zMaxUm, out.xz, [&](double x, double v) { return ex.At(x, 0.0, v * out.zMaxUm, shares); });
    return true;
 }
 

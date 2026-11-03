@@ -510,6 +510,9 @@ public:
    // further frame does not fit it (2026-10-14: a Chebyshev basis is 5-9
    // images).
    void RenderFrame(const std::vector<float>& wb, std::vector<float>& cam);
+   // One frame at exactly wb: the basis coefficients when wb fits, else a basis of wb alone (one image, never the full
+   // basis): a structured pattern's state that a movie draws in a few frames only (2026-11-03). Adds to cam.
+   void RenderExact(const std::vector<float>& wb, std::vector<float>& cam);
    // The same with the sample moved by (dxCells, dyCells) grid cells
    // (RenderShiftedImages; needs SetKeepSpectra, else unshifted).
    void RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells, std::vector<float>& cam);

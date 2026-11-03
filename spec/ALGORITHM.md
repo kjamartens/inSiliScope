@@ -646,6 +646,27 @@ wrap-around: see [BRIGHTFIELD.md](BRIGHTFIELD.md) for the why of each step.
 - **Checks.** ctest `sr_render`: threshold 0 = the uncut splat bit for bit, kept pixels exact, left-out pixels <
   threshold (Nearest, Linear, Cubic, Fft).
 
+## PSF kernel sample spacing (2026-11-03)
+
+- **What.** The kernel is sampled at `psf-oversampling` points per camera pixel, at most: `psf-max-sample-nm`
+  (MM `Renderer.PsfMaxSampleNm`, set by `Renderer.Quality`: Fast 30, Realistic 15, Exhaustive 0 = no cap; cli/viewer
+  default 15) lowers it to the fewest samples that keep them at most that far apart, os = min(psf-oversampling,
+  ceil(pixel / cap)) (`CappedPsfOversampling`, shared by the adapter's `BuildPsfGeneratorRequest` and the engine's
+  `ScopePsfRequest`). The window stays in nm.
+- **Why.** Sampling per camera pixel made a small pixel pay for detail the PSF does not have: at a 20 nm pixel the
+  default 6 samples were 3.3 nm apart, the kernel 1806 samples a side, 3.5 GB and 14 s for two labels at 128 px
+  (2026-11-03). The image the PSF can carry is band-limited at 2 NA / lambda (lambda / 4 NA = 89 nm Nyquist at 528 nm,
+  NA 1.49); what finer samples still add is the integration over the camera pixel and the sub-pixel placement.
+  Measured (engine splat vs a 1.7 nm reference, emitter swept over a 20 nm pixel, in focus, halo cut 0): worst
+  relative L2 image error 0.012 % at 3.3 nm, 0.09 % at 10 nm, 0.37 % at 20 nm, 1.8 % at 60 nm, 12 % at 120 nm (528 nm,
+  NA 1.49; 698 nm, NA 1.4 about half), centroid bias <= 0.06 nm up to 40 nm: a shape error, nearly independent of the
+  sub-pixel position. The levels are the user's choice.
+- **Not moved.** The default pixels (97.45 nm in MM, 100 nm in the cli/viewer) keep Fast's 4 and Realistic's 6
+  samples (ceil(97.45 / 30) = 4, ceil(97.45 / 15) = 7): every default output bit for bit. A 20 nm pixel gets 2 (10 nm)
+  at Realistic, 1 at Fast. `wf-upscale` and `blink-binned-upscale` take the largest divisor of the capped count
+  (`KernelWidefieldPsf::ValidUpscale`).
+- **Checks.** ctest `cli_probes` (the rule, the kernels' samples at 20 and 100 nm, Realistic = the defaults).
+
 ## Dim blinks (2026-10-14)
 
 - **What.** A blink whose photons in a frame (`CollectFrameEmitters`: photons per frame x its ON share of the frame x
@@ -1052,7 +1073,14 @@ Off and no matrix).
   viewer's GPU mode too (deferred for the WebGPU host, every state kept its spectra; the host's resident spectra are
   per scene geometry, not per plane factor), and the
   states share one set of dye tiles and one store of kernel spectra (`WidefieldScene::ShareKernels`, under a mutex;
-  the plane factor applies at the dye-plane spectra) -- a focus change re-makes a state's spectra. Known approximations
+  the plane factor applies at the dye-plane spectra) -- a focus change re-makes a state's spectra. A state that a
+  movie draws in fewer frames than `kStateBasisImages` (12, a bleach basis' usual image count) makes no bleach basis
+  for it: each of its frames is one image at that frame's exact weights (`MeanFieldNode::perFrame`,
+  `WidefieldScene::RenderExact`; a state frame 0 does not draw leaves its frame-0 image dark) -- 2026-11-03: a
+  20-frame SIM2D Record of a WideField label made 9 bases of 12 images (+3 rebuilt), 144 images of 149 plane FFTs,
+  20 s in the viewer's worker before its first frame; now its 20 frames' 20 images (the frames differ from the basis'
+  by its approximation, <= 6e-5 of the peak in that test). Keeping the spectra instead would not have helped: each
+  basis image is its own channel's planes (the cache is per channel), streamed or kept the same FFTs. Known approximations
   (documented): a dye's dose within a cycle is off by at most one frame's modulation; the DNA-PAINT imager background
   and the TIRF collected column use the cycle mean (the fringes blur over the defocused column); the beam set's
   components in the imager column share component 0's depth intervals; the pattern is read at the undrifted site; a

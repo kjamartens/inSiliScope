@@ -324,6 +324,13 @@ bool ComputePsfKernelCache(const PsfGeneratorRequest& req, PsfKernelCache& outCa
 // and the cli/viewer (ScopeMovie) so the two cannot drift.
 int PsfKernelHalfWidthPx(double halfWidthNm, double pixelSizeNm, double wavelengthNm, double na);
 
+// The kernel's samples per camera pixel: psf-oversampling (Renderer.PsfOversampling) lowered to the fewest samples
+// that keep them at most maxSampleNm apart (psf-max-sample-nm, Renderer.PsfMaxSampleNm; set by Renderer.Quality:
+// Fast 30, Realistic 15, Exhaustive 0 = no cap): a small camera pixel no longer multiplies the kernel's size (a 20 nm
+// pixel at 6 samples was 3.3 nm, 23x the memory of 10 nm for ~0.1 % of the image; spec/ALGORITHM.md "PSF kernel
+// sample spacing"). Shared by the adapter's BuildPsfGeneratorRequest and the cli/viewer (ScopeMovie).
+int CappedPsfOversampling(int oversampling, double pixelSizeNm, double maxSampleNm);
+
 // PSF figure of merit: the x/y/z Cramer-Rao lower bound of the cached
 // kernel stack at the given per-frame photon count and background (photons/
 // camera pixel), summarized as one human-readable line -- best z-CRLB and

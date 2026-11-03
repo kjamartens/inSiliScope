@@ -73,6 +73,13 @@ The kernel's oversampling (`Renderer.PsfOversampling`, cli `psf-oversampling`, d
 
 <!-- fig:psf-oversampling -->
 
+For a small camera pixel the samples need not get finer with it: `Renderer.PsfMaxSampleNm` (cli/viewer
+`psf-max-sample-nm`, set by `Renderer.Quality`: Fast 30 nm, Realistic 15 nm, Exhaustive no limit) lowers the
+oversampling to the fewest samples per pixel that are at most that far apart, min(oversampling, ceil(pixel / limit)).
+At the default ~100 nm pixel nothing changes; a 20 nm pixel takes 2 samples (10 nm) instead of 6 (3.3 nm), a ninth of
+the kernel's memory, for an image error of about 0.1 % (0.4 % at 20 nm samples, against a 1.7 nm reference over every
+sub-pixel position).
+
 A Cramer-Rao bound summary [[ober2004](../references.md#ober2004)] is logged to the Micro-Manager core log after each
 kernel computation.
 
@@ -222,6 +229,6 @@ BrightField through focus:
 
 ## Renderer.Quality: one knob for speed against precision
 
-Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets five of the knobs above together: the blink halo cut, the dimmest blink drawn, the PSF oversampling, the WideField grid and the BrightField quality; and, for fiducial beads, whether a clump of beads is drawn as one bead (Fast, Realistic) or bead by bead (Exhaustive; [Fiducial beads](../samples/fiducials.md)); and, under a structured pattern, whether dSTORM's initial-ON and PALM's pre-state dyes glow under the cycle's mean light (Fast, Realistic) or each frame's pattern (Exhaustive; [Structured illumination](dyes-and-light-path.md)). The three levels side by side on the three kinds of image:
+Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets six of the knobs above together: the blink halo cut, the dimmest blink drawn, the PSF oversampling and its sample-spacing limit, the WideField grid and the BrightField quality; and, for fiducial beads, whether a clump of beads is drawn as one bead (Fast, Realistic) or bead by bead (Exhaustive; [Fiducial beads](../samples/fiducials.md)); and, under a structured pattern, whether dSTORM's initial-ON and PALM's pre-state dyes glow under the cycle's mean light (Fast, Realistic) or each frame's pattern (Exhaustive; [Structured illumination](dyes-and-light-path.md)). The three levels side by side on the three kinds of image:
 
 <!-- fig:quality-bundle -->
