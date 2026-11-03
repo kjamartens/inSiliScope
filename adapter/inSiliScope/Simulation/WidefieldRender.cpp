@@ -2353,6 +2353,21 @@ void WidefieldScene::RenderFrame(const std::vector<float>& wb, std::vector<float
    images_.Render(a, cam);
 }
 
+void WidefieldScene::RenderExact(const std::vector<float>& wb, std::vector<float>& cam)
+{
+   std::vector<double> a;
+   lastFast_ = true;
+   if (!BleachCoefficients(wb, a))
+   {
+      const auto t0 = TimingClock::now();
+      SetBleachWeights(wb, true);
+      lastFast_ = false;
+      TimingLog("wf.basis-single", TimingSince(t0), "exact frame");
+      a = AnchorCoefficients();
+   }
+   images_.Render(a, cam);
+}
+
 void WidefieldScene::RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells,
                                         std::vector<float>& cam)
 {

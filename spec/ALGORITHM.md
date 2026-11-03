@@ -1073,7 +1073,14 @@ Off and no matrix).
   viewer's GPU mode too (deferred for the WebGPU host, every state kept its spectra; the host's resident spectra are
   per scene geometry, not per plane factor), and the
   states share one set of dye tiles and one store of kernel spectra (`WidefieldScene::ShareKernels`, under a mutex;
-  the plane factor applies at the dye-plane spectra) -- a focus change re-makes a state's spectra. Known approximations
+  the plane factor applies at the dye-plane spectra) -- a focus change re-makes a state's spectra. A state that a
+  movie draws in fewer frames than `kStateBasisImages` (12, a bleach basis' usual image count) makes no bleach basis
+  for it: each of its frames is one image at that frame's exact weights (`MeanFieldNode::perFrame`,
+  `WidefieldScene::RenderExact`; a state frame 0 does not draw leaves its frame-0 image dark) -- 2026-11-03: a
+  20-frame SIM2D Record of a WideField label made 9 bases of 12 images (+3 rebuilt), 144 images of 149 plane FFTs,
+  20 s in the viewer's worker before its first frame; now its 20 frames' 20 images (the frames differ from the basis'
+  by its approximation, <= 6e-5 of the peak in that test). Keeping the spectra instead would not have helped: each
+  basis image is its own channel's planes (the cache is per channel), streamed or kept the same FFTs. Known approximations
   (documented): a dye's dose within a cycle is off by at most one frame's modulation; the DNA-PAINT imager background
   and the TIRF collected column use the cycle mean (the fringes blur over the defocused column); the beam set's
   components in the imager column share component 0's depth intervals; the pattern is read at the undrifted site; a
