@@ -37,11 +37,11 @@ that finishes them.
   the panel a click opens, beams excitation/emission/transmitted) -- plus controls shared by name, and one float
   buffer); the module's `isc_scope_panels` (the list) and `isc_scope_panel(spec, id, params, scale, ...)` (sizing then
   filling) on the movie worker's `panel` job; `web/live/scope_panels.js` (page-free, `self.ISC_SCOPE_PANELS`) draws
-  any panel (an unknown element kind as a labelled box), so a new panel is C++ only. Panels: `lightpath` (the drawing in
+  any panel (an unknown element kind as a labelled box), so a new panel is C++ only. Panels (titles Overview, Illumination profile, Point spread function (PSF), Back focal plane (BFP), Spectral info): `lightpath` (the drawing in
   the middle), `illumination` (`IllumPreviewOf`: from below at the focus or `z`, x-z; `frame`), `psf`
   (`ScopePsfPreview`, cached per spec; `dz`; a tile: the kernel's x-y cropped to the square of every sample above 1 %
   of the in-focus peak (`kPsfTilePeak`, `PsfCropHalf`; 99 % of the light would take ~4x the side) scaled to the whole
-  stack's peak (an image's `peak`: defocus dims it), and its x-z (gamma 0.5); at scale 2 a 2 x 2 grid (header `columns`): kernel / camera x-y and x-z along the cut `angle`), `bfp`, `spectra` (curves + what reaches the camera per label; filled: thinner lines, an axis title, the legend in rows along the light path, `legendHtml` `LEGEND_ROWS`). Layout (2026-11-03,
+  stack's peak (an image's `peak`: defocus dims it), and its x-z (gamma 0.5); at scale 2 a 2 x 2 grid (header `columns`): kernel / camera x-y and x-z along the cut `angle`), `bfp`, `spectra` (curves + what reaches the camera per label; filled: thinner lines, an axis title, the legend in rows along the light path, `legendHtml` `LEGEND_ROWS`; the legend and the plot linked by the pointer, `linkCurves` / `curveAt`, the canvas's `data-marked`). Layout (2026-11-03,
   second round): `#scopeHost` lies over the world view (absolute, below `#viewBar`; the world keeps drawing and loading
   under it), the light path on top (`.sTop`), the tiles in a grid of at most two columns (`.sGrid`; the images grow instead, up to 480 px high); the drawing lies down unless the view is
   narrow (`data-orient`; lying, the BFP just behind the objective in a 0.4 slot, its name below the axis), names only in a tile, values / legend / clickable stations filled (`data-detail`); beams fade

@@ -223,15 +223,24 @@
   .pnl.big .pv-curves canvas{max-width:900px;margin:0 auto}
   .pv figcaption{font-size:11px;font-weight:600;text-align:center} .pv figcaption:empty,.pvNote:empty{display:none}
   .pvNote{font-size:11px;color:var(--muted);line-height:1.35;text-align:center}
-  .pv-rows .pvBody{line-height:1.5} .pnl:not(.big) .pv-rows{display:none}
+  .pnl:not(.big) .pv-rows{display:none}
+  /* a rows view (what reaches the camera) as the spectra's legend: a left-aligned title, the names left, the text after */
+  .pv-rows figcaption,.pvHead{text-align:left;font-size:11px;font-weight:600;color:var(--text);margin:10px 0 2px}
+  .pv-rows .pvBody{display:grid;grid-template-columns:minmax(9em,max-content) minmax(0,1fr);gap:3px 14px;font-size:11px;line-height:1.4;text-align:left;color:var(--text)}
+  .pv-rows .rwL{font-weight:600;color:var(--muted)}
   .pLegend{display:flex;flex-wrap:wrap;justify-content:center;gap:3px 16px;margin-top:6px;color:var(--text);font-size:11px;line-height:1.4}
   .pLegend span{display:inline-flex;align-items:center;gap:6px}
   /* the spectra's legend: rows along the light path, the part's name left, its items after it */
-  .pLegend.pSpecLegend{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:4px 14px;justify-content:start;text-align:left;margin:8px 0 0}
+  .pLegend.pSpecLegend{display:grid;grid-template-columns:minmax(9em,max-content) minmax(0,1fr);gap:4px 14px;justify-content:start;text-align:left;margin:8px 0 0}
   .pSpecLegend .lgHead{font-weight:600;color:var(--muted)}
   .pSpecLegend .lgItems{display:flex;flex-wrap:wrap;gap:3px 16px;align-items:center}
   .pSpecLegend .lgItems.dyes{flex-direction:column;align-items:flex-start}
   .pSpecLegend .lgSub{gap:10px} .pSpecLegend .lgSub b{font-weight:600;min-width:9em}
+  /* the legend and the plot linked (filled): an entry under the pointer, or the curve's, marked; the others faint */
+  .pSpecLegend [data-i]{cursor:default;transition:opacity .1s}
+  .pSpecLegend.lgHov [data-i]:not(.lgOn){opacity:.35}
+  .pSpecLegend .lgOn:not(.lgHead):not(b){text-decoration:underline;text-underline-offset:3px}
+  .pv-curves{position:relative}
   .pnlCtl{display:flex;flex-direction:column;gap:4px;margin-top:8px} .pnlCtl:empty{display:none}
   .pc{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;cursor:default} .pcL{flex:1;color:var(--muted)} .pc input{order:3;flex:1 1 100%;min-width:0;margin:2px 0 0}
   .pcV{flex:none;text-align:right;font-variant-numeric:tabular-nums;cursor:pointer}
@@ -540,7 +549,7 @@
     <h1>inSiliScope</h1>
     <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; the live camera on the right starts by itself (■ Stop stops it).">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt</span>
     <span class="sp"></span>
-    <div id="leftSeg" role="radiogroup" aria-label="Left view" title="What the left view shows: the sample (the world view) or the microscope (the light path, the light in the sample, the PSF, the back focal plane, the spectra)"><button data-left="sample" role="radio" class="on" aria-checked="true">Sample</button><button data-left="scope" role="radio" aria-checked="false">Microscope</button></div>
+    <div id="leftSeg" role="radiogroup" aria-label="Left view" title="What the left view shows: the sample (the world view) or the microscope (the overview, the illumination profile, the PSF, the back focal plane, the spectral info)"><button data-left="sample" role="radio" class="on" aria-checked="true">Sample</button><button data-left="scope" role="radio" aria-checked="false">Microscope</button></div>
     <a id="mmLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="micro-manager" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>

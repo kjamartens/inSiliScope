@@ -238,7 +238,7 @@ struct Builder
    }
 };
 
-// ---- the light in the sample and the back focal plane (IllumPreviewOf) ----
+// ---- the illumination profile and the back focal plane (IllumPreviewOf) ----
 
 // The frame control (a pattern's program), shared by both panels.
 void FrameControl(const IllumPreview& P, std::vector<Control>& c)
@@ -308,7 +308,7 @@ bool IlluminationPanel(const sim::ScopeSpec& spec, const std::map<std::string, d
    std::vector<Control> c;
    FrameControl(P, c);
    c.push_back({ "z", "height z", "\xC2\xB5m", "double-click: back to the focus", 0, P.zMaxUm, 0.02, P.zUm, -1 });
-   b.Begin("illumination", "Light in the sample: " + IllumTitle(spec, P),
+   b.Begin("illumination", "Illumination profile: " + IllumTitle(spec, P),
            StateCaption(P) + "; the section at z = " + Fmt("%.2f", P.zUm) + " \xC2\xB5m" + (z < 0 ? " (the focus)" : ""),
            c);
    const int n = P.n, nx = P.nxz;
@@ -407,7 +407,7 @@ bool BfpPanel(const sim::ScopeSpec& spec, const std::map<std::string, double>& p
       return false;
    std::vector<Control> c;
    FrameControl(P, c);
-   b.Begin("bfp", "Back focal plane: " + IllumTitle(spec, P), StateCaption(P), c);
+   b.Begin("bfp", "Back focal plane (BFP): " + IllumTitle(spec, P), StateCaption(P), c);
    const int n = P.n;
    const double s = n / (2 * P.uSpan);
    Builder::Image im{ "bfp" };
@@ -521,7 +521,7 @@ bool PsfPanel(const sim::ScopeSpec& spec, const std::map<std::string, double>& p
                     "counterclockwise); double-click: along x", 0, 180, 5, angleDeg, 0 });
    const std::string model = pv.gaussian ? "Gaussian (no defocus)"
                                          : "Gibson-Lanni + Zernike, " + OptionName(spec, "psf-zernike-preset");
-   b.Begin("psf", "PSF \xC2\xB7 " + Fmt("%.0f", pv.lambdaNm) + " nm",
+   b.Begin("psf", "Point spread function (PSF) \xC2\xB7 " + Fmt("%.0f", pv.lambdaNm) + " nm",
            model + ", NA " + Fmt("%g", sim::ScopeSpecGet(spec, "na")) + "; " +
               (pv.gaussian ? std::string("in focus") : "z \xE2\x88\x92 focus = " + Fmt("%+.2f", dz) + " \xC2\xB5m") +
               "; scaled to the in-focus peak, the x\xE2\x80\x93z images as \xE2\x88\x9A intensity",
@@ -714,7 +714,7 @@ bool SpectraPanel(const sim::ScopeSpec& spec, const std::map<std::string, double
       return false;
    const sim::LightPath& lp = R.lp;
    const auto shown = ShownLabels(spec, R);
-   b.Begin("spectra", "Spectra", "the light path's filters and the camera's QE, each label's excitation (dashed) and emission, the laser lines", {});
+   b.Begin("spectra", "Spectral info", "the light path's filters and the camera's QE, each label's excitation (dashed) and emission, the laser lines", {});
    const double x0 = 350, x1 = 800;
    const int i0 = static_cast<int>(x0 - sim::kSpectraGridMinNm), n = static_cast<int>(x1 - x0) + 1;
    auto series = [&](const sim::Spectrum& v, const std::string& label, const char* role, double nm,
@@ -808,7 +808,7 @@ bool SpectraPanel(const sim::ScopeSpec& spec, const std::map<std::string, double
          rows.push_back({ "", "activation " + Fmt("%.3g", L.kActPerSec) + " /s per dye" });
       const double bg = L.ImagerBackgroundPerPxPerSec(pixelUm);
       if (bg > 0)
-         rows.push_back({ "", "free imager: " + Fmt("%.0f", bg) + " ph/px/s" });
+         rows.push_back({ "", "free imager: " + Thousands(bg) + " ph/px/s" });
       if (L.eff.dye.modes[L.mode].present && L.eff.dye.modes[L.mode].generic)
          rows.push_back({ "", "generic values: no data for this dye in this mode" });
    }
@@ -827,7 +827,7 @@ bool LightPathPanel(const sim::ScopeSpec& spec, const std::map<std::string, doub
    const sim::LightPath& lp = R.lp;
    bool epi = false, trans = false;
    sim::ScopeLights(spec, epi, trans);
-   b.Begin("lightpath", "Light path", "click a part: its panel fills the view", {});
+   b.Begin("lightpath", "Overview", "click a part: its panel fills the view", {});
    Json& j = b.j;
    j.Open('{');
    j.KStr("type", "schematic");
@@ -973,11 +973,11 @@ struct PanelDef
 };
 // The panels: the drawn light path in the middle, then the tiles (the first half on the left, the rest on the right).
 const PanelDef kPanels[] = {
-   { "lightpath", "Light path", "centre", LightPathPanel },
-   { "illumination", "Light in the sample", "side", IlluminationPanel },
-   { "psf", "PSF", "side", PsfPanel },
-   { "bfp", "Back focal plane", "side", BfpPanel },
-   { "spectra", "Spectra", "side", SpectraPanel },
+   { "lightpath", "Overview", "centre", LightPathPanel },
+   { "illumination", "Illumination profile", "side", IlluminationPanel },
+   { "psf", "Point spread function (PSF)", "side", PsfPanel },
+   { "bfp", "Back focal plane (BFP)", "side", BfpPanel },
+   { "spectra", "Spectral info", "side", SpectraPanel },
 };
 
 } // namespace

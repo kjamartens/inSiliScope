@@ -25,21 +25,21 @@ through it step by step.
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser).
 - **Microscope view.** The **Sample | Microscope** switch in the title bar lays the microscope over the left half:
-  on top a drawing of the light path, lying down (the sample, the objective with its back focal plane just behind it, the dichroic with
+  on top the **Overview**, a drawing of the light path, lying down (the sample, the objective with its back focal plane just behind it, the dichroic with
   the lasers and their excitation filter coming in from below, the emission filter, the camera; each lit laser's light
   going to the sample and each label's emission coming back, in their wavelengths' colours, with arrows; a beam fades
   with what each part lets through and ends in a bar at a part that stops it, e.g. a far-red dye's emission at a
-  600/37 emission filter), and the panels under it, two side by side: **Light in the sample** (a section seen from below at
+  600/37 emission filter), and the panels under it, two side by side: **Illumination profile** (a section seen from below at
   the focus, or at the height its slider sets, over 1.5x the field, and an x-z section through the axis with that
-  height dashed; a frame slider under a structured-illumination pattern), **PSF** (the kernel seen from above, zoomed
+  height dashed; a frame slider under a structured-illumination pattern), **Point spread function (PSF)** (the kernel seen from above, zoomed
   to the square holding everything brighter than 1 % of the in-focus peak, about 1 um at NA 1.4, and an x-z section
   through it over the whole kernel (as the square root of the intensity, so the rings show), both scaled to the whole
   PSF's peak, so the view from above dims as the slider moves the emitter away from the focal plane),
-  **Back focal plane** (the pupil, the critical circle, each beam's spot with its polarization, the regime) and
-  **Spectra** (the filters, the dichroic, the camera's QE, each label's excitation (dashed) and emission, the laser
+  **Back focal plane (BFP)** (the pupil, the critical circle, each beam's spot with its polarization, the regime) and
+  **Spectral info** (the filters, the dichroic, the camera's QE, each label's excitation (dashed) and emission, the laser
   lines; and what reaches the camera per label: detected fraction and wavelength, photons per second, activation,
-  free-imager background; filled, with a wavelength axis and a legend in rows along the light path: lasers, excitation
-  filter, dichroic, the sample's dyes, emission filter, camera). The tiles' square images are all one size; in its tile the drawing names the parts only. A
+  free-imager background; filled, with a wavelength axis, a legend in rows along the light path: lasers, excitation
+  filter, dichroic, the sample's dyes, emission filter, camera, and under it what reaches the camera in the same rows; a pointer on a curve or a laser line marks it and its legend entry and tells its value at that wavelength, a pointer on a legend entry marks its curves, a row's name all of the row's). The tiles' square images are all one size; in its tile the drawing names the parts only. A
   pointer over a panel marks its parts in the drawing (the PSF: the objective and the camera; the spectra: the sample,
   the filters, the dichroic, the lasers and the camera). A pointer on a part or a beam of the drawing shows what it is
   at once (a laser's power at the sample and what the excitation filter and the dichroic pass; an emission's mean
@@ -51,9 +51,9 @@ through it step by step.
   opens its panel; the PSF becomes a 2 x 2 grid over the whole kernel, x-y and x-z, the kernel above the camera pixels (an emitter at a pixel centre), with a second slider
   that turns the x-z cut in the x-y plane (the cut drawn dashed on the x-y images from edge to edge, corner to corner
   at 45 degrees; an astigmatic PSF shows its two foci along x and y); its x-y images too are scaled to the whole PSF's
-  peak, so they dim out of focus. The filled light in the sample and PSF carry scale bars. The mouse wheel over any image zooms it about the pointer (up to 32x; a drag pans, a small
+  peak, so they dim out of focus. The filled illumination profile and PSF carry scale bars. The mouse wheel over any image zooms it about the pointer (up to 32x; a drag pans, a small
   inset at its top left shows the part shown, a click on it the whole image); the PSF's two views from above zoom
-  together, and the light in the sample is computed at the screen's own pixels for the part shown (smoothed where its
+  together, and the illumination profile is computed at the screen's own pixels for the part shown (smoothed where its
   stripes are finer than a pixel), so a structured-illumination pattern's fine stripes show cleanly, without moire,
   at any zoom. The panels follow every settings change. The switch is remembered in your browser; the sample
   keeps loading under the panels and is there as it was. A narrow window (a phone) stands the drawing up, the sample
@@ -112,7 +112,7 @@ through it step by step.
 - **Illumination & light path** (in the controls column, under Configuration): the light preset, each laser line as a
   slider with its power (kW/cm², three decimals; at the Basic level only the lines the labelled dyes use in their
   modes, with 405, 488 and 561 nm for PALM, and any line that is on), the background, geometry, filters and dichroic (the spectra: the Microscope view's
-  **Spectra** panel, where each laser line has the colour of its wavelength and each dye's excitation (dashed) and
+  **Spectral info** panel, where each laser line has the colour of its wavelength and each dye's excitation (dashed) and
   emission (solid) the colour of its weighted emission wavelength, with what reaches the camera per label: detected
   fraction and wavelength, photons per second, activation, free-imager background;
   Esc or a click beside it closes it).
@@ -202,7 +202,7 @@ through it step by step.
   with the type's beams, which typed rows replace; the column table and worked examples are on the physics page under
   [Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)). The live sample counts its
   frames (the info line's tooltip shows the frame's place in the cycle, the performance box its angle and phase), a recording
-  of a fresh sample starts at frame 0. The Microscope view's **Back focal plane** and **Light in the sample** panels
+  of a fresh sample starts at frame 0. The Microscope view's **Back focal plane (BFP)** and **Illumination profile** panels
   show the beams and the pattern they make for the current settings, each with a slider through the frame program. The preset is also the modality: "BrightField (lasers
   off)" images transmitted light, every other preset fluorescence. The label stays
   available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
@@ -230,7 +230,7 @@ through it step by step.
   Aberrations preset's 28 coefficients in waves (OSA order 0-27), which you can type over (28 values, or 15 with the rest
   0); picking a preset replaces them again, as `Objective.ZernikeCoefficients` does in Micro-Manager. The
   kernel of the current PSF settings is computed in the background as soon as the page is ready and whenever those
-  settings change. The Microscope view's **PSF** panel shows that kernel: its core from above and an x-z section, with
+  settings change. The Microscope view's **Point spread function (PSF)** panel shows that kernel: its core from above and an x-z section, with
   a slider for the emitter's distance from the focal plane; filled, the whole kernel and the camera-pixel image of one
   emitter at a pixel centre, each with an x-z section along a cut whose angle a second slider sets.
   The viewer uses a 3 um kernel half width (the adapter: 7 um) to save browser memory; `--psf-kernel-half-width-nm 3000`

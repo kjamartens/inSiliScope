@@ -113,6 +113,27 @@ await runViewer('viewer scope view', { watchdogSec: 180, viewport: { width: 1400
     `the wheel zooms the kernel about the pointer, the camera's x-y with it ${JSON.stringify(zoomed)}; the inset's click shows both whole (${unzoomed})`);
   await page.keyboard.press('Escape');
 
+  // the spectra filled: the legend and the plot linked; a row's name marks its curves, a pointer on a laser line marks
+  // it, its legend entry and tells it
+  await page.evaluate(() => document.querySelector('#scopeHost .pnl[data-panel=spectra] .pnlBtn').click());
+  await bigDrawn('spectra');
+  const sp = await page.evaluate(() => { const f = document.querySelector('#scopeHost > .pnl.big .pv-curves'), c = f.querySelector('canvas');
+    const head = [...f.querySelectorAll('.pSpecLegend .lgHead')].find(e => e.textContent === 'Lasers');
+    head.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+    const r = { head: head.dataset.i, marked: c.dataset.marked, on: f.querySelectorAll('.pSpecLegend .lgOn').length };
+    f.querySelector('.pvNote').dispatchEvent(new PointerEvent('pointerleave'));
+    r.after = c.dataset.marked;
+    const v = c._link.v, cr = c.getBoundingClientRect(), l = v.lines[0];
+    r.x = cr.left + (l.x - v.x0) / (v.x1 - v.x0) * cr.width; r.y = cr.top + cr.height * 0.4; r.first = String(v.series.length);
+    return r; });
+  await page.mouse.move(sp.x, sp.y);
+  const onLine = await page.evaluate(() => { const f = document.querySelector('#scopeHost > .pnl.big .pv-curves'), t = f.querySelector('.pTip');
+    return { marked: f.querySelector('canvas').dataset.marked, tip: t && !t.hidden ? t.textContent : '', on: [...f.querySelectorAll('.pSpecLegend .lgOn')].map(e => e.textContent).join(' | ') }; });
+  await page.mouse.move(5, 5);
+  check(sp.marked === sp.head && sp.on > 2 && sp.after === '' && onLine.marked === sp.first && / nm/.test(onLine.tip) && /Lasers/.test(onLine.on),
+    `the spectra filled, legend and plot linked: Lasers marks ${sp.marked} (${sp.on} entries), none after; a laser line marks ${onLine.marked}: "${onLine.tip}" (${onLine.on})`);
+  await page.keyboard.press('Escape');
+
   // a narrow emission filter (600/37) stops a far-red dye's emission there
   const em0 = await page.evaluate(() => document.getElementById('mv_em-filter').value);
   const narrow = await page.evaluate(() => { const e = document.getElementById('mv_em-filter'), o = [...e.options].find(o => /FF01-600\/37/.test(o.text));

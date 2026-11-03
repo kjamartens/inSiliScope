@@ -269,13 +269,46 @@
     if (s.role === 'ex' || s.role === 'em') return { stroke: waveColour(s.nm, light), dash: s.dash };
     return { stroke: P[s.role] || P.text, dash: s.dash };
   }
-  // On a canvas of W x H device pixels laid out on 300 x 110 (k = W / 300); returns the legend [label, style, role].
-  // Filled (big), the view is drawn larger: the lines a quarter thinner, the wavelengths half the size, an axis title.
-  function drawCurves(canvas, v, data, light, big) {
-    const g = canvas.getContext('2d'), W = canvas.width, H = canvas.height, k = W / 300, P = curvePalette(light);
+  // A curves view's frame on its canvas (device pixels, laid out on 300 x 110: k = W / 300): the plot's top and bottom,
+  // the wavelengths' font, x and y in pixels.
+  function curveFrame(canvas, v, big) {
+    const W = canvas.width, H = canvas.height, k = W / 300, fs = (big ? 5 : 10) * k;
+    const top = 8 * k, bot = H - (big ? 2 * fs + 9 * k : 16 * k);
+    return { W, H, k, fs, top, bot, X: x => (x - v.x0) / (v.x1 - v.x0) * W, Y: y => bot - y * (bot - top) };
+  }
+  // A series' value at wavelength x (linear between its samples, which span x0 .. x1), or null outside it.
+  function seriesAt(s, v, data, x) {
+    if (s.len < 2) return null;
+    const t = (x - v.x0) / (v.x1 - v.x0) * (s.len - 1);
+    if (!(t >= 0 && t <= s.len - 1)) return null;
+    const i = Math.min(s.len - 2, Math.floor(t)), f = t - i;
+    return data[s.offset + i] * (1 - f) + data[s.offset + i + 1] * f;
+  }
+  // The legend entry at a point (px, py, device pixels) of a drawn curves view: the nearest curve or laser line within
+  // r, else the emission filter's fill under the point; i -1 for none, with the wavelength and the curve's value there.
+  function curveAt(canvas, v, data, big, px, py, r) {
+    const F = curveFrame(canvas, v, big), ns = v.series.length, x = v.x0 + px / F.W * (v.x1 - v.x0);
+    let i = -1, bd = r, val = 0, fill = -1, fillVal = 0;
+    if (py < F.top - r || py > F.bot + r) return { i, x, val };
+    (v.lines || []).forEach((l, j) => { const d = Math.abs(F.X(l.x) - px); if (d < bd) { bd = d; i = ns + j; } });
+    v.series.forEach((s, j) => {
+      const y = seriesAt(s, v, data, x);
+      if (y === null) return;
+      const d = Math.abs(F.Y(y) - py);
+      if (d < bd) { bd = d; i = j; val = y; }
+      if (s.fill && py >= F.Y(y) && py <= F.bot) { fill = j; fillVal = y; }
+    });
+    if (i < 0 && fill >= 0) { i = fill; val = fillVal; }
+    return { i, x, val };
+  }
+  // On a canvas of W x H device pixels laid out on 300 x 110 (k = W / 300); returns the legend [label, style, role, i]
+  // (i: the series' index, then the laser lines'). Filled (big), the view is drawn larger: the lines a quarter thinner,
+  // the wavelengths half the size, an axis title. hl (a Set of legend indices, or null) marks entries: those drawn
+  // thicker and on top, the rest faint.
+  function drawCurves(canvas, v, data, light, big, hl) {
+    const g = canvas.getContext('2d'), P = curvePalette(light);
+    const { W, H, k, fs, top, bot, X, Y } = curveFrame(canvas, v, big);
     if (big) { P.lw *= 0.75; P.laserW *= 0.75; }
-    const fs = (big ? 5 : 10) * k;   // the wavelengths' font
-    const top = 8 * k, bot = H - (big ? 2 * fs + 9 * k : 16 * k), X = x => (x - v.x0) / (v.x1 - v.x0) * W, Y = y => bot - y * (bot - top);
     g.clearRect(0, 0, W, H);
     g.font = fs + 'px sans-serif'; g.fillStyle = P.text;
     g.textAlign = 'center';
@@ -287,27 +320,77 @@
     }
     if (big) g.fillText('wavelength (' + (v.unit || 'nm') + ')', W / 2, H - 2 * k);
     g.textAlign = 'start';
-    const legend = [];
-    for (const s of v.series) {
-      const st = seriesStyle(s, P, light), dx = (v.x1 - v.x0) / Math.max(1, s.len - 1);
+    const ns = v.series.length, lines = v.lines || [], legend = [];
+    v.series.forEach((s, i) => legend.push([s.label, seriesStyle(s, P, light), s.role, i]));
+    lines.forEach((l, j) => legend.push([l.label, { stroke: waveColour(l.nm, light), width: P.laserW, edge: P.laserEdge }, 'laser', ns + j]));
+    const drawSeries = (s, st, on) => {
+      const dx = (v.x1 - v.x0) / Math.max(1, s.len - 1), lw = P.lw * k * (on ? 2 : 1);
       const path = () => { g.beginPath(); for (let i = 0; i < s.len; i++) { const x = X(v.x0 + i * dx), y = Y(data[s.offset + i]); if (i) g.lineTo(x, y); else g.moveTo(x, y); } };
       if (s.fill) {
         path(); g.lineTo(X(v.x1), Y(0)); g.lineTo(X(v.x0), Y(0)); g.closePath(); g.fillStyle = st.fill; g.fill();
-        if (st.stroke) { path(); g.setLineDash([]); g.strokeStyle = st.stroke; g.lineWidth = P.lw * k; g.stroke(); }
+        if (st.stroke || on) { path(); g.setLineDash([]); g.strokeStyle = st.stroke || P.text; g.lineWidth = lw; g.stroke(); }
       } else {
-        path(); g.setLineDash((st.dash || []).map(d => d * k)); g.strokeStyle = st.stroke; g.lineWidth = P.lw * k; g.stroke(); g.setLineDash([]);
+        path(); g.setLineDash((st.dash || []).map(d => d * k)); g.strokeStyle = st.stroke; g.lineWidth = lw; g.stroke(); g.setLineDash([]);
       }
-      legend.push([s.label, st, s.role]);
-    }
-    for (const l of v.lines || []) {
+    };
+    const drawLine = (l, on) => {
       // a laser line: its colour with an edge on both sides, so it stands apart from a dye curve of the same hue
-      const c = waveColour(l.nm, light), x = X(l.x), w = P.laserW * k, e = (light ? 1 : 1.5) * k;
+      const c = waveColour(l.nm, light), x = X(l.x), w = P.laserW * k * (on ? 1.6 : 1), e = (light ? 1 : 1.5) * k;
       g.fillStyle = P.laserEdge; g.fillRect(x - w / 2 - e, top, w + 2 * e, bot - top);
       g.fillStyle = c; g.fillRect(x - w / 2, top, w, bot - top);
-      legend.push([l.label, { stroke: c, width: P.laserW, edge: P.laserEdge }, 'laser']);
+    };
+    // the series, then the laser lines; marked ones last, over the others
+    const marked = !!(hl && hl.size);
+    for (const pass of [0, 1]) for (const [, st, , i] of legend) {
+      const on = marked && hl.has(i);
+      if (on !== (pass === 1)) continue;
+      g.globalAlpha = marked && !on ? 0.18 : 1;
+      if (i < ns) drawSeries(v.series[i], st, on); else drawLine(lines[i - ns], on);
     }
-    canvas.dataset.lasers = (v.lines || []).length;
-    return legend.map(([t, s, r]) => [t, Object.assign({ lw: P.lw }, s), r]);
+    g.globalAlpha = 1;
+    canvas.dataset.lasers = lines.length;
+    canvas.dataset.marked = marked ? [...hl].join(',') : '';
+    return legend.map(([t, s, r, i]) => [t, Object.assign({ lw: P.lw }, s), r, i]);
+  }
+  // Links a filled curves view's plot and legend (in figure f): a pointer over a curve or a laser line marks it and its
+  // legend entry and tells its value there; a pointer over a legend entry (a row's name: all of the row's; a dye's
+  // name: its excitation and emission) marks its curves.
+  function linkCurves(f, canvas, v, data, light, legend) {
+    const L = canvas._link = Object.assign(canvas._link || { hl: null }, { v, data, light, legend });
+    const note = f.querySelector('.pvNote');
+    let tip = f.querySelector('.pTip');
+    if (!tip) { tip = document.createElement('div'); tip.className = 'pTip'; tip.hidden = true; f.append(tip); }
+    const mark = hl => {
+      L.hl = hl && hl.size ? hl : null;
+      drawCurves(canvas, L.v, L.data, L.light, true, L.hl);
+      const box = note.querySelector('.pSpecLegend');
+      if (!box) return;
+      box.classList.toggle('lgHov', !!L.hl);
+      for (const e of box.querySelectorAll('[data-i]')) e.classList.toggle('lgOn', !!L.hl && e.dataset.i.split(',').some(i => L.hl.has(+i)));
+    };
+    if (L.hl) mark(new Set([...L.hl].filter(i => i < L.legend.length)));
+    if (canvas._linked) return;
+    canvas._linked = true;
+    const pct = x => (100 * x).toFixed(x < 0.1 ? 1 : 0) + ' %';
+    canvas.addEventListener('pointermove', ev => {
+      const r = canvas.getBoundingClientRect(), s = canvas.width / r.width;
+      const hit = curveAt(canvas, L.v, L.data, true, (ev.clientX - r.left) * s, (ev.clientY - r.top) * s, 7 * s);
+      mark(hit.i >= 0 ? new Set([hit.i]) : null);
+      if (hit.i < 0) { tip.hidden = true; return; }
+      const [label, , role] = L.legend.find(e => e[3] === hit.i);
+      tip.textContent = role === 'laser' ? label
+        : label + '\n' + Math.round(hit.x) + ' nm: ' + pct(hit.val) + (role === 'ex' || role === 'em' ? ' of its peak' : '');
+      tip.hidden = false;
+      const fr = f.getBoundingClientRect(), x = ev.clientX - fr.left, y = ev.clientY - fr.top, w = tip.offsetWidth;
+      tip.style.left = Math.max(0, x + 14 + w > fr.width ? x - 14 - w : x + 14) + 'px';
+      tip.style.top = (y + 14) + 'px';
+    });
+    canvas.addEventListener('pointerleave', () => { tip.hidden = true; mark(null); });
+    note.addEventListener('pointerover', ev => {
+      const e = ev.target.closest && ev.target.closest('.pSpecLegend [data-i]');
+      mark(e ? new Set(e.dataset.i.split(',').map(Number)) : null);
+    });
+    note.addEventListener('pointerleave', () => mark(null));
   }
   // The legend in rows along the light path: the lasers, the excitation filter, the dichroic, the sample's dyes (each
   // its excitation and emission), the emission filter, the camera; a row's name left, its items after it.
@@ -319,24 +402,28 @@
       ? `<rect x="1" y="2" width="28" height="8" fill="${s.fill}"${s.stroke ? ` stroke="${s.stroke}"` : ''}/>`
       : (s.edge ? `<line x1="1" y1="6" x2="29" y2="6" stroke="${s.edge}" stroke-width="${(s.width || 2) + 3}"/>` : '') +
         `<line x1="1" y1="6" x2="29" y2="6" stroke="${s.stroke}" stroke-width="${s.width || s.lw + 0.3}"${s.dash && s.dash.length ? ` stroke-dasharray="${s.dash.join(' ')}"` : ''}/>`) + '</svg>';
-    const item = (s, t) => `<span>${sw(s)}${esc(t)}</span>`;
+    // every entry carries its legend index (data-i; a row's name and a dye's name all of theirs), for linkCurves
+    const item = (s, t, i) => `<span data-i="${i}">${sw(s)}${esc(t)}</span>`;
     const rows = [];
     for (const [role, name] of LEGEND_ROWS) {
       let items = '';
+      const all = [];
       if (role === 'dye') {
         // one line per dye: its excitation and emission (the labels "<dye> excitation" / "<dye> emission")
         const dyes = new Map();
-        for (const [t, s, r] of legend) if (r === 'ex' || r === 'em') {
-          const who = t.replace(/ (excitation|emission)$/, ''), d = dyes.get(who) || [];
-          d.push(item(s, r === 'ex' ? 'excitation' : 'emission'));
+        for (const [t, s, r, i] of legend) if (r === 'ex' || r === 'em') {
+          const who = t.replace(/ (excitation|emission)$/, ''), d = dyes.get(who) || { html: [], i: [] };
+          d.html.push(item(s, r === 'ex' ? 'excitation' : 'emission', i));
+          d.i.push(i);
+          all.push(i);
           dyes.set(who, d);
         }
-        for (const [who, d] of dyes) items += `<span class="lgSub"><b>${esc(who)}</b>${d.join('')}</span>`;
+        for (const [who, d] of dyes) items += `<span class="lgSub"><b data-i="${d.i.join(',')}">${esc(who)}</b>${d.html.join('')}</span>`;
       } else {
         // the part's name is the row's: an item says which one ("dichroic: Chroma ..." -> "Chroma ...")
-        for (const [t, s, r] of legend) if (r === role) items += item(s, role === 'laser' ? t : t.replace(/^[^:]*:\s*/, ''));
+        for (const [t, s, r, i] of legend) if (r === role) { items += item(s, role === 'laser' ? t : t.replace(/^[^:]*:\s*/, ''), i); all.push(i); }
       }
-      if (items) rows.push(`<span class="lgHead">${name}</span><span class="lgItems${role === 'dye' ? ' dyes' : ''}">${items}</span>`);
+      if (items) rows.push(`<span class="lgHead" data-i="${all.join(',')}">${name}</span><span class="lgItems${role === 'dye' ? ' dyes' : ''}">${items}</span>`);
     }
     return rows.join('');
   }
@@ -431,8 +518,8 @@
     const gHit = el('g', {}, svg), gBeam = el('g', {}, svg), gBeamHit = el('g', {}, svg), gPart = el('g', {}, svg), gText = el('g', {}, svg);
     // the beams
     const opac = w => (0.22 + 0.78 * Math.min(1, w)).toFixed(2);
-    // the panels a beam belongs to (marked while the pointer is on it): a laser's the light in the sample and the
-    // spectra, an emission's the spectra
+    // the panels a beam belongs to (marked while the pointer is on it): a laser's: the illumination profile and the
+    // spectra, an emission's: the spectra
     const BEAM_PANELS = { excitation: 'illumination spectra', emission: 'spectra' };
     const beam = (b, pts, w) => {
       const hit = el('path', { d: line(pts), stroke: 'transparent', 'stroke-width': 9, fill: 'none', class: 'pBeamHit' }, gBeamHit);
@@ -753,17 +840,20 @@
       else if (v.type === 'curves') {
         const c = f.querySelector('canvas'), k = big ? 4 : 2;
         c.width = 300 * k; c.height = 110 * k;
-        const legend = drawCurves(c, v, data, !!opts.light, big);
-        f.querySelector('.pvNote').innerHTML = big ? '<div class="pLegend pSpecLegend">' + legendHtml(legend) + '</div>' : '';
+        const legend = drawCurves(c, v, data, !!opts.light, big, big && c._link ? c._link.hl : null);
+        f.querySelector('.pvNote').innerHTML = big ? '<div class="pvHead">Legend</div><div class="pLegend pSpecLegend">' + legendHtml(legend) + '</div>' : '';
+        if (big) linkCurves(f, c, v, data, !!opts.light, legend);
       } else if (v.type === 'rows') {
         const b = f.querySelector('.pvBody');
         b.textContent = '';
         for (const [l, val] of v.rows) {
-          const d = document.createElement('div');
-          d.innerHTML = l ? '<b></b> <span></span>' : '<span></span>';
-          if (l) d.firstChild.textContent = l + ':';
-          d.lastChild.textContent = val;
-          b.append(d);
+          // two cells: its name (none: it goes on with the row above) and its text, in the legend's grid and font
+          const n = document.createElement('span'), t = document.createElement('span');
+          n.className = 'rwL';
+          t.className = 'rwV';
+          n.textContent = l || '';
+          t.textContent = val;
+          b.append(n, t);
         }
       } else if (v.type === 'schematic') drawSchematic(f.querySelector('.pvBody'), v, opts);
     }
