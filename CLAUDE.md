@@ -176,11 +176,14 @@ that finishes them.
   adds sites and dipoles by core queries over chunks of 2^18 rows along x (core ABI 19 `isc_dye_details_in_window`,
   stride 11, by id; goldens unchanged; the dyes' only when dyes.csv is written; a merged dye keeps its site; the core
   looks a run of dyes' cell up once, `DyeSiteIn` / `DyeOrientationIn`, world_checks: = the per-dye functions bit for
-  bit). Speed (2026-11-04, every file byte for byte): the blinks alone drawn in blinkFrame beside the frame's own (a
-  binned frame's from its one convolution, `BinnedBlinkRenderer::Render`'s `alone`), footprints within the halo
-  cut's spans, bead footprints on threads, tables by `std::to_chars` (`Simulation/CsvNumber.cpp`, ctest
+  bit). Speed (2026-11-04, every file byte for byte): footprints within the halo cut's spans, bead footprints on threads, tables by `std::to_chars` (`Simulation/CsvNumber.cpp`, ctest
   `csv_numbers` natively and in WASM) formatted on all cores, a stack's planes on all cores (`Stack::PlaneInto`),
-  `vox::Deflate` 8 bytes at a time (= a verbatim copy, `cli/deflate_reference.inc`). Memory (2026-11-04: 128 px WideField
+  `vox::Deflate` 8 bytes at a time (= a verbatim copy, `cli/deflate_reference.inc`). Later (2026-11-04, the offset
+  columns' last digits moved, every other byte the same): the light under a blink (`offset`, `bg_centre_photons`) is
+  the frame before its blinks with the continuous light added as to the frame (`gtOther` in Render; was the frame less
+  its blinks drawn again alone and its beads), so the blinks are drawn once (none in a run that drops the frames); a
+  blink's core comes first and one short of the threshold gets no footprint (WASM 128 px DNA-PAINT: the GT run 64 -> 10
+  ms/frame, the movie 21). Memory (2026-11-04: 128 px WideField
   beside a nucleus, 4 M dyes, aborted the viewer at 4 GB): heap 1.9 GB without the dye list, 2.3 GB with. `GroundTruth::Files` writes
   frames.csv, localizations.csv (2026-11-04: one table, blinks and beads with at least `minCorePhotons` (300) expected
   photons in their core = the 500 nm square `kCoreBoxNm` centred on them, from the oversampled kernel (`KernelBoxPart`,
@@ -197,7 +200,10 @@ that finishes them.
   (the movie with the sink on, kept; rows from a `minCorePhotons`) + `isc_scope_gt_files` (2026-11-04: the same files
   when the run's threshold is at most the lower one and its dye list on or the same); on a worker of its own
   (`gt-run`, `gt-files` jobs; live.js `GT`, `L.gtWarm`, `L.groundTruth`): the run starts when the Save box opens with
-  Ground truth ticked (again on a lower threshold or the dye list on), Save takes it, the worker is closed after, on
+  Ground truth ticked (again on a lower threshold or the dye list on), or with a fresh sample's Record when the last
+  Save had Ground truth ticked and the recording has blinks (`recGtEarly`, the Record's settings file made at its start,
+  `REC.file`; the Record ~7 % slower, 300 frames: Save waits 1.8 s instead of 8.2; Live, Snap or a new Record stop it;
+  not for WideField: two heaps), Save takes it, the worker is closed after, on
   the box's close (`dialog(html, onClose)`) and `closePlayer`; `Module.onGtFile` takes each file out of the heap;
   stages `setup`, `ground truth` per frame, `files`. The module's run drops the frames (`GroundTruth::framesUnused`:
   no camera noise, no lamp, no BrightField scene; the files = the cli's, which renders them). Frames no fluorescence

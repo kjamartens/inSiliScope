@@ -8,7 +8,8 @@ insiliscope_cli --settings settings.isc.json --out movie.tif --gt-out gt
 ```
 
 The ground truth is computed on save, by rendering the recording again from its settings file; this starts as soon
-as the Save box opens. All photons are expected values, without noise.
+as the Save box opens. With blinks, it starts with the Record when your last Save included the ground truth, so the
+Save box has it at once. All photons are expected values, without noise.
 
 ## The files
 

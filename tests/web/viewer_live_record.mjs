@@ -114,9 +114,12 @@ try {
       { shown: !document.getElementById('lv_play').hidden, i: liveState.play.i, n: liveState.play.n }, i0, { timeout: 10000 })
       .then(h => h.jsonValue()).catch(() => page.evaluate(() => ({ shown: !document.getElementById('lv_play').hidden, i: liveState.play.i, n: liveState.play.n })));
     check(!early && play.shown && play.i !== i0 && play.n === 20, `the recording plays in the live view (no file saved by itself): frame ${i0 + 1} -> ${play.i + 1}/${play.n}`);
-    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.evaluate(() => {
-      // Save opens a box (viewer_save.mjs); the movie alone is the .tif
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.evaluate(async () => {
+      // Save opens a box (viewer_save.mjs; once it knows the recording's kind); the movie alone is the .tif
+      const dlg = document.getElementById('setDlg');
+      dlg.hidden = true;   // (a box saved before keeps its old buttons, hidden)
       document.getElementById('lv_playSave').click();
+      while (dlg.hidden || !document.getElementById('svGo')) await new Promise(r => setTimeout(r, 20));
       document.getElementById('svSet').checked = false; document.getElementById('svGt').checked = false;
       document.getElementById('svGo').click();
     })]);

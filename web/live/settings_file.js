@@ -48,8 +48,9 @@ function viewValues() {
 // The four engine parts: every engine option of each (the spec's value, else the engine's default), the keys the spec
 // has besides (p.*, zern.*, dye fields), names for enumerations; and what the viewer keeps of each beside them.
 // over: movieSpec's overrides (a Record's frames and start time).
-function current(over) {
-  const spec = parseSpec(movieSpec(over));
+// specText: the spec as it was (a Record begun before the engine's option list came; else movieSpec(over) now).
+function current(over, specText) {
+  const spec = parseSpec(specText || movieSpec(over));
   const values = { instrument: {}, settings: {}, sample: {}, measurement: {} };
   for (const [k, o] of ENG()) if (values[o.part]) values[o.part][k] = spec.has(k) ? spec.get(k) : o.def;
   for (const [k, v] of spec) { const p = partOf(k); if (!ENG().has(k) && values[p]) values[p][k] = v; }

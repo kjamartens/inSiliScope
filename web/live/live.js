@@ -658,6 +658,7 @@ function startRec() {
   if (REC.on && !REC.live) {   // cancel the movie: replace the worker (its live sample goes with it)
     if (L.worker) L.worker.terminate();
     L.worker = null; L.pending = null; L.worldKey = null;
+    gtStop();   // (its ground truth's run)
     Object.assign(REC, { on: false, buf: null, msg: 'recording cancelled' });
     syncButtons(); showInfo();
     return;
@@ -670,11 +671,29 @@ function startRec() {
     exp: exposureSec(), t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '',
     log: null, chunks: [], pxUm: (+$('mv_pixel-nm').value || 100) / 1000 });
   // the settings as the Record begins (its file: web/live/settings_file.js recordFile)
-  REC.now = self.iscSettings ? self.iscSettings.current(REC.live ? { frames: REC.n } : { frames: REC.n, 'start-sec': recStartSec() }) : null;
+  // (before the engine's option list has come, its values would be empty: the spec kept, the values made at the end)
+  const over = REC.live ? { frames: REC.n } : { frames: REC.n, 'start-sec': recStartSec() };
+  REC.nowArgs = [over, movieSpec(over)];
+  REC.now = self.iscSettings && self.ISC_ENGINE_OPTIONS ? self.iscSettings.current(...REC.nowArgs) : null;
+  // A fresh sample's settings file is known now (a sample continued is known at its end); kept for the player.
+  REC.file = null;
+  try { if (!REC.live && REC.now) REC.file = self.iscSettings.recordFile({ mode: 'fresh', now: REC.now, frames: REC.n }, 'insiliscope-recording'); }
+  catch (e) { console.warn('the recording\'s settings file:', e); }
+  recGtEarly();
   iscTrack('record', { frames: iscTrack.framesBucket(REC.n), continue: REC.live });
   if (L.on) L.on = false;
   syncButtons();
   if (!L.pending) recNext();   // else after the frame in flight
+}
+// The ground truth's run beside the Record, on its own worker (the Save box takes it: L.gtWarm keeps a run that fits),
+// when the last Save asked for one and the recording has blinks (a WideField one's run takes GBs; it starts at the box).
+async function recGtEarly() {
+  const o = saveOpts(), file = REC.file;
+  if (!o.gt || !file) return;
+  const kind = await gtKind(movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }));
+  if (kind !== 'smlm' || REC.file !== file || !REC.on) return;
+  const min = Math.max(0, +o.minCore || 0);
+  gtRun(JSON.stringify(file, null, 1), min, false, { min, vol: GT_VOL, dyeCsv: false });
 }
 function recMovie() {
   const w = worker();
@@ -735,6 +754,7 @@ function finishRec() {
       (REC.got < REC.n ? ` (stopped at ${n} of ${REC.n})` : '') + (REC.msg ? ' · ' + REC.msg : '');
     openPlayer(n);
   }
+  else gtStop();   // (no recording: a ground truth's run begun with it let go)
   REC.buf = null;
   syncButtons();
 }
@@ -749,11 +769,12 @@ function openPlayer(n) {
       'insiliscope.note=the frames continue the live sample (its light history and drift); insiliscope_cli --spec renders a fresh sample']
       : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.recorded=${new Date().toISOString()}`,
         'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
-  closePlayer();
+  closePlayer(true);   // (a ground truth's run begun with the Record goes on)
   // the recording's settings file: the movie reproducible from it (insiliscope_cli --settings)
-  let settings = null;
+  if (!REC.now && self.iscSettings && self.ISC_ENGINE_OPTIONS && REC.nowArgs) REC.now = self.iscSettings.current(...REC.nowArgs);
+  let settings = !REC.live && REC.file && n === REC.n ? REC.file : null;
   try {
-    if (REC.now && self.iscSettings) settings = self.iscSettings.recordFile({ mode: REC.live ? 'live' : 'fresh', now: REC.now, frames: n,
+    if (!settings && REC.now && self.iscSettings) settings = self.iscSettings.recordFile({ mode: REC.live ? 'live' : 'fresh', now: REC.now, frames: n,
       log: REC.log || [], chunks: REC.chunks, tSec: L.t }, 'insiliscope-recording');
   } catch (e) { console.warn('the recording\'s settings file:', e); }
   Object.assign(PLAY, { on: true, frames: REC.buf.subarray(0, n * REC.w * REC.h), w: REC.w, h: REC.h, n, desc, spec: REC.spec,
@@ -789,8 +810,8 @@ function schedulePlay() {
   PLAY.timer = requestAnimationFrame(tick);
 }
 function syncPlay() { $('lv_playBtn').textContent = PLAY.run ? '❚❚' : '▶'; }
-function closePlayer() {
-  gtStop();   // (a ground truth's run of this recording)
+function closePlayer(keepGt) {
+  if (!keepGt) gtStop();   // (a ground truth's run of this recording)
   cancelAnimationFrame(PLAY.timer);
   Object.assign(PLAY, { on: false, frames: null, run: false });
   $('lv_play').hidden = true;
