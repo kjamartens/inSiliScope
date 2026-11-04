@@ -20,6 +20,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/BinnedBlinks.cpp
   ${ISC_SIM}/Fiducials.cpp
+  ${ISC_SIM}/GroundTruth.cpp
   ${ISC_SIM}/Slide.cpp
   ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp

@@ -94,6 +94,8 @@ struct BlinkEvent
    int structure = 0;
    int state = 0;
    double aux = 0.0;
+   // The dye's id (the core's per-dye hash; the ground truth's).
+   uint32_t id = 0;
    // The excitation factor at the dye's (undrifted) site (Excitation.h; 1 = uniform): multiplies its photons after
    // the brightness (CollectFrameEmitters; JS frameEmitters' o.excite).
    double excite = 1.0;

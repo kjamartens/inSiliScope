@@ -9,6 +9,7 @@
 
 #include "ScopeMovie.h"
 #include "Fiducials.h"
+#include "GroundTruth.h"
 #include "Slide.h"
 #include "ScopeResolved.h"
 
@@ -2829,6 +2830,28 @@ struct Group
    bool anyMf = false, allMf = false;
 };
 
+// A group as the ground truth names it (GroundTruth.h): its target, dye, mode, the detected light's wavelength and
+// emitted photons per detected one.
+GroundTruth::Label GroundTruthLabel(const ScopeSetup& S, const Group& g)
+{
+   GroundTruth::Label l;
+   l.structure = g.structure;
+   l.pre = g.pre;
+   for (int t = 0; t < TargetCount(); ++t)
+      if (TargetAt(t).structure == g.structure)
+         l.target = TargetAt(t).name;
+   if (g.structure >= 0 && g.structure < static_cast<int>(S.labels.size()))
+   {
+      const LabelPhysics& L = S.labels[static_cast<size_t>(g.structure)];
+      l.dye = L.eff.dye.name ? L.eff.dye.name : "";
+      l.mode = DyeModeNames()[static_cast<size_t>(L.mode)];
+      const StatePhysics& st = g.pre ? L.pre : L.main;
+      l.emittedPerDetected = st.detectedPerSec > 0 ? st.emissionPerSec / st.detectedPerSec : 0;
+   }
+   l.wavelengthNm = g.lambdaNm;
+   return l;
+}
+
 // The mean-field image of a population: its scene, the scene's spec at the spec's focus and its images.
 struct MeanFieldNode
 {
@@ -5580,6 +5603,77 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       }
    }
    TimingLog("fl.windows", TimingSince(tPhase), std::to_string(windows.size()).c_str());
+   // The ground truth's continuous dyes (GroundTruth.h): every population's windows, the mean-field ones' too (fetched
+   // for the list only), each dye's window in the sample's time, its rate at its excitation and its photons over this
+   // movie.
+   if (GroundTruth* gt = ActiveGroundTruth())
+   {
+      const double um = S.p.pixelSizeNm / 1000.0;
+      gt->GrowBox(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um,
+                  S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm - S.q.zHalfRangeUm : S.q.zCullCentreUm - 3.5,
+                  S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm + S.q.zHalfRangeUm : S.q.zCullCentreUm + 3.5);
+      (void)um;
+      if (gt->dyeList && !m.pops.empty())
+      {
+         if (!haveWindows)
+         {
+            bool ok;
+            if (m.map)
+            {
+               ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(S.q, windows, &windowClock);
+               source.SetClockMap(nullptr);
+            }
+            else
+               ok = source.Continuous(S.q, windows);
+            if (!ok)
+            {
+               err = "cell-field window query failed";
+               return false;
+            }
+            haveWindows = true;
+         }
+         const auto sec = [&](double fr) { return S.q.tSec + (fr - S.q.frameIndex) * S.expSec; };
+         const double t0 = S.t0Sec, t1 = S.t0Sec + S.N * S.expSec;
+         for (const Population& p : m.pops)
+         {
+            if (p.state == ISC_STATE_BLINK)
+               continue;
+            const Group& g = m.groups[p.group];
+            const GroundTruth::Label lab = GroundTruthLabel(S, g);
+            const int label = gt->LabelOf(lab);
+            const bool dose = m.map && m.map->s[static_cast<size_t>(p.structure)].mode == ISC_CLOCK_DOSE;
+            for (size_t wi = 0; wi < windows.size(); ++wi)
+            {
+               const BlinkEvent& e = windows[wi];
+               if (e.structure != p.structure || e.state != p.state)
+                  continue;
+               GroundTruth::Dye d;
+               d.label = label;
+               d.id = e.id;
+               d.structure = e.structure;
+               d.state = e.state;
+               d.xUm = e.xUm + S.q.originXUm;
+               d.yUm = e.yUm + S.q.originYUm;
+               d.zUm = e.zNm / 1000.0 + S.q.zRefUm;
+               double a = !m.shaped ? 1.0
+                          : p.meanLight ? m.MeanExciteAt(g.shares, e.xUm, e.yUm, e.zNm)
+                                        : m.ExciteAt(g.shares, e.xUm, e.yUm, e.zNm);
+               if (dose && !(windowClock[2 * wi + 1] > 0))
+                  a = 0;   // frozen: no light reaches it
+               d.tOnSec = sec(e.tStart);
+               d.tOffSec = sec(e.tEnd);
+               if (!m.map && p.budget > 0)
+                  d.tOffSec = std::min(d.tOffSec, e.aux * p.budget / p.emissionPerSec);   // its photon budget used up
+               if (!(d.tOffSec > t0))
+                  continue;   // over before the movie
+               d.photonsPerSec = p.rate * std::max(0.0, a);
+               d.detectedTotal = d.photonsPerSec * std::max(0.0, std::min(t1, d.tOffSec) - std::max(t0, d.tOnSec));
+               d.emittedTotal = d.detectedTotal * lab.emittedPerDetected;
+               gt->AddDye(d);
+            }
+         }
+      }
+   }
    // The blink populations of the groups with mean-field frames.
    for (size_t gi = 0; gi < m.groups.size(); ++gi)
    {
@@ -6086,6 +6180,29 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    std::vector<long> frameBlinks(slots);
    std::vector<char> frameBinned(slots), frameMf(slots);
    long blinks = 0, binnedFrames = 0;
+   // The ground truth (GroundTruth.h): each frame's blinks per group as drawn (and whether binned), kept for the
+   // frame's rows after its continuous light is in.
+   GroundTruth* const gt = ActiveGroundTruth();
+   std::vector<std::vector<std::vector<BlinkEvent>>> gtEv(gt ? slots : 0);
+   std::vector<std::vector<char>> gtBin(gt ? slots : 0);
+   std::vector<int> gtLabel;
+   std::vector<float> gtBlink, gtBead, gtBg;
+   std::vector<std::vector<float>> gtScratch;   // one per thread chunk
+   // A bead's footprint, kept while the focus and drift stay (its halo reaches across the camera).
+   struct GtBeadFp { double zf = std::numeric_limits<double>::quiet_NaN(), dx = 0, dy = 0; SparseFootprint fp; };
+   std::vector<std::vector<GtBeadFp>> gtBeadFp;
+   const long gtBase = gt ? gt->frameBase : 0;
+   if (gt)
+   {
+      gt->width = W;
+      gt->height = H;
+      gt->pixelNm = pixelNm;
+      for (const Group& g : m.groups)
+         gtLabel.push_back(gt->LabelOf(GroundTruthLabel(S, g)));
+      if (m.fid)
+         for (const FiducialMovieComponent& c : m.fid->comps)
+            gtBeadFp.emplace_back(c.beads.size());
+   }
    RenderExtras into;
    into.accumulate = true;
    // The continuous populations' per-dye splats run frame by frame: in bands
@@ -6146,6 +6263,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          frameBlinks[k] = 0;
          frameBinned[k] = 0;
          frameMf[k] = 0;
+         if (gt)
+         {
+            gtEv[k].assign(m.groups.size(), {});
+            gtBin[k].assign(m.groups.size(), 0);
+         }
          const double bgScale = opt.backgroundScale ? opt.backgroundScale(f) : 1.0;
          if (popsOnly)
             photons[k].assign(n, 0.0f);   // the host splats the background and the SMLM frames' blinks
@@ -6196,6 +6318,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                for (BlinkEvent& e : fe[k])
                   e.excite = m.ExciteAtFrame(f, g.shares, e.xUm, e.yUm, e.zNm);
             frameBlinks[k] += static_cast<long>(fe[k].size());
+            if (gt)
+            {
+               gtEv[k][gi] = fe[k];
+               gtBin[k][gi] = binnedFrame ? 1 : 0;
+            }
             if (binnedFrame)
             {
                std::vector<FrameEmitter> ems;
@@ -6358,6 +6485,170 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             paths[static_cast<size_t>(k)].push_back("slide: " + std::to_string(m.slide->comps.size()) + " dyes, " +
                                                     std::to_string(m.slide->geos.empty() ? 0 : m.slide->geos[0].nodes) +
                                                     " heights");
+         }
+         if (gt)
+         {
+            const auto tg = TimingClock::now();
+            double gdx = 0.0, gdy = 0.0;
+            if (opt.driftPx)
+               opt.driftPx(f, gdx, gdy);
+            else if (drift)
+            {
+               gdx = S.drift[static_cast<size_t>(f)].x / pixelNm;
+               gdy = S.drift[static_cast<size_t>(f)].y / pixelNm;
+            }
+            GroundTruth::Frame fr;
+            fr.frame = gtBase + f;
+            fr.tSec = S.t0Sec + f * S.expSec;
+            fr.expSec = S.expSec;
+            fr.stageXUm = ScopeSpecGet(m.spec, "x");
+            fr.stageYUm = ScopeSpecGet(m.spec, "y");
+            fr.focusUm = zBaseAt(f);
+            fr.focusWorldUm = S.q.zRefUm + zf;
+            if (drift)
+            {
+               fr.driftXNm = S.drift[static_cast<size_t>(f)].x;
+               fr.driftYNm = S.drift[static_cast<size_t>(f)].y;
+               fr.driftZNm = S.drift[static_cast<size_t>(f)].z;
+            }
+            if (S.excite.Patterned())
+            {
+               fr.patternAngle = static_cast<int>(info.patternStates[3 * static_cast<size_t>(f)]);
+               fr.patternPhase = static_cast<int>(info.patternStates[3 * static_cast<size_t>(f) + 1]);
+            }
+            gt->frames.push_back(fr);
+            gt->frameBase = gtBase + f + 1;   // (the next movie's frames follow this one's)
+            // The frame's non-blink light: the frame less its blinks (drawn again alone) and its beads.
+            gtBlink.assign(n, 0.0f);
+            RenderExtras gi = blinkInto;
+            gi.parallel = true;
+            gi.accumulate = true;
+            for (size_t gj = 0; gj < m.groups.size(); ++gj)
+            {
+               const std::vector<BlinkEvent>& ev = gtEv[static_cast<size_t>(k)][gj];
+               if (ev.empty())
+                  continue;
+               const Group& g = m.groups[gj];
+               const PsfKernelCache* kern = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
+               if (gtBin[static_cast<size_t>(k)][gj])
+               {
+                  std::vector<FrameEmitter> ems;
+                  CollectFrameEmitters(ev, f, W, H, pixelNm, g.perFrame, gdx, gdy, kern, zf, gi.illumField, ems);
+                  g.binned.Render(ems, gtBlink);
+               }
+               else
+                  RenderPhotonImage(gtBlink, W, H, ev, f, pixelNm, g.sigmaPx, g.perFrame, 0.0, gdx, gdy, kern, zf,
+                                    nullptr, nullptr, &gi);
+            }
+            const bool beads = m.fid && !m.fid->comps.empty();
+            if (beads)
+            {
+               gtBead.assign(n, 0.0f);
+               RenderFiducials(gtBead, W, H, *m.fid, f, zf, pixelNm, !drift && !opt.driftPx, gdx, gdy);
+            }
+            gtBg.resize(n);
+            for (size_t i = 0; i < n; ++i)
+               gtBg[i] = img[i] - gtBlink[i] - (beads ? gtBead[i] : 0.0f);
+            // The blinks drawn, with their photons on the camera and the light under their PSF.
+            for (size_t gj = 0; gj < m.groups.size(); ++gj)
+            {
+               const std::vector<BlinkEvent>& ev = gtEv[static_cast<size_t>(k)][gj];
+               const Group& g = m.groups[gj];
+               const bool binned = gtBin[static_cast<size_t>(k)][gj] != 0;
+               const PsfKernelCache* kern = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
+               const double epd = gt->labels[static_cast<size_t>(gtLabel[gj])].emittedPerDetected;
+               // The events in chunks on threads, each with a scratch image of its own; the rows kept in event order.
+               const unsigned chunks = static_cast<unsigned>(std::min<size_t>(ev.size(), 16));
+               if (gtScratch.size() < chunks)
+                  gtScratch.resize(chunks);
+               std::vector<GroundTruth::Emitter> rows(ev.size());
+               std::vector<char> keep(ev.size(), 0);
+               ParallelFor(chunks, [&](unsigned c) {
+                  const size_t a = ev.size() * c / chunks, b = ev.size() * (c + 1) / chunks;
+               for (size_t ei = a; ei < b; ++ei)
+               {
+                  const BlinkEvent& e = ev[ei];
+                  std::vector<FrameEmitter> one;
+                  CollectFrameEmitters(std::vector<BlinkEvent>{ e }, f, W, H, pixelNm, g.perFrame, gdx, gdy, kern, zf,
+                                       gi.illumField, one);
+                  if (one.empty())
+                     continue;
+                  const FrameEmitter& em = one[0];
+                  if (!binned && (em.photons < m.S.blinkMinPhotons || em.photons <= 0))
+                     continue;   // not drawn (blink-min-photons)
+                  if (em.photons < gt->minPhotons)
+                     continue;   // (on the camera it is fewer still)
+                  const EmitterFootprint fp = FootprintOf(gtScratch[c], W, H, kern, em.zIndex, g.sigmaPx, em.xPx, em.yPx, gtBg);
+                  GroundTruth::Emitter& r = rows[ei];
+                  r.frame = gtBase + f;
+                  r.kind = GroundTruth::Emitter_;
+                  r.regime = binned ? GroundTruth::Binned : GroundTruth::Splat;
+                  r.label = gtLabel[gj];
+                  r.id = e.id;
+                  r.structure = e.structure;
+                  r.state = e.state;
+                  r.xUm = e.xUm + S.q.originXUm;
+                  r.yUm = e.yUm + S.q.originYUm;
+                  r.zUm = e.zNm / 1000.0 + S.q.zRefUm;
+                  r.xPx = em.xPx;
+                  r.yPx = em.yPx;
+                  r.zFocusNm = e.zNm - zf * 1000.0;
+                  r.onFraction = em.overlap;
+                  r.detected = em.photons;
+                  r.onCamera = em.photons * fp.onCamera;
+                  r.emitted = em.photons * epd;
+                  r.bg = fp.bg;
+                  r.bgCentre = fp.bgCentre;
+                  r.excite = e.excite;
+                  keep[ei] = r.onCamera >= gt->minPhotons;
+               }
+               });
+               for (size_t ei = 0; ei < ev.size(); ++ei)
+                  if (keep[ei])
+                     gt->emitters.push_back(rows[ei]);
+            }
+            // The beads: each one's photons, its footprint (made again when the focus or the drift moves).
+            for (size_t c = 0; beads && c < m.fid->comps.size(); ++c)
+            {
+               const FiducialMovieComponent& F = m.fid->comps[c];
+               for (size_t b = 0; b < F.beads.size(); ++b)
+               {
+                  const FiducialBeadSite& e = F.beads[b];
+                  const double ph = FiducialBeadPhotons(*m.fid, F, e, f);
+                  if (!(ph >= gt->minPhotons))
+                     continue;
+                  GtBeadFp& bf = gtBeadFp[c][b];
+                  const double xPx = e.xUm * 1000.0 / pixelNm + gdx, yPx = e.yUm * 1000.0 / pixelNm + gdy;
+                  if (!(bf.zf == zf && bf.dx == gdx && bf.dy == gdy))
+                  {
+                     std::vector<float> alone(n, 0.0f);
+                     SplatFiducialBead(alone, W, H, F, e, zf, pixelNm, 1.0, gdx, gdy);
+                     bf.fp = SparseFootprintOf(alone, W, H, xPx, yPx);
+                     bf.zf = zf;
+                     bf.dx = gdx;
+                     bf.dy = gdy;
+                  }
+                  const EmitterFootprint fp = ApplyFootprint(bf.fp, gtBg);
+                  GroundTruth::Emitter r;
+                  r.frame = gtBase + f;
+                  r.kind = GroundTruth::Fiducial;
+                  r.regime = GroundTruth::Bead;
+                  r.xUm = e.xUm + S.q.originXUm;
+                  r.yUm = e.yUm + S.q.originYUm;
+                  r.zUm = e.zNm / 1000.0 + S.q.zRefUm;
+                  r.xPx = xPx;
+                  r.yPx = yPx;
+                  r.zFocusNm = e.zNm - zf * 1000.0;
+                  r.detected = ph;
+                  r.onCamera = ph * fp.onCamera;
+                  r.bg = fp.bg;
+                  r.bgCentre = fp.bgCentre;
+                  r.beadNm = e.d;
+                  if (r.onCamera >= gt->minPhotons)
+                     gt->emitters.push_back(r);
+               }
+            }
+            TimingLog("fl.ground-truth", TimingSince(tg));
          }
       }
       tPops.Stop();

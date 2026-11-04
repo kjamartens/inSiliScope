@@ -225,5 +225,10 @@ struct FiducialMovie
 // (built at the first frame), else splatted one by one at the drift (dx, dy) px.
 void RenderFiducials(std::vector<float>& img, unsigned W, unsigned H, FiducialMovie& FM, long f, double zf,
                      double pixelNm, bool staticFocus, double dx, double dy);
+// The ground truth (GroundTruth.h): one bead's detected photons in frame f (RenderFiducials' value without the Taylor
+// images), and its image alone (photons of it at the drift dx, dy px) added into img.
+double FiducialBeadPhotons(const FiducialMovie& FM, const FiducialMovieComponent& F, const FiducialBeadSite& e, long f);
+void SplatFiducialBead(std::vector<float>& img, unsigned W, unsigned H, const FiducialMovieComponent& F,
+                       const FiducialBeadSite& e, double zf, double pixelNm, double photons, double dx, double dy);
 
 } // namespace sim

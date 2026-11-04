@@ -768,4 +768,17 @@ void RenderFiducials(std::vector<float>& img, unsigned W, unsigned H, FiducialMo
    }
 }
 
+double FiducialBeadPhotons(const FiducialMovie& FM, const FiducialMovieComponent& F, const FiducialBeadSite& e, long f)
+{
+   const double tf = e.t0Sec + f * FM.expSec;
+   const double v = MeanPhotonsOf(e.rate, e.lambda, tf, tf + FM.expSec);
+   return FM.frameScale ? v * FM.frameScale(f, F, e) : v;
+}
+
+void SplatFiducialBead(std::vector<float>& img, unsigned W, unsigned H, const FiducialMovieComponent& F,
+                       const FiducialBeadSite& e, double zf, double pixelNm, double photons, double dx, double dy)
+{
+   SplatFiducial(img, W, H, 0, static_cast<int>(H), F, e, zf, pixelNm, photons, dx, dy);
+}
+
 } // namespace sim

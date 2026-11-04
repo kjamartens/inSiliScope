@@ -15,6 +15,7 @@
 #include "LiveScope.h"
 #include "MemoryReport.h"
 #include "Excitation.h"
+#include "GroundTruth.h"
 #include "ScopeMovie.h"
 #include "scope_probes.h"
 #include "settings_file.h"
@@ -77,6 +78,12 @@ void Usage()
                "  --bf-screens-out <prefix>  the BrightField phase/attenuation screens per slice, .json\n"
                "  --nucleus-json <file>  the shaped nucleus surface of the cells within --geometry-um\n"
                "\n"
+               "ground truth (with --out; docs/ground-truth.md):\n"
+               "  --gt-out <dir>         the movie's ground truth as tables in dir: frames.csv, localizations_min<N>.csv\n"
+               "                         (blinks and beads drawn, N photons on the camera or more), dyes.csv (continuous\n"
+               "                         dyes), fiducials.csv; the frames are the same as without\n"
+               "  --gt-min a,b           the localization tables' thresholds (5,300)\n"
+               "\n"
                "  --serve                one command per stdin line (its arguments separated by tabs), each\n"
                "                         answered as a separate run would be, then a line '@@isc-done <exit code>';\n"
                "                         the process keeps its world and PSF kernel between commands\n");
@@ -103,7 +110,8 @@ int RunCli(int argc, char** argv)
    double splatAt[3] = { 0, 0, 0 }, dyesRect[4] = { 0, 0, 0, 0 }, dyesZ[2] = { -1e9, 1e9 }, dyesT[2] = { 0, 1 };
    double densityZ[3] = { 0, 4, 8 }, densityUp = 1;
    bool haveDyesRect = false;
-   std::string historyBefore;
+   std::string historyBefore, gtOut;
+   double gtMin[2] = { 5, 300 };
    sim::ScopeSpec spec;
    settings::Loaded loaded;   // --settings: the files' light history
    for (int i = 1; i < argc; i++) {
@@ -115,6 +123,11 @@ int RunCli(int argc, char** argv)
       if (a == "--geometry-um" && i + 1 < argc) { geometryUm = std::atof(argv[++i]); continue; }
       if (a == "--geometry-detail" && i + 1 < argc) { geometryDetail = std::atof(argv[++i]) != 0; continue; }
       if (a == "--history-before" && i + 1 < argc) { historyBefore = argv[++i]; continue; }
+      if (a == "--gt-out" && i + 1 < argc) { gtOut = argv[++i]; continue; }
+      if (a == "--gt-min" && i + 1 < argc) {
+         if (!ParseList(argv[++i], gtMin, 2)) { std::fprintf(stderr, "--gt-min needs 2 comma-separated numbers\n"); return 2; }
+         continue;
+      }
       if (i + 1 < argc) {
          struct { const char* name; std::string* dst; } paths[] = {
             { "--setup-json", &setupOut }, { "--presets-json", &presetsOut }, { "--photons-out", &photonsOut },
@@ -276,6 +289,24 @@ int RunCli(int argc, char** argv)
 
    TiffWriter tif(out);
    if (!tif.ok()) { std::fprintf(stderr, "cannot write %s\n", out.c_str()); return 1; }
+   // --gt-out: every movie below fills it (GroundTruth.h); written when the frames are.
+   sim::GroundTruth gt;
+   gt.minPhotons = std::min(gtMin[0], gtMin[1]);
+   sim::GroundTruthScope gtScope(gtOut.empty() ? nullptr : &gt);
+   const auto writeGt = [&]() {
+      if (gtOut.empty()) return true;
+      const auto tg = std::chrono::steady_clock::now();
+      for (const auto& file : gt.Files({ gtMin[0], gtMin[1] })) {
+         const std::string path = gtOut + "/" + file.first;
+         FILE* f = std::fopen(path.c_str(), "wb");
+         const bool wrote = f && std::fwrite(file.second.data(), 1, file.second.size(), f) == file.second.size();
+         if (f) std::fclose(f);
+         if (!wrote) { std::fprintf(stderr, "cannot write %s (does the directory exist?)\n", path.c_str()); return false; }
+      }
+      std::printf("%s: ground truth, %zu frames, %zu emitter rows, %zu continuous dyes (%.3f s)\n", gtOut.c_str(), gt.frames.size(),
+                  gt.emitters.size(), gt.Dyes().size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - tg).count());
+      return true;
+   };
    if (!loaded.history.empty()) {
       // A measurement with a light history (--settings): the live sample after it (its light replayed, LiveScope),
       // then the movie's frames as the live session's next ones (= the viewer's Record "continue the live sample").
@@ -319,7 +350,7 @@ int RunCli(int argc, char** argv)
       std::printf("%s: %ld frames %ux%u of the live sample at t = %.3f s after %zu runs of light (replay %.3f s), total %.3f s\n",
                   out.c_str(), written, width, height, tFirst, before, replaySec,
                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
-      return 0;
+      return writeGt() ? 0 : 1;
    }
    sim::ScopeMovieInfo info;
    std::string err;
@@ -330,6 +361,7 @@ int RunCli(int argc, char** argv)
    }, info, err);
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
    if (!writeOk) { std::fprintf(stderr, "write error\n"); return 1; }
+   if (!writeGt()) return 1;
    if (sim::TimingPrinting()) {
       // What the caches hold after the movie (ISC_MEMORY lines).
       sim::MemoryReport mem;

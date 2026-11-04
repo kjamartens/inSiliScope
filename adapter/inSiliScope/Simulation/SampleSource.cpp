@@ -192,6 +192,7 @@ void SampleSource::MapRow(const SampleQuery& q, const double* e, BlinkEvent& b)
    b.tStart = q.frameIndex + (e[3] - q.tSec) / q.frameSec;
    b.tEnd = q.frameIndex + (e[4] - q.tSec) / q.frameSec;
    b.brightness = e[5];
+   b.id = static_cast<uint32_t>(e[6]);
    b.structure = static_cast<int>(e[7]);
    b.state = static_cast<int>(e[8]);
    b.aux = e[9];
