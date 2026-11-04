@@ -48,6 +48,7 @@ noisy count.
 | `gt/density_<target>[_<state>].tif` | continuous dyes | a density stack per target: emitted photons per voxel |
 | `gt/README.txt` | Ground truth | what is in `gt/` |
 | `README.txt` | any of the above | what is in the zip |
+| `__main__.py` | any of the above | opens the recording in napari: `python <name>.zip` ([below](#open-it-in-napari)) |
 
 ### frames.csv
 
@@ -146,6 +147,30 @@ table, then choose:
 It reads the table as it streams in and makes the stack one z plane at a time. A 600 MB `dyes.csv` at 10 nm voxels
 (1648 × 1636 × 371 voxels × 2 channels, 2.0 GB uncompressed) takes about half a minute and gives a 9 MB file, which
 ImageJ opens as a virtual stack in 0.7 s.
+
+## Open it in napari
+
+Every saved zip carries `__main__.py`, a small Python program, and Python runs a zip that holds one:
+
+```bash
+pip install "napari[all]" tifffile
+python insiliscope_live_128x128x10.zip
+```
+
+It opens napari with every part of the recording in world coordinates (µm, z above the coverslip), so they line up:
+
+- **movie**: the frames where the camera saw them (the stage position, the pixel size). In 2D it stands at every z (a
+  camera image is a projection); in 3D it is a plane at the focal height.
+- **density** stacks, a layer per target, coloured.
+- **localizations** of the lowest-threshold table, each at its own frame, coloured by target, with their photons as a
+  feature; "all frames" (hidden) holds them all at once, for 3D.
+- **beads** (`fiducials.csv`), per frame.
+
+The axes are named frame, z, y, x (µm); the status bar shows the pointer's world position. The same program unpacked
+runs as `python __main__.py` in the folder, and takes paths too: `python __main__.py <zip, folder or voxelize .tif>
+...` opens several side by side. A voxelize `.tif` opens a layer per channel, read a plane at a time (with `zarr` and
+`dask` installed), so a stack of many GB opens at once. The program is also
+[published beside the viewer](https://kjamartens.github.io/inSiliScope/open_in_napari.py).
 
 ## Caveats
 

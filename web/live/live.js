@@ -802,7 +802,8 @@ async function openSave() {
         'offline; also in ☰ › Tools)</span></label>'
       : '') +
     warn.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
-    '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip with a README.txt.</div>' +
+    '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip with a README.txt, which ' +
+    'also opens in napari: <code>python &lt;name&gt;.zip</code>.</div>' +
     '<progress id="svBar" max="1" hidden style="width:100%"></progress>' +
     '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>');
   const q = s => box.querySelector(s);
@@ -879,6 +880,9 @@ async function saveRecording(c, name, say = () => {}) {
     say(`The ground truth took ${((performance.now() - t0) / 1000).toFixed(1)} s; packing ` +
       `${Math.round(entries.reduce((s, e) => s + (e.data.length || 0), 0) / 1e6)} MB into the zip ...`, null);
   } else say('Packing ...');
+  // the napari opener at the zip's root as __main__.py: python <name>.zip runs it (web/open_in_napari.py)
+  let napari = false;
+  try { const r = await fetch('open_in_napari.py'); if (r.ok) { entries.push({ name: '__main__.py', data: await r.text() }); napari = true; } } catch (e) { /* offline: without it */ }
   const vox = entries.some(e => e.name === 'gt/voxelize.html');
   entries.push({ name: 'README.txt', data: `inSiliScope recording ${name}, saved ${new Date().toISOString()} (viewer ${self.ISC_VERSION || ''}).\n` +
     `movie.tif: the ${PLAY.n} frames of ${PLAY.w} x ${PLAY.h} px, 16-bit, ImageJ (pixel size ${PLAY.pxUm} um, frame interval ${PLAY.exp} s).\n` +
@@ -888,7 +892,9 @@ async function saveRecording(c, name, say = () => {}) {
     (c.gt ? 'gt/: the ground truth, what made the frames; gt/README.txt lists its files,\n' +
       '  https://kjamartens.github.io/inSiliScope/docs/ground-truth/ explains the columns.\n' : '') +
     (vox ? 'gt/voxelize.html: open it in a browser (offline) and drop gt/dyes.csv on it for a density stack at any voxel size,\n' +
-      '  or a channel per target.\n' : '') });
+      '  or a channel per target.\n' : '') +
+    (napari ? `__main__.py: opens this recording in napari, every part in world coordinates (the movie, the density stacks,\n` +
+      `  the localizations per frame):  python ${name}.zip   (needs: pip install "napari[all]" tifffile)\n` : '') });
   const blob = await self.iscZip.zip(entries);
   download(blob, name + '.zip');
   self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)

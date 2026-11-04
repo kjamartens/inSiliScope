@@ -183,7 +183,11 @@ that finishes them.
   as made. Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` (a `gt` job on a worker of
   its own, `L.groundTruth`: spawned, terminated after; `Module.onGtFile` takes each file out of the heap; stages
   `setup`, `ground truth` per frame, `files`) and
-  the cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both on `settings::RenderMovie`; `web/voxelize.html` (the
+  the cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both on `settings::RenderMovie`; `web/open_in_napari.py`
+  (every saved zip's `__main__.py`, so `python <zip>` opens it in napari: the movie at the stage position (pixel i's
+  centre at stage + (i - W/2) px, no flip), density stacks, localizations per frame, axes frame/z/y/x in world um;
+  also unpacked or on a voxelize .tif, lazily; copied beside the viewer by `build_site.sh`; checked with napari stood
+  in for by `tests/web/napari_open_check.py`, ~1 s, which viewer_save runs on its zip); `web/voxelize.html` (the
   converter, ☰ › Tools `#voxelizeLink`, copied beside the viewer by `build_site.sh`, in the zip only beside dyes.csv: the
   CSV streamed into typed columns; the stack made one z plane at a time (rows counting-sorted by plane, two passes for
   the 8/16-bit scale, each plane kept as its stored Blob: 1.9 GB of 10 nm voxels in 27 s); 8/16/32 bits, a channel per
