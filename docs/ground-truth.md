@@ -58,7 +58,7 @@ does not depend on the pixel size.
 | `photons_detected` | photons collected |
 | `intensity [photon]` | of those, the ones on the camera |
 | `photons_emitted` | photons emitted |
-| `offset [photon]` | other light per pixel under the blink (PSF-weighted): background, imager, other dyes |
+| `offset [photon]` | other light per pixel under the blink (PSF-weighted): background, imager, continuous dyes; not other blinks (below) |
 | `bg_centre_photons` | that light in the centre pixel |
 | `core_photons` | photons in the 500 nm core (the threshold's number) |
 | `wavelength_nm`, `excitation` | emission wavelength; excitation factor at the dye |
@@ -67,6 +67,12 @@ does not depend on the pixel size.
 | `orient_polar_deg`, `orient_azimuth_deg` | the dye's dipole, if its label fixes one (not yet used by the PSF) |
 
 Blinks that Quality left out of the image (under 100 photons at Fast, 50 at Realistic) are not listed either.
+
+!!! note "The offset leaves out other blinks"
+    `offset` and `bg_centre_photons` are the frame's light before any blink is drawn: background, imager and the
+    continuous dyes. The other blinks of the same frame are not in them, not even an out-of-focus blink whose
+    spread-out light lies under this one. So where blinks are dense, the movie has more light under a blink than
+    `offset` says.
 
 ### dyes.csv and the density stacks
 
