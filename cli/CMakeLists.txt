@@ -187,6 +187,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   target_link_libraries(slide_check PRIVATE insiliscope_sim)
   add_test(NAME slide COMMAND slide_check)
 
+  # The ground truth (Simulation/GroundTruth.h): the frames unchanged, the photons on the camera, beads, volumes.
+  add_executable(ground_truth_check ground_truth_check.cpp)
+  target_link_libraries(ground_truth_check PRIVATE insiliscope_sim)
+  add_test(NAME ground_truth COMMAND ground_truth_check)
+
   # The C++ GibsonLanniZernike PSF against webSMLM's JS (tests/psf/zernike_ref.bin).
   add_executable(zernike_psf_check zernike_psf_check.cpp)
   target_link_libraries(zernike_psf_check PRIVATE insiliscope_sim)
