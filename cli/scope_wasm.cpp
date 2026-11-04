@@ -627,11 +627,17 @@ ISC_API int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight,
 // Progress: Module.onMovieProgress(stage, fraction, detail): "setup" 0 (the sample, the PSF, the light history: no
 // fraction; most of a short movie's time), "ground truth" per frame (fraction of the frames, detail {"frame","frames"}),
 // "files" 1 (the dyes' sites, the tables and stacks).
+// In two steps (the viewer starts the first while its Save box is open): isc_scope_gt_run(settingsJson, minPhotons,
+// dyeCsv) renders the movie with the sink on and keeps it (0, or -1 with the error); isc_scope_gt_files(minA, minB,
+// volLateralNm, volAxialNm, dyeCsv, keep) writes its files, and lets it go unless keep (files for other options can
+// follow; the viewer makes them as the run ends, for the options the box shows). The same files as isc_scope_gt(minA, minB, ...)
+// when minPhotons <= min(minA, minB) (rows are kept from minPhotons, the tables cut at each threshold) and the run's
+// dyeCsv is the files' or 1 (the dyes' sites are found only for dyes.csv).
 static std::string g_gt, g_gtErr;
-ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, double volLateralNm, double volAxialNm,
-                            int32_t dyeCsv)
+static std::unique_ptr<sim::GroundTruth> g_gtRun;
+ISC_API int32_t isc_scope_gt_run(const char* settingsJson, double minPhotons, int32_t dyeCsv)
 {
-   g_gt.clear();
+   g_gtRun.reset();
    g_gtErr.clear();
    try
    {
@@ -647,9 +653,11 @@ ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, 
          unsigned w, h;
          sim::ScopeMovieDims(loaded.spec, w, h, total);
       }
-      sim::GroundTruth gt;
-      gt.minPhotons = std::min(minA, minB);
+      std::unique_ptr<sim::GroundTruth> kept(new sim::GroundTruth);
+      sim::GroundTruth& gt = *kept;
+      gt.minPhotons = minPhotons;
       gt.writeDyeCsv = dyeCsv != 0;
+      gt.framesUnused = true;   // (no camera noise, no lamp: the frames are dropped)
       settings::MovieRun run;
       bool filesSaid = false;
       isc_js_movie_progress("setup", 0, "");
@@ -671,6 +679,32 @@ ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, 
       }
       if (!filesSaid)
          isc_js_movie_progress("files", 1, "");
+      g_gtRun = std::move(kept);
+      return 0;
+   }
+   catch (const std::exception& e)
+   {
+      g_gtErr = e.what();
+      return -1;
+   }
+}
+ISC_API double isc_scope_gt_files(double minA, double minB, double volLateralNm, double volAxialNm, int32_t dyeCsv,
+                                  int32_t keep)
+{
+   g_gt.clear();
+   g_gtErr.clear();
+   if (!g_gtRun)
+   {
+      g_gtErr = "no ground truth rendered (isc_scope_gt_run)";
+      return -1;
+   }
+   try
+   {
+      std::unique_ptr<sim::GroundTruth> kept;
+      if (!keep)
+         kept = std::move(g_gtRun);
+      sim::GroundTruth& gt = keep ? *g_gtRun : *kept;
+      gt.writeDyeCsv = dyeCsv != 0;
       double delivered = 0;
       gt.Files([&](const std::string& name, std::string&& bytes) {
          if (isc_js_gt_file(name.c_str(), bytes.data(), static_cast<double>(bytes.size())))
@@ -693,6 +727,14 @@ ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, 
       g_gtErr = e.what();
       return -1;
    }
+}
+ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, double volLateralNm, double volAxialNm,
+                            int32_t dyeCsv)
+{
+   g_gt.clear();
+   if (isc_scope_gt_run(settingsJson, std::min(minA, minB), dyeCsv) < 0)
+      return -1;
+   return isc_scope_gt_files(minA, minB, volLateralNm, volAxialNm, dyeCsv, 0);
 }
 ISC_API const char* isc_scope_gt_data() { return g_gt.data(); }
 ISC_API const char* isc_scope_gt_error() { return g_gtErr.c_str(); }

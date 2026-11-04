@@ -4128,7 +4128,7 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'gt' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'gt' || d.type === 'gt-run' || d.type === 'gt-files' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
         // d (nm) each), on the beads' own world.
@@ -4366,6 +4366,33 @@ function iscEngine(M) {
         try { size = M._isc_scope_gt(s, d.min[0], d.min[1], d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; M.onGtFile = null; }
         if (size < 0) return [{ type: 'gt', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
         return [{ type: 'gt', id: d.id, files }, files.map(f => f[1].buffer)];
+      }
+      if (d.type === 'gt-run') {
+        // The same in two steps (live.js starts this one while the Save box is open): the movie rendered with the sink
+        // on, kept in the module (isc_scope_gt_run: rows from d.minPhotons on), then gt-files.
+        progressTo(d, post);
+        const n = M.lengthBytesUTF8(d.text) + 1, s = M._malloc(n);
+        M.stringToUTF8(d.text, s, n);
+        let rc;
+        try { rc = M._isc_scope_gt_run(s, d.minPhotons, d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; }
+        if (rc < 0) return [{ type: 'gt-run', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        // d.files = {min, vol, dyeCsv}: the files for the options the box shows, made now (the run kept for others)
+        if (!d.files) return [{ type: 'gt-run', id: d.id, error: null }, []];
+        const files = [], o = d.files;
+        M.onGtFile = (name, bytes) => files.push([name, bytes]);
+        let size;
+        try { size = M._isc_scope_gt_files(o.min[0], o.min[1], o.vol[0], o.vol[1], o.dyeCsv ? 1 : 0, 1); } finally { M.onGtFile = null; }
+        if (size < 0) return [{ type: 'gt-run', id: d.id, error: null, filesError: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        return [{ type: 'gt-run', id: d.id, error: null, files, filesFor: o }, files.map(f => f[1].buffer)];
+      }
+      if (d.type === 'gt-files') {
+        // The kept run's files (isc_scope_gt_files), each out of the heap as it is made; the run let go.
+        const files = [];
+        M.onGtFile = (name, bytes) => files.push([name, bytes]);
+        let size;
+        try { size = M._isc_scope_gt_files(d.min[0], d.min[1], d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0, 0); } finally { M.onGtFile = null; }
+        if (size < 0) return [{ type: 'gt-files', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        return [{ type: 'gt-files', id: d.id, files }, files.map(f => f[1].buffer)];
       }
       if (d.type === 'setup') {
         // A movie spec's resolved setup (isc_scope_setup: JSON of the light path, excitation, labels).

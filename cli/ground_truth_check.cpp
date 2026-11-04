@@ -546,7 +546,7 @@ int main()
       Tiff t;
       int vols = 0;
       for (const auto& f : wfFiles)
-         if (f.first.compare(0, 8, "density_") == 0)
+         if (f.first.compare(0, 10, "gt_volume_") == 0)
          {
             t = ReadTiff(f.second);
             vols++;
@@ -567,7 +567,7 @@ int main()
       std::string readme;
       for (const auto& f : small)
       {
-         if (f.first.compare(0, 8, "density_") == 0)
+         if (f.first.compare(0, 10, "gt_volume_") == 0)
             t = ReadTiff(f.second);
          if (f.first == "README.txt")
             readme = f.second;
@@ -588,7 +588,7 @@ int main()
    std::vector<Tiff> stacks;
    std::vector<std::string> names;
    for (const auto& f : g3.Files({ 5, 300 }, 20, 20))
-      if (f.first.compare(0, 8, "density_") == 0)
+      if (f.first.compare(0, 10, "gt_volume_") == 0)
       {
          stacks.push_back(ReadTiff(f.second));
          names.push_back(f.first);

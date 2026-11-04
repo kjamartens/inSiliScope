@@ -112,7 +112,7 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     })]);
     const zipSec = (Date.now() - tz) / 1000;
     const z = unzip(fs.readFileSync(await dlZip.path())), names = Object.keys(z);
-    const want = ['movie.tif', 'settings.isc.json', 'README.txt', 'gt/frames.csv', 'gt/localizations_min5.csv', 'gt/localizations_min300.csv', 'gt/README.txt', '__main__.py'];
+    const want = ['movie.tif', 'settings.isc.json', 'README.txt', 'gt/frames.csv', 'gt/localizations_min5.csv', 'gt/localizations_min300.csv', 'gt/README.txt', '__main__.py', 'open_in_napari.py'];
     check(dlZip.suggestedFilename() === 'insiliscope_live_64x64x8.zip' && want.every(n => names.includes(n)) && !names.includes('gt/dyes.csv') &&
       !names.includes('gt/voxelize.html'),
       `with settings and ground truth: ${dlZip.suggestedFilename()} (${zipSec.toFixed(1)} s): ${names.join(', ')}`);

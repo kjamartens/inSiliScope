@@ -6178,8 +6178,10 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
 
    // The noise maps only when the movie applies the noise (a host with
    // onPhotons adds its own: a live frame skips building three maps).
+   // A host that drops the frames (GroundTruth::framesUnused, the viewer's Save): no noise, frames of zeros.
+   const bool noPixels = !opt.onPhotons && ActiveGroundTruth() && ActiveGroundTruth()->framesUnused;
    std::unique_ptr<NoiseSetup> noisePtr;
-   if (!opt.onPhotons)
+   if (!opt.onPhotons && !noPixels)
       noisePtr.reset(new NoiseSetup(S.seed, W, H, S.p));
    const CameraNoiseParams cam = S.p.Camera();
    TimingSum tBlinks, tPops, tNoise, tWrite;
@@ -6675,7 +6677,13 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       }
       tPops.Stop();
       tNoise.Start();
-      if (!opt.onPhotons)
+      if (noPixels)
+         for (long k = 0; k < nb; ++k)
+         {
+            if (adu[static_cast<size_t>(k)].size() != n)
+               adu[static_cast<size_t>(k)].assign(n, 0);
+         }
+      else if (!opt.onPhotons)
          ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
             ApplyNoiseChain(photons[k], adu[k], W, H, cam, noisePtr->offsetMap, noisePtr->gainMap, noisePtr->rnMap,
                             noisePtr->noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)));
@@ -6793,6 +6801,45 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
    return true;
 }
 
+// The ground truth's row of a frame no fluorescence movie draws (the lamp alone, no light; GroundTruth.h): its time,
+// stage, focus and drift as FluorescenceMovie::Render writes a frame's, numbered on from the frames before (a
+// recording's later fluorescence frames keep their index in the movie). No sink: nothing.
+static void GroundTruthPlainFrame(const ScopeSetup& S, const ScopeSpec& spec, long f)
+{
+   GroundTruth* const gt = ActiveGroundTruth();
+   if (!gt)
+      return;
+   gt->width = S.W;
+   gt->height = S.H;
+   gt->pixelNm = S.p.pixelSizeNm;
+   GroundTruth::Frame fr;
+   fr.frame = gt->frameBase;
+   fr.tSec = S.t0Sec + f * S.expSec;
+   fr.expSec = S.expSec;
+   fr.stageXUm = ScopeSpecGet(spec, "x");
+   fr.stageYUm = ScopeSpecGet(spec, "y");
+   const double z = ScopeSpecGet(spec, "z");
+   double zf = z;
+   if (S.driftOn)
+   {
+      const auto& d = S.drift[static_cast<size_t>(f)];
+      zf = z - d.z / 1000.0;
+      fr.driftXNm = d.x;
+      fr.driftYNm = d.y;
+      fr.driftZNm = d.z;
+   }
+   fr.focusUm = z;
+   fr.focusWorldUm = S.q.zRefUm + zf;
+   gt->frames.push_back(fr);
+   gt->frameBase++;
+}
+// Whether the thread's ground truth drops the frames (GroundTruth::framesUnused).
+static bool GroundTruthNoPixels()
+{
+   const GroundTruth* gt = ActiveGroundTruth();
+   return gt && gt->framesUnused;
+}
+
 // The lamp's photons per frame (BrightfieldFrames, the combined light): the
 // image at the spec's focus (computed, or assembled by SetImageFromSources)
 // times bf-photons-per-px-per-sec x exposure; a drifting sample: the
@@ -6884,6 +6931,7 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
                       static_cast<uint32_t>(f));
       tNoise.Stop();
       tWrite.Start();
+      GroundTruthPlainFrame(S, spec, f);
       const bool more = onFrame(f, adu);
       tWrite.Stop();
       if (!more)
@@ -7370,13 +7418,20 @@ static bool RenderDarkMovie(const ScopeSpec& spec, const std::function<bool(long
    std::snprintf(desc, sizeof desc, "insiliscope light=none seed=%ld size=%u pixel_nm=%g exposure_ms=%g frames=%ld",
                  S.seed, S.W, S.p.pixelSizeNm, S.expSec * 1000, S.N);
    info.description = desc;
-   NoiseSetup noise(S.seed, S.W, S.H, S.p);
+   const bool noPixels = GroundTruthNoPixels();
+   std::unique_ptr<NoiseSetup> noise;
+   if (!noPixels)
+      noise.reset(new NoiseSetup(S.seed, S.W, S.H, S.p));
    const std::vector<float> photons(static_cast<size_t>(S.W) * S.H, 0.0f);
    std::vector<uint16_t> adu;
+   if (noPixels)
+      adu.assign(photons.size(), 0);
    for (long f = 0; f < S.N; f++)
    {
-      ApplyNoiseChain(photons, adu, S.W, S.H, S.p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
-                      noise.noiseSeed, static_cast<uint32_t>(f));
+      if (!noPixels)
+         ApplyNoiseChain(photons, adu, S.W, S.H, S.p.Camera(), noise->offsetMap, noise->gainMap, noise->rnMap,
+                         noise->noiseSeed, static_cast<uint32_t>(f));
+      GroundTruthPlainFrame(S, spec, f);
       if (!onFrame(f, adu))
          break;
    }
@@ -7393,6 +7448,10 @@ static bool RenderCombinedMovie(const ScopeSpec& spec,
                                 ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress)
 {
    FluorescenceMovie fm;
+   // A host that drops the frames (GroundTruth::framesUnused): the fluorescence alone, frames of zeros (the lamp's
+   // light is in no ground-truth column).
+   if (GroundTruthNoPixels())
+      return fm.Begin(spec, false, err) && fm.Render(onFrame, info, err, progress);
    ScopeSetup S;
    BrightfieldSpec bs;
    if (!fm.Begin(spec, false, err) || !MakeScopeSetup(spec, S, err) || !ScopeBrightfieldSpec(spec, bs, err))
@@ -7437,6 +7496,26 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
       return RenderDarkMovie(spec, onFrame, info, err);
    if (epi && trans)
       return RenderCombinedMovie(spec, onFrame, info, err, progress);
+   if (trans && GroundTruthNoPixels())
+   {
+      // The lamp alone and a host that drops the frames: the ground truth's frame rows, no scene, frames of zeros.
+      ScopeSetup S;
+      if (!MakeScopeSetup(spec, S, err))
+         return false;
+      info = ScopeMovieInfo();
+      info.width = S.W;
+      info.height = S.H;
+      info.frames = S.N;
+      DriftInfo(S, info);
+      const std::vector<uint16_t> zero(static_cast<size_t>(S.W) * S.H, 0);
+      for (long f = 0; f < S.N; f++)
+      {
+         GroundTruthPlainFrame(S, spec, f);
+         if (!onFrame(f, zero))
+            break;
+      }
+      return true;
+   }
    if (trans)
       return RenderBrightfieldMovie(spec, onFrame, info, err);
    FluorescenceMovie fm;
@@ -7521,12 +7600,16 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       info.frames = S.N;
       const std::vector<float> zero(static_cast<size_t>(S.W) * S.H, 0.0f);
       for (long f = 0; f < S.N; f++)
+      {
+         GroundTruthPlainFrame(S, spec, f);
          if (!onPhotons(f, zero))
             break;
+      }
       info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       return true;
    }
-   if (epi && trans)
+   const bool noPixels = GroundTruthNoPixels();   // (the lamp's light is in no ground-truth column)
+   if (epi && trans && !noPixels)
    {
       // RenderCombinedMovie up to its noise chain.
       FluorescenceMovie fm;
@@ -7554,13 +7637,31 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       };
       return fm.Render(noFrames, info, err, progress, &opt);
    }
-   if (trans)
+   if (trans && !epi)
    {
       // RenderBrightfieldMovie / BrightfieldFrames up to the noise chain: the lamp's photons per frame.
       const auto t0 = std::chrono::steady_clock::now();
       ScopeSetup S;
       if (!MakeScopeSetup(spec, S, err))
          return false;
+      if (noPixels)
+      {
+         // A host that drops the frames: the ground truth's frame rows, no scene, zero photons.
+         info = ScopeMovieInfo();
+         info.width = S.W;
+         info.height = S.H;
+         info.frames = S.N;
+         DriftInfo(S, info);
+         const std::vector<float> zero(static_cast<size_t>(S.W) * S.H, 0.0f);
+         for (long f = 0; f < S.N; f++)
+         {
+            GroundTruthPlainFrame(S, spec, f);
+            if (!onPhotons(f, zero))
+               break;
+         }
+         info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+         return true;
+      }
       MovieCache& cache = SharedMovieCache();
       std::lock_guard<std::mutex> lock(cache.mutex);
       if (!ConfigureShared(cache, S.cf, err))
@@ -7578,8 +7679,11 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       info.querySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       DriftInfo(S, info);
       for (long f = 0; f < S.N; f++)
+      {
+         GroundTruthPlainFrame(S, spec, f);
          if (!onPhotons(f, lamp.At(cache.brightfield, S, f)))
             break;
+      }
       info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       return true;
    }

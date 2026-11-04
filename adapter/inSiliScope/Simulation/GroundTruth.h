@@ -44,6 +44,9 @@ public:
    // blinking label: a movie's ground truth is its localizations or its dye list).
    bool dyeList = true;
    bool writeDyeCsv = true;
+   // The host drops the frames' pixels (the viewer's Save renders a Record again for its ground truth alone): the
+   // movies skip the camera noise and the transmitted lamp and hand over frames of zeros. The ground truth is the same.
+   bool framesUnused = false;
 
    // A label as drawn: a structure's dye in its mode, the main state or the PALM pre state.
    struct Label

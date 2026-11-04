@@ -519,7 +519,7 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
       const Label* L = g.label >= 0 && g.label < static_cast<int>(labels.size()) ? &labels[static_cast<size_t>(g.label)] : nullptr;
       const std::string target = L ? L->target : std::string("?");
       const std::string channel = g.state != 3 ? target + " (" + StateName(g.state) + ")" : target;
-      std::string name = "density_" + SafeName(L ? L->target : std::string());
+      std::string name = "gt_volume_" + SafeName(L ? L->target : std::string());
       if (g.state != 3)
          name += std::string("_") + StateName(g.state);
       name += ".tif";

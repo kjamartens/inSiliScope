@@ -2,8 +2,10 @@
 """Opens an inSiliScope recording in napari, every part in world coordinates (um; z above the coverslip).
 
     python <recording>.zip                  Python runs this file from the zip (it is the zip's __main__.py)
-    python __main__.py                      the same, in the unpacked folder
+    python open_in_napari.py                the same, in the unpacked folder (or beside the zip: the newest there)
     python open_in_napari.py <recording.zip | folder | voxelize .tif> ...
+    drop open_in_napari.py on napari        napari runs it (0.10 checked): the recording opens in that window, found as
+                                            above (the folder it lies in, else the newest recording zip beside it)
 
 Needs napari and tifffile:  pip install "napari[all]" tifffile   (a voxelize .tif opened lazily also needs zarr, dask)
 
@@ -92,15 +94,17 @@ def layers_of_recording(src):
     frames = src.table('gt/frames.csv') if src.has('gt/frames.csv') else []
     focus = float(frames[0]['focus_world_um']) if frames else 0.0
     # the density stacks: a target each, all on one grid (they overlap), 8 bits (x insiliscope.scale = photons)
-    stacks = sorted(n for n in src.names() if n.startswith('gt/density_') and n.endswith('.tif'))
+    stacks = sorted(n for n in src.names() if n.startswith('gt/gt_volume_') and n.endswith('.tif'))
     for k, name in enumerate(stacks):
         raw = src.read(name)
         with tifffile.TiffFile(io.BytesIO(raw)) as tf:
             d = description(tf)
         v = lazy(io.BytesIO(raw))
+        if v.ndim == 2:   # a stack of one z plane (the dyes in one layer): tifffile reads it as an image
+            v = v[None]
         vx, vy, vz = triple(d['insiliscope.voxel-um'])
         ox, oy, oz = triple(d['insiliscope.origin-um'])
-        target = d.get('insiliscope.target', name[11:-4])
+        target = d.get('insiliscope.target', name[len('gt/gt_volume_'):-4])
         state = d.get('insiliscope.state', '')
         zs += [oz, oz + v.shape[0] * vz]
         out.append(('image', v, dict(name=f'density {target}' + (f' ({state})' if state and state != 'always-on' else ''),
@@ -176,6 +180,8 @@ def layers_of_stack(path):
         d = description(tf)
         axes = tf.series[0].axes
     data = lazy(path)
+    if 'C' not in axes and data.ndim == 2:   # one z plane
+        data = data[None]
     vx, vy, vz = triple(d['insiliscope.voxel-um'])
     ox, oy, oz = triple(d['insiliscope.origin-um'])
     names = d.get('insiliscope.channels', 'stack').split(';')
@@ -194,6 +200,38 @@ def layers_of(path):
     if os.path.isfile(path) and path.lower().endswith(('.tif', '.tiff')):
         return layers_of_stack(path)
     return layers_of_recording(Source(path))
+
+
+def in_napari():
+    """Whether napari runs this file (dropped on its window, File > Open): its viewer is open already (napari then
+    hands napari.Viewer() that viewer and makes napari.run() wait for nothing)."""
+    nap = sys.modules.get('napari')
+    try:
+        return nap is not None and nap.current_viewer() is not None
+    except Exception:
+        return False
+
+
+def is_recording(path):
+    """A saved recording: its zip, or the folder it was unpacked into."""
+    try:
+        src = Source(path)
+        return src.has('movie.tif') or src.has('gt/frames.csv')
+    except (OSError, zipfile.BadZipFile):
+        return False
+
+
+def own_recording(script):
+    """The recording this file belongs to: the zip it runs from (python <zip>: <zip>/__main__.py), the folder it lies
+    in (unpacked), else the newest recording zip beside it; None: none found."""
+    here = os.path.dirname(os.path.abspath(script))
+    if not os.path.isdir(here):
+        return here if zipfile.is_zipfile(here) else None
+    if is_recording(here):
+        return here
+    zips = [os.path.join(here, n) for n in os.listdir(here) if n.lower().endswith('.zip')]
+    zips = [z for z in zips if is_recording(z)]
+    return max(zips, key=os.path.getmtime) if zips else None
 
 
 def show(paths):
@@ -222,19 +260,29 @@ def show(paths):
     if focus is not None and viewer.dims.ndim >= 3:
         viewer.dims.set_point(viewer.dims.ndim - 3, focus)   # the z slider at the focal height
     viewer.scale_bar.visible = True
-    viewer.scale_bar.unit = 'um'
+    try:
+        viewer.scale_bar.unit = 'um'
+    except Exception:   # napari 0.10: no unit on the scale bar (the layers carry units)
+        pass
     napari.run()
 
 
 def main(argv):
-    paths = argv[1:]
-    if not paths:
-        here = os.path.dirname(os.path.abspath(__file__))
-        # run from a zip (python recording.zip): __file__ is <zip>/__main__.py; unpacked: this file's folder
-        paths = [here if os.path.isdir(here) else os.path.abspath(argv[0])]
-    if paths[0] in ('-h', '--help'):
+    # napari running this file: its own command line is not ours
+    paths = [] if in_napari() else argv[1:]
+    if paths and paths[0] in ('-h', '--help'):
         print(__doc__)
         return 0
+    if not paths:
+        own = own_recording(__file__)
+        if own is None:
+            msg = (f'no inSiliScope recording found by {os.path.abspath(__file__)}: put this file in the unpacked '
+                   'recording (or beside its .zip), or name one:  python open_in_napari.py <recording.zip>')
+            if in_napari():
+                raise FileNotFoundError(msg)   # (napari shows it as a notification)
+            print(msg)
+            return 1
+        paths = [own]
     try:
         show(paths)
     except ImportError as e:
@@ -244,4 +292,6 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv))
+    code = main(sys.argv)
+    if not in_napari():   # (in napari, a SystemExit would show as an error)
+        sys.exit(code)

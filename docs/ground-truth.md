@@ -17,10 +17,12 @@ insiliscope_cli --settings settings.isc.json --out movie.tif --gt-out gt
 
 The ground truth is computed when you save, not while recording. The viewer renders the recording again from its
 settings file with the ground truth switched on, on a worker of its own (a fresh WebAssembly heap, freed after; live
-pauses meanwhile). It takes a few times the recording's own time: a 128 px WideField recording beside a nucleus (4
-million dyes) about a minute, with the dye list. The Save box shows the stage (preparing the sample and the PSF,
-the frames with their %, writing the files), a bar and the seconds. (Collecting it during the Record would add ~70 %
-to every recording, saved or not.)
+pauses meanwhile). It starts as soon as the Save box opens with Ground truth ticked, so most of it is done while you
+choose the name and options; lowering a threshold or ticking the dye list starts it again, closing the box stops it.
+This pass skips what only the pixels need (the camera noise, the transmitted lamp's image). It takes a few times the
+recording's own time: a 128 px WideField recording beside a nucleus (4 million dyes) about a minute, with the dye
+list. The Save box shows the stage (preparing the sample and the PSF, the frames with their %, writing the files), a
+bar and the seconds. (Collecting it during the Record would add ~70 % to every recording, saved or not.)
 
 The settings file is taken as the Record began. It reproduces the frames bit for bit:
 
@@ -45,10 +47,10 @@ noisy count.
 | `gt/fiducials.csv` | beads, no blinking label | every bead per frame |
 | `gt/dyes.csv` | Dye list (no blinking label, WideField) | one row per dye |
 | `gt/voxelize.html` | Dye list | a converter from `dyes.csv` to a stack at any voxel size (below) |
-| `gt/density_<target>[_<state>].tif` | continuous dyes | a density stack per target, all on one grid: detected photons per voxel |
+| `gt/gt_volume_<target>[_<state>].tif` | continuous dyes | a density stack per target, all on one grid: detected photons per voxel |
 | `gt/README.txt` | Ground truth | what is in `gt/` |
 | `README.txt` | any of the above | what is in the zip |
-| `__main__.py` | any of the above | opens the recording in napari: `python <name>.zip` ([below](#open-it-in-napari)) |
+| `open_in_napari.py`, `__main__.py` | any of the above | open the recording in napari: drop `open_in_napari.py` on napari's window, or `python <name>.zip` ([below](#open-it-in-napari)) |
 
 ### frames.csv
 
@@ -103,7 +105,7 @@ The density stacks come with either.
   when it bleaches or switches), its detected rate now (`photons_per_s`, 0 when no light reaches it) and its photons
   over the recorded frames (`photons_detected_total`, `photons_emitted_total`). A 128 px WideField recording lists
   0.8 to 4 million dyes (~120 to 600 MB), so the dye list is optional; the stacks stay.
-- `density_<target>.tif` sums `photons_detected_total` per voxel: the light each place sent to the camera, not just
+- `gt_volume_<target>.tif` sums `photons_detected_total` per voxel: the light each place sent to the camera, not just
   whether a dye was there. Every target's stack lies on **one grid**, the box of all their dyes, so the stacks overlap
   when opened together (in Fiji, Image › Color › Merge Channels; in napari, as layers).
   - The voxels are 10 × 10 × 10 nm, or as fine as fits 1 GB in all uncompressed (one factor for x, y and z, in steps
@@ -162,25 +164,28 @@ at 10 nm voxels (1469 × 1297 × 364 voxels × 2 channels, 1.4 GB uncompressed) 
 
 ## Open it in napari
 
-Every saved zip carries `__main__.py`, a small Python program, and Python runs a zip that holds one:
+Every saved zip carries `open_in_napari.py`, a small Python program (and the same as `__main__.py`, which Python runs
+when given the zip). With napari installed (`pip install "napari[all]" tifffile`), either
+
+- **drop `open_in_napari.py` on napari's window** (napari runs a dropped `.py`; checked with napari 0.10): from the unpacked zip it
+  opens that folder; a copy kept beside the zips (in Downloads, say) opens the newest recording zip next to it; or
+- run the zip:
 
 ```bash
-pip install "napari[all]" tifffile
 python insiliscope_live_128x128x10.zip
 ```
 
-It opens napari with every part of the recording in world coordinates (µm, z above the coverslip), so they line up:
+Either way napari shows every part of the recording in world coordinates (µm, z above the coverslip), so they line up:
 
 - **movie**: the frames where the camera saw them (the stage position, the pixel size). In 2D it stands at every z (a
   camera image is a projection); in 3D it is a plane at the focal height.
-- **density** stacks, a layer per target, coloured.
+- **density** stacks (`gt_volume_*.tif`), a layer per target, coloured.
 - **localizations** of the lowest-threshold table, each at its own frame, coloured by target, with their photons as a
   feature; "all frames" (hidden) holds them all at once, for 3D.
 - **beads** (`fiducials.csv`), per frame.
 
-The axes are named frame, z, y, x (µm); the status bar shows the pointer's world position. The same program unpacked
-runs as `python __main__.py` in the folder, and takes paths too: `python __main__.py <zip, folder or voxelize .tif>
-...` opens several side by side. A voxelize `.tif` opens a layer per channel, read a plane at a time (with `zarr` and
+The axes are named frame, z, y, x (µm); the status bar shows the pointer's world position. From a terminal it takes paths too:
+`python open_in_napari.py <zip, folder or voxelize .tif> ...` opens several side by side. A voxelize `.tif` opens a layer per channel, read a plane at a time (with `zarr` and
 `dask` installed), so a stack of many GB opens at once. The program is also
 [published beside the viewer](https://kjamartens.github.io/inSiliScope/open_in_napari.py).
 

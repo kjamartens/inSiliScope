@@ -326,7 +326,9 @@ dlg.setAttribute('role', 'dialog');
 dlg.innerHTML = '<div class="box"></div>';
 document.body.append(dlg);
 const dbox = dlg.querySelector('.box');
-const closeDlg = () => { dlg.hidden = true; };
+// onClose: the box's own clean-up (the Save box lets its ground truth's run go), once, however the box is closed
+let onDlgClose = null;
+const closeDlg = () => { dlg.hidden = true; const f = onDlgClose; onDlgClose = null; if (f) f(); };
 dlg.addEventListener('pointerdown', ev => { if (ev.target === dlg) closeDlg(); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !dlg.hidden) closeDlg(); });
 const partRows = (have, checked, sums) => PARTS.filter(p => have.includes(p)).map(p =>
@@ -414,6 +416,9 @@ document.addEventListener('drop', ev => {
 
 // for the browser tests and the console: the file of the current setup, and loading one
 // The dialog for another box of the same look (live.js: a recording's Save): its HTML, shown; returns the box.
-const dialog = html => { dbox.innerHTML = html; dlg.hidden = false; return dbox; };
+const dialog = (html, onClose) => {
+  const f = onDlgClose; onDlgClose = null; if (f) f();   // (a box replacing another closes it)
+  dbox.innerHTML = html; dlg.hidden = false; onDlgClose = onClose || null; return dbox;
+};
 self.iscSettings = { makeFile, recordFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS, dialog, closeDialog: closeDlg };
 })();

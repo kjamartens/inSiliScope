@@ -184,20 +184,29 @@ that finishes them.
   beside a nucleus, 4 M dyes, aborted the viewer at 4 GB): heap 1.9 GB without the dye list, 2.3 GB with. `GroundTruth::Files` writes
   frames.csv, localizations_min<N>.csv / fiducials.csv, dyes.csv (only without a blinking label: localizations or a dye list, never both, also in the Save box;
   optional: ~100 MB at 128 px WideField),
-  density_<target>[_<state>].tif (2026-11-04: `Simulation/Voxelize.*`, the one voxelizer, also voxelize.html's
+  gt_volume_<target>[_<state>].tif (2026-11-04: `Simulation/Voxelize.*`, the one voxelizer, also voxelize.html's
   through its own WASM; detected photons per voxel, every stack on one grid (the box of all dyes: they overlap),
   10 nm or as fine as fits 1 GB in all (`GridWithin`, steps of 0.5 nm), 8-bit scaled to the stack's largest voxel
   (`insiliscope.scale`, Fiji's cf/c1 calibration), planes deflated (`vox::Deflate`: runs as distance-1 matches,
   dynamic Huffman; the ctest's inflater checks it), a label per slice (its z), the origin as xorigin/yorigin/zorigin
   (Fiji's status bar); 4 M dyes: 12.5 nm, 6.3 MB), README.txt; `Files(sink, ...)` hands each over
-  as made. Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` (a `gt` job on a worker of
-  its own, `L.groundTruth`: spawned, terminated after; `Module.onGtFile` takes each file out of the heap; stages
-  `setup`, `ground truth` per frame, `files`) and
-  the cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both on `settings::RenderMovie`; `web/open_in_napari.py`
-  (every saved zip's `__main__.py`, so `python <zip>` opens it in napari: the movie at the stage position (pixel i's
-  centre at stage + (i - W/2) px, no flip), density stacks, localizations per frame, axes frame/z/y/x in world um;
-  also unpacked or on a voxelize .tif, lazily; copied beside the viewer by `build_site.sh`; checked with napari stood
-  in for by `tests/web/napari_open_check.py`, ~1 s, which viewer_save runs on its zip); `web/voxelize.html` (the
+  as made. Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` = `isc_scope_gt_run`
+  (the movie with the sink on, kept; rows from a `minPhotons`) + `isc_scope_gt_files` (2026-11-04: the same files
+  when the run's threshold is at most the lower one and its dye list on or the same); on a worker of its own
+  (`gt-run`, `gt-files` jobs; live.js `GT`, `L.gtWarm`, `L.groundTruth`): the run starts when the Save box opens with
+  Ground truth ticked (again on a lower threshold or the dye list on), Save takes it, the worker is closed after, on
+  the box's close (`dialog(html, onClose)`) and `closePlayer`; `Module.onGtFile` takes each file out of the heap;
+  stages `setup`, `ground truth` per frame, `files`. The module's run drops the frames (`GroundTruth::framesUnused`:
+  no camera noise, no lamp, no BrightField scene; the files = the cli's, which renders them). Frames no fluorescence
+  movie draws (lamp alone, dark) get frames.csv rows (`GroundTruthPlainFrame`; before 2026-11-04 none, and a later
+  fluorescence run's frames were numbered from 0). The cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both
+  on `settings::RenderMovie`; `web/open_in_napari.py` (every saved zip's `__main__.py` and `open_in_napari.py`, so
+  `python <zip>` opens it in napari, and so does the .py dropped on napari's window (napari's .py reader: `in_napari`,
+  the data from `__file__`: the unpacked folder, else the newest recording zip beside it; no `sys.exit` there): the
+  movie at the stage position (pixel i's centre at stage + (i - W/2) px, no flip), density stacks, localizations per
+  frame, axes frame/z/y/x in world um; also on a voxelize .tif, lazily; copied beside the viewer by `build_site.sh`;
+  checked with napari stood in for by `tests/web/napari_open_check.py`, ~1 s, which viewer_save runs on its zip, the
+  drop included); `web/voxelize.html` (the
   page reads the CSV as bytes (only the columns used; a number of up to 15 digits = its digits / 10^k, = Number()'s;
   anything else and a quoted line the text way; the tables = the old reader's bit for bit; 120 MB 1.2 -> 0.8 s) and
   chooses the rows; the grid, the stack plane by plane, the planes' compression (`vox::Deflate`, the density stacks'

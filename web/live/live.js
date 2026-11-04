@@ -210,27 +210,81 @@ function onReplay(d, job) {
   }
   if (job.wasOn) setLive(true);
 }
-// A recording's ground truth (a gt job: its settings file rendered again with the sink on; Save) on a worker of its
-// own, closed when done: a fresh heap (on the live worker, beside the live sample's caches, a WideField ground truth
-// took the heap past its 4 GB: an abort, and the box waited on), all of it freed after. Live pauses while it runs.
-// opt = {text, min: [a, b], vol: [xy, z], dyeCsv}; progress(fraction, stage, info): isc_scope_gt's stages. Resolves
-// with the files, [[name, bytes], ...]; a failure (out of memory too) rejects.
-L.groundTruth = (opt, progress) => new Promise((resolve, reject) => {
-  if (!genWorkers.ok) { reject(new Error('the workers are not up yet')); return; }
-  const wasOn = L.on;
-  if (L.on) { L.on = false; syncButtons(); }
-  const w = spawnGenWorker();
-  const end = () => { w.terminate(); if (wasOn) setLive(true); };
+// A recording's ground truth on a worker of its own, closed when done: a fresh heap (on the live worker, beside the
+// live sample's caches, a WideField ground truth took the heap past its 4 GB: an abort, and the box waited on), all of
+// it freed after. Two jobs: gt-run (its settings file rendered again with the sink on, kept in the worker) and gt-files.
+// The run starts as the Save box opens with Ground truth ticked (L.gtWarm), so the sample, the PSF and the frames are
+// made while the box is read; Save takes it when it fits (the same file and dye list, rows kept from at most the lower
+// threshold: the same files as a run made at Save, isc_scope_gt_run), else starts another. As the run ends it makes
+// the files for the options the box shows then (dyes.csv and the stacks take seconds), which Save takes when they are
+// still the options; else the kept run makes them for the new ones. Live pauses while one runs.
+const GT = { w: null, key: null, run: null, files: null, pre: null, progress: null, last: null, wasOn: false };
+const deferred = () => { let resolve, reject; const p = new Promise((a, b) => { resolve = a; reject = b; }); p.catch(() => {}); return { p, resolve, reject }; };
+function gtStop() {
+  const { w, run, files } = GT;
+  Object.assign(GT, { w: null, key: null, run: null, files: null, pre: null, progress: null, last: null });
+  if (w) w.terminate();
+  const e = new Error('the ground truth was cancelled');
+  if (run) run.reject(e);
+  if (files) files.reject(e);
+  if (GT.wasOn) { GT.wasOn = false; setLive(true); }
+}
+function gtRun(text, minPhotons, dyeCsv, filesFor) {
+  gtStop();
+  if (!genWorkers.ok) return false;
+  if (L.on) { L.on = false; syncButtons(); GT.wasOn = true; }
+  const w = spawnGenWorker(), run = deferred();
+  Object.assign(GT, { w, key: { text, minPhotons, dyeCsv }, run });
+  const fail = msg => {
+    const e = new Error(workerErrorText(msg));
+    run.reject(e);
+    if (GT.files) GT.files.reject(e);
+    GT.key = null;   // (a later Save starts afresh)
+  };
   w.onmessage = e => {
     const d = e.data;
-    if (d.type === 'movie-progress') { if (progress) progress(d.frac || 0, d.stage, d.info); return; }
-    if (d.type !== 'gt') return;
-    end();
-    if (d.error) reject(new Error(workerErrorText(d.error))); else resolve(d.files);
+    if (GT.w !== w) return;
+    if (d.type === 'movie-progress') { GT.last = [d.frac || 0, d.stage, d.info]; if (GT.progress) GT.progress(...GT.last); }
+    else if (d.type === 'gt-run') {
+      if (d.error) { fail(d.error); return; }
+      if (d.files) GT.pre = { for: d.filesFor, files: d.files };
+      run.resolve();
+    }
+    else if (d.type === 'gt-files' && GT.files) { if (d.error) fail(d.error); else GT.files.resolve(d.files); }
   };
-  w.onerror = e => { e.preventDefault(); end(); reject(new Error(workerErrorText(e.message || 'the ground truth\'s worker failed'))); };
-  w.postMessage({ type: 'gt', id: 1, ...opt });
-});
+  w.onerror = e => { e.preventDefault(); if (GT.w === w) fail(e.message || 'the ground truth\'s worker failed'); };
+  w.postMessage({ type: 'gt-run', id: 1, text, minPhotons, dyeCsv, files: filesFor || null });
+  return true;
+}
+// Whether the run k gives the files of (text, the lower threshold min, dyeCsv): a run with the dye list serves one
+// without (isc_scope_gt_files).
+const gtFits = (k, text, min, dyeCsv) => !!k && k.text === text && k.minPhotons <= min && (k.dyeCsv || !dyeCsv);
+// Whether made files are those of the options o = {min, vol, dyeCsv}.
+const gtSameOpts = (a, o) => !!a && a.min[0] === o.min[0] && a.min[1] === o.min[1] && a.vol[0] === o.vol[0] &&
+  a.vol[1] === o.vol[1] && !!a.dyeCsv === !!o.dyeCsv;
+// The Save box: a run for these options now (kept if the one there fits; filesFor: the files to make as it ends);
+// L.gtDrop: none.
+L.gtWarm = (text, minPhotons, dyeCsv, filesFor) => { if (!gtFits(GT.key, text, minPhotons, dyeCsv)) gtRun(text, minPhotons, dyeCsv, filesFor); };
+L.gtDrop = gtStop;
+// opt = {text, min: [a, b], vol: [xy, z], dyeCsv}; progress(fraction, stage, info): isc_scope_gt's stages (a run
+// already on its way reports where it is). Resolves with the files, [[name, bytes], ...]; a failure (out of memory
+// too) rejects. The worker is closed after.
+L.groundTruth = async (opt, progress) => {
+  const min = Math.min(opt.min[0], opt.min[1]);
+  if (!gtFits(GT.key, opt.text, min, opt.dyeCsv) && !gtRun(opt.text, min, opt.dyeCsv)) throw new Error('the workers are not up yet');
+  const { w, run } = GT;
+  GT.progress = progress || null;
+  if (progress && GT.last) progress(...GT.last);
+  try {
+    await run.p;
+    if (GT.w !== w) throw new Error('the ground truth was cancelled');
+    if (GT.pre && gtSameOpts(GT.pre.for, opt)) return GT.pre.files;   // made as the run ended
+    GT.pre = null;   // (let them go before the new ones come)
+    const files = GT.files = deferred();
+    w.postMessage({ type: 'gt-files', id: 2, min: opt.min, vol: opt.vol, dyeCsv: opt.dyeCsv });
+    return await files.p;
+  } finally { if (GT.w === w) gtStop(); }
+};
 // A fresh sample at the next frame (a measurement without history).
 L.freshSample = () => { L.worldKey = null; L.t = 0; L.log = []; };
 L.setLive = on => setLive(on);
@@ -735,6 +789,7 @@ function schedulePlay() {
 }
 function syncPlay() { $('lv_playBtn').textContent = PLAY.run ? '❚❚' : '▶'; }
 function closePlayer() {
+  gtStop();   // (a ground truth's run of this recording)
   cancelAnimationFrame(PLAY.timer);
   Object.assign(PLAY, { on: false, frames: null, run: false });
   $('lv_play').hidden = true;
@@ -755,6 +810,13 @@ function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
 const SAVE_DEF = { settings: true, gt: false, min1: 5, min2: 300, dyes: true };
+const GT_VOL = [10, 10];   // the density stacks' voxel (nm, lateral and axial; finer when it fits 1 GB)
+// The recording's settings file as text (made once per recording: the ground truth's run is keyed by it).
+const playSettingsText = () => {
+  if (PLAY.settingsText === undefined || PLAY.settingsOf !== PLAY.settings)
+    Object.assign(PLAY, { settingsText: JSON.stringify(PLAY.settings, null, 1), settingsOf: PLAY.settings });
+  return PLAY.settingsText;
+};
 function saveOpts() { try { return Object.assign({}, SAVE_DEF, JSON.parse(store.get('saveOpts', '{}'))); } catch (e) { return { ...SAVE_DEF }; } }
 // What the recording's ground truth is: 'smlm' (a blinking label: localization tables), 'wf' (continuous dyes only:
 // the dye list and density stacks) or 'none' (no label on: the frames, and the beads if any). From the recording's
@@ -806,7 +868,8 @@ async function openSave() {
     '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip with a README.txt, which ' +
     'also opens in napari: <code>python &lt;name&gt;.zip</code>.</div>' +
     '<progress id="svBar" max="1" hidden style="width:100%"></progress>' +
-    '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>');
+    '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>',
+    () => L.gtDrop());   // (closed however: the run let go)
   const q = s => box.querySelector(s);
   q('#svName').value = `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`;
   q('#svSet').checked = o.settings && !!PLAY.settings;
@@ -818,6 +881,16 @@ async function openSave() {
   const sync = () => { if (q('#svDyes')) { q('#svDyesRow').style.opacity = q('#svGt').checked ? '' : '.5'; q('#svDyes').disabled = !q('#svGt').checked; } };
   q('#svGt').addEventListener('change', sync);
   sync();
+  // The ground truth's run starts while the box is open (Save takes it if the options still fit: L.gtWarm), and again
+  // when a change needs another one (a lower threshold, the dye list on); unticked, none.
+  const minOf = id => (q(id) ? Math.max(0, +q(id).value || 0) : o[id === '#svMin1' ? 'min1' : 'min2']);
+  const warm = () => {
+    if (!q('#svGt').checked || !PLAY.settings) return;
+    const min = [minOf('#svMin1'), minOf('#svMin2')], dyeCsv = kind === 'wf' && (q('#svDyes') ? q('#svDyes').checked : o.dyes);
+    L.gtWarm(playSettingsText(), Math.min(...min), dyeCsv, { min, vol: GT_VOL, dyeCsv });
+  };
+  for (const id of ['#svGt', '#svMin1', '#svMin2', '#svDyes']) if (q(id)) q(id).addEventListener('change', warm);
+  warm();
   q('#svCancel').onclick = () => D.closeDialog();
   q('#svGo').onclick = async () => {
     // the box shows the thresholds or the dye list, never both: the hidden one keeps its stored value
@@ -853,7 +926,7 @@ async function saveRecording(c, name, say = () => {}) {
     showInfo();
     return;
   }
-  const settingsText = JSON.stringify(PLAY.settings, null, 1);
+  const settingsText = playSettingsText();
   const entries = [{ name: 'movie.tif', data: new Uint8Array(await tif.arrayBuffer()) }];
   if (c.settings) entries.push({ name: 'settings.isc.json', data: settingsText });
   if (c.gt) {
@@ -871,7 +944,7 @@ async function saveRecording(c, name, say = () => {}) {
     const tick = setInterval(show, 500);
     let files;
     try {
-      files = await L.groundTruth({ text: settingsText, min: [c.min1, c.min2], vol: [10, 10], dyeCsv: !!c.dyes },
+      files = await L.groundTruth({ text: settingsText, min: [c.min1, c.min2], vol: GT_VOL, dyeCsv: !!c.dyes },
         (f, stage, info) => { Object.assign(P, { f, stage: stage || 'frames', info }); show(); });
     } finally { clearInterval(tick); }
     for (const [n, b] of files) entries.push({ name: 'gt/' + n, data: b });
@@ -883,7 +956,11 @@ async function saveRecording(c, name, say = () => {}) {
   } else say('Packing ...');
   // the napari opener at the zip's root as __main__.py: python <name>.zip runs it (web/open_in_napari.py)
   let napari = false;
-  try { const r = await fetch('open_in_napari.py'); if (r.ok) { entries.push({ name: '__main__.py', data: await r.text() }); napari = true; } } catch (e) { /* offline: without it */ }
+  // and as open_in_napari.py: unpacked (or beside the zip), dropped on napari's window, it opens the recording there
+  try {
+    const r = await fetch('open_in_napari.py');
+    if (r.ok) { const py = await r.text(); entries.push({ name: '__main__.py', data: py }, { name: 'open_in_napari.py', data: py }); napari = true; }
+  } catch (e) { /* offline: without it */ }
   const vox = entries.some(e => e.name === 'gt/voxelize.html');
   entries.push({ name: 'README.txt', data: `inSiliScope recording ${name}, saved ${new Date().toISOString()} (viewer ${self.ISC_VERSION || ''}).\n` +
     `movie.tif: the ${PLAY.n} frames of ${PLAY.w} x ${PLAY.h} px, 16-bit, ImageJ (pixel size ${PLAY.pxUm} um, frame interval ${PLAY.exp} s).\n` +
@@ -894,8 +971,10 @@ async function saveRecording(c, name, say = () => {}) {
       '  https://kjamartens.github.io/inSiliScope/docs/ground-truth/ explains the columns.\n' : '') +
     (vox ? 'gt/voxelize.html: open it in a browser (offline) and drop gt/dyes.csv on it for a density stack at any voxel size,\n' +
       '  or a channel per target.\n' : '') +
-    (napari ? `__main__.py: opens this recording in napari, every part in world coordinates (the movie, the density stacks,\n` +
-      `  the localizations per frame):  python ${name}.zip   (needs: pip install "napari[all]" tifffile)\n` : '') });
+    (napari ? `open_in_napari.py (and __main__.py, the same): opens this recording in napari, every part in world\n` +
+      `  coordinates (the movie, the density stacks, the localizations per frame). Either drop open_in_napari.py on\n` +
+      `  napari's window (unpacked, or the file beside this zip: it opens the newest recording zip next to it), or run\n` +
+      `  python ${name}.zip   (needs: pip install "napari[all]" tifffile)\n` : '') });
   const blob = await self.iscZip.zip(entries);
   download(blob, name + '.zip');
   self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)

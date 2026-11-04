@@ -93,8 +93,11 @@ def main(path):
         check(abs(x0 + (W / 2) * px - sx) < 1e-9 and abs(y0 + (H / 2) * px - sy) < 1e-9 and abs(z0 - float(f0['focus_world_um'])) < 1e-9,
               f'movie at the stage ({sx}, {sy}) um, the focus {z0} um, {px * 1000:.2f} nm pixels')
     tables = sorted((n for n in names if n.startswith('gt/localizations_min')), key=lambda n: float(n[20:-4]))
-    if tables:
-        rows = list(csv.DictReader(io.TextIOWrapper(zf.open(tables[0]))))
+    rows = list(csv.DictReader(io.TextIOWrapper(zf.open(tables[0])))) if tables else []
+    if tables and not rows:
+        check(not any(str(l.kw.get('name', '')).startswith('localizations') for l in v.layers),
+              f'{tables[0]} holds no rows: no localizations layer')
+    if rows:
         loc = next((l for l in v.layers if str(l.kw.get('name', '')).startswith('localizations (')), None)
         check(loc is not None and loc.data.shape == (len(rows), 4) and
               np.array_equal(loc.data[:, 0], [float(r['frame']) for r in rows]) and
@@ -118,10 +121,12 @@ def main(path):
         a, b = ratio(False), ratio(True)
         check(a > b, f'localizations on the movie: {a:.2f}x the frame median under them, {b:.2f}x flipped in y')
     grids = set()
-    for n in (n for n in names if n.startswith('gt/density_')):
+    for n in (n for n in names if n.startswith('gt/gt_volume_')):
         with tifffile.TiffFile(io.BytesIO(zf.read(n))) as tf:
             d = dict(l.split('=', 1) for l in tf.pages[0].description.splitlines() if '=' in l)
             shape = tf.series[0].shape
+        if len(shape) == 2:   # one z plane: a stack of one in napari
+            shape = (1,) + tuple(shape)
         lay = next((l for l in v.layers if str(l.kw.get('name', '')).startswith('density ' + d['insiliscope.target'])), None)
         vx, vy, vz = (float(x) for x in d['insiliscope.voxel-um'].split(','))
         ox, oy, oz = (float(x) for x in d['insiliscope.origin-um'].split(','))
@@ -132,6 +137,44 @@ def main(path):
                    tuple(np.round(lay.kw['translate'], 9)) if lay else None))
     if grids:
         check(len(grids) == 1, f'the density stacks overlap: {len(grids)} grid(s) among them')
+    # Dropped on napari's window (napari_builtins' .py reader, napari.utils.io.execute_python_code): exec with __name__
+    # __main__ and __file__ the script, napari's own command line, napari.Viewer() = the open viewer, napari.run() a
+    # no-op, a SystemExit an error notification. Unpacked: its folder; beside the zip: the newest recording zip there.
+    want = [(l.kind, l.kw.get('name'), tuple(np.shape(l.data))) for l in v.layers]
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        unpacked, beside = os.path.join(tmp, 'unpacked'), os.path.join(tmp, 'downloads')
+        zf.extractall(unpacked)
+        os.makedirs(beside)
+        with open(path, 'rb') as f, open(os.path.join(beside, 'rec.zip'), 'wb') as g:
+            g.write(f.read())
+        with open(os.path.join(beside, 'other.zip'), 'wb') as g:   # (a zip that is no recording: passed over)
+            with zipfile.ZipFile(g, 'w') as z:
+                z.writestr('a.txt', 'a')
+        os.utime(os.path.join(beside, 'other.zip'))
+        check(zf.read('open_in_napari.py') == zf.read('__main__.py'), 'open_in_napari.py in the zip = its __main__.py')
+        for where, script in (('unpacked', os.path.join(unpacked, 'open_in_napari.py')),
+                              ('beside the zip', os.path.join(beside, 'open_in_napari.py'))):
+            if where == 'beside the zip':
+                with open(script, 'wb') as g:
+                    g.write(zf.read('open_in_napari.py'))
+            open_one = Viewer('napari')
+            napari.current_viewer = lambda: open_one
+            napari.Viewer = lambda *a, **k: open_one
+            argv = sys.argv
+            sys.argv = ['napari']
+            exited = None
+            try:
+                with open(script, encoding='utf-8') as f:
+                    exec(compile(f.read(), script, 'exec'), {'__name__': '__main__', '__file__': script})
+            except SystemExit as e:
+                exited = e.code
+            finally:
+                sys.argv = argv
+                del napari.current_viewer
+            got = [(l.kind, l.kw.get('name'), tuple(np.shape(l.data))) for l in open_one.layers]
+            check(exited is None and got == want, f'dropped on napari ({where}): the same {len(got)} layers in the open '
+                  f'viewer, no exit' + ('' if exited is None else f' (exited {exited})'))
     print('napari opener: ' + ('PASS' if not FAILS else f'FAILED ({len(FAILS)})'))
     return 1 if FAILS else 0
 
