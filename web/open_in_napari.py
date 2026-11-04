@@ -307,6 +307,7 @@ def edit_whole(layer):
 
 def show(paths):
     import napari
+    import numpy as np
     viewer = napari.Viewer(title='inSiliScope: ' + ', '.join(os.path.basename(p.rstrip('/\\')) for p in paths))
     focus = None
     for p in paths:

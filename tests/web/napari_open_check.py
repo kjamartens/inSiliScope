@@ -88,20 +88,29 @@ def main(path):
     frames = list(csv.DictReader(io.TextIOWrapper(zf.open('gt/frames.csv')))) if 'gt/frames.csv' in names else []
     movie = tifffile.imread(io.BytesIO(zf.read('movie.tif')))
     mv = byname.get('movie')
-    check(mv is not None and mv.data.shape == (movie.shape[0], 1) + movie.shape[1:] and np.array_equal(mv.data[:, 0], movie),
-          f'movie: its {movie.shape[0]} frames of {movie.shape[2]} x {movie.shape[1]} px, frame by frame')
-    check(v.dims.axis_labels == ('frame', 'z (µm)', 'y (µm)', 'x (µm)'), f'axes named {v.dims.axis_labels}')
+    # no density stacks: nothing to slice in z, the recording opens as (frame, y, x); else (frame, z, y, x)
+    flat = not any(n.startswith('gt/gt_volume_') for n in names)
+    mframes = (mv.data if flat else mv.data[:, 0]) if mv is not None else None
+    check(mv is not None and mv.data.shape == ((movie.shape[0],) if flat else (movie.shape[0], 1)) + movie.shape[1:] and
+          np.array_equal(mframes, movie),
+          f'movie: its {movie.shape[0]} frames of {movie.shape[2]} x {movie.shape[1]} px, frame by frame' +
+          (' (frame, y, x: no z)' if flat else ''))
+    want_axes = ('frame', 'y (µm)', 'x (µm)') if flat else ('frame', 'z (µm)', 'y (µm)', 'x (µm)')
+    check(v.dims.axis_labels == want_axes, f'axes named {v.dims.axis_labels}')
+    check(not flat or v.dims.point == {}, 'no z slider set where there is no z')
     # the viewer's thick z slice is for the points (every frame's at any z in 2D); an image shows the plane at the z
     # slider (napari 0.10's add_image defaults to 'mean': a density stack averaged over every z)
     check(all(l.kw.get('projection_mode') == ('none' if l.kind == 'image' else 'all') for l in v.layers),
           'projection modes: images none (a stack slice by slice), points all')
     if frames:
         f0 = frames[0]
-        sx, sy, px = float(f0['stage_x_um']), float(f0['stage_y_um']), mv.kw['scale'][2]
-        _, z0, y0, x0 = mv.kw['translate']
+        sx, sy, px = float(f0['stage_x_um']), float(f0['stage_y_um']), mv.kw['scale'][-1]
+        y0, x0 = mv.kw['translate'][-2:]
+        z0 = None if flat else mv.kw['translate'][1]
         W, H = movie.shape[2], movie.shape[1]
-        check(abs(x0 + (W / 2) * px - sx) < 1e-9 and abs(y0 + (H / 2) * px - sy) < 1e-9 and abs(z0 - float(f0['focus_world_um'])) < 1e-9,
-              f'movie at the stage ({sx}, {sy}) um, the focus {z0} um, {px * 1000:.2f} nm pixels')
+        check(abs(x0 + (W / 2) * px - sx) < 1e-9 and abs(y0 + (H / 2) * px - sy) < 1e-9 and
+              (flat or abs(z0 - float(f0['focus_world_um'])) < 1e-9),
+              f'movie at the stage ({sx}, {sy}) um' + ('' if flat else f', the focus {z0} um') + f', {px * 1000:.2f} nm pixels')
     tables = [n for n in names if n == 'gt/localizations.csv']
     rows = list(csv.DictReader(io.TextIOWrapper(zf.open(tables[0])))) if tables else []
     if tables and not rows:
@@ -116,15 +125,16 @@ def main(path):
             mine = [r for r in rows if (r['target'] or r['kind']) == n]
             allf = byname.get(f'localizations {n}, all frames')
             w = np.asarray(l.data) * l.kw.get('scale', 1)   # world: frame, um
-            good = good and l.data.shape == (len(mine), 4) and np.array_equal(l.data[:, 0], [float(r['frame']) for r in mine]) \
-                and np.allclose(w[:, 3], [float(r['x_world_um']) for r in mine]) \
+            good = good and l.data.shape == (len(mine), 3 if flat else 4) and np.array_equal(l.data[:, 0], [float(r['frame']) for r in mine]) \
+                and np.allclose(w[:, -1], [float(r['x_world_um']) for r in mine]) \
+                and np.allclose(l.kw['features']['z_um'], [float(r['z_world_um']) for r in mine]) \
                 and allf is not None and allf.kw.get('visible') is False and np.array_equal(allf.data, l.data[:, 1:])
         n_loc = sum(1 for l in v.layers if str(l.kw.get('name', '')).startswith('localizations '))
         check(good and n_loc == 2 * len(labels),
               f'localizations: a layer per label ({", ".join(labels)}; each one colour, and its frames at once, hidden): '
-              f'the {len(rows)} rows of {tables[0]}, at their frames, world x, y, z')
+              f'the {len(rows)} rows of {tables[0]}, at their frames, world x, y' + (', z a feature' if flat else ', z'))
         # the movie under them: brighter where they are than where they would be flipped in y
-        m = mv.data[:, 0].astype(float)
+        m = mframes.astype(float)
         locs = np.concatenate([np.asarray(l.data) * l.kw.get('scale', 1) for l in per.values() if l is not None])
         photons = np.concatenate([l.kw['features']['photons'] for l in per.values() if l is not None])
         top = np.argsort(-photons)[:200]
@@ -132,7 +142,7 @@ def main(path):
         def ratio(flip):
             r = []
             for k in top:
-                t, z, y, x = locs[k]
+                t, y, x = locs[k][0], locs[k][-2], locs[k][-1]
                 i, j = int(round((y - y0) / px)), int(round((x - x0) / px))
                 if flip:
                     i = H - 1 - i
