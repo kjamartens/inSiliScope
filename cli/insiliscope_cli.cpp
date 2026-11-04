@@ -83,6 +83,8 @@ void Usage()
                "                         (blinks and beads drawn, N photons on the camera or more), dyes.csv (continuous\n"
                "                         dyes), fiducials.csv; the frames are the same as without\n"
                "  --gt-min a,b           the localization tables' thresholds (5,300)\n"
+               "  --gt-volume xy,z       the continuous dyes' density volumes' voxel (nm; 50,25; 0 = none): emitted photons\n"
+               "                         per voxel, float32 ImageJ stacks, at most 256 MB in all (coarser above); README.txt\n"
                "\n"
                "  --serve                one command per stdin line (its arguments separated by tabs), each\n"
                "                         answered as a separate run would be, then a line '@@isc-done <exit code>';\n"
@@ -111,7 +113,7 @@ int RunCli(int argc, char** argv)
    double densityZ[3] = { 0, 4, 8 }, densityUp = 1;
    bool haveDyesRect = false;
    std::string historyBefore, gtOut;
-   double gtMin[2] = { 5, 300 };
+   double gtMin[2] = { 5, 300 }, gtVol[2] = { 50, 25 };
    sim::ScopeSpec spec;
    settings::Loaded loaded;   // --settings: the files' light history
    for (int i = 1; i < argc; i++) {
@@ -124,6 +126,10 @@ int RunCli(int argc, char** argv)
       if (a == "--geometry-detail" && i + 1 < argc) { geometryDetail = std::atof(argv[++i]) != 0; continue; }
       if (a == "--history-before" && i + 1 < argc) { historyBefore = argv[++i]; continue; }
       if (a == "--gt-out" && i + 1 < argc) { gtOut = argv[++i]; continue; }
+      if (a == "--gt-volume" && i + 1 < argc) {
+         if (!ParseList(argv[++i], gtVol, 2)) { std::fprintf(stderr, "--gt-volume needs 2 comma-separated numbers\n"); return 2; }
+         continue;
+      }
       if (a == "--gt-min" && i + 1 < argc) {
          if (!ParseList(argv[++i], gtMin, 2)) { std::fprintf(stderr, "--gt-min needs 2 comma-separated numbers\n"); return 2; }
          continue;
@@ -296,7 +302,7 @@ int RunCli(int argc, char** argv)
    const auto writeGt = [&]() {
       if (gtOut.empty()) return true;
       const auto tg = std::chrono::steady_clock::now();
-      for (const auto& file : gt.Files({ gtMin[0], gtMin[1] })) {
+      for (const auto& file : gt.Files({ gtMin[0], gtMin[1] }, gtVol[0], gtVol[1])) {
          const std::string path = gtOut + "/" + file.first;
          FILE* f = std::fopen(path.c_str(), "wb");
          const bool wrote = f && std::fwrite(file.second.data(), 1, file.second.size(), f) == file.second.size();

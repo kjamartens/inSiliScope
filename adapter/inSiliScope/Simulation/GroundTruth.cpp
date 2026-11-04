@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <limits>
 
 namespace sim {
@@ -336,10 +338,228 @@ std::string GroundTruth::DyesCsv() const
    return out;
 }
 
-std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::vector<double>& thresholds) const
+namespace {
+
+void Put16(std::string& s, uint32_t v)
+{
+   s.push_back(static_cast<char>(v & 255));
+   s.push_back(static_cast<char>((v >> 8) & 255));
+}
+void Put32(std::string& s, uint32_t v)
+{
+   Put16(s, v & 0xFFFF);
+   Put16(s, v >> 16);
+}
+
+// A float32 ImageJ stack (classic little-endian TIFF): the description, one rational (pixels per micron, X and Y),
+// the planes back to back, then an IFD per plane (the description in the first).
+std::string FloatTiff(const std::vector<float>& v, uint32_t nx, uint32_t ny, uint32_t nz, double pixelsPerUm,
+                      const std::string& description)
+{
+   std::string s = "II";
+   Put16(s, 42);
+   Put32(s, 0);   // the first IFD's offset, below
+   const uint32_t descAt = static_cast<uint32_t>(s.size());
+   s += description;
+   s.push_back('\0');
+   if (s.size() & 1)
+      s.push_back('\0');
+   const uint32_t ratAt = static_cast<uint32_t>(s.size());
+   const double den = 1000.0;
+   Put32(s, static_cast<uint32_t>(std::lround(pixelsPerUm * den)));
+   Put32(s, static_cast<uint32_t>(den));
+   const uint32_t dataAt = static_cast<uint32_t>(s.size());
+   const uint32_t plane = nx * ny * 4u;
+   const size_t start = s.size();
+   s.resize(start + v.size() * 4);
+   for (size_t i = 0; i < v.size(); ++i)
+   {
+      uint32_t u;
+      std::memcpy(&u, &v[i], 4);
+      s[start + 4 * i] = static_cast<char>(u & 255);
+      s[start + 4 * i + 1] = static_cast<char>((u >> 8) & 255);
+      s[start + 4 * i + 2] = static_cast<char>((u >> 16) & 255);
+      s[start + 4 * i + 3] = static_cast<char>(u >> 24);
+   }
+   if (s.size() & 1)
+      s.push_back('\0');
+   const uint32_t first = static_cast<uint32_t>(s.size());
+   s[4] = static_cast<char>(first & 255);
+   s[5] = static_cast<char>((first >> 8) & 255);
+   s[6] = static_cast<char>((first >> 16) & 255);
+   s[7] = static_cast<char>(first >> 24);
+   const uint32_t descLen = static_cast<uint32_t>(description.size() + 1);
+   for (uint32_t k = 0; k < nz; ++k)
+   {
+      const bool desc = k == 0;
+      const uint16_t n = desc ? 15 : 14;
+      Put16(s, n);
+      const auto entry = [&](uint16_t tag, uint16_t type, uint32_t count, uint32_t value) {
+         Put16(s, tag);
+         Put16(s, type);
+         Put32(s, count);
+         Put32(s, value);
+      };
+      entry(254, 4, 1, 0);
+      entry(256, 4, 1, nx);
+      entry(257, 4, 1, ny);
+      entry(258, 3, 1, 32);
+      entry(259, 3, 1, 1);
+      entry(262, 3, 1, 1);
+      if (desc)
+         entry(270, 2, descLen, descAt);
+      entry(273, 4, 1, dataAt + k * plane);
+      entry(277, 3, 1, 1);
+      entry(278, 4, 1, ny);
+      entry(279, 4, 1, plane);
+      entry(282, 5, 1, ratAt);
+      entry(283, 5, 1, ratAt);
+      entry(296, 3, 1, 1);
+      entry(339, 3, 1, 3);
+      Put32(s, 0);
+      if (k + 1 < nz)
+      {
+         // the next IFD follows at once
+         const uint32_t next = static_cast<uint32_t>(s.size());
+         s[s.size() - 4] = static_cast<char>(next & 255);
+         s[s.size() - 3] = static_cast<char>((next >> 8) & 255);
+         s[s.size() - 2] = static_cast<char>((next >> 16) & 255);
+         s[s.size() - 1] = static_cast<char>(next >> 24);
+      }
+   }
+   return s;
+}
+
+std::string SafeName(const std::string& s)
+{
+   std::string o;
+   for (char c : s)
+      o += std::isalnum(static_cast<unsigned char>(c)) ? c : '_';
+   return o.empty() ? std::string("dyes") : o;
+}
+
+} // namespace
+
+std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double axialNm, double capBytes,
+                                                      std::string* note) const
+{
+   std::vector<Volume> out;
+   if (!(lateralNm > 0) || !(axialNm > 0) || dyes_.empty())
+      return out;
+   // The groups: (label, state), each its dyes' box.
+   struct Group
+   {
+      int label, state;
+      double x0, y0, z0, x1, y1, z1;
+      std::vector<size_t> dyes;
+   };
+   std::vector<Group> groups;
+   for (size_t i = 0; i < dyes_.size(); ++i)
+   {
+      const Dye& d = dyes_[i];
+      if (!(d.emittedTotal > 0))
+         continue;
+      Group* g = nullptr;
+      for (Group& o : groups)
+         if (o.label == d.label && o.state == d.state)
+            g = &o;
+      if (!g)
+      {
+         groups.push_back({ d.label, d.state, d.xUm, d.yUm, d.zUm, d.xUm, d.yUm, d.zUm, {} });
+         g = &groups.back();
+      }
+      g->x0 = std::min(g->x0, d.xUm); g->x1 = std::max(g->x1, d.xUm);
+      g->y0 = std::min(g->y0, d.yUm); g->y1 = std::max(g->y1, d.yUm);
+      g->z0 = std::min(g->z0, d.zUm); g->z1 = std::max(g->z1, d.zUm);
+      g->dyes.push_back(i);
+   }
+   // The voxel size: the asked one, grown by whole factors until every volume fits the cap.
+   const auto sizeAt = [&](double f, size_t gi, uint32_t* n) {
+      const Group& g = groups[gi];
+      const double p = lateralNm * f / 1000.0, q = axialNm * f / 1000.0;
+      const double nx = std::floor(g.x1 / p) - std::floor(g.x0 / p) + 1, ny = std::floor(g.y1 / p) - std::floor(g.y0 / p) + 1,
+                   nz = std::floor(g.z1 / q) - std::floor(g.z0 / q) + 1;
+      if (n) { n[0] = static_cast<uint32_t>(nx); n[1] = static_cast<uint32_t>(ny); n[2] = static_cast<uint32_t>(nz); }
+      return nx * ny * nz * 4.0;
+   };
+   double f = 1;
+   for (;; f += 1)
+   {
+      double total = 0;
+      for (size_t gi = 0; gi < groups.size(); ++gi)
+         total += sizeAt(f, gi, nullptr);
+      if (total <= capBytes || f >= 1000)
+         break;
+   }
+   if (note && f > 1)
+   {
+      char b[200];
+      std::snprintf(b, sizeof b, "The volumes' voxels are %g x %g x %g nm, %g times the %g x %g x %g nm asked, to stay under %.0f MB.",
+                    lateralNm * f, lateralNm * f, axialNm * f, f, lateralNm, lateralNm, axialNm, capBytes / 1048576.0);
+      *note = b;
+   }
+   const double p = lateralNm * f / 1000.0, q = axialNm * f / 1000.0;
+   for (size_t gi = 0; gi < groups.size(); ++gi)
+   {
+      const Group& g = groups[gi];
+      uint32_t n[3];
+      sizeAt(f, gi, n);
+      const double ox = std::floor(g.x0 / p) * p, oy = std::floor(g.y0 / p) * p, oz = std::floor(g.z0 / q) * q;
+      std::vector<float> v(static_cast<size_t>(n[0]) * n[1] * n[2], 0.0f);
+      double sum = 0;
+      for (size_t i : g.dyes)
+      {
+         const Dye& d = dyes_[i];
+         const long ix = std::min<long>(n[0] - 1, std::max<long>(0, static_cast<long>(std::floor(d.xUm / p) - std::floor(g.x0 / p))));
+         const long iy = std::min<long>(n[1] - 1, std::max<long>(0, static_cast<long>(std::floor(d.yUm / p) - std::floor(g.y0 / p))));
+         const long iz = std::min<long>(n[2] - 1, std::max<long>(0, static_cast<long>(std::floor(d.zUm / q) - std::floor(g.z0 / q))));
+         v[(static_cast<size_t>(iz) * n[1] + static_cast<size_t>(iy)) * n[0] + static_cast<size_t>(ix)] += static_cast<float>(d.emittedTotal);
+         sum += d.emittedTotal;
+      }
+      float mx = 0;
+      for (float x : v)
+         mx = std::max(mx, x);
+      const Label* L = g.label >= 0 && g.label < static_cast<int>(labels.size()) ? &labels[static_cast<size_t>(g.label)] : nullptr;
+      std::string name = "density_" + SafeName(L ? L->target : std::string());
+      if (g.state != 3)
+         name += std::string("_") + StateName(g.state);
+      name += ".tif";
+      char d[600];
+      std::snprintf(d, sizeof d,
+                    "ImageJ=1.11a\nimages=%u\nslices=%u\nunit=micron\nspacing=%.9g\nloop=false\nmin=0\nmax=%.9g\n"
+                    "insiliscope.value=emitted photons per voxel over the recorded frames\n"
+                    "insiliscope.target=%s\ninsiliscope.dye=%s\ninsiliscope.state=%s\n"
+                    "insiliscope.origin-um=%.6f,%.6f,%.6f\ninsiliscope.voxel-um=%.9g,%.9g,%.9g\n",
+                    n[2], n[2], q, static_cast<double>(mx), L ? L->target.c_str() : "", L ? L->dye.c_str() : "",
+                    StateName(g.state), ox, oy, oz, p, p, q);
+      Volume vol;
+      vol.name = name;
+      vol.bytes = FloatTiff(v, n[0], n[1], n[2], 1.0 / p, d);
+      char line[600];
+      std::snprintf(line, sizeof line,
+                    "%s: %s (%s, %s), %u x %u x %u voxels of %g x %g x %g nm; the emitted photons of its dyes over the "
+                    "recorded frames per voxel (%.6g in all, %zu dyes). Voxel (0, 0, 0)'s corner is at world (%.4f, "
+                    "%.4f, %.4f) um, so voxel (i, j, k)'s centre at origin + ((i, j, k) + 0.5) x voxel; Fiji and "
+                    "napari read the voxel size, not the origin.",
+                    name.c_str(), L ? L->target.c_str() : "?", L ? L->dye.c_str() : "?", StateName(g.state), n[0], n[1],
+                    n[2], p * 1000, p * 1000, q * 1000, sum, g.dyes.size(), ox, oy, oz);
+      vol.line = line;
+      out.push_back(std::move(vol));
+   }
+   return out;
+}
+
+std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::vector<double>& thresholds,
+                                                                    double volumeLateralNm, double volumeAxialNm,
+                                                                    double volumeCapBytes) const
 {
    std::vector<std::pair<std::string, std::string>> out;
+   std::string readme =
+      "inSiliScope ground truth. The columns, units and caveats: https://kjamartens.github.io/inSiliScope/docs/ground-truth/\n"
+      "Photons are expected values (before shot noise); world coordinates are um, z above the coverslip; camera x, y\n"
+      "are nm from the image's top-left corner, drift included; z [nm] is the height above the focal plane.\n\n";
    out.emplace_back("frames.csv", FramesCsv());
+   readme += "frames.csv: one row per image: its time, stage position, focus, drift (and pattern state under SIM).\n";
    bool beads = false;
    for (const Emitter& e : emitters)
       beads = beads || e.kind == Fiducial;
@@ -350,11 +570,33 @@ std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::v
          char name[64];
          std::snprintf(name, sizeof name, "localizations_min%g.csv", t);
          out.emplace_back(name, EmittersCsv(t, true));
+         readme += std::string(name) + ": every blink drawn" + (beads ? " and every bead (kind fiducial)" : "") +
+                   " with at least " + std::to_string(static_cast<long>(t)) +
+                   " expected photons landing on the camera in a frame, one row per frame. A blink the Quality's\n"
+                   "  blink-min-photons cut left out of the image is not in it either.\n";
       }
    else if (beads)
+   {
       out.emplace_back("fiducials.csv", FiducialsCsv());
+      readme += "fiducials.csv: every bead per frame (no blinking label in this movie).\n";
+   }
    if (!dyes_.empty())
+   {
       out.emplace_back("dyes.csv", DyesCsv());
+      readme += "dyes.csv: every continuously emitting dye (WideField, dSTORM's initial ON, PALM's pre state) in the\n"
+                "  queried box: its window, its detected rate now and its photons over the recorded frames.\n";
+      std::string note;
+      for (Volume& v : Volumes(volumeLateralNm, volumeAxialNm, volumeCapBytes, &note))
+      {
+         readme += v.line + "\n";
+         out.emplace_back(v.name, std::move(v.bytes));
+      }
+      if (!note.empty())
+         readme += note + "\n";
+   }
+   readme += "\nThe orientation columns give each dye's mean emission dipole (polar angle from z, azimuth from x);\n"
+             "the image does not use it yet (the PSF is isotropic). Empty: a freely rotating dye.\n";
+   out.emplace_back("README.txt", readme);
    return out;
 }
 

@@ -130,10 +130,22 @@ public:
    std::string EmittersCsv(double minOnCamera, bool fiducials) const;
    std::string FiducialsCsv() const;
    std::string DyesCsv() const;
-   // The tables as files (name, text): frames.csv; with a blinking label or beads among them, a
-   // localizations_min<N>.csv per threshold N (photons on the camera); dyes.csv with continuous dyes; fiducials.csv
-   // for beads in a movie without a blinking label.
-   std::vector<std::pair<std::string, std::string>> Files(const std::vector<double>& thresholds) const;
+   // The continuous dyes as density volumes: per target and state, the emitted photons over the recorded frames
+   // (photons_emitted_total) summed per voxel of lateralNm x lateralNm x axialNm over the box of its dyes, as a
+   // float32 ImageJ TIFF stack (the voxel size in X/YResolution and the description's spacing, unit micron; the world
+   // position of voxel (0, 0, 0)'s corner as insiliscope.origin-um). Above capBytes in all, the voxels grow by whole
+   // factors (note says so). Name, file bytes, and per volume a line for the README.
+   struct Volume
+   {
+      std::string name, bytes, line;
+   };
+   std::vector<Volume> Volumes(double lateralNm, double axialNm, double capBytes, std::string* note) const;
+   // Every file (name, contents): frames.csv; with a blinking label, a localizations_min<N>.csv per threshold N
+   // (photons on the camera; the beads in them too); else fiducials.csv for beads; dyes.csv and the volumes
+   // (volumeLateralNm 0: none) with continuous dyes; README.txt describing them.
+   std::vector<std::pair<std::string, std::string>> Files(const std::vector<double>& thresholds,
+                                                          double volumeLateralNm = 50, double volumeAxialNm = 25,
+                                                          double volumeCapBytes = 256.0 * 1024 * 1024) const;
 
 private:
    std::vector<Dye> dyes_;
