@@ -8,6 +8,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Voxelize ground truth</title>
+<link rel="icon" type="image/png" sizes="32x32" href="https://kjamartens.github.io/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="https://kjamartens.github.io/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="https://kjamartens.github.io/apple-touch-icon.png">
 <style>
   :root { --bg: #f7f8fa; --panel: #fff; --text: #1d232b; --muted: #5f6b7a; --border: #d5dbe3; --accent: #2f6fd6; --warn: #a8650b; }
   @media (prefers-color-scheme: dark) {
@@ -384,7 +387,10 @@ function tiffLayout(sizes, nx, ny, bits, pxPerUm, desc, labels, zip) {
   }
   const head = new Uint8Array(at), hv = new DataView(head.buffer);
   for (const [o, b] of parts) head.set(b, o);
-  const offs = sizes.map(s => { const o = at; at = even(at + s); return o; });
+  // the planes back to back, never padded: ImageJ reads an uncompressed stack as one block from the first plane's
+  // offset (opened whole, as a virtual stack, from a .zip), so a pad byte after an odd-sized plane (an 8-bit plane
+  // of 331 x 331) shifted every later plane one pixel further along x
+  const offs = sizes.map(s => { const o = at; at += s; return o; });
   const first = at, nTags = k => 14 + (k === 0 ? 1 + (labels.length ? 2 : 0) : 0);
   let ifdBytes = 0;
   for (let k = 0; k < sizes.length; k++) ifdBytes += 2 + 12 * nTags(k) + 4;

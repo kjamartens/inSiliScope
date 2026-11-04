@@ -191,6 +191,25 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     let vsum = 0;
     for (const p of p32) { const f = new Float32Array(b32.buffer.slice(b32.byteOffset + p.data, b32.byteOffset + p.data + 4 * p.w * p.h)); for (const x of f) vsum += x; }
     const inAll = +(/([\d.e+]+) in all/.exec(await vp.evaluate(() => document.getElementById('out').textContent)) || [])[1];
+    // an uncompressed stack's planes back to back (ImageJ reads them as one block): an odd-sized 8-bit plane too
+    const oddAt = await vp.evaluate(() => {   // a voxel size whose plane is odd: width and height both odd
+      document.getElementById('bits').value = '8';
+      const v = document.getElementById('vxy');
+      for (let nm = 21; nm < 200; nm++) {
+        v.value = nm; v.dispatchEvent(new Event('input'));
+        const m = /→ (\d+) × (\d+) ×/.exec(document.getElementById('info').textContent);
+        if (m && (+m[1] * +m[2]) % 2 === 1) return nm;
+      }
+      return 0;
+    });
+    const [dlOdd] = await Promise.all([vp.waitForEvent('download', { timeout: 20000 }), vp.click('#go')]);
+    const pOdd = readTiff(fs.readFileSync(await dlOdd.path())), sz = pOdd.length ? pOdd[0].w * pOdd[0].h : 0;
+    check(sz % 2 === 1 && pOdd.every((p, k) => k === 0 || p.data === pOdd[k - 1].data + sz),
+      `voxelize.html, uncompressed 8-bit ${pOdd[0] && pOdd[0].w}×${pOdd[0] && pOdd[0].h} (odd, ${oddAt} nm voxels): ${pOdd.length} planes back to back`);
+    await vp.evaluate(() => {
+      document.getElementById('bits').value = '32'; const v = document.getElementById('vxy'); v.value = 20;
+      v.dispatchEvent(new Event('input'));
+    });
     check(p32.length > 0 && p32[0].bits === 32 && p32[0].comp === 1 && Math.abs(vsum - inAll) <= 1e-5 * inAll,
       `voxelize.html, 32-bit uncompressed: the voxels sum to ${vsum.toPrecision(7)}, the rows ${inAll}`);
     // the other file: a .zip holding that uncompressed TIFF, slice labels and all
