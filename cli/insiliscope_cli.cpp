@@ -83,8 +83,9 @@ void Usage()
                "                         (blinks and beads drawn, N photons on the camera or more), dyes.csv (continuous\n"
                "                         dyes), fiducials.csv; the frames are the same as without\n"
                "  --gt-min a,b           the localization tables' thresholds (5,300)\n"
-               "  --gt-volume xy,z       the continuous dyes' density volumes' voxel (nm; 50,25; 0 = none): emitted photons\n"
-               "                         per voxel, float32 ImageJ stacks, at most 256 MB in all (coarser above); README.txt\n"
+               "  --gt-volume xy,z       the continuous dyes' density stacks' voxel (nm; 10,10; 0 = none): detected photons\n"
+               "                         per voxel, a stack per target on one grid, 8-bit ImageJ, at most 1 GB in all\n"
+               "                         uncompressed (coarser above); README.txt\n"
                "\n"
                "  --serve                one command per stdin line (its arguments separated by tabs), each\n"
                "                         answered as a separate run would be, then a line '@@isc-done <exit code>';\n"
@@ -113,7 +114,7 @@ int RunCli(int argc, char** argv)
    double densityZ[3] = { 0, 4, 8 }, densityUp = 1;
    bool haveDyesRect = false;
    std::string historyBefore, gtOut;
-   double gtMin[2] = { 5, 300 }, gtVol[2] = { 50, 25 };
+   double gtMin[2] = { 5, 300 }, gtVol[2] = { 10, 10 };
    sim::ScopeSpec spec;
    settings::Loaded loaded;   // --settings: the files' light history
    for (int i = 1; i < argc; i++) {

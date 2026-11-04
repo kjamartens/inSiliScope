@@ -136,11 +136,13 @@ public:
    std::string EmittersCsv(double minOnCamera, bool fiducials) const;
    std::string FiducialsCsv() const;
    std::string DyesCsv() const;
-   // The continuous dyes as density volumes: per target and state, the emitted photons over the recorded frames
-   // (photons_emitted_total) summed per voxel of lateralNm x lateralNm x axialNm over the box of its dyes, as a
-   // float32 ImageJ TIFF stack (the voxel size in X/YResolution and the description's spacing, unit micron; the world
-   // position of voxel (0, 0, 0)'s corner as insiliscope.origin-um). Above capBytes in all, the voxels grow by whole
-   // factors (note says so). Name, file bytes, and per volume a line for the README.
+   // The continuous dyes as density stacks (Voxelize.h, the converter page's code): per target and state, the
+   // detected photons over the recorded frames (photons_detected_total) summed per voxel of lateralNm x lateralNm x
+   // axialNm, every stack on one grid (the box of all their dyes: they overlap in Fiji and napari), 8 bits scaled to
+   // the stack's largest voxel (the scale in the description, Fiji's calibration), deflated planes, a label per slice
+   // (its z), an ImageJ TIFF (the voxel size in X/YResolution and the spacing, unit micron; the world position of
+   // voxel (0, 0, 0)'s corner as insiliscope.origin-um and ImageJ's origin). Above capBytes in all (uncompressed), the
+   // voxels grow (note says so). Name, file bytes, and per stack a line for the README.
    struct Volume
    {
       std::string name, bytes, line;
@@ -150,13 +152,13 @@ public:
    // (photons on the camera; the beads in them too); else fiducials.csv for beads; dyes.csv and the volumes
    // (volumeLateralNm 0: none) with continuous dyes; README.txt describing them.
    std::vector<std::pair<std::string, std::string>> Files(const std::vector<double>& thresholds,
-                                                          double volumeLateralNm = 50, double volumeAxialNm = 25,
-                                                          double volumeCapBytes = 256.0 * 1024 * 1024) const;
+                                                          double volumeLateralNm = 10, double volumeAxialNm = 10,
+                                                          double volumeCapBytes = 1024.0 * 1024 * 1024) const;
    // The same files handed to sink one at a time as each is made (a WideField ground truth's dyes.csv is ~150 bytes
    // a dye: the viewer packs each and lets it go, never holding every file and the packed copy at once).
    using FileSink = std::function<void(const std::string& name, std::string&& bytes)>;
-   void Files(const FileSink& sink, const std::vector<double>& thresholds, double volumeLateralNm = 50,
-              double volumeAxialNm = 25, double volumeCapBytes = 256.0 * 1024 * 1024) const;
+   void Files(const FileSink& sink, const std::vector<double>& thresholds, double volumeLateralNm = 10,
+              double volumeAxialNm = 10, double volumeCapBytes = 1024.0 * 1024 * 1024) const;
 
 private:
    std::vector<Dye> dyes_;

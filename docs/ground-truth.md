@@ -45,7 +45,7 @@ noisy count.
 | `gt/fiducials.csv` | beads, no blinking label | every bead per frame |
 | `gt/dyes.csv` | Dye list (no blinking label, WideField) | one row per dye |
 | `gt/voxelize.html` | Dye list | a converter from `dyes.csv` to a stack at any voxel size (below) |
-| `gt/density_<target>[_<state>].tif` | continuous dyes | a density stack per target: emitted photons per voxel |
+| `gt/density_<target>[_<state>].tif` | continuous dyes | a density stack per target, all on one grid: detected photons per voxel |
 | `gt/README.txt` | Ground truth | what is in `gt/` |
 | `README.txt` | any of the above | what is in the zip |
 | `__main__.py` | any of the above | opens the recording in napari: `python <name>.zip` ([below](#open-it-in-napari)) |
@@ -103,16 +103,25 @@ The density stacks come with either.
   when it bleaches or switches), its detected rate now (`photons_per_s`, 0 when no light reaches it) and its photons
   over the recorded frames (`photons_detected_total`, `photons_emitted_total`). A 128 px WideField recording lists
   0.8 to 4 million dyes (~120 to 600 MB), so the dye list is optional; the stacks stay.
-- `density_<target>.tif` sums `photons_emitted_total` per voxel (default 50 × 50 × 25 nm), over the box of that
-  target's dyes. The stack is 32-bit, which is what a reconstruction is scored against: the light each place gave,
-  not just whether a dye was there. Its planes are PackBits-compressed (mostly empty: ~25 times smaller).
+- `density_<target>.tif` sums `photons_detected_total` per voxel: the light each place sent to the camera, not just
+  whether a dye was there. Every target's stack lies on **one grid**, the box of all their dyes, so the stacks overlap
+  when opened together (in Fiji, Image › Color › Merge Channels; in napari, as layers).
+  - The voxels are 10 × 10 × 10 nm, or as fine as fits 1 GB in all uncompressed (one factor for x, y and z, in steps
+    of 0.5 nm; the README says so). A 128 px WideField recording beside a nucleus (4 million dyes) gets 12.5 nm
+    voxels: two stacks of 1318 × 1309 × 297, 6.3 MB together on disk.
+  - 8 bits, scaled to the stack's largest voxel: photons = value × the scale (`insiliscope.scale` in the
+    description, and Fiji's calibration, so Fiji shows photons). A voxel is within half a step of its photons.
+  - The planes are deflated (zlib; a mostly empty plane to ~1/1000 of its size). Fiji's File › Import › TIFF
+    Virtual Stack opens a stack without loading it and shows each slice's z (its label, e.g. `z = 1.1938 µm`) in the
+    title line; dragged in, Fiji loads it whole and shows no labels (ImageJ reads none from a compressed TIFF).
   - Fiji/ImageJ and napari read the voxel size: X/YResolution in pixels per µm, `spacing` and `unit=micron` in the
     ImageJ description.
   - Fiji also reads the world origin (`xorigin`, `yorigin`, `zorigin`): its status bar shows each voxel's world x,
     y and z in µm (z at the slice's centre).
   - The world position of voxel (0, 0, 0)'s corner is also in the description (`insiliscope.origin-um`) and in
     `gt/README.txt`. Voxel (i, j, k)'s centre is that origin plus ((i, j, k) + ½) × the voxel size.
-  - Above 256 MB in all, the voxels grow by whole factors, and the README says so.
+  - The stacks are made by the same code as voxelize.html's (below, `Simulation/Voxelize.cpp`): voxelize on
+    `dyes.csv` with the same choices gives the same stack, up to the CSV's rounding of positions and photons.
 
 ### Other voxel sizes: voxelize.html
 

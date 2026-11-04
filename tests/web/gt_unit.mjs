@@ -37,7 +37,7 @@ function unpack(bytes) {
   }
   return files;
 }
-function gt(text, { min = [5, 300], vol = [50, 25], dyeCsv = 1 } = {}) {
+function gt(text, { min = [5, 300], vol = [10, 10], dyeCsv = 1 } = {}) {
   const s = str(text);
   const n = M._isc_scope_gt(s, min[0], min[1], vol[0], vol[1], dyeCsv);
   M._free(s);

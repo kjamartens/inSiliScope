@@ -790,8 +790,9 @@ async function openSave() {
       ? 'two localization tables, every blink (and bead) drawn with at least <input type="number" id="svMin1" min="0" step="1"> and ' +
         '<input type="number" id="svMin2" min="0" step="1"> photons on the camera in a frame (positions in the image and ' +
         'the world, binding site, photons, background); a density stack of any dyes that glow throughout; '
-      : kind === 'wf' ? 'a density stack per target, its emitted photons per 50 × 50 × 25 nm voxel (32-bit; Fiji shows ' +
-        'each voxel\'s world x, y, z); '
+      : kind === 'wf' ? 'a density stack per target, all on one grid (they overlap): its detected photons per voxel, ' +
+        '10 nm or as fine as fits 1 GB in all (8-bit, compressed; Fiji shows each voxel\'s world x, y, z, and each slice\'s ' +
+        'z as its label); '
       : 'the beads per frame (fiducials.csv, if any); ') +
     'frames.csv (each frame\'s time, stage, focus, drift); README.txt (the files and columns). Computed at Save: the ' +
     'movie is rendered again, which takes a while</span></label>' +
@@ -870,7 +871,7 @@ async function saveRecording(c, name, say = () => {}) {
     const tick = setInterval(show, 500);
     let files;
     try {
-      files = await L.groundTruth({ text: settingsText, min: [c.min1, c.min2], vol: [50, 25], dyeCsv: !!c.dyes },
+      files = await L.groundTruth({ text: settingsText, min: [c.min1, c.min2], vol: [10, 10], dyeCsv: !!c.dyes },
         (f, stage, info) => { Object.assign(P, { f, stage: stage || 'frames', info }); show(); });
     } finally { clearInterval(tick); }
     for (const [n, b] of files) entries.push({ name: 'gt/' + n, data: b });

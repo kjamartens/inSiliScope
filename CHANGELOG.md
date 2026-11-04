@@ -11,7 +11,9 @@ Versions follow semver; while 0.x, any release may change the output for a given
   focus, drift, pattern state); localization tables at two thresholds of photons on the camera (5 and 300), with the
   dye's position, its binding site, photons detected / on the camera / emitted, the PSF-weighted background, the beads
   as `fiducial` rows; for a recording without a blinking label (WideField) a dye list instead; for continuous dyes
-  photon-weighted density stacks (float32, compressed, voxel size and world origin for Fiji, voxel size for napari)
+  photon-weighted density stacks (a target each, all on one grid, detected photons per 10 nm voxel or as fine as
+  fits 1 GB, 8-bit with the scale as Fiji's calibration, deflated, each slice's z as its label, voxel size and world
+  origin for Fiji, voxel size for napari; one C++ voxelizer, `Simulation/Voxelize.*`, also voxelize.html's)
   with `voxelize.html` (☰ › Tools, and in the zip beside a dye list), a converter that needs no installation, reads
   the saved zip itself, estimates the compressed size and makes the stack plane by plane, a compressed TIFF that
   Fiji's Import › TIFF Virtual Stack opens without loading it, with each slice's z in its title line (or a .zip

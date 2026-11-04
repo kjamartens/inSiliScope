@@ -12,6 +12,7 @@
 
 #include "PsfGeneratorBridge.h"
 #include "SMLMSimulation.h"
+#include "Voxelize.h"
 
 #include <algorithm>
 #include <cmath>
@@ -378,128 +379,6 @@ std::string GroundTruth::DyesCsv() const
 
 namespace {
 
-void Put16(std::string& s, uint32_t v)
-{
-   s.push_back(static_cast<char>(v & 255));
-   s.push_back(static_cast<char>((v >> 8) & 255));
-}
-void Put32(std::string& s, uint32_t v)
-{
-   Put16(s, v & 0xFFFF);
-   Put16(s, v >> 16);
-}
-
-// PackBits (TIFF compression 32773) of n bytes: runs of 2..128 equal bytes as (257 - length, byte), the rest as
-// literals (length - 1, bytes). A density stack is mostly zeros: ~1/64 of its size there.
-void PackBits(const unsigned char* b, size_t n, std::string& out)
-{
-   size_t i = 0;
-   while (i < n)
-   {
-      size_t j = i + 1;
-      while (j < n && j - i < 128 && b[j] == b[i])
-         ++j;
-      if (j - i >= 2)
-      {
-         out.push_back(static_cast<char>(257 - (j - i)));
-         out.push_back(static_cast<char>(b[i]));
-         i = j;
-         continue;
-      }
-      j = i + 1;
-      while (j < n && j - i < 128 && !(j + 1 < n && b[j] == b[j + 1]))
-         ++j;
-      out.push_back(static_cast<char>(j - i - 1));
-      out.append(reinterpret_cast<const char*>(b + i), j - i);
-      i = j;
-   }
-}
-
-// A float32 ImageJ stack (classic little-endian TIFF): the description, one rational (pixels per micron, X and Y),
-// the planes each PackBits-compressed, then an IFD per plane (the description in the first). Fiji/ImageJ (1.53
-// checked) and tifffile read it.
-std::string FloatTiff(const std::vector<float>& v, uint32_t nx, uint32_t ny, uint32_t nz, double pixelsPerUm,
-                      const std::string& description)
-{
-   std::string s = "II";
-   Put16(s, 42);
-   Put32(s, 0);   // the first IFD's offset, below
-   const uint32_t descAt = static_cast<uint32_t>(s.size());
-   s += description;
-   s.push_back('\0');
-   if (s.size() & 1)
-      s.push_back('\0');
-   const uint32_t ratAt = static_cast<uint32_t>(s.size());
-   const double den = 1000.0;
-   Put32(s, static_cast<uint32_t>(std::lround(pixelsPerUm * den)));
-   Put32(s, static_cast<uint32_t>(den));
-   const size_t plane = static_cast<size_t>(nx) * ny;
-   std::vector<unsigned char> raw(plane * 4);
-   std::vector<uint32_t> offsets(nz), counts(nz);
-   for (uint32_t k = 0; k < nz; ++k)
-   {
-      for (size_t i = 0; i < plane; ++i)
-      {
-         uint32_t u;
-         std::memcpy(&u, &v[k * plane + i], 4);
-         raw[4 * i] = static_cast<unsigned char>(u & 255);
-         raw[4 * i + 1] = static_cast<unsigned char>((u >> 8) & 255);
-         raw[4 * i + 2] = static_cast<unsigned char>((u >> 16) & 255);
-         raw[4 * i + 3] = static_cast<unsigned char>(u >> 24);
-      }
-      offsets[k] = static_cast<uint32_t>(s.size());
-      PackBits(raw.data(), raw.size(), s);
-      counts[k] = static_cast<uint32_t>(s.size() - offsets[k]);
-      if (s.size() & 1)
-         s.push_back('\0');
-   }
-   const uint32_t first = static_cast<uint32_t>(s.size());
-   s[4] = static_cast<char>(first & 255);
-   s[5] = static_cast<char>((first >> 8) & 255);
-   s[6] = static_cast<char>((first >> 16) & 255);
-   s[7] = static_cast<char>(first >> 24);
-   const uint32_t descLen = static_cast<uint32_t>(description.size() + 1);
-   for (uint32_t k = 0; k < nz; ++k)
-   {
-      const bool desc = k == 0;
-      const uint16_t n = desc ? 15 : 14;
-      Put16(s, n);
-      const auto entry = [&](uint16_t tag, uint16_t type, uint32_t count, uint32_t value) {
-         Put16(s, tag);
-         Put16(s, type);
-         Put32(s, count);
-         Put32(s, value);
-      };
-      entry(254, 4, 1, 0);
-      entry(256, 4, 1, nx);
-      entry(257, 4, 1, ny);
-      entry(258, 3, 1, 32);
-      entry(259, 3, 1, 32773);
-      entry(262, 3, 1, 1);
-      if (desc)
-         entry(270, 2, descLen, descAt);
-      entry(273, 4, 1, offsets[k]);
-      entry(277, 3, 1, 1);
-      entry(278, 4, 1, ny);
-      entry(279, 4, 1, counts[k]);
-      entry(282, 5, 1, ratAt);
-      entry(283, 5, 1, ratAt);
-      entry(296, 3, 1, 1);
-      entry(339, 3, 1, 3);
-      Put32(s, 0);
-      if (k + 1 < nz)
-      {
-         // the next IFD follows at once
-         const uint32_t next = static_cast<uint32_t>(s.size());
-         s[s.size() - 4] = static_cast<char>(next & 255);
-         s[s.size() - 3] = static_cast<char>((next >> 8) & 255);
-         s[s.size() - 2] = static_cast<char>((next >> 16) & 255);
-         s[s.size() - 1] = static_cast<char>(next >> 24);
-      }
-   }
-   return s;
-}
-
 std::string SafeName(const std::string& s)
 {
    std::string o;
@@ -516,18 +395,18 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
    std::vector<Volume> out;
    if (!(lateralNm > 0) || !(axialNm > 0) || dyes_.empty())
       return out;
-   // The groups: (label, state), each its dyes' box.
+   // The groups: (label, state), each its dyes that sent light to the camera; one grid for all of them (the box of
+   // every group's dyes), so the stacks lie on top of each other in Fiji and napari.
    struct Group
    {
       int label, state;
-      double x0, y0, z0, x1, y1, z1;
-      std::vector<size_t> dyes;
+      std::vector<double> x, y, z, w;
    };
    std::vector<Group> groups;
-   for (size_t i = 0; i < dyes_.size(); ++i)
+   vox::Box box;
+   for (const Dye& d : dyes_)
    {
-      const Dye& d = dyes_[i];
-      if (!(d.emittedTotal > 0))
+      if (!(d.detectedTotal > 0))
          continue;
       Group* g = nullptr;
       for (Group& o : groups)
@@ -535,88 +414,88 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
             g = &o;
       if (!g)
       {
-         groups.push_back({ d.label, d.state, d.xUm, d.yUm, d.zUm, d.xUm, d.yUm, d.zUm, {} });
+         groups.push_back({ d.label, d.state, {}, {}, {}, {} });
          g = &groups.back();
       }
-      g->x0 = std::min(g->x0, d.xUm); g->x1 = std::max(g->x1, d.xUm);
-      g->y0 = std::min(g->y0, d.yUm); g->y1 = std::max(g->y1, d.yUm);
-      g->z0 = std::min(g->z0, d.zUm); g->z1 = std::max(g->z1, d.zUm);
-      g->dyes.push_back(i);
+      g->x.push_back(d.xUm);
+      g->y.push_back(d.yUm);
+      g->z.push_back(d.zUm);
+      g->w.push_back(d.detectedTotal);
+      box.Add(d.xUm, d.yUm, d.zUm);
    }
-   // The voxel size: the asked one, grown by whole factors until every volume fits the cap.
-   const auto sizeAt = [&](double f, size_t gi, uint32_t* n) {
-      const Group& g = groups[gi];
-      const double p = lateralNm * f / 1000.0, q = axialNm * f / 1000.0;
-      const double nx = std::floor(g.x1 / p) - std::floor(g.x0 / p) + 1, ny = std::floor(g.y1 / p) - std::floor(g.y0 / p) + 1,
-                   nz = std::floor(g.z1 / q) - std::floor(g.z0 / q) + 1;
-      if (n) { n[0] = static_cast<uint32_t>(nx); n[1] = static_cast<uint32_t>(ny); n[2] = static_cast<uint32_t>(nz); }
-      return nx * ny * nz * 4.0;
-   };
+   if (groups.empty())
+      return out;
+   // The voxel: the asked one, grown until every stack (8 bits) fits the cap uncompressed.
    double f = 1;
-   for (;; f += 1)
-   {
-      double total = 0;
-      for (size_t gi = 0; gi < groups.size(); ++gi)
-         total += sizeAt(f, gi, nullptr);
-      if (total <= capBytes || f >= 1000)
-         break;
-   }
+   const vox::Grid grid = vox::GridWithin(box, lateralNm / 1000.0, axialNm / 1000.0, static_cast<double>(groups.size()),
+                                          capBytes, &f);
    if (note && f > 1)
    {
-      char b[200];
-      std::snprintf(b, sizeof b, "The volumes' voxels are %g x %g x %g nm, %g times the %g x %g x %g nm asked, to stay under %.0f MB.",
-                    lateralNm * f, lateralNm * f, axialNm * f, f, lateralNm, lateralNm, axialNm, capBytes / 1048576.0);
+      char b[300];
+      std::snprintf(b, sizeof b,
+                    "The density stacks' voxels are %g x %g x %g nm: the %g x %g x %g nm asked would pass %.0f MB "
+                    "uncompressed in all.", grid.vx * 1000, grid.vx * 1000, grid.vz * 1000, lateralNm, lateralNm,
+                    axialNm, capBytes / 1048576.0);
       *note = b;
    }
-   const double p = lateralNm * f / 1000.0, q = axialNm * f / 1000.0;
-   for (size_t gi = 0; gi < groups.size(); ++gi)
+   for (const Group& g : groups)
    {
-      const Group& g = groups[gi];
-      uint32_t n[3];
-      sizeAt(f, gi, n);
-      const double ox = std::floor(g.x0 / p) * p, oy = std::floor(g.y0 / p) * p, oz = std::floor(g.z0 / q) * q;
-      std::vector<float> v(static_cast<size_t>(n[0]) * n[1] * n[2], 0.0f);
-      double sum = 0;
-      for (size_t i : g.dyes)
-      {
-         const Dye& d = dyes_[i];
-         const long ix = std::min<long>(n[0] - 1, std::max<long>(0, static_cast<long>(std::floor(d.xUm / p) - std::floor(g.x0 / p))));
-         const long iy = std::min<long>(n[1] - 1, std::max<long>(0, static_cast<long>(std::floor(d.yUm / p) - std::floor(g.y0 / p))));
-         const long iz = std::min<long>(n[2] - 1, std::max<long>(0, static_cast<long>(std::floor(d.zUm / q) - std::floor(g.z0 / q))));
-         v[(static_cast<size_t>(iz) * n[1] + static_cast<size_t>(iy)) * n[0] + static_cast<size_t>(ix)] += static_cast<float>(d.emittedTotal);
-         sum += d.emittedTotal;
-      }
-      float mx = 0;
-      for (float x : v)
-         mx = std::max(mx, x);
       const Label* L = g.label >= 0 && g.label < static_cast<int>(labels.size()) ? &labels[static_cast<size_t>(g.label)] : nullptr;
+      const std::string target = L ? L->target : std::string("?");
+      const std::string channel = g.state != 3 ? target + " (" + StateName(g.state) + ")" : target;
       std::string name = "density_" + SafeName(L ? L->target : std::string());
       if (g.state != 3)
          name += std::string("_") + StateName(g.state);
       name += ".tif";
-      char d[1000];
-      std::snprintf(d, sizeof d,
-                    "ImageJ=1.11a\nimages=%u\nslices=%u\nunit=micron\nspacing=%.9g\nloop=false\n"
-                    "xorigin=%.6f\nyorigin=%.6f\nzorigin=%.6f\nmin=0\nmax=%.9g\n"
-                    "insiliscope.value=emitted photons per voxel over the recorded frames\n"
-                    "insiliscope.target=%s\ninsiliscope.dye=%s\ninsiliscope.state=%s\n"
-                    "insiliscope.origin-um=%.6f,%.6f,%.6f\ninsiliscope.voxel-um=%.9g,%.9g,%.9g\n",
-                    // ImageJ's origin in voxels: x, y at the voxel corner (its pixel coordinates), z at a slice's
-                    // centre, so Fiji's status bar reads world um
-                    n[2], n[2], q, -ox / p, -oy / p, -oz / q - 0.5, static_cast<double>(mx), L ? L->target.c_str() : "",
-                    L ? L->dye.c_str() : "",
-                    StateName(g.state), ox, oy, oz, p, p, q);
+      vox::Stack st(grid, 1, 8, g.x.data(), g.y.data(), g.z.data(), g.w.data(), nullptr, g.x.size());
+      st.Maxima();
+      const std::vector<std::string> chans{ channel };
+      const std::string desc = vox::Description(
+         st, chans, "photons_detected_total per voxel (the detected photons of its dyes over the recorded frames)",
+         "photons",
+         "insiliscope.target=" + target + "\ninsiliscope.dye=" + (L ? L->dye : std::string()) +
+            "\ninsiliscope.state=" + StateName(g.state) + "\n");
+      // the planes, deflated each (zlib); an empty plane stored once
+      std::vector<std::string> planes(grid.nz);
+      std::vector<uint64_t> sizes(grid.nz);
+      std::vector<int64_t> sameAs(grid.nz, -1);
+      std::vector<unsigned char> q(st.PlaneBytes());
+      int64_t empty = -1;
+      for (uint32_t z = 0; z < grid.nz; ++z)
+      {
+         if (st.Empty(z) && empty >= 0)
+         {
+            sameAs[z] = empty;
+            sizes[z] = sizes[static_cast<size_t>(empty)];
+            continue;
+         }
+         st.Fill(z);
+         st.Quantize(0, q.data());
+         vox::Deflate(q.data(), q.size(), planes[z]);
+         sizes[z] = planes[z].size();
+         if (st.Empty(z))
+            empty = z;
+      }
+      const vox::TiffLayout lay = vox::LayoutTiff(sizes, &sameAs, grid.nx, grid.ny, 8, 1.0 / grid.vx, desc,
+                                                  vox::Labels(grid, chans), 8);
       Volume vol;
       vol.name = name;
-      vol.bytes = FloatTiff(v, n[0], n[1], n[2], 1.0 / p, d);
-      char line[600];
+      vol.bytes = lay.head;
+      for (uint32_t z = 0; z < grid.nz; ++z)
+         if (sameAs[z] < 0)
+            vol.bytes += planes[z];
+      vol.bytes.resize(static_cast<size_t>(lay.first), '\0');
+      vol.bytes += lay.ifd;
+      char line[700];
       std::snprintf(line, sizeof line,
-                    "%s: %s (%s, %s), %u x %u x %u voxels of %g x %g x %g nm; the emitted photons of its dyes over the "
-                    "recorded frames per voxel (%.6g in all, %zu dyes). Voxel (0, 0, 0)'s corner is at world (%.4f, "
-                    "%.4f, %.4f) um, so voxel (i, j, k)'s centre at origin + ((i, j, k) + 0.5) x voxel; Fiji reads the "
-                    "voxel size and the origin (its status bar shows world x, y, z), napari the voxel size.",
-                    name.c_str(), L ? L->target.c_str() : "?", L ? L->dye.c_str() : "?", StateName(g.state), n[0], n[1],
-                    n[2], p * 1000, p * 1000, q * 1000, sum, g.dyes.size(), ox, oy, oz);
+                    "%s: %s (%s, %s), %u x %u x %u voxels of %g x %g x %g nm, 8 bits: the detected photons of its dyes "
+                    "over the recorded frames per voxel, %.6g photons per step (%.6g in all, %zu dyes). Every density "
+                    "stack lies on the same grid: voxel (0, 0, 0)'s corner is at world (%.4f, %.4f, %.4f) um, so voxel "
+                    "(i, j, k)'s centre at origin + ((i, j, k) + 0.5) x voxel; Fiji reads the voxel size, the origin "
+                    "(its status bar shows world x, y, z) and a label per slice (its z), napari the voxel size.",
+                    name.c_str(), target.c_str(), L ? L->dye.c_str() : "?", StateName(g.state), grid.nx, grid.ny,
+                    grid.nz, grid.vx * 1000, grid.vx * 1000, grid.vz * 1000, st.Scales()[0], st.Sums()[0], g.x.size(),
+                    grid.Ox(), grid.Oy(), grid.Oz());
       vol.line = line;
       out.push_back(std::move(vol));
    }

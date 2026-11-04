@@ -178,8 +178,12 @@ that finishes them.
   beside a nucleus, 4 M dyes, aborted the viewer at 4 GB): heap 1.9 GB without the dye list, 2.3 GB with. `GroundTruth::Files` writes
   frames.csv, localizations_min<N>.csv / fiducials.csv, dyes.csv (only without a blinking label: localizations or a dye list, never both, also in the Save box;
   optional: ~100 MB at 128 px WideField),
-  density_<target>[_<state>].tif (emitted photons per voxel, 50/50/25 nm, float32 ImageJ, PackBits per plane, the
-  origin as xorigin/yorigin/zorigin (Fiji's status bar), capped 256 MB), README.txt; `Files(sink, ...)` hands each over
+  density_<target>[_<state>].tif (2026-11-04: `Simulation/Voxelize.*`, the one voxelizer, also voxelize.html's
+  through its own WASM; detected photons per voxel, every stack on one grid (the box of all dyes: they overlap),
+  10 nm or as fine as fits 1 GB in all (`GridWithin`, steps of 0.5 nm), 8-bit scaled to the stack's largest voxel
+  (`insiliscope.scale`, Fiji's cf/c1 calibration), planes deflated (`vox::Deflate`: runs as distance-1 matches,
+  dynamic Huffman; the ctest's inflater checks it), a label per slice (its z), the origin as xorigin/yorigin/zorigin
+  (Fiji's status bar); 4 M dyes: 12.5 nm, 6.3 MB), README.txt; `Files(sink, ...)` hands each over
   as made. Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` (a `gt` job on a worker of
   its own, `L.groundTruth`: spawned, terminated after; `Module.onGtFile` takes each file out of the heap; stages
   `setup`, `ground truth` per frame, `files`) and
@@ -188,6 +192,10 @@ that finishes them.
   centre at stage + (i - W/2) px, no flip), density stacks, localizations per frame, axes frame/z/y/x in world um;
   also unpacked or on a voxelize .tif, lazily; copied beside the viewer by `build_site.sh`; checked with napari stood
   in for by `tests/web/napari_open_check.py`, ~1 s, which viewer_save runs on its zip); `web/voxelize.html` (the
+  page reads the CSV, chooses the rows and deflates the planes (CompressionStream); the grid, the stack plane by
+  plane, the description, labels and TIFF layout are `Simulation/Voxelize.cpp` through `cli/voxelize_wasm.cpp`
+  (target `insiliscope_voxelize`, in the `wasm-viewer` preset, ~180 KB, written into the page's `<script
+  id="voxModule">` by `tools/embed_web_module.mjs`, whose `--check` covers it); the
   converter, ☰ › Tools `#voxelizeLink`, copied beside the viewer by `build_site.sh`, in the zip only beside dyes.csv: the
   CSV streamed into typed columns; the stack made one z plane at a time (rows counting-sorted by plane, two passes for
   the 8/16-bit scale, each plane kept as its stored Blob: 1.9 GB of 10 nm voxels in 27 s); 8/16/32 bits, a channel per

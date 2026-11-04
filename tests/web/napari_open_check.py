@@ -5,7 +5,7 @@ for (no window): python tests/web/napari_open_check.py <recording.zip>   (needs 
 Runs the zip as `python <zip>` does (runpy on the zip: its __main__.py) and checks the layers: the movie (its frames,
 its pixel size, at the stage position: the localizations sit on brighter movie pixels than they would flipped in y),
 the localizations (every row of the lowest-threshold table, at its frame), the density stacks (their voxel size and
-origin), the axis names. Exit 0 when every check passes. viewer_save.mjs runs it on its zip."""
+origin; one grid for all), the axis names. Exit 0 when every check passes. viewer_save.mjs runs it on its zip."""
 import csv
 import io
 import os
@@ -117,6 +117,7 @@ def main(path):
             return float(np.median(r)) if r else 0.0
         a, b = ratio(False), ratio(True)
         check(a > b, f'localizations on the movie: {a:.2f}x the frame median under them, {b:.2f}x flipped in y')
+    grids = set()
     for n in (n for n in names if n.startswith('gt/density_')):
         with tifffile.TiffFile(io.BytesIO(zf.read(n))) as tf:
             d = dict(l.split('=', 1) for l in tf.pages[0].description.splitlines() if '=' in l)
@@ -127,6 +128,10 @@ def main(path):
         check(lay is not None and lay.data.shape == shape and np.allclose(lay.kw['scale'], (vz, vy, vx)) and
               np.allclose(lay.kw['translate'], (oz + vz / 2, oy + vy / 2, ox + vx / 2)),
               f'{n}: {shape}, voxels {vx * 1000:g} x {vy * 1000:g} x {vz * 1000:g} nm from ({ox}, {oy}, {oz}) um')
+        grids.add((tuple(shape), tuple(np.round(lay.kw['scale'], 9)) if lay else None,
+                   tuple(np.round(lay.kw['translate'], 9)) if lay else None))
+    if grids:
+        check(len(grids) == 1, f'the density stacks overlap: {len(grids)} grid(s) among them')
     print('napari opener: ' + ('PASS' if not FAILS else f'FAILED ({len(FAILS)})'))
     return 1 if FAILS else 0
 

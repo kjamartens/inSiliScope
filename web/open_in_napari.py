@@ -91,11 +91,13 @@ def layers_of_recording(src):
     out, zs = [], []
     frames = src.table('gt/frames.csv') if src.has('gt/frames.csv') else []
     focus = float(frames[0]['focus_world_um']) if frames else 0.0
+    # the density stacks: a target each, all on one grid (they overlap), 8 bits (x insiliscope.scale = photons)
     stacks = sorted(n for n in src.names() if n.startswith('gt/density_') and n.endswith('.tif'))
     for k, name in enumerate(stacks):
-        with tifffile.TiffFile(io.BytesIO(src.read(name))) as tf:
-            v = tf.asarray()
+        raw = src.read(name)
+        with tifffile.TiffFile(io.BytesIO(raw)) as tf:
             d = description(tf)
+        v = lazy(io.BytesIO(raw))
         vx, vy, vz = triple(d['insiliscope.voxel-um'])
         ox, oy, oz = triple(d['insiliscope.origin-um'])
         target = d.get('insiliscope.target', name[11:-4])
@@ -103,7 +105,8 @@ def layers_of_recording(src):
         zs += [oz, oz + v.shape[0] * vz]
         out.append(('image', v, dict(name=f'density {target}' + (f' ({state})' if state and state != 'always-on' else ''),
                                      scale=(vz, vy, vx), translate=(oz + vz / 2, oy + vy / 2, ox + vx / 2),
-                                     colormap=COLOURS[k % len(COLOURS)], blending='additive', contrast_limits=contrast(v))))
+                                     colormap=COLOURS[k % len(COLOURS)], blending='additive',
+                                     contrast_limits=(0, 255) if v.dtype.itemsize == 1 else contrast(np.asarray(v)))))
     tables = sorted((n for n in src.names() if n.startswith('gt/localizations_min') and n.endswith('.csv')),
                     key=lambda n: float(n[len('gt/localizations_min'):-4]))
     targets = []
@@ -146,18 +149,27 @@ def layers_of_recording(src):
     return out, focus
 
 
+def lazy(f):
+    """A TIFF stack (a path or a file object) read a plane at a time as napari shows it (tifffile as zarr, dask),
+    else whole."""
+    import tifffile
+    try:
+        import dask.array as da
+        import zarr
+        return da.from_zarr(zarr.open(tifffile.imread(f, aszarr=True), mode='r'))
+    except ImportError:
+        if hasattr(f, 'seek'):
+            f.seek(0)
+        return tifffile.imread(f)
+
+
 def layers_of_stack(path):
     """A voxelize .tif: a layer per channel, read a plane at a time (tifffile as zarr, dask)."""
     import tifffile
     with tifffile.TiffFile(path) as tf:
         d = description(tf)
         axes = tf.series[0].axes
-    try:
-        import dask.array as da
-        import zarr
-        data = da.from_zarr(zarr.open(tifffile.imread(path, aszarr=True), mode='r'))
-    except ImportError:
-        data = tifffile.imread(path)
+    data = lazy(path)
     vx, vy, vz = triple(d['insiliscope.voxel-um'])
     ox, oy, oz = triple(d['insiliscope.origin-um'])
     names = d.get('insiliscope.channels', 'stack').split(';')

@@ -14,11 +14,14 @@
 //
 //   ground_truth_check          exit code 0 = all checks passed
 #include "GroundTruth.h"
+#include "Voxelize.h"
 #include "ScopeMovie.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -59,42 +62,251 @@ std::string Join(const std::vector<std::pair<std::string, std::string>>& files)
    return s;
 }
 
-// The sum of the float32 planes of a TIFF GroundTruth::Volumes wrote: an IFD per plane, each strip PackBits
-// (compression 32773) or raw; imagej: an ImageJ description with its unit, the IFD count = images=, and the origin.
-double TiffSum(const std::string& b, bool& imagej)
+// A minimal zlib inflater (stored, fixed and dynamic Huffman blocks; RFC 1950/1951): reads the deflated stacks and
+// checks vox::Deflate. Throws on a malformed stream.
+struct InBits
 {
+   const unsigned char* p;
+   size_t n, i = 0;
+   uint32_t acc = 0;
+   int k = 0;
+   int Get(int bits)
+   {
+      while (k < bits)
+      {
+         if (i >= n)
+            throw 1;
+         acc |= static_cast<uint32_t>(p[i++]) << k;
+         k += 8;
+      }
+      const int v = static_cast<int>(acc & ((1u << bits) - 1));
+      acc = bits == 32 ? 0 : acc >> bits;
+      k -= bits;
+      return v;
+   }
+};
+struct Huff
+{
+   int count[16] = {};
+   std::vector<int> sym;
+   void Build(const int* len, int n)
+   {
+      std::fill(count, count + 16, 0);
+      for (int i = 0; i < n; ++i)
+         count[len[i]]++;
+      int offs[16] = {};
+      for (int l = 1; l < 15; ++l)
+         offs[l + 1] = offs[l] + count[l];
+      sym.assign(static_cast<size_t>(n), 0);
+      for (int i = 0; i < n; ++i)
+         if (len[i])
+            sym[static_cast<size_t>(offs[len[i]]++)] = i;
+   }
+   int Decode(InBits& b) const
+   {
+      int code = 0, first = 0, index = 0;
+      for (int l = 1; l < 16; ++l)
+      {
+         code |= b.Get(1);
+         const int c = count[l];
+         if (code - c < first)
+            return sym[static_cast<size_t>(index + (code - first))];
+         index += c;
+         first = (first + c) << 1;
+         code <<= 1;
+      }
+      throw 2;
+   }
+};
+bool Inflate(const unsigned char* p, size_t n, std::string& out)
+{
+   static const int lbase[29] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99,
+                                  115, 131, 163, 195, 227, 258 };
+   static const int lext[29] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
+   static const int dbase[30] = { 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025,
+                                  1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
+   static const int dext[30] = { 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12,
+                                 13, 13 };
+   try
+   {
+      if (n < 6 || (p[0] & 15) != 8 || ((p[0] << 8) | p[1]) % 31)
+         return false;
+      InBits b{ p + 2, n - 6 };
+      int last;
+      do
+      {
+         last = b.Get(1);
+         const int type = b.Get(2);
+         if (type == 0)
+         {
+            b.acc = 0;
+            b.k = 0;
+            if (b.i + 4 > b.n)
+               return false;
+            const size_t len = b.p[b.i] | (b.p[b.i + 1] << 8);
+            b.i += 4;
+            if (b.i + len > b.n)
+               return false;
+            out.append(reinterpret_cast<const char*>(b.p + b.i), len);
+            b.i += len;
+            continue;
+         }
+         if (type == 3)
+            return false;
+         Huff lit, dist;
+         int len[320];
+         int nlen = 288, ndist = 30;
+         if (type == 1)
+         {
+            for (int i = 0; i < 288; ++i)
+               len[i] = i < 144 ? 8 : i < 256 ? 9 : i < 280 ? 7 : 8;
+            for (int i = 0; i < 30; ++i)
+               len[288 + i] = 5;
+         }
+         else
+         {
+            nlen = b.Get(5) + 257;
+            ndist = b.Get(5) + 1;
+            const int ncode = b.Get(4) + 4;
+            static const int order[19] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
+            int cl[19] = {};
+            for (int i = 0; i < ncode; ++i)
+               cl[order[i]] = b.Get(3);
+            Huff lc;
+            lc.Build(cl, 19);
+            int at = 0;
+            while (at < nlen + ndist)
+            {
+               const int sy = lc.Decode(b);
+               if (sy < 16)
+                  len[at++] = sy;
+               else
+               {
+                  int v = 0, r;
+                  if (sy == 16)
+                  {
+                     if (!at)
+                        return false;
+                     v = len[at - 1];
+                     r = 3 + b.Get(2);
+                  }
+                  else if (sy == 17)
+                     r = 3 + b.Get(3);
+                  else
+                     r = 11 + b.Get(7);
+                  if (at + r > nlen + ndist)
+                     return false;
+                  while (r--)
+                     len[at++] = v;
+               }
+            }
+            std::memmove(len + 288, len + nlen, sizeof(int) * static_cast<size_t>(ndist));
+         }
+         lit.Build(len, nlen);
+         dist.Build(len + 288, ndist);
+         for (;;)
+         {
+            const int sy = lit.Decode(b);
+            if (sy < 256)
+               out.push_back(static_cast<char>(sy));
+            else if (sy == 256)
+               break;
+            else
+            {
+               if (sy > 285)
+                  return false;
+               const size_t l = static_cast<size_t>(lbase[sy - 257] + b.Get(lext[sy - 257]));
+               const int ds = dist.Decode(b);
+               if (ds > 29)
+                  return false;
+               const size_t d = static_cast<size_t>(dbase[ds] + b.Get(dext[ds]));
+               if (d > out.size())
+                  return false;
+               for (size_t k = 0; k < l; ++k)
+                  out.push_back(out[out.size() - d]);
+            }
+         }
+      } while (!last);
+      // the Adler-32 after the deflate stream (byte aligned)
+      const unsigned char* t = b.p + b.i;
+      uint32_t a = 1, s2 = 0;
+      for (unsigned char c : out)
+      {
+         a = (a + c) % 65521;
+         s2 = (s2 + a) % 65521;
+      }
+      const uint32_t want = (static_cast<uint32_t>(t[0]) << 24) | (static_cast<uint32_t>(t[1]) << 16) |
+                            (static_cast<uint32_t>(t[2]) << 8) | t[3];
+      return want == ((s2 << 16) | a);
+   }
+   catch (int)
+   {
+      return false;
+   }
+}
+
+// A density stack GroundTruth::Volumes wrote (Voxelize.h): an IFD per plane, each strip deflated (compression 8),
+// PackBits (32773) or raw, 8 / 16 / 32 bits; sum = the samples x the description's insiliscope.scale; imagej: an ImageJ description
+// with its unit, the IFD count = images=, the origin, and a slice label per plane (IJMetadata).
+struct Tiff
+{
+   double sum = 0, scale = 1, top = 0;
+   uint32_t w = 0, h = 0;
+   long planes = 0;
+   bool imagej = false;
+   std::string desc;
+   std::string Get(const std::string& key) const
+   {
+      const size_t at = desc.find("\n" + key + "=");
+      if (at == std::string::npos)
+         return "";
+      const size_t from = at + key.size() + 2;
+      return desc.substr(from, desc.find('\n', from) - from);
+   }
+};
+Tiff ReadTiff(const std::string& b)
+{
+   Tiff t;
    uint32_t ifd;
    std::memcpy(&ifd, b.data() + 4, 4);
-   double sum = 0;
-   std::string d;
-   long planes = 0;
    bool sizes = true;
+   uint32_t labels = 0;
+   std::vector<std::string> planes;
+   int bits = 32;
    while (ifd)
    {
       uint16_t n;
       std::memcpy(&n, b.data() + ifd, 2);
-      uint32_t w = 0, h = 0, off = 0, count = 0, desc = 0, comp = 1;
+      uint32_t off = 0, count = 0, desc = 0, comp = 1;
       for (uint16_t i = 0; i < n; ++i)
       {
          const char* e = b.data() + ifd + 2 + 12 * i;
          uint16_t tag, type;
-         uint32_t v;
+         uint32_t v, c;
          std::memcpy(&tag, e, 2);
          std::memcpy(&type, e + 2, 2);
+         std::memcpy(&c, e + 4, 4);
          std::memcpy(&v, e + 8, 4);
          if (type == 3)
             v &= 0xFFFF;
-         if (tag == 256) w = v;
-         if (tag == 257) h = v;
+         if (tag == 256) t.w = v;
+         if (tag == 257) t.h = v;
+         if (tag == 258) bits = static_cast<int>(v);
          if (tag == 259) comp = v;
          if (tag == 273) off = v;
          if (tag == 279) count = v;
          if (tag == 270) desc = v;
+         if (tag == 50838) labels = c - 1;
       }
-      if (desc && d.empty())
-         d = std::string(b.data() + desc);
+      if (desc && t.desc.empty())
+         t.desc = std::string(b.data() + desc);
       std::string raw;
-      if (comp == 32773)
+      if (comp == 8)
+      {
+         if (!Inflate(reinterpret_cast<const unsigned char*>(b.data()) + off, count, raw))
+            raw.clear();
+      }
+      else if (comp == 32773)
          for (size_t i = 0; i < count;)
          {
             const int c = static_cast<signed char>(b[off + i++]);
@@ -103,20 +315,35 @@ double TiffSum(const std::string& b, bool& imagej)
          }
       else
          raw = b.substr(off, count);
-      sizes = sizes && raw.size() == static_cast<size_t>(w) * h * 4;
-      for (size_t i = 0; i + 4 <= raw.size(); i += 4)
-      {
-         float f;
-         std::memcpy(&f, raw.data() + i, 4);
-         sum += f;
-      }
-      planes++;
+      sizes = sizes && raw.size() == static_cast<size_t>(t.w) * t.h * static_cast<size_t>(bits / 8);
+      planes.push_back(std::move(raw));
+      t.planes++;
       std::memcpy(&ifd, b.data() + ifd + 2 + 12 * n, 4);
    }
-   const size_t at = d.find("images=");
-   imagej = sizes && d.compare(0, 12, "ImageJ=1.11a") == 0 && d.find("unit=micron") != std::string::npos &&
-            d.find("zorigin=") != std::string::npos && at != std::string::npos && std::atol(d.c_str() + at + 7) == planes;
-   return sum;
+   t.desc = "\n" + t.desc;
+   if (bits != 32)
+      t.scale = std::atof(t.Get("insiliscope.scale").c_str());
+   for (const std::string& raw : planes)
+      for (size_t i = 0; i + bits / 8 <= raw.size(); i += static_cast<size_t>(bits / 8))
+      {
+         double v;
+         if (bits == 8)
+            v = static_cast<unsigned char>(raw[i]);
+         else if (bits == 16)
+            v = static_cast<unsigned char>(raw[i]) + 256.0 * static_cast<unsigned char>(raw[i + 1]);
+         else
+         {
+            float f;
+            std::memcpy(&f, raw.data() + i, 4);
+            v = f;
+         }
+         t.top = std::max(t.top, v);
+         t.sum += v * t.scale;
+      }
+   t.imagej = sizes && t.desc.compare(0, 13, "\nImageJ=1.11a") == 0 && t.Get("unit") == "micron" &&
+              !t.Get("zorigin").empty() && std::atol(t.Get("images").c_str()) == t.planes &&
+              labels == static_cast<uint32_t>(t.planes);
+   return t;
 }
 
 } // namespace
@@ -124,8 +351,39 @@ double TiffSum(const std::string& b, bool& imagej)
 int main()
 {
    const auto t0 = std::chrono::steady_clock::now();
+
+   // ---- vox::Deflate: what the inflater reads back ----
+   {
+      std::vector<std::string> cases(5);
+      cases[1].assign(1000000, '\0');                         // an empty plane
+      for (size_t i = 0; i < 300000; ++i)                     // sparse values in zeros, runs of every length
+         cases[2].push_back(static_cast<char>((i * 2654435761u >> 13) % 97 < 3 ? (i * 7) % 256 : 0));
+      uint32_t r = 12345;
+      for (size_t i = 0; i < 200000; ++i)                     // random bytes (no runs)
+      {
+         r = r * 1664525u + 1013904223u;
+         cases[3].push_back(static_cast<char>(r >> 24));
+      }
+      for (size_t i = 0; i < 2500000; ++i)                    // more than one block (2^20 bytes each)
+         cases[4].push_back(static_cast<char>(i % 1000 < 600 ? 0 : (i / 7) % 3));
+      bool all = true;
+      std::string sizes;
+      for (const std::string& c : cases)
+      {
+         std::string z, back;
+         vox::Deflate(reinterpret_cast<const unsigned char*>(c.data()), c.size(), z);
+         all = all && Inflate(reinterpret_cast<const unsigned char*>(z.data()), z.size(), back) && back == c;
+         sizes += " " + std::to_string(c.size()) + "->" + std::to_string(z.size());
+      }
+      std::string z;
+      vox::Deflate(reinterpret_cast<const unsigned char*>(cases[1].data()), cases[1].size(), z);
+      std::printf("      deflate:%s\n", sizes.c_str());
+      Check(all && z.size() * 500 < cases[1].size(), "vox::Deflate: the inflater reads back every case (empty, zeros, "
+                                                  "sparse, random, several blocks); zeros to under 1/500");
+   }
+
    std::string err;
-   char b[400];
+   char b[700];
    const std::string base = "specimen=1 world-seed=7 seed=7 size=64 psf-kernel-half-width-nm=1500 psf-halo-cut=0 "
                             "blink-min-photons=0 disk-cache=0 ";
    // ---- dSTORM nanorulers with beads ----
@@ -197,22 +455,72 @@ int main()
    std::snprintf(b, sizeof b, "WideField: %zu dyes, each at most its rate x the movie's 0.2 s (worst over by %.3g photons)",
                  g2.Dyes().size(), rateOver);
    Check(okW && g2.Dyes().size() > 10 && rateOver <= 0, b);
-   const auto wfFiles = g2.Files({ 5, 300 }, 50, 25);
+   const auto wfFiles = g2.Files({ 5, 300 }, 10, 10);
    Check(has(wfFiles, "dyes.csv") && !has(wfFiles, "localizations_"), "WideField: dyes.csv, no localization table");
-   double volSum = 0;
-   bool imagej = true;
-   int vols = 0;
-   for (const auto& f : wfFiles)
+   double detected = 0;
+   for (const GroundTruth::Dye& d : g2.Dyes())
+      detected += d.detectedTotal;
+   {
+      Tiff t;
+      int vols = 0;
+      for (const auto& f : wfFiles)
+         if (f.first.compare(0, 8, "density_") == 0)
+         {
+            t = ReadTiff(f.second);
+            vols++;
+         }
+      // 8 bits, scaled to the largest voxel: each voxel within half a step of its photons
+      const double bound = 0.5 * t.scale * static_cast<double>(g2.Dyes().size());
+      std::snprintf(b, sizeof b, "WideField: %d density stack, an 8-bit ImageJ stack (deflated, an IFD and a label per "
+                    "plane, the origin, %u x %u x %ld voxels of %s um) holding the dyes' detected photons (%.6g vs %.6g, "
+                    "within %.3g), its largest voxel at 255", vols, t.w, t.h, t.planes, t.Get("insiliscope.voxel-um").c_str(),
+                    t.sum, detected, bound);
+      Check(vols == 1 && t.imagej && detected > 0 && std::fabs(t.sum - detected) <= bound && t.top == 255 &&
+               t.Get("insiliscope.voxel-um") == "0.01,0.01,0.01", b);
+   }
+   // a cap the 10 nm voxels pass: the voxels grow (one factor for x, y and z), the README says so
+   {
+      const auto small = g2.Files({ 5, 300 }, 10, 10, 64 * 1024);
+      Tiff t;
+      std::string readme;
+      for (const auto& f : small)
+      {
+         if (f.first.compare(0, 8, "density_") == 0)
+            t = ReadTiff(f.second);
+         if (f.first == "README.txt")
+            readme = f.second;
+      }
+      const double vx = std::atof(t.Get("insiliscope.voxel-um").c_str());
+      std::snprintf(b, sizeof b, "WideField under a 64 kB cap: voxels of %s um, %u x %u x %ld = %.0f bytes",
+                    t.Get("insiliscope.voxel-um").c_str(), t.w, t.h, t.planes, static_cast<double>(t.w) * t.h * t.planes);
+      Check(t.imagej && vx > 0.01 && static_cast<double>(t.w) * t.h * t.planes <= 64 * 1024 &&
+               readme.find("would pass") != std::string::npos && std::fabs(t.sum - detected) <= 0.5 * t.scale * static_cast<double>(g2.Dyes().size()), b);
+   }
+
+   // ---- two WideField targets: one grid ----
+   const std::string two = "world-seed=1128615014 seed=7 x=14.8 y=-6 size=32 frames=1 psf-kernel-half-width-nm=1500 "
+                           "disk-cache=0 mt-mode=WideField mt-label-pct=2 npc-dye=Cy3B npc-mode=WideField";
+   GroundTruth g3;
+   std::vector<uint16_t> f4;
+   const bool ok3 = Movie(two, &g3, f4, err);
+   std::vector<Tiff> stacks;
+   std::vector<std::string> names;
+   for (const auto& f : g3.Files({ 5, 300 }, 20, 20))
       if (f.first.compare(0, 8, "density_") == 0)
       {
-         bool ij = false;
-         volSum += TiffSum(f.second, ij);
-         imagej = imagej && ij;
-         vols++;
+         stacks.push_back(ReadTiff(f.second));
+         names.push_back(f.first);
       }
-   std::snprintf(b, sizeof b, "WideField: %d density volume(s), ImageJ float32 stacks (PackBits, an IFD per plane, the "
-                 "origin) holding the dyes' emitted photons (%.6g vs %.6g)", vols, volSum, emitted);
-   Check(vols == 1 && imagej && emitted > 0 && std::fabs(volSum / emitted - 1) < 1e-5, b);
+   bool same = stacks.size() == 2;
+   for (const Tiff& t : stacks)
+      same = same && t.imagej && t.w == stacks[0].w && t.h == stacks[0].h && t.planes == stacks[0].planes &&
+             t.Get("insiliscope.origin-um") == stacks[0].Get("insiliscope.origin-um") &&
+             t.Get("insiliscope.voxel-um") == stacks[0].Get("insiliscope.voxel-um");
+   std::snprintf(b, sizeof b, "two WideField targets (%s): %zu stacks on one grid (%u x %u x %ld from %s um)",
+                 ok3 ? (names.empty() ? "" : (names[0] + (names.size() > 1 ? ", " + names[1] : std::string())).c_str()) : err.c_str(),
+                 stacks.size(), stacks.empty() ? 0 : stacks[0].w, stacks.empty() ? 0 : stacks[0].h,
+                 stacks.empty() ? 0L : stacks[0].planes, stacks.empty() ? "" : stacks[0].Get("insiliscope.origin-um").c_str());
+   Check(ok3 && same, b);
 
    std::printf("ground_truth: %d failure(s), %.1f s\n", g_failures,
                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());

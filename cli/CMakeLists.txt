@@ -21,6 +21,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/BinnedBlinks.cpp
   ${ISC_SIM}/Fiducials.cpp
   ${ISC_SIM}/GroundTruth.cpp
+  ${ISC_SIM}/Voxelize.cpp
   ${ISC_SIM}/Slide.cpp
   ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp
@@ -95,6 +96,22 @@ if(EMSCRIPTEN)
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAP32,stringToUTF8,lengthBytesUTF8]"
   )
   set_target_properties(insiliscope_block PROPERTIES OUTPUT_NAME insiliscope_block SUFFIX ".js")
+
+  # web/voxelize.html's module: Simulation/Voxelize.cpp (the ground truth's density stacks' code) behind a small C
+  # API (voxelize_wasm.cpp), self-contained; tools/embed_web_module.mjs puts it into the page.
+  add_executable(insiliscope_voxelize voxelize_wasm.cpp ${ISC_SIM}/Voxelize.cpp)
+  target_include_directories(insiliscope_voxelize PRIVATE ${ISC_SIM})
+  target_link_options(insiliscope_voxelize PRIVATE
+    -O3
+    -sMODULARIZE=1 -sEXPORT_NAME=createVoxelize
+    -sENVIRONMENT=web,worker
+    -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
+    -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=2GB
+    -sFILESYSTEM=0
+    "-sEXPORTED_FUNCTIONS=[_malloc,_free,_vox_grid,_vox_stack,_vox_free,_vox_empty,_vox_plane_bytes,_vox_maxima,_vox_fill,_vox_plane_max,_vox_plane,_vox_describe,_vox_layout,_vox_error,_vox_head,_vox_head_len,_vox_ifd,_vox_ifd_len,_vox_offsets,_vox_first]"
+    "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
+  )
+  set_target_properties(insiliscope_voxelize PROPERTIES OUTPUT_NAME insiliscope_voxelize SUFFIX ".js")
   return()
 endif()
 
