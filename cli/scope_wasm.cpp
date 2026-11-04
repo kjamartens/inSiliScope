@@ -651,6 +651,7 @@ ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, 
       gt.minPhotons = std::min(minA, minB);
       gt.writeDyeCsv = dyeCsv != 0;
       settings::MovieRun run;
+      bool filesSaid = false;
       isc_js_movie_progress("setup", 0, "");
       {
          sim::GroundTruthScope scope(&gt);
@@ -659,13 +660,17 @@ ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, 
                 const double frac = total > 0 ? std::min(1.0, static_cast<double>(f + 1) / total) : 1.0;
                 if (frac < 1)
                    pr.fn("ground truth", frac, "{\"frame\":" + std::to_string(f + 1) + ",\"frames\":" + std::to_string(total) + "}");
-                else   // the last frame: the dyes' sites (Render's end) and the files come next
+                else if (!filesSaid)   // the last frame: the dyes' sites (Render's end) and the files come next
+                {
                    isc_js_movie_progress("files", 1, "");
+                   filesSaid = true;
+                }
                 return true;
              }, run, g_gtErr))
             return -1;
       }
-      isc_js_movie_progress("files", 1, "");
+      if (!filesSaid)
+         isc_js_movie_progress("files", 1, "");
       double delivered = 0;
       gt.Files([&](const std::string& name, std::string&& bytes) {
          if (isc_js_gt_file(name.c_str(), bytes.data(), static_cast<double>(bytes.size())))

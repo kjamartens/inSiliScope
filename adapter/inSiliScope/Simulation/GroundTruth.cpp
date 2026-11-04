@@ -51,6 +51,13 @@ std::string Field(const std::string& s)
    return q + "\"";
 }
 
+std::string Fmt(const char* f, double v)
+{
+   char b[64];
+   std::snprintf(b, sizeof b, f, v);
+   return b;
+}
+
 // Appends a number (NaN as an empty field).
 void Num(std::string& out, double v, const char* fmt)
 {
@@ -532,7 +539,7 @@ void GroundTruth::Files(const FileSink& sink, const std::vector<double>& thresho
          std::snprintf(name, sizeof name, "localizations_min%g.csv", t);
          sink(name, EmittersCsv(t, true));
          readme += std::string(name) + ": every blink drawn" + (beads ? " and every bead (kind fiducial)" : "") +
-                   " with at least " + std::to_string(static_cast<long>(t)) +
+                   " with at least " + Fmt("%g", t) +
                    " expected photons landing on the camera in a frame, one row per frame. A blink the Quality's\n"
                    "  blink-min-photons cut left out of the image is not in it either.\n";
       }

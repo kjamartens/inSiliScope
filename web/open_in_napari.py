@@ -11,7 +11,7 @@ Layers (docs: https://kjamartens.github.io/inSiliScope/docs/ground-truth/):
   movie                       the recorded frames, where the camera saw them (the stage position, the pixel size); in
                               2D it stands at every z (a camera image is a projection), in 3D it is drawn as a plane
                               at the focal height
-  density <target>            the ground truth's density stacks: emitted photons per voxel
+  density <target>            the ground truth's density stacks: detected photons per voxel
   localizations               every blink (and bead) of the lowest-threshold table, at its own frame, coloured by
                               target; "all frames" (hidden) holds them all at once, for 3D
   beads                       fiducials.csv, per frame
@@ -117,7 +117,7 @@ def layers_of_recording(src):
             target = np.array([r['target'] or r['kind'] for r in rows])
             targets = sorted(set(target))
             zs += [float(np.nanmin(z)), float(np.nanmax(z))]
-            feats = dict(target=target, photons=num(rows, 'photons_on_camera'), kind=np.array([r['kind'] for r in rows]))
+            feats = dict(target=target, photons=num(rows, 'intensity [photon]'), kind=np.array([r['kind'] for r in rows]))
             style = dict(features=feats, face_color='target', face_color_cycle=COLOURS[:max(1, len(targets))],
                          border_width=0, size=0.06, out_of_slice_display=True)
             out.append(('points', np.stack([t, z, y, x], 1), dict(name=f'localizations ({tables[0][3:-4]})', **style)))
@@ -132,14 +132,20 @@ def layers_of_recording(src):
     if src.has('movie.tif'):
         with tifffile.TiffFile(io.BytesIO(src.read('movie.tif'))) as tf:
             m = tf.asarray()
-            res = tf.pages[0].tags['XResolution'].value
+            res = tf.pages[0].tags.get('XResolution')
+            desc = tf.pages[0].description or ''
         if m.ndim == 2:
             m = m[None]
-        px = res[1] / res[0]   # um per pixel (the resolution is pixels per um)
+        if res is not None:
+            px = res.value[1] / res.value[0]   # um per pixel (the resolution is pixels per um)
+        else:   # insiliscope_cli's movie: no resolution tag, the pixel size in its description (pixel_nm=)
+            import re
+            hit = re.search(r'(?:^|\s)pixel_nm=([0-9.eE+-]+)', desc)
+            px = float(hit.group(1)) / 1000 if hit else 0.1
         sx = float(frames[0]['stage_x_um']) if frames else 0.0
         sy = float(frames[0]['stage_y_um']) if frames else 0.0
         # pixel i's centre is at the stage position + (i - W/2) pixels (the camera x, y = world x, y, no flip)
-        x0, y0 = sx - (m.shape[2] // 2) * px, sy - (m.shape[1] // 2) * px
+        x0, y0 = sx - (m.shape[2] / 2) * px, sy - (m.shape[1] / 2) * px
         # in 2D the movie stands at every z the other layers reach (a projection), in 3D a plane at the focus
         half = max([abs(z - focus) for z in zs] + [1.0]) + 0.5
         lo, hi = np.percentile(m[0], [0.5, 99.8])

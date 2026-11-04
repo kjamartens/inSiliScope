@@ -90,7 +90,7 @@ def main(path):
         sx, sy, px = float(f0['stage_x_um']), float(f0['stage_y_um']), mv.kw['scale'][2]
         _, z0, y0, x0 = mv.kw['translate']
         W, H = movie.shape[2], movie.shape[1]
-        check(abs(x0 + (W // 2) * px - sx) < 1e-9 and abs(y0 + (H // 2) * px - sy) < 1e-9 and abs(z0 - float(f0['focus_world_um'])) < 1e-9,
+        check(abs(x0 + (W / 2) * px - sx) < 1e-9 and abs(y0 + (H / 2) * px - sy) < 1e-9 and abs(z0 - float(f0['focus_world_um'])) < 1e-9,
               f'movie at the stage ({sx}, {sy}) um, the focus {z0} um, {px * 1000:.2f} nm pixels')
     tables = sorted((n for n in names if n.startswith('gt/localizations_min')), key=lambda n: float(n[20:-4]))
     if tables:
