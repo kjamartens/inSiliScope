@@ -4,7 +4,9 @@
 //   - two files mix: each part from the file read last with it;
 //   - unknown keys, a part in the wrong place and another release are warned about, a file that is not one refused;
 //   - the measurement's light history (runs of specs, each the changes from the one before) replayed (LiveScope::
-//     Advance, the current sample's keys put in) gives the live session's next frame, bit for bit.
+//     Advance, the current sample's keys put in) gives the live session's next frame, bit for bit;
+//   - a Record's file (history.recordFrom): the light before the Record replayed, then its recorded runs (each one
+//     LiveScope::Frames call, a setting changed between two of them) give the recorded frames, bit for bit.
 //
 //   settings_check     exit code 0 = all checks passed
 #include "settings_file.h"
@@ -166,6 +168,46 @@ int main()
                  "session's, bit for bit (t %.2f s, lit here %.3f s; replay %.0f ms)", ib.tSec, ib.litSec, replayMs);
    Check(okH && h.history.size() == 4 && fa_ok && fb_ok && fa == fb && ia.tSec == ib.tSec && ia.litSec == ib.litSec, msg);
    if (!okH) std::printf("      (%s)\n", err.c_str());
+
+   // A Record's file: two live frames, then a recording of three chunks (Frames calls) with the laser changed between
+   // the second and third; the file holds the five runs and recordFrom 1 (= the viewer's Save of a recording).
+   {
+      const std::string rbase = base + "x=3 y=-2 z=0.5 exposure-ms=100";
+      LiveScope rec;
+      std::vector<uint16_t> adu, want;
+      LiveFrameInfo li;
+      bool okR = true;
+      for (int k = 0; k < 2; k++) okR = okR && rec.Frame(Spec(rbase), true, adu, li, err);
+      const std::vector<std::pair<std::string, int>> chunks = { { rbase, 3 }, { rbase, 2 }, { rbase + " laser-640=3", 2 } };
+      for (const auto& c : chunks) {
+         okR = okR && rec.Frames(Spec(c.first + " fresh-basis=1"), c.second, true, adu, li, err);   // (as the viewer's Record)
+         want.insert(want.end(), adu.begin(), adu.end());
+      }
+      const std::string recFile = File(
+         "\"sample\":{\"values\":{\"npc-dye\":\"None\",\"mt-mode\":\"dSTORM\"}},"
+         "\"measurement\":{\"values\":{\"x\":3,\"y\":-2,\"z\":0.5,\"exposure-ms\":100,\"frames\":7},\"record\":{\"mode\":\"live\",\"frames\":7},"
+         "\"history\":{\"recordFrom\":1,\"records\":["
+         "{\"n\":2,\"lit\":true,\"set\":{\"size\":32,\"psf-kernel-half-width-nm\":2500,\"illum-profile\":\"FlatTop\",\"x\":3,\"y\":-2,\"z\":0.5,\"exposure-ms\":100}},"
+         "{\"n\":3,\"lit\":true,\"set\":{}},{\"n\":2,\"lit\":true,\"set\":{}},{\"n\":2,\"lit\":true,\"set\":{\"laser-640\":3}}]}}");
+      settings::Loaded lr;
+      LiveScope again;
+      std::vector<uint16_t> got;
+      okR = okR && settings::ReadText(recFile, {}, lr, err) && lr.recordFrom == 1 && settings::Replay(lr, again, err, 1);
+      for (size_t i = 1; okR && i < lr.history.size(); ++i) {
+         okR = again.Frames(settings::RunSpec(lr, i), lr.history[i].n, true, adu, li, err);
+         got.insert(got.end(), adu.begin(), adu.end());
+      }
+      if (!(okR && got == want)) {
+         size_t d = 0;
+         while (d < got.size() && d < want.size() && got[d] == want[d]) d++;
+         std::printf("      (ok %d, err '%s', %zu vs %zu px, first difference at %zu)\n", okR ? 1 : 0, err.c_str(), got.size(), want.size(), d);
+      }
+      Check(okR && got.size() == want.size() && got == want && want.size() == 7u * 32 * 32,
+            "a Record's file (recordFrom 1, three recorded runs, the laser changed between two): the recorded frames, bit for bit");
+      settings::Loaded beyond;
+      Check(!settings::ReadText(File("\"measurement\":{\"values\":{},\"history\":{\"recordFrom\":3,\"records\":[{\"n\":1,\"set\":{}}]}}"), {}, beyond, err),
+            "refused: recordFrom beyond the history's records");
+   }
 
    std::printf("cli_settings: %d failure(s), %.1f s\n", g_failures,
                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());

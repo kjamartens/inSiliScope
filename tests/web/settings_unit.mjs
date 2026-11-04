@@ -94,6 +94,39 @@ check(ok && noSample && saved.records.length === 4 && saved.records[1].set['lase
   `a session's light history (${saved.records.length} runs, ${log.reduce((a, r) => a + r.n, 0)} frames, t ${tSession.toFixed(2)} s) saved without ` +
   `the sample's keys, replayed in ${replayMs.toFixed(0)} ms: the next frame is the session's, bit for bit (${want.length} px)`);
 
+// ---- a Record's file: the light before it, then its recorded runs (isc_live_frames chunks, one setting changed) ----
+// As live.js writes it (recordFile): the log before the Record and the chunks, history.recordFrom; the reproduction
+// replays the first, renders each chunk (recordSpecs) = the recorded frames, bit for bit.
+function frames(spec, k) {
+  const s = str(spec), px = M._isc_live_frames(s, k, 1, info, err, 512);
+  M._free(s);
+  if (px < 0) throw new Error(M.UTF8ToString(err));
+  const p = M._isc_live_image();
+  return M.HEAPU16.slice(p / 2, p / 2 + px);
+}
+{
+  const rb = base + 'x=0 y=0 z=0.0135 exposure-ms=100 laser-561=3';
+  M._isc_live_reset();
+  const before = [{ spec: rb, n: 2, lit: true }];
+  frame(rb); frame(rb);
+  const chunks = [{ spec: rb + ' fresh-basis=1', n: 3, lit: true }, { spec: rb + ' fresh-basis=1', n: 2, lit: true },
+    { spec: base + 'x=0 y=0 z=0.0135 exposure-ms=100 laser-561=1 fresh-basis=1', n: 2, lit: true }];
+  const want = [];
+  for (const c of chunks) want.push(...frames(c.spec, c.n));
+  const h = C.historyOut(eng, [...before, ...chunks], M._isc_live_time());
+  h.recordFrom = before.length;
+  const back = JSON.parse(JSON.stringify(h)), rs = C.recordSpecs(eng, back, base);
+  M._isc_live_reset();
+  let okR = true;
+  for (const r of rs.before) { const s = str(r.spec); okR = okR && M._isc_live_advance(s, r.n, 1, err, 512) >= 0; M._free(s); }
+  const got = [];
+  for (const r of rs.record) got.push(...frames(r.spec, r.n));
+  const noHost = back.records.every(r => !('fresh-basis' in r.set));
+  check(okR && noHost && rs.before.length === 1 && rs.record.length === 3 && got.length === want.length && got.length === 7 * 16 * 16 &&
+    got.every((v, i) => v === want[i]),
+    `a Record's file (2 frames before, 3 recorded runs, the laser changed between two; recordFrom ${back.recordFrom}): the recorded frames, bit for bit`);
+}
+
 // ---- reading a file ----
 const here = { release: '0.1.0', worldVersion: '2026-10-05' };
 const file = (made, version = 1) => JSON.stringify({ format: 'insiliscope-settings', version, made, parts: { sample: { values: { seed: 1 } } } });

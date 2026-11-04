@@ -126,7 +126,7 @@ const char* PartOf(const std::string& n)
             return true;
       return false;
    };
-   if (in({ "disk-cache", "prepare", "illum-geometry" }))
+   if (in({ "disk-cache", "prepare", "illum-geometry", "fresh-basis" }))
       return "host";
    if (in({ "x", "y", "z", "focus-um", "frames", "exposure-ms", "start-sec", "frame0" }) || starts("drift-"))
       return "measurement";
@@ -181,6 +181,7 @@ const OptionTable& Options()
          { "world-seed", -1, "cell-field world seed used as is (the viewer's seed); -1 = derive it from seed" },
          { "disk-cache", 1, "per-user cache on disk ($ISC_CACHE_DIR, else %LOCALAPPDATA%/inSiliScope/cache or ~/.cache/insiliscope): 0 = none, 1 = the packed cell positions (a few MB: a rerun with the same seed and cell parameters packs nothing), 2 = also the PSF kernel (one file, up to ~200 MB)" },
          { "prepare", 0, "1 = build the world and the PSF kernel only (warms the caches), no frames" },
+         { "fresh-basis", 0, "1 = a movie's mean-field bleach basis is made for it, anchored at its first frame, never taken from an earlier movie: its frames are a function of its request alone (a Record and its reproduction from the settings file); 0 = an earlier movie's basis that holds the frame is used (faster in live, a few ADU apart)" },
          { "x", 0, "FOV centre x, world um (XY stage position)" },
          { "y", 0, "FOV centre y, world um" },
          { "z", 0.5, "Z stage: focal-plane height above the coverslip, um (as the ZStage device; it starts at 0.5)" },
@@ -1507,6 +1508,8 @@ struct ScopeSetup
    double blinkMeanFieldDensityPerUm2 = 1e9, blinkMeanFieldMaxEmitters = 1e9;
    int blinkBinnedUpscale = 2;
    double blinkMinPhotons = 50;
+   // fresh-basis: the mean-field bleach basis made for this movie (never an earlier movie's).
+   bool freshBasis = false;
    // The fiducial beads (JS S.fid): on at fid-density > 0, the type and its components through the light path.
    bool fidOn = false;
    int fidType = 0;
@@ -1671,6 +1674,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    S.blinkBinnedMaxEmitters = std::max(0.0, O("blink-binned-max-emitters"));
    S.blinkBinnedUpscale = std::max(1, std::min(8, static_cast<int>(std::lround(O("blink-binned-upscale")))));
    S.blinkMinPhotons = std::max(0.0, O("blink-min-photons"));
+   S.freshBasis = O("fresh-basis") >= 1;
    S.blinkMeanFieldDensityPerUm2 = std::max(0.0, O("blink-mean-field-density-per-um2"));
    S.blinkMeanFieldMaxEmitters = std::max(0.0, O("blink-mean-field-max-emitters"));
    // Sample drift: the per-frame path, and the query rect grown so every
@@ -4295,7 +4299,15 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
                uses += StateOf(f) == nd.patternState ? 1 : 0;
             nd.perFrame = uses < kStateBasisImages;
          }
-         if ((S.N > 1 || nd.deferred) && !nd.perFrame)
+         if ((S.N > 1 || nd.deferred) && !nd.perFrame && S.freshBasis)
+         {
+            // fresh-basis: this movie's own basis, anchored at its frame 0 (an earlier movie's, anchored elsewhere,
+            // gives the same frames within a few ADU, not bit for bit).
+            slot.scene.TakeAsyncBasis(false);
+            slot.scene.SetBleachWeights(p.wb0, false);
+            nd.anchored = slot.scene.AnchorDecay(p.wb0, nd.anchor);
+         }
+         else if ((S.N > 1 || nd.deferred) && !nd.perFrame)
          {
             slot.scene.TakeAsyncBasis(false);   // (one made: taken)
             nd.anchored = slot.scene.AnchorDecay(p.wb0, nd.anchor);

@@ -131,10 +131,12 @@ function request(n) {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; showInfo(); return; }
   if (L.pending) return;
-  const spec = movieSpec({ frames: 1 });
+  // (a recording chunk: its mean-field bleach basis its own, so its frames are a function of its file: fresh-basis)
+  const spec = movieSpec(n ? { frames: 1, 'fresh-basis': 1 } : { frames: 1 });
   const wk = worldKey(spec);
   const reset = wk !== L.worldKey;
   if (reset) { L.worldKey = wk; L.t = 0; L.log = []; }
+  if (n && !REC.log) REC.log = L.log.map(r => ({ ...r }));   // the light before the Record (its settings file)
   const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && expert() };
   if (n) { job.n = n; job.rec = true; }
   L.pending = job;
@@ -564,7 +566,7 @@ window.addEventListener('resize', drawScale);
 // (Advanced): chunks of frames, each one movie on the sample's clock (isc_live_frames; ~2 M pixels per chunk), back to
 // back, the last frame of each chunk shown; Record again stops early and saves the frames so far. At most 1 GB.
 const REC = L.rec = { on: false, stop: false, live: false, n: 0, got: 0, buf: null, w: 0, h: 0, spec: '', tStart: 0,
-  litStart: 0, t0: 0, engineMs: 0, msg: '' };
+  litStart: 0, t0: 0, engineMs: 0, msg: '', now: null, log: null, chunks: [] };
 // the fresh sample's time at its first frame (the movie's start-sec; 0 = the light comes on): not the Start time
 // setting, which live keeps; hidden with "continue the live sample", which runs on from the live sample's time
 const syncRecT = () => { $('lv_recTRow').hidden = $('lv_recLive').checked; };
@@ -589,7 +591,10 @@ function startRec() {
   const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), side = Math.max(1, +$('mv_size').value || 128);
   const max = Math.floor(1e9 / (2 * side * side));
   Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n: Math.min(n, max), got: 0, buf: null,
-    exp: exposureSec(), t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '' });
+    exp: exposureSec(), t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '',
+    log: null, chunks: [], pxUm: (+$('mv_pixel-nm').value || 100) / 1000 });
+  // the settings as the Record begins (its file: web/live/settings_file.js recordFile)
+  REC.now = self.iscSettings ? self.iscSettings.current(REC.live ? { frames: REC.n } : { frames: REC.n, 'start-sec': recStartSec() }) : null;
   iscTrack('record', { frames: iscTrack.framesBucket(REC.n), continue: REC.live });
   if (L.on) L.on = false;
   syncButtons();
@@ -598,7 +603,7 @@ function startRec() {
 function recMovie() {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; REC.on = false; syncButtons(); showInfo(); return; }
-  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec() }), fresh: true, t0: performance.now() };
+  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }), fresh: true, t0: performance.now() };
   L.pending = job;
   w.postMessage(job);
 }
@@ -633,6 +638,7 @@ function onRecChunk(d, job) {
     const k = Math.min(n, REC.n - REC.got);
     REC.buf.set(d.frames.subarray(0, k * px), REC.got * px);
     REC.got += k;
+    REC.chunks.push({ spec: job.spec, n: k, lit: true });
     REC.engineMs += d.workerMs || 0;
   }
   L.err = '';
@@ -667,8 +673,14 @@ function openPlayer(n) {
       : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.recorded=${new Date().toISOString()}`,
         'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
   closePlayer();
+  // the recording's settings file: the movie reproducible from it (insiliscope_cli --settings)
+  let settings = null;
+  try {
+    if (REC.now && self.iscSettings) settings = self.iscSettings.recordFile({ mode: REC.live ? 'live' : 'fresh', now: REC.now, frames: n,
+      log: REC.log || [], chunks: REC.chunks, tSec: L.t }, 'insiliscope-recording');
+  } catch (e) { console.warn('the recording\'s settings file:', e); }
   Object.assign(PLAY, { on: true, frames: REC.buf.subarray(0, n * REC.w * REC.h), w: REC.w, h: REC.h, n, desc, spec: REC.spec,
-    exp, pxUm: (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1 });
+    exp, pxUm: REC.pxUm || (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1, settings });
   $('lv_playPos').max = n - 1;
   $('lv_play').hidden = false;
   $('liveView').classList.add('playing');

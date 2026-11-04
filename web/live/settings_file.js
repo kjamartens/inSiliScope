@@ -47,8 +47,9 @@ function viewValues() {
 }
 // The four engine parts: every engine option of each (the spec's value, else the engine's default), the keys the spec
 // has besides (p.*, zern.*, dye fields), names for enumerations; and what the viewer keeps of each beside them.
-function current() {
-  const spec = parseSpec(movieSpec());
+// over: movieSpec's overrides (a Record's frames and start time).
+function current(over) {
+  const spec = parseSpec(movieSpec(over));
   const values = { instrument: {}, settings: {}, sample: {}, measurement: {} };
   for (const [k, o] of ENG()) if (values[o.part]) values[o.part][k] = spec.has(k) ? spec.get(k) : o.def;
   for (const [k, v] of spec) { const p = partOf(k); if (!ENG().has(k) && values[p]) values[p][k] = v; }
@@ -100,18 +101,34 @@ function summary(part, values, viewer, history) {
 }
 
 // ---- the file ----
-function makeFile(parts, name) {
-  const now = current(), out = { format: FORMAT, version: VERSION,
+// opt (a Record's file, recordFile): now = current() as the Record began, history (null: none, a fresh sample),
+// record = {mode, frames}.
+function makeFile(parts, name, opt = {}) {
+  const now = opt.now || current(), hist = opt.history !== undefined ? opt.history : historyOut(), out = { format: FORMAT, version: VERSION,
     made: { app: 'viewer', release: self.ISC_VERSION || '', worldVersion: self.ISC_WORLD_VERSION || '', date: new Date().toISOString() },
     parts: {} };
   for (const p of parts) {
-    const part = { name, id: idOf(now.values[p]), summary: summary(p, now.values[p], now.viewer[p], p === 'measurement' ? historyOut() : null),
+    const part = { name, id: idOf(now.values[p]), summary: summary(p, now.values[p], now.viewer[p], p === 'measurement' ? hist : null),
       values: now.values[p] };
     if (now.viewer[p]) part.viewer = now.viewer[p];
-    if (p === 'measurement') part.history = historyOut();
+    if (p === 'measurement' && hist) part.history = hist;
+    if (p === 'measurement' && opt.record) part.record = opt.record;
     out.parts[p] = part;
   }
   return out;
+}
+// A Record's settings file: the movie it made, reproducible (insiliscope_cli --settings; docs/dev/SAVE_SETTINGS.md).
+// rec = {mode: 'fresh' | 'live', now: current() at its start, frames, log: the live log before it, chunks: its runs
+// ({spec, n, lit}, one isc_live_frames call each), tSec}. Fresh: no history (a movie at its start-sec); live: the
+// history with the recorded runs after the light before them (history.recordFrom).
+function recordFile(rec, name) {
+  const parts = ['instrument', 'settings', 'sample', 'measurement'];
+  const now = JSON.parse(JSON.stringify(rec.now));
+  now.values.measurement.frames = rec.frames;
+  if (rec.mode === 'fresh') return makeFile(parts, name, { now, history: null, record: { mode: 'fresh', frames: rec.frames } });
+  const h = C.historyOut(ENG(), [...rec.log, ...rec.chunks], rec.tSec);
+  h.recordFrom = rec.log.length;
+  return makeFile(parts, name, { now, history: h, record: { mode: 'live', frames: rec.frames } });
 }
 const readFile = text => C.readFile(text, { release: self.ISC_VERSION, worldVersion: self.ISC_WORLD_VERSION });
 
@@ -395,5 +412,5 @@ document.addEventListener('drop', ev => {
 });
 
 // for the browser tests and the console: the file of the current setup, and loading one
-self.iscSettings = { makeFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS };
+self.iscSettings = { makeFile, recordFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS };
 })();

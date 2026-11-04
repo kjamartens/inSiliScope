@@ -262,7 +262,18 @@ bool ReadText(const std::string& text, const std::vector<std::string>& partsIn, 
          continue;
       out.haveMeasurement = true;
       out.history.clear();
+      out.recordFrom = -1;
+      out.recordMode.clear();
+      if (const Json* rec = part->Get("record"))
+         if (const Json* mode = rec->Get("mode"))
+            if (mode->type == Json::String)
+               out.recordMode = mode->str;
+      if (out.recordMode == "fresh")
+         sim::ScopeSpecSet(out.spec, "fresh-basis", 1);
       const Json* hist = part->Get("history");
+      if (const Json* rf = hist ? hist->Get("recordFrom") : nullptr)
+         if (rf->type == Json::Number && rf->num >= 0)
+            out.recordFrom = static_cast<long>(rf->num);
       const Json* recs = hist ? hist->Get("records") : nullptr;
       if (!recs || recs->type != Json::Array)
          continue;
@@ -286,6 +297,11 @@ bool ReadText(const std::string& text, const std::vector<std::string>& partsIn, 
          rec.spec = cur;
          out.history.push_back(std::move(rec));
       }
+      if (out.recordFrom > static_cast<long>(out.history.size()))
+      {
+         err = "history: recordFrom " + std::to_string(out.recordFrom) + " beyond its " + std::to_string(out.history.size()) + " records";
+         return false;
+      }
    }
    return true;
 }
@@ -303,21 +319,27 @@ bool Read(const std::string& path, const std::vector<std::string>& parts, Loaded
    return ReadText(text.str(), parts, out, err);
 }
 
-bool Replay(const Loaded& s, sim::LiveScope& live, std::string& err)
+sim::ScopeSpec RunSpec(const Loaded& s, size_t i)
+{
+   sim::ScopeSpec spec = s.history[i].spec;
+   for (const auto& kv : s.spec)
+   {
+      const char* part = sim::ScopeOptionPart(kv.first);
+      if (part && !std::strcmp(part, "sample"))
+         spec[kv.first] = kv.second;
+   }
+   // A recorded run: its mean-field bleach basis its own, as the viewer's Record made it (fresh-basis).
+   if (s.recordFrom >= 0 && static_cast<long>(i) >= s.recordFrom)
+      spec["fresh-basis"] = 1;
+   return spec;
+}
+
+bool Replay(const Loaded& s, sim::LiveScope& live, std::string& err, size_t count)
 {
    live.Reset();
-   for (const Record& r : s.history)
-   {
-      sim::ScopeSpec spec = r.spec;
-      for (const auto& kv : s.spec)
-      {
-         const char* part = sim::ScopeOptionPart(kv.first);
-         if (part && !std::strcmp(part, "sample"))
-            spec[kv.first] = kv.second;
-      }
-      if (!live.Advance(spec, r.n, r.lit, err))
+   for (size_t i = 0; i < s.history.size() && i < count; ++i)
+      if (!live.Advance(RunSpec(s, i), s.history[i].n, s.history[i].lit, err))
          return false;
-   }
    return true;
 }
 
