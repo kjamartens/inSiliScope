@@ -3,7 +3,7 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
-## Unreleased
+## v0.1.0-rc18 (changes since v0.1.0-rc17)
 
 - **Ground truth** ([docs](docs/ground-truth.md)): a recording's **Save** can add its settings file (reproduces the
   movie) and its ground truth in one .zip: a table per frame; a localization table (blinks with at least 300 photons
@@ -11,6 +11,10 @@ Versions follow semver; while 0.x, any release may change the output for a given
   dye list; density stacks of the continuous dyes. `voxelize.html` (☰ › Tools) makes stacks at any voxel size;
   `open_in_napari.py` opens the recording in napari. The cli writes the same: `--gt-out`, `--gt-min`, `--gt-volume`.
   Core ABI 19 (`isc_dye_details_in_window`); every output unchanged.
+- The ground truth is computed while the Save box is open, or alongside the Record when the last Save included it
+  (a Record up to ~10 % slower; Live is never slowed).
+- A Record's settings file reproduces it (its settings as it began, the recorded runs); one started before the
+  viewer had loaded its option list was empty.
 
 ## v0.1.0-rc17 (changes since v0.1.0-rc16)
 
