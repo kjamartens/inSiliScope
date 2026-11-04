@@ -13,8 +13,10 @@ Layers (docs: https://kjamartens.github.io/inSiliScope/docs/ground-truth/):
                               2D it stands at every z (a camera image is a projection), in 3D it is drawn as a plane
                               at the focal height
   density <target>            the ground truth's density stacks: detected photons per voxel
-  localizations               every blink (and bead) of localizations.csv, at its own frame, coloured by
-                              target; "all frames" (hidden) holds them all at once, for 3D
+  localizations <target>      every blink of localizations.csv, a layer per label (its beads: "localizations
+                              bead"), at its own frame; "<...>, all frames" (hidden) holds them all at once, for
+                              3D. The size (nm), symbol and colour controls change every point when none is
+                              selected.
   beads                       fiducials.csv, per frame
   <stack> <channel>           a voxelize .tif: a layer per channel, read a plane at a time
 The axes are frame, z, y, x; the status bar shows the pointer's world position in um.
@@ -26,6 +28,7 @@ import sys
 import zipfile
 
 COLOURS = ['magenta', 'green', 'cyan', 'yellow', 'red', 'blue']
+NM = 1000.0   # points layers hold nm (scale 1 / NM: world um), so a point's size is in nm
 
 
 class Source:
@@ -125,16 +128,24 @@ def layers_of_recording(src):
             feats = dict(target=target, photons=num(rows, 'intensity [photon]'), kind=np.array([r['kind'] for r in rows]))
             if 'core_photons' in rows[0]:
                 feats['core_photons'] = num(rows, 'core_photons')
-            style = dict(features=feats, face_color='target', face_color_cycle=COLOURS[:max(1, len(targets))],
-                         border_width=0, size=0.06)
-            out.append(('points', np.stack([t, z, y, x], 1), dict(name=f'localizations ({tables[0][3:-4]})', **style)))
-            out.append(('points', np.stack([z, y, x], 1), dict(name='localizations, all frames', visible=False, **style)))
+            # a layer per label (its own colour, size and symbol to change), and its every frame at once (hidden, for 3D);
+            # in nm with a scale of 1e-3 (the same world um): napari's size slider takes whole data units from 1
+            for k, name in enumerate(targets):
+                on = target == name
+                style = dict(features={c: v[on] for c, v in feats.items()}, face_color=COLOURS[k % len(COLOURS)],
+                             border_width=0, size=100 if name == 'bead' else 60)
+                out.append(('points', np.stack([t, z * NM, y * NM, x * NM], 1)[on],
+                            dict(name=f'localizations {name}', scale=(1,) + (1 / NM,) * 3, **style)))
+                out.append(('points', np.stack([z * NM, y * NM, x * NM], 1)[on],
+                            dict(name=f'localizations {name}, all frames', scale=(1 / NM,) * 3, visible=False, **style)))
     if src.has('gt/fiducials.csv'):
         rows = src.table('gt/fiducials.csv')
         if rows:
             pts = np.stack([num(rows, 'frame'), num(rows, 'z_world_um'), num(rows, 'y_world_um'), num(rows, 'x_world_um')], 1)
             zs += [float(np.nanmin(pts[:, 1])), float(np.nanmax(pts[:, 1]))]
-            out.append(('points', pts, dict(name='beads', face_color='yellow', border_width=0, size=0.1)))
+            pts[:, 1:] *= NM
+            out.append(('points', pts, dict(name='beads', scale=(1,) + (1 / NM,) * 3, face_color='yellow',
+                                            border_width=0, size=100)))
     if src.has('movie.tif'):
         with tifffile.TiffFile(io.BytesIO(src.read('movie.tif'))) as tf:
             m = tf.asarray()
@@ -255,6 +266,22 @@ def add_layer(viewer, kind, data, kw):
         return add(data, **kw)
 
 
+def edit_whole(layer):
+    """napari's point controls (size, symbol, face and border colour, border width) change the selected points only;
+    with none selected they change only the next added point. Here a change with no point selected changes them all
+    (a selection still changes just the selection; napari sets the controls from a selection with none of this)."""
+    def follow(name):
+        def apply(event=None):
+            if len(layer.selected_data) == 0:
+                setattr(layer, name, getattr(layer, 'current_' + name))
+        return apply
+    for name in ('size', 'symbol', 'face_color', 'border_color', 'border_width'):
+        try:
+            getattr(layer.events, 'current_' + name).connect(follow(name))
+        except AttributeError:   # (an older napari: no such control or event)
+            pass
+
+
 def show(paths):
     import napari
     viewer = napari.Viewer(title='inSiliScope: ' + ', '.join(os.path.basename(p.rstrip('/\\')) for p in paths))
@@ -264,6 +291,8 @@ def show(paths):
         focus = f if focus is None else focus
         for kind, data, kw in layers:
             layer = add_layer(viewer, kind, data, kw)
+            if kind == 'points':
+                edit_whole(layer)
             if kw.get('name') == 'movie':
                 try:   # in 3D: a plane at the focal height (the layer's only data plane)
                     layer.depiction = 'plane'

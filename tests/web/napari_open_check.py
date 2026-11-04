@@ -4,7 +4,7 @@ window): python tests/web/napari_open_check.py <recording.zip>   (needs numpy, t
 
 Runs the zip's open_in_napari.py as `python open_in_napari.py <zip>` does and checks the layers: the movie (its frames,
 its pixel size, at the stage position: the localizations sit on brighter movie pixels than they would flipped in y),
-the localizations (every row of the lowest-threshold table, at its frame), the density stacks (their voxel size and
+the localizations (every row of localizations.csv, a layer per label, at its frame), the density stacks (their voxel size and
 origin; one grid for all), the axis names; then the same file dropped on napari (unpacked, and beside the zip). Exit 0
 when every check passes. viewer_save.mjs runs it on its zip."""
 import csv
@@ -104,19 +104,31 @@ def main(path):
         check(not any(str(l.kw.get('name', '')).startswith('localizations') for l in v.layers),
               f'{tables[0]} holds no rows: no localizations layer')
     if rows:
-        loc = next((l for l in v.layers if str(l.kw.get('name', '')).startswith('localizations (')), None)
-        check(loc is not None and loc.data.shape == (len(rows), 4) and
-              np.array_equal(loc.data[:, 0], [float(r['frame']) for r in rows]) and
-              np.allclose(loc.data[:, 3], [float(r['x_world_um']) for r in rows]),
-              f'localizations: the {len(rows)} rows of {tables[0]}, at their frames, world x, y, z')
+        # a layer per label (a target, or "fiducial" for the beads), each in one colour, its rows in the table's order
+        labels = sorted({r['target'] or r['kind'] for r in rows})
+        per = {n: byname.get(f'localizations {n}') for n in labels}
+        good = all(l is not None and isinstance(l.kw.get('face_color'), str) for l in per.values())
+        for n, l in per.items():
+            mine = [r for r in rows if (r['target'] or r['kind']) == n]
+            allf = byname.get(f'localizations {n}, all frames')
+            w = np.asarray(l.data) * l.kw.get('scale', 1)   # world: frame, um
+            good = good and l.data.shape == (len(mine), 4) and np.array_equal(l.data[:, 0], [float(r['frame']) for r in mine]) \
+                and np.allclose(w[:, 3], [float(r['x_world_um']) for r in mine]) \
+                and allf is not None and allf.kw.get('visible') is False and np.array_equal(allf.data, l.data[:, 1:])
+        n_loc = sum(1 for l in v.layers if str(l.kw.get('name', '')).startswith('localizations '))
+        check(good and n_loc == 2 * len(labels),
+              f'localizations: a layer per label ({", ".join(labels)}; each one colour, and its frames at once, hidden): '
+              f'the {len(rows)} rows of {tables[0]}, at their frames, world x, y, z')
         # the movie under them: brighter where they are than where they would be flipped in y
         m = mv.data[:, 0].astype(float)
-        top = np.argsort(-loc.kw['features']['photons'])[:200]
+        locs = np.concatenate([np.asarray(l.data) * l.kw.get('scale', 1) for l in per.values() if l is not None])
+        photons = np.concatenate([l.kw['features']['photons'] for l in per.values() if l is not None])
+        top = np.argsort(-photons)[:200]
 
         def ratio(flip):
             r = []
             for k in top:
-                t, z, y, x = loc.data[k]
+                t, z, y, x = locs[k]
                 i, j = int(round((y - y0) / px)), int(round((x - x0) / px))
                 if flip:
                     i = H - 1 - i

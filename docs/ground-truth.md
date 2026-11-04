@@ -188,8 +188,11 @@ what puts the parts together. napari then shows every part of the recording in w
 - **movie**: the frames where the camera saw them (the stage position, the pixel size). In 2D it stands at every z (a
   camera image is a projection); in 3D it is a plane at the focal height.
 - **density** stacks (`gt_volume_*.tif`), a layer per target, coloured.
-- **localizations** of the lowest-threshold table, each at its own frame, coloured by target, with their photons as a
-  feature; "all frames" (hidden) holds them all at once, for 3D.
+- **localizations** of `localizations.csv`, a layer per label (`localizations Microtubules`, `localizations Nuclear
+  pores`, `localizations bead` for the beads), each at its own frame and in its own colour, with their photons and core
+  photons as features; "..., all frames" (hidden) holds a label's all at once, for 3D. The point size is in nm (60 by
+  default, beads 100). napari's size, symbol and colour controls change only the selected points; here, with none
+  selected, they change every point of the layer.
 - **beads** (`fiducials.csv`), per frame.
 
 The axes are named frame, z, y, x (µm); the status bar shows the pointer's world position. From a terminal it takes paths too:
