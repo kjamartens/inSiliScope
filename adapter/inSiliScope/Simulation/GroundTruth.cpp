@@ -15,7 +15,10 @@
 #include "Timing.h"
 #include "Voxelize.h"
 
+#include "Parallel.h"
+
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cctype>
 #include <cstdio>
@@ -63,14 +66,73 @@ std::string Fmt(const char* f, double v)
 void Num(std::string& out, double v, const char* fmt)
 {
    out += ',';
-   if (!std::isfinite(v))
+   AppendCsvNumber(out, v, fmt);
+}
+
+// Appends an integer (std::to_string's digits).
+void Int(std::string& out, long long v)
+{
+   char b[24];
+   const std::to_chars_result r = std::to_chars(b, b + sizeof b, v);
+   out.append(b, r.ptr);
+}
+
+// A table's rows (n of them) in order: row(i, out) appends row i (or nothing). Native: in waves of chunks formatted
+// on all cores, each wave appended in order and let go (the peak: the table and one wave); serial in WASM.
+template <class Row>
+void Rows(std::string& out, size_t n, const Row& row)
+{
+#if defined(__EMSCRIPTEN__)
+   for (size_t i = 0; i < n; ++i)
+      row(i, out);
+#else
+   const size_t kChunk = 16384;
+   const unsigned threads = std::max(1u, HardwareThreads());
+   if (n <= kChunk || threads == 1)
+   {
+      for (size_t i = 0; i < n; ++i)
+         row(i, out);
       return;
-   char b[48];
-   std::snprintf(b, sizeof b, fmt, v);
-   out += b;
+   }
+   std::vector<std::string> parts(threads);
+   for (size_t w0 = 0; w0 < n; w0 += kChunk * threads)
+   {
+      const unsigned chunks = static_cast<unsigned>(std::min<size_t>(threads, (n - w0 + kChunk - 1) / kChunk));
+      ParallelFor(chunks, [&](unsigned c) {
+         std::string& s = parts[c];
+         s.clear();
+         const size_t a = w0 + static_cast<size_t>(c) * kChunk, b = std::min(n, a + kChunk);
+         for (size_t i = a; i < b; ++i)
+            row(i, s);
+      });
+      for (unsigned c = 0; c < chunks; ++c)
+         out += parts[c];
+   }
+#endif
 }
 
 } // namespace
+
+void AppendCsvNumber(std::string& out, double v, const char* fmt)
+{
+   if (!std::isfinite(v))
+      return;
+   // fmt is "%.<digit>f" or "%.<digit>g": std::to_chars with that precision, which the standard defines as printf's
+   // conversion in the "C" locale (ground_truth_check compares it with snprintf); a printf into 48 bytes kept at most
+   // 47 characters.
+   char b[400];
+   const int prec = fmt[2] - '0';
+   const std::chars_format f = fmt[3] == 'g' ? std::chars_format::general : std::chars_format::fixed;
+   const std::to_chars_result r = std::to_chars(b, b + sizeof b, v, f, prec);
+   if (r.ec != std::errc())
+   {
+      char c[48];
+      std::snprintf(c, sizeof c, fmt, v);
+      out += c;
+      return;
+   }
+   out.append(b, std::min<size_t>(static_cast<size_t>(r.ptr - b), 47));
+}
 
 GroundTruth::Emitter::Emitter()
 {
@@ -254,7 +316,7 @@ std::string GroundTruth::FramesCsv() const
    out += pattern ? ",pattern_angle,pattern_phase\n" : "\n";
    for (const Frame& f : frames)
    {
-      out += std::to_string(f.frame);
+      Int(out, f.frame);
       Num(out, f.tSec, "%.6f");
       Num(out, f.expSec, "%.6g");
       Num(out, f.stageXUm, "%.6f");
@@ -266,7 +328,10 @@ std::string GroundTruth::FramesCsv() const
       Num(out, f.driftZNm, "%.4f");
       if (pattern)
       {
-         out += ',' + std::to_string(f.patternAngle) + ',' + std::to_string(f.patternPhase);
+         out += ',';
+         Int(out, f.patternAngle);
+         out += ',';
+         Int(out, f.patternPhase);
       }
       out += '\n';
    }
@@ -281,47 +346,56 @@ std::string GroundTruth::EmittersCsv(double minOnCamera, bool fiducials) const
                      "photons_emitted,offset [photon],bg_centre_photons,wavelength_nm,excitation,regime,bead_diameter_nm,"
                      "orient_polar_deg,orient_azimuth_deg\n";
    out.reserve(out.size() + emitters.size() * 260);
-   static const char* regimes[] = { "splat", "binned", "bead" };
-   for (const Emitter& e : emitters)
-   {
+   static const char* regimes[] = { ",splat", ",binned", ",bead" };
+   // Each label's ",target,dye,mode" once (none: a bead's ",bead,,", an emitter's ",,,").
+   std::vector<std::string> prefix(labels.size());
+   for (size_t i = 0; i < labels.size(); ++i)
+      prefix[i] = ',' + Field(labels[i].target) + ',' + Field(labels[i].dye) + ',' + Field(labels[i].mode);
+   const double nan = std::numeric_limits<double>::quiet_NaN();
+   Rows(out, emitters.size(), [&](size_t i, std::string& o) {
+      const Emitter& e = emitters[i];
       if (!(e.onCamera >= minOnCamera))
-         continue;
+         return;
       if (e.kind == Fiducial && !fiducials)
-         continue;
+         return;
       const Label* L = e.label >= 0 && e.label < static_cast<int>(labels.size()) ? &labels[static_cast<size_t>(e.label)] : nullptr;
-      out += std::to_string(e.frame);
-      const double t = e.frame >= 0 && e.frame < static_cast<long>(frames.size()) ? frames[static_cast<size_t>(e.frame)].tSec
-                                                                                   : std::numeric_limits<double>::quiet_NaN();
-      Num(out, t, "%.6f");
-      out += e.kind == Fiducial ? ",fiducial" : ",emitter";
-      out += ',' + (e.kind == Fiducial ? std::string() : std::to_string(e.id));
-      out += ',' + Field(L ? L->target : std::string(e.kind == Fiducial ? "bead" : ""));
-      out += ',' + Field(L ? L->dye : std::string());
-      out += ',' + Field(L ? L->mode : std::string());
-      out += ',' + std::string(e.kind == Fiducial ? "" : StateName(e.state));
-      Num(out, (e.xPx + 0.5) * pixelNm, "%.3f");
-      Num(out, (e.yPx + 0.5) * pixelNm, "%.3f");
-      Num(out, e.zFocusNm, "%.3f");
-      Num(out, e.xUm, "%.6f");
-      Num(out, e.yUm, "%.6f");
-      Num(out, e.zUm, "%.6f");
-      Num(out, e.siteXUm, "%.6f");
-      Num(out, e.siteYUm, "%.6f");
-      Num(out, e.siteZUm, "%.6f");
-      Num(out, e.onFraction, "%.6g");
-      Num(out, e.detected, "%.4f");
-      Num(out, e.onCamera, "%.4f");
-      Num(out, e.emitted, "%.4f");
-      Num(out, e.bg, "%.4f");
-      Num(out, e.bgCentre, "%.4f");
-      Num(out, L ? L->wavelengthNm : std::numeric_limits<double>::quiet_NaN(), "%.4g");
-      Num(out, e.excite, "%.6g");
-      out += ',' + std::string(regimes[std::min<int>(e.regime, 2)]);
-      Num(out, e.kind == Fiducial ? e.beadNm : std::numeric_limits<double>::quiet_NaN(), "%.4g");
-      Num(out, e.polarDeg, "%.4f");
-      Num(out, e.azimuthDeg, "%.4f");
-      out += '\n';
-   }
+      Int(o, e.frame);
+      const double t = e.frame >= 0 && e.frame < static_cast<long>(frames.size()) ? frames[static_cast<size_t>(e.frame)].tSec : nan;
+      Num(o, t, "%.6f");
+      if (e.kind == Fiducial)
+         o += ",fiducial,";
+      else
+      {
+         o += ",emitter,";
+         Int(o, e.id);
+      }
+      o += L ? prefix[static_cast<size_t>(e.label)] : e.kind == Fiducial ? std::string(",bead,,") : std::string(",,,");
+      o += ',';
+      if (e.kind != Fiducial)
+         o += StateName(e.state);
+      Num(o, (e.xPx + 0.5) * pixelNm, "%.3f");
+      Num(o, (e.yPx + 0.5) * pixelNm, "%.3f");
+      Num(o, e.zFocusNm, "%.3f");
+      Num(o, e.xUm, "%.6f");
+      Num(o, e.yUm, "%.6f");
+      Num(o, e.zUm, "%.6f");
+      Num(o, e.siteXUm, "%.6f");
+      Num(o, e.siteYUm, "%.6f");
+      Num(o, e.siteZUm, "%.6f");
+      Num(o, e.onFraction, "%.6g");
+      Num(o, e.detected, "%.4f");
+      Num(o, e.onCamera, "%.4f");
+      Num(o, e.emitted, "%.4f");
+      Num(o, e.bg, "%.4f");
+      Num(o, e.bgCentre, "%.4f");
+      Num(o, L ? L->wavelengthNm : nan, "%.4g");
+      Num(o, e.excite, "%.6g");
+      o += regimes[std::min<int>(e.regime, 2)];
+      Num(o, e.kind == Fiducial ? e.beadNm : nan, "%.4g");
+      Num(o, e.polarDeg, "%.4f");
+      Num(o, e.azimuthDeg, "%.4f");
+      o += '\n';
+   });
    return out;
 }
 
@@ -329,27 +403,27 @@ std::string GroundTruth::FiducialsCsv() const
 {
    std::string out = "frame,t_s,x [nm],y [nm],z [nm],x_world_um,y_world_um,z_world_um,bead_diameter_nm,photons_detected,"
                      "intensity [photon],offset [photon],bg_centre_photons\n";
-   for (const Emitter& e : emitters)
-   {
+   const double nan = std::numeric_limits<double>::quiet_NaN();
+   Rows(out, emitters.size(), [&](size_t i, std::string& o) {
+      const Emitter& e = emitters[i];
       if (e.kind != Fiducial)
-         continue;
-      out += std::to_string(e.frame);
-      const double t = e.frame >= 0 && e.frame < static_cast<long>(frames.size()) ? frames[static_cast<size_t>(e.frame)].tSec
-                                                                                   : std::numeric_limits<double>::quiet_NaN();
-      Num(out, t, "%.6f");
-      Num(out, (e.xPx + 0.5) * pixelNm, "%.3f");
-      Num(out, (e.yPx + 0.5) * pixelNm, "%.3f");
-      Num(out, e.zFocusNm, "%.3f");
-      Num(out, e.xUm, "%.6f");
-      Num(out, e.yUm, "%.6f");
-      Num(out, e.zUm, "%.6f");
-      Num(out, e.beadNm, "%.4g");
-      Num(out, e.detected, "%.4f");
-      Num(out, e.onCamera, "%.4f");
-      Num(out, e.bg, "%.4f");
-      Num(out, e.bgCentre, "%.4f");
-      out += '\n';
-   }
+         return;
+      Int(o, e.frame);
+      const double t = e.frame >= 0 && e.frame < static_cast<long>(frames.size()) ? frames[static_cast<size_t>(e.frame)].tSec : nan;
+      Num(o, t, "%.6f");
+      Num(o, (e.xPx + 0.5) * pixelNm, "%.3f");
+      Num(o, (e.yPx + 0.5) * pixelNm, "%.3f");
+      Num(o, e.zFocusNm, "%.3f");
+      Num(o, e.xUm, "%.6f");
+      Num(o, e.yUm, "%.6f");
+      Num(o, e.zUm, "%.6f");
+      Num(o, e.beadNm, "%.4g");
+      Num(o, e.detected, "%.4f");
+      Num(o, e.onCamera, "%.4f");
+      Num(o, e.bg, "%.4f");
+      Num(o, e.bgCentre, "%.4f");
+      o += '\n';
+   });
    return out;
 }
 
@@ -359,29 +433,29 @@ std::string GroundTruth::DyesCsv() const
                      "site_z_world_um,t_on_s,t_off_s,photons_per_s,photons_detected_total,photons_emitted_total,"
                      "orient_polar_deg,orient_azimuth_deg\n";
    out.reserve(out.size() + dyes_.size() * 170);   // (~155 bytes a row: one allocation)
-   for (const Dye& d : dyes_)
-   {
-      const Label* L = d.label >= 0 && d.label < static_cast<int>(labels.size()) ? &labels[static_cast<size_t>(d.label)] : nullptr;
-      out += std::to_string(d.id);
-      out += ',' + Field(L ? L->target : std::string());
-      out += ',' + Field(L ? L->dye : std::string());
-      out += ',' + Field(L ? L->mode : std::string());
-      out += ',' + std::string(StateName(d.state));
-      Num(out, d.xUm, "%.6f");
-      Num(out, d.yUm, "%.6f");
-      Num(out, d.zUm, "%.6f");
-      Num(out, d.siteXUm, "%.6f");
-      Num(out, d.siteYUm, "%.6f");
-      Num(out, d.siteZUm, "%.6f");
-      Num(out, d.tOnSec, "%.6f");
-      Num(out, d.tOffSec, "%.6f");
-      Num(out, d.photonsPerSec, "%.6g");
-      Num(out, d.detectedTotal, "%.6g");
-      Num(out, d.emittedTotal, "%.6g");
-      Num(out, d.polarDeg, "%.4f");
-      Num(out, d.azimuthDeg, "%.4f");
-      out += '\n';
-   }
+   std::vector<std::string> prefix(labels.size());
+   for (size_t i = 0; i < labels.size(); ++i)
+      prefix[i] = ',' + Field(labels[i].target) + ',' + Field(labels[i].dye) + ',' + Field(labels[i].mode) + ',';
+   Rows(out, dyes_.size(), [&](size_t i, std::string& o) {
+      const Dye& d = dyes_[i];
+      Int(o, d.id);
+      o += d.label >= 0 && d.label < static_cast<int>(labels.size()) ? prefix[static_cast<size_t>(d.label)] : std::string(",,,,");
+      o += StateName(d.state);
+      Num(o, d.xUm, "%.6f");
+      Num(o, d.yUm, "%.6f");
+      Num(o, d.zUm, "%.6f");
+      Num(o, d.siteXUm, "%.6f");
+      Num(o, d.siteYUm, "%.6f");
+      Num(o, d.siteZUm, "%.6f");
+      Num(o, d.tOnSec, "%.6f");
+      Num(o, d.tOffSec, "%.6f");
+      Num(o, d.photonsPerSec, "%.6g");
+      Num(o, d.detectedTotal, "%.6g");
+      Num(o, d.emittedTotal, "%.6g");
+      Num(o, d.polarDeg, "%.4f");
+      Num(o, d.azimuthDeg, "%.4f");
+      o += '\n';
+   });
    return out;
 }
 
