@@ -173,7 +173,8 @@ that finishes them.
   drawn blinks and beads with photons on the camera (the splat's 1-photon footprint) and the PSF-weighted non-blink
   light, continuous dyes with their photons over the frames; at Render's end one core query adds sites and dipoles
   (core ABI 19 `isc_dye_details_in_window`, stride 11, by id; goldens unchanged). `GroundTruth::Files` writes
-  frames.csv, localizations_min<N>.csv / fiducials.csv, dyes.csv (optional: ~100 MB at 128 px WideField),
+  frames.csv, localizations_min<N>.csv / fiducials.csv, dyes.csv (only without a blinking label: localizations or a dye list, never both, also in the Save box;
+  optional: ~100 MB at 128 px WideField),
   density_<target>[_<state>].tif (emitted photons per voxel, 50/50/25 nm, float32 ImageJ, capped 256 MB), README.txt.
   Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` (a `gt` job on the live worker) and
   the cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both on `settings::RenderMovie`; `web/voxelize.html` (the

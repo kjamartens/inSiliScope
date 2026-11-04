@@ -10,7 +10,7 @@ Versions follow semver; while 0.x, any release may change the output for a given
   `insiliscope_cli --settings`) and its ground truth in one .zip. The ground truth: a table per frame (time, stage,
   focus, drift, pattern state); localization tables at two thresholds of photons on the camera (5 and 300), with the
   dye's position, its binding site, photons detected / on the camera / emitted, the PSF-weighted background, the beads
-  as `fiducial` rows; for continuous dyes (WideField, dSTORM's initial ON, PALM's pre state) a dye list and
+  as `fiducial` rows; for a recording without a blinking label (WideField) a dye list instead; for continuous dyes
   photon-weighted density stacks (float32, voxel size for Fiji and napari) with `voxelize.html`, a converter that
   needs no installation. The cli writes the same files: `--gt-out`, `--gt-min`, `--gt-volume`. Core ABI 19
   (`isc_dye_details_in_window`); every output unchanged.

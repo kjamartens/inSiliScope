@@ -40,7 +40,7 @@ noisy count.
 | `gt/frames.csv` | Ground truth | one row per image |
 | `gt/localizations_min5.csv`, `_min300.csv` | a blinking label (dSTORM, PALM, DNA-PAINT) | every blink drawn (and every bead) with at least 5 or 300 photons on the camera, one row per frame |
 | `gt/fiducials.csv` | beads, no blinking label | every bead per frame |
-| `gt/dyes.csv` | continuous dyes (WideField, dSTORM's initial ON, PALM's pre state); optional | one row per dye |
+| `gt/dyes.csv` | no blinking label (WideField); optional | one row per dye |
 | `gt/density_<target>[_<state>].tif` | continuous dyes | a density stack per target: emitted photons per voxel |
 | `gt/README.txt`, `gt/voxelize.html` | Ground truth | what is in this zip; a converter to other voxel sizes |
 
@@ -89,9 +89,11 @@ A blink that **Quality** left out of the image is left out of the tables too. At
 ### Continuous dyes: dyes.csv and the density stacks
 
 WideField dyes, dSTORM's initial-ON phase and PALM's pre-state shine together rather than as separate blinks, so a
-localization table makes no sense for them. Two other files cover them instead:
+localization table makes no sense for them. A recording's ground truth is its localizations or its dye list, never
+both: with a blinking label (dSTORM, PALM, DNA-PAINT) the localization tables, without one (WideField) the dye list.
+The density stacks come with either.
 
-- `dyes.csv` lists each dye with its position and binding site, its window in the sample's time (`t_on_s`, `t_off_s`:
+- `dyes.csv` (WideField only) lists each dye with its position and binding site, its window in the sample's time (`t_on_s`, `t_off_s`:
   when it bleaches or switches), its detected rate now (`photons_per_s`, 0 when no light reaches it) and its photons
   over the recorded frames (`photons_detected_total`, `photons_emitted_total`). A 128 px WideField recording lists
   about 800 000 dyes (~100 MB), so the dye list is optional; the stacks stay.

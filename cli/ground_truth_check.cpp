@@ -6,8 +6,10 @@
 //   - a dSTORM nanoruler movie with beads: a row per frame; every row at least the threshold on the camera and no more
 //     than its detected photons; a blink whose PSF window lies inside the image has all of them on the camera (the
 //     kernel's planes sum to 1: within 1e-4, the sub-pixel interpolation's; no halo cut); every blink has its binding site; the beads are rows of kind fiducial;
-//     the initial-ON dyes in the dye list; the same files from a second run;
-//   - a WideField movie: every dye's photons at most its rate x the movie's time; each density volume an ImageJ
+//     the initial-ON dyes in the dye list but no dyes.csv among its files (localizations or a dye list, never both);
+//     the same files from a second run;
+//   - a WideField movie: dyes.csv and no localization table; every dye's photons at most its rate x the movie's time;
+//     each density volume an ImageJ
 //     float32 stack holding its dyes' emitted photons (the sum).
 //
 //   ground_truth_check          exit code 0 = all checks passed
@@ -141,6 +143,15 @@ int main()
    Check(beads > 0 && gt.Blinking(), b);
    std::snprintf(b, sizeof b, "the initial-ON dyes in the dye list (%zu)", gt.Dyes().size());
    Check(!gt.Dyes().empty(), b);
+   const auto has = [](const std::vector<std::pair<std::string, std::string>>& files, const std::string& prefix) {
+      for (const auto& f : files)
+         if (f.first.compare(0, prefix.size(), prefix) == 0)
+            return true;
+      return false;
+   };
+   const auto stormFiles = gt.Files({ 5, 300 });
+   Check(has(stormFiles, "localizations_min5") && !has(stormFiles, "dyes.csv"),
+         "dSTORM: the localization tables, no dyes.csv");
    GroundTruth again;
    std::vector<uint16_t> f2;
    Check(Movie(storm, &again, f2, err) && Join(again.Files({ 5, 300 })) == Join(gt.Files({ 5, 300 })),
@@ -160,10 +171,12 @@ int main()
    std::snprintf(b, sizeof b, "WideField: %zu dyes, each at most its rate x the movie's 0.2 s (worst over by %.3g photons)",
                  g2.Dyes().size(), rateOver);
    Check(okW && g2.Dyes().size() > 10 && rateOver <= 0, b);
+   const auto wfFiles = g2.Files({ 5, 300 }, 50, 25);
+   Check(has(wfFiles, "dyes.csv") && !has(wfFiles, "localizations_"), "WideField: dyes.csv, no localization table");
    double volSum = 0;
    bool imagej = true;
    int vols = 0;
-   for (const auto& f : g2.Files({ 5, 300 }, 50, 25))
+   for (const auto& f : wfFiles)
       if (f.first.compare(0, 8, "density_") == 0)
       {
          bool ij = false;

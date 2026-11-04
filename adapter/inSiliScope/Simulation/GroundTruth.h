@@ -37,7 +37,8 @@ class GroundTruth
 public:
    // Emitter rows with fewer expected photons on the camera than this in their frame are left out.
    double minPhotons = 5;
-   // The continuous dyes' list (Dye rows; the volumes need it), and whether Files writes it as dyes.csv.
+   // The continuous dyes' list (Dye rows; the volumes need it), and whether Files writes it as dyes.csv (only without a
+   // blinking label: a movie's ground truth is its localizations or its dye list).
    bool dyeList = true;
    bool writeDyeCsv = true;
 

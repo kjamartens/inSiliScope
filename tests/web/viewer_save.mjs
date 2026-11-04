@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: BSD-3-Clause
 // A recording's Save in headless Chromium (web/live/live.js openSave; docs/ground-truth.md):
-//   - Save opens a box: the movie, its settings, its ground truth (two thresholds), the dye list;
+//   - Save opens a box: the movie, its settings, its ground truth: for a blinking label two thresholds and no dye list,
+//     for WideField labels the dye list and no thresholds;
 //   - the movie alone is a .tif; with its settings and ground truth one .zip: movie.tif, settings.isc.json, README.txt,
 //     gt/frames.csv, gt/localizations_min<N>.csv, gt/README.txt, gt/voxelize.html;
 //   - with the cli (build/msvc/cli/Release/insiliscope_cli.exe, or ISC_CLI): insiliscope_cli --settings
@@ -64,16 +65,30 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
       document.getElementById('lv_recGo').click();
     });
     await page.waitForFunction(() => liveState.play.on, null, { timeout: 120000 });
-    // Save: the box
-    const box = await page.evaluate(() => {
-      document.getElementById('lv_playSave').click();
-      const d = document.getElementById('setDlg');
-      return { open: !d.hidden, ids: ['svName', 'svSet', 'svGt', 'svMin1', 'svMin2', 'svDyes', 'svGo'].filter(i => document.getElementById(i)),
-        title: d.querySelector('h3').textContent, min: [+document.getElementById('svMin1').value, +document.getElementById('svMin2').value],
-        btn: document.getElementById('lv_playSave').textContent };
+    // Save: the box (it asks the recording's setup first: a blinking label or not)
+    const IDS = ['svName', 'svSet', 'svGt', 'svMin1', 'svMin2', 'svDyes', 'svGo'];
+    const openBox = async () => {
+      await page.evaluate(() => { document.getElementById('setDlg').hidden = true; document.getElementById('lv_playSave').click(); });
+      await page.waitForFunction(() => !document.getElementById('setDlg').hidden && document.getElementById('svGo'), null, { timeout: 30000 });
+      return page.evaluate(ids => {
+        const d = document.getElementById('setDlg'), v = id => (document.getElementById(id) ? +document.getElementById(id).value : NaN);
+        return { ids: ids.filter(i => document.getElementById(i)), title: d.querySelector('h3').textContent, min: [v('svMin1'), v('svMin2')],
+          btn: document.getElementById('lv_playSave').textContent };
+      }, IDS);
+    };
+    const box = await openBox();
+    check(box.ids.join() === 'svName,svSet,svGt,svMin1,svMin2,svGo' && box.title === 'Save the recording' && box.min[0] === 5 && box.min[1] === 300 && box.btn === 'Save',
+      `Save opens the box; a DNA-PAINT recording: movie, settings, ground truth with thresholds ${box.min.join(', ')}, no dye list (${box.ids.join(', ')})`);
+    // the same recording as if its labels were WideField: the dye list, no thresholds
+    const spec0 = await page.evaluate(() => {
+      const s = liveState.play.spec;
+      liveState.play.spec = s.replace(/(^| )(mt|npc|lamin|ruler)-mode=\S+/g, '') + ' mt-mode=3 npc-mode=3 lamin-mode=3 ruler-mode=3';
+      return s;
     });
-    check(box.open && box.ids.length === 7 && box.title === 'Save the recording' && box.min[0] === 5 && box.min[1] === 300 && box.btn === 'Save',
-      `Save opens the box: movie, settings, ground truth (thresholds ${box.min.join(', ')}), dye list`);
+    const boxWf = await openBox();
+    await page.evaluate(s => { liveState.play.spec = s; document.getElementById('setDlg').hidden = true; }, spec0);
+    check(boxWf.ids.join() === 'svName,svSet,svGt,svDyes,svGo', `a WideField recording: the dye list, no thresholds (${boxWf.ids.join(', ')})`);
+    await openBox();
     // the movie alone: a .tif
     const [dlTif] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.evaluate(() => {
       document.getElementById('svSet').checked = false; document.getElementById('svGt').checked = false; document.getElementById('svGo').click();
@@ -82,16 +97,16 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     check(dlTif.suggestedFilename() === 'insiliscope_live_64x64x8.tif' && readTiff(tif).length === 8, `the movie alone: ${dlTif.suggestedFilename()}, 8 pages`);
     // with the settings and the ground truth: one .zip
     const tz = Date.now();
+    await openBox();
     const [dlZip] = await Promise.all([page.waitForEvent('download', { timeout: 180000 }), page.evaluate(() => {
-      document.getElementById('lv_playSave').click();
-      for (const id of ['svSet', 'svGt', 'svDyes']) document.getElementById(id).checked = true;
+      for (const id of ['svSet', 'svGt']) document.getElementById(id).checked = true;
       document.getElementById('svGt').dispatchEvent(new Event('change'));
       document.getElementById('svGo').click();
     })]);
     const zipSec = (Date.now() - tz) / 1000;
     const z = unzip(fs.readFileSync(await dlZip.path())), names = Object.keys(z);
     const want = ['movie.tif', 'settings.isc.json', 'README.txt', 'gt/frames.csv', 'gt/localizations_min5.csv', 'gt/localizations_min300.csv', 'gt/README.txt', 'gt/voxelize.html'];
-    check(dlZip.suggestedFilename() === 'insiliscope_live_64x64x8.zip' && want.every(n => names.includes(n)),
+    check(dlZip.suggestedFilename() === 'insiliscope_live_64x64x8.zip' && want.every(n => names.includes(n)) && !names.includes('gt/dyes.csv'),
       `with settings and ground truth: ${dlZip.suggestedFilename()} (${zipSec.toFixed(1)} s): ${names.join(', ')}`);
     check(same(z['movie.tif'], tif), 'its movie.tif = the .tif saved alone');
     const frames = new TextDecoder().decode(z['gt/frames.csv']).trim().split('\n');

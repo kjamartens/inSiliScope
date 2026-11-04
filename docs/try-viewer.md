@@ -101,7 +101,8 @@ through it step by step.
   and **Save** there opens a box: the movie alone is one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; with
   **instrument settings** (a settings file taken as the Record began, which reproduces the movie: `insiliscope_cli
   --settings`) and/or **ground truth** (localization tables above two thresholds of photons on the camera, 5 and 300 by
-  default; the continuous dyes' list (optional, large) and density stacks; a table per frame; see
+  default, for a blinking label; for WideField labels the dye list instead (optional, large); density stacks; a table
+  per frame; see
   [Ground truth](ground-truth.md)) it is one `.zip`. The ground truth is computed at Save (about two to three times
   the recording's time, a progress line in the box); the box warns when the Quality leaves dim blinks out or the frames
   came from WebGPU. Nothing is saved by itself. A recording is a fresh sample: a movie starting at

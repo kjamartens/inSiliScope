@@ -763,24 +763,39 @@ function gtFiles(bytes) {
 }
 const SAVE_DEF = { settings: true, gt: false, min1: 5, min2: 300, dyes: true };
 function saveOpts() { try { return Object.assign({}, SAVE_DEF, JSON.parse(store.get('saveOpts', '{}'))); } catch (e) { return { ...SAVE_DEF }; } }
-function openSave() {
+// What the recording's ground truth is: 'smlm' (a blinking label: localization tables), 'wf' (continuous dyes only:
+// the dye list and density stacks) or 'none' (no label on: the frames, and the beads if any). From the recording's
+// own spec (the setup job: each mounted target's mode); GroundTruth::Blinking decides the files alike.
+async function gtKind(spec) {
+  try {
+    const S = await setupJob(spec), on = S.labels.filter(l => !l.off);
+    return on.some(l => l.mode !== 'WideField') ? 'smlm' : on.length ? 'wf' : 'none';
+  } catch (e) { return 'smlm'; }
+}
+async function openSave() {
   if (!PLAY.on) return;
   const D = self.iscSettings;
   if (!D || !D.dialog) { saveRecording({ settings: false, gt: false }, `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`); return; }
-  const o = saveOpts(), spec = PLAY.spec || '';
+  const o = saveOpts(), spec = PLAY.spec || '', kind = await gtKind(spec);
+  if (!PLAY.on) return;
   const opt = k => { const m = new RegExp('(?:^| )' + k + '=(\\S+)').exec(spec); return m ? +m[1] : NaN; };
   const cut = opt('blink-min-photons'), warn = [];
-  if (cut > 0) warn.push(`Quality: blinks with fewer than ${cut} photons were not drawn, so the tables leave them out too (Quality Exhaustive draws every one).`);
+  if (cut > 0 && kind === 'smlm') warn.push(`Quality: blinks with fewer than ${cut} photons were not drawn, so the tables leave them out too (Quality Exhaustive draws every one).`);
   if (PLAY.gpu) warn.push(`The frames' mean field came from the GPU (${PLAY.gpu}); the ground truth is the CPU's, the same model (the pixels differ in the last bits).`);
   if (!PLAY.settings) warn.push('This recording has no settings file, so no ground truth either.');
   const box = D.dialog('<h3>Save the recording</h3>' +
     '<div class="row"><label for="svName">Name</label><input type="text" id="svName" maxlength="80"></div>' +
     `<label class="part"><input type="checkbox" checked disabled> <b>Movie</b><span class="s">${PLAY.n} frames of ${PLAY.w} × ${PLAY.h} px, a 16-bit TIFF stack (ImageJ: pixel size, frame interval, the settings in its header)</span></label>` +
     '<label class="part"><input type="checkbox" id="svSet"> <b>Instrument settings</b><span class="s">settings.isc.json, as the recording began, with the light before it: Load it here, or insiliscope_cli --settings renders the same frames</span></label>' +
-    '<label class="part"><input type="checkbox" id="svGt"> <b>Ground truth</b><span class="s">gt/: a row per frame; every blink and bead drawn with at least ' +
-    '<input type="number" id="svMin1" min="0" step="1"> and <input type="number" id="svMin2" min="0" step="1"> photons landing on the camera (two tables); ' +
-    'the continuous dyes as density stacks (emitted photons per voxel); README.txt and voxelize.html (other voxel sizes). Made now: the movie is rendered again from its settings</span></label>' +
-    '<label class="part" id="svDyesRow"><input type="checkbox" id="svDyes"> <b>Dye list</b><span class="s">gt/dyes.csv: every continuously emitting dye with its position, site and photons (a WideField recording: about 150 bytes a dye, ~100 MB for 128 px)</span></label>' +
+    '<label class="part"><input type="checkbox" id="svGt"> <b>Ground truth</b><span class="s">gt/: a row per frame; ' +
+    (kind === 'smlm'
+      ? 'the localizations: every blink and bead drawn with at least <input type="number" id="svMin1" min="0" step="1"> and ' +
+        '<input type="number" id="svMin2" min="0" step="1"> photons landing on the camera (two tables); '
+      : kind === 'wf' ? 'the dyes as density stacks (emitted photons per voxel); ' : 'the beads per frame, if any; ') +
+    'README.txt and voxelize.html (other voxel sizes). Made now: the movie is rendered again from its settings</span></label>' +
+    (kind === 'wf'
+      ? '<label class="part" id="svDyesRow"><input type="checkbox" id="svDyes"> <b>Dye list</b><span class="s">gt/dyes.csv: every dye with its position, site and photons (about 150 bytes a dye, ~100 MB for 128 px)</span></label>'
+      : '') +
     warn.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
     '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip.</div>' +
     '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>');
@@ -790,17 +805,18 @@ function openSave() {
   q('#svSet').disabled = !PLAY.settings;
   q('#svGt').checked = o.gt && !!PLAY.settings;
   q('#svGt').disabled = !PLAY.settings;
-  q('#svMin1').value = o.min1;
-  q('#svMin2').value = o.min2;
-  q('#svDyes').checked = o.dyes;
-  const sync = () => { q('#svDyesRow').style.opacity = q('#svGt').checked ? '' : '.5'; q('#svDyes').disabled = !q('#svGt').checked; };
+  if (q('#svMin1')) { q('#svMin1').value = o.min1; q('#svMin2').value = o.min2; }
+  if (q('#svDyes')) q('#svDyes').checked = o.dyes;
+  const sync = () => { if (q('#svDyes')) { q('#svDyesRow').style.opacity = q('#svGt').checked ? '' : '.5'; q('#svDyes').disabled = !q('#svGt').checked; } };
   q('#svGt').addEventListener('change', sync);
   sync();
   q('#svCancel').onclick = () => D.closeDialog();
   q('#svGo').onclick = async () => {
-    const c = { settings: q('#svSet').checked, gt: q('#svGt').checked, dyes: q('#svDyes').checked,
-      min1: Math.max(0, +q('#svMin1').value || 0), min2: Math.max(0, +q('#svMin2').value || 0) };
+    // the box shows the thresholds or the dye list, never both: the hidden one keeps its stored value
+    const c = { settings: q('#svSet').checked, gt: q('#svGt').checked, dyes: q('#svDyes') ? q('#svDyes').checked : o.dyes,
+      min1: q('#svMin1') ? Math.max(0, +q('#svMin1').value || 0) : o.min1, min2: q('#svMin2') ? Math.max(0, +q('#svMin2').value || 0) : o.min2 };
     store.set('saveOpts', JSON.stringify(c));
+    if (kind !== 'wf') c.dyes = false;
     const name = (q('#svName').value.trim() || `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`).replace(/[\\/:*?"<>|]+/g, '_');
     q('#svGo').disabled = true;
     try {

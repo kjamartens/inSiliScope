@@ -582,11 +582,11 @@ std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::v
    }
    if (!dyes_.empty())
    {
-      if (writeDyeCsv)
+      if (writeDyeCsv && !blinking)   // a movie's ground truth is its localizations or its dye list, never both
       {
          out.emplace_back("dyes.csv", DyesCsv());
-         readme += "dyes.csv: every continuously emitting dye (WideField, dSTORM's initial ON, PALM's pre state) in the\n"
-                   "  queried box: its window, its detected rate now and its photons over the recorded frames.\n";
+         readme += "dyes.csv: every dye in the queried box: its window, its detected rate now and its photons over the\n"
+                   "  recorded frames.\n";
       }
       std::string note;
       for (Volume& v : Volumes(volumeLateralNm, volumeAxialNm, volumeCapBytes, &note))
