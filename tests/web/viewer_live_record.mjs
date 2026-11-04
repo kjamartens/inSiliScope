@@ -114,7 +114,12 @@ try {
       { shown: !document.getElementById('lv_play').hidden, i: liveState.play.i, n: liveState.play.n }, i0, { timeout: 10000 })
       .then(h => h.jsonValue()).catch(() => page.evaluate(() => ({ shown: !document.getElementById('lv_play').hidden, i: liveState.play.i, n: liveState.play.n })));
     check(!early && play.shown && play.i !== i0 && play.n === 20, `the recording plays in the live view (no file saved by itself): frame ${i0 + 1} -> ${play.i + 1}/${play.n}`);
-    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.evaluate(() => document.getElementById('lv_playSave').click())]);
+    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.evaluate(() => {
+      // Save opens a box (viewer_save.mjs); the movie alone is the .tif
+      document.getElementById('lv_playSave').click();
+      document.getElementById('svSet').checked = false; document.getElementById('svGt').checked = false;
+      document.getElementById('svGo').click();
+    })]);
     const buf = fs.readFileSync(await dl.path()), pages = readTiff(buf);
     const info = await page.evaluate(() => ({ t: liveState.t, text: document.getElementById('lv_info').textContent, title: document.getElementById('lv_info').title, btn: document.getElementById('lv_rec').textContent,
       px: +document.getElementById('mv_pixel-nm').value, exp: +document.getElementById('mv_exposure-ms').value }));

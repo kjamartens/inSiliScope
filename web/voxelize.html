@@ -1,0 +1,210 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: BSD-3-Clause -->
+<!-- inSiliScope ground truth: a CSV of dyes or localizations to a density stack (docs/ground-truth.md). Self-contained:
+     it opens from the saved zip (no network, nothing installed) and is published beside the viewer. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voxelize ground truth</title>
+<style>
+  :root { --bg: #f7f8fa; --panel: #fff; --text: #1d232b; --muted: #5f6b7a; --border: #d5dbe3; --accent: #2f6fd6; --warn: #a8650b; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #0f1318; --panel: #171c23; --text: #e3e8ee; --muted: #93a0b0; --border: #2b333d; --accent: #6ea2ff; --warn: #e0a64a; }
+  }
+  :root[data-theme="dark"] { --bg: #0f1318; --panel: #171c23; --text: #e3e8ee; --muted: #93a0b0; --border: #2b333d; --accent: #6ea2ff; --warn: #e0a64a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p { margin: 6px 0; color: var(--muted); }
+  #drop { margin: 16px 0; border: 2px dashed var(--border); border-radius: 10px; padding: 28px 16px; text-align: center; background: var(--panel); cursor: pointer; }
+  #drop.over { border-color: var(--accent); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+  .grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; }
+  label { color: var(--muted); }
+  input, select, button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; max-width: 100%; }
+  input[type=number] { width: 7em; }
+  button.go { background: var(--accent); color: #fff; border-color: var(--accent); padding: 6px 14px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  #info, #out { white-space: pre-wrap; font-size: 13px; color: var(--muted); }
+  .warn { color: var(--warn); }
+  code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voxelize ground truth</h1>
+  <p>Turns a ground-truth table of inSiliScope (<code>dyes.csv</code> or a <code>localizations_min*.csv</code>) into a
+    32-bit density stack at the voxel size you choose: the sum of a column (emitted photons, by default) per voxel, or a
+    count. The stack opens in Fiji/ImageJ and napari with its voxel size; its world origin is in the image description
+    (<code>insiliscope.origin-um</code>). Everything runs in this page: nothing is uploaded.</p>
+  <div id="drop" tabindex="0">Drop a CSV here, or click to choose one<input type="file" id="file" accept=".csv,text/csv" hidden></div>
+  <div class="panel" id="opts" hidden>
+    <div class="grid">
+      <label for="pos">Positions</label><select id="pos"></select>
+      <label for="weight">Value per voxel</label><select id="weight"></select>
+      <label for="target">Target</label><select id="target"></select>
+      <label for="kind">Rows</label><select id="kind"></select>
+      <label for="vxy">Voxel x, y (nm)</label><input type="number" id="vxy" min="1" step="1" value="50">
+      <label for="vz">Voxel z (nm)</label><input type="number" id="vz" min="1" step="1" value="25">
+    </div>
+    <div id="info"></div>
+    <p><button class="go" id="go">Make the stack</button></p>
+    <div id="out"></div>
+  </div>
+</main>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+let table = null;   // { name, head: [...], cols: {name: index}, rows: [[...]] }
+
+// ---- reading the CSV (fields as written by inSiliScope: quoted when they hold a comma) ----
+function splitLine(s) {
+  if (s.indexOf('"') < 0) return s.split(',');
+  const out = [];
+  let cur = '', q = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (q) { if (c === '"') { if (s[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+async function load(file) {
+  $('out').textContent = '';
+  const text = await file.text();
+  const lines = text.split(/\r?\n/).filter(l => l.length);
+  const head = splitLine(lines[0]);
+  const cols = Object.fromEntries(head.map((h, i) => [h, i]));
+  if (!('x_world_um' in cols)) { $('info').innerHTML = '<span class="warn">Not an inSiliScope ground-truth table (no x_world_um column).</span>'; $('opts').hidden = false; $('go').disabled = true; return; }
+  table = { name: file.name.replace(/\.csv$/i, ''), head, cols, rows: lines.slice(1).map(splitLine) };
+  const pos = [['world', 'the dyes (x/y/z_world_um)']];
+  if ('site_x_world_um' in cols) pos.push(['site', 'their binding sites (site_*_world_um)']);
+  $('pos').innerHTML = pos.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+  const weights = ['photons_emitted_total', 'photons_detected_total', 'photons_emitted', 'intensity [photon]', 'photons_detected']
+    .filter(c => c in cols).map(c => [c, c]);
+  weights.push(['', 'the number of rows (a count)']);
+  $('weight').innerHTML = weights.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+  const targets = 'target' in cols ? [...new Set(table.rows.map(r => r[cols.target]))] : [];
+  $('target').innerHTML = '<option value="">all</option>' + targets.map(t => `<option>${t.replace(/</g, '&lt;')}</option>`).join('');
+  const kinds = 'kind' in cols ? [...new Set(table.rows.map(r => r[cols.kind]))] : [];
+  $('kind').innerHTML = '<option value="">all</option>' + kinds.map(k => `<option>${k}</option>`).join('');
+  $('kind').disabled = !kinds.length;
+  $('opts').hidden = false;
+  $('go').disabled = false;
+  describe();
+}
+
+// ---- the points and their box ----
+function points() {
+  const c = table.cols, site = $('pos').value === 'site';
+  const ix = c[site ? 'site_x_world_um' : 'x_world_um'], iy = c[site ? 'site_y_world_um' : 'y_world_um'], iz = c[site ? 'site_z_world_um' : 'z_world_um'];
+  const w = $('weight').value, iw = w ? c[w] : -1, tgt = $('target').value, knd = $('kind').value;
+  const out = [];
+  for (const r of table.rows) {
+    if (tgt && r[c.target] !== tgt) continue;
+    if (knd && r[c.kind] !== knd) continue;
+    const x = +r[ix], y = +r[iy], z = +r[iz], v = iw >= 0 ? +r[iw] : 1;
+    if (r[ix] === '' || !isFinite(x) || !isFinite(y) || !isFinite(z) || !isFinite(v) || v === 0) continue;
+    out.push(x, y, z, v);
+  }
+  return out;
+}
+function grid(p) {
+  const vx = Math.max(1, +$('vxy').value || 50) / 1000, vz = Math.max(1, +$('vz').value || 25) / 1000;
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < p.length; i += 4) {
+    x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); y0 = Math.min(y0, p[i + 1]); y1 = Math.max(y1, p[i + 1]);
+    z0 = Math.min(z0, p[i + 2]); z1 = Math.max(z1, p[i + 2]);
+  }
+  const fx0 = Math.floor(x0 / vx), fy0 = Math.floor(y0 / vx), fz0 = Math.floor(z0 / vz);
+  const nx = Math.floor(x1 / vx) - fx0 + 1, ny = Math.floor(y1 / vx) - fy0 + 1, nz = Math.floor(z1 / vz) - fz0 + 1;
+  return { vx, vz, fx0, fy0, fz0, nx, ny, nz, ox: fx0 * vx, oy: fy0 * vx, oz: fz0 * vz };
+}
+function describe() {
+  if (!table) return;
+  const p = points();
+  if (!p.length) { $('info').textContent = 'No rows with this choice.'; $('go').disabled = true; return; }
+  const g = grid(p), mb = g.nx * g.ny * g.nz * 4 / 1048576;
+  $('go').disabled = mb > 2000;
+  $('info').innerHTML = `${p.length / 4} rows → ${g.nx} × ${g.ny} × ${g.nz} voxels (${mb.toFixed(1)} MB)` +
+    (mb > 2000 ? ' <span class="warn">— too large: take bigger voxels</span>' : mb > 500 ? ' <span class="warn">— large</span>' : '');
+}
+
+// ---- the stack: a float32 ImageJ TIFF, as the C++ writes it (GroundTruth.cpp FloatTiff) ----
+function floatTiff(v, nx, ny, nz, pxPerUm, desc) {
+  const descB = new TextEncoder().encode(desc + '\0');
+  const descLen = descB.length, pad = (4 - descLen % 4) % 4;   // (the planes start on 4 bytes: a Float32Array view)
+  const descAt = 8, ratAt = descAt + descLen + pad, dataAt = ratAt + 8, plane = nx * ny * 4;
+  const dataEnd = dataAt + v.length * 4, first = dataEnd + (dataEnd & 1);
+  const ifd0 = 2 + 15 * 12 + 4, ifdN = 2 + 14 * 12 + 4;
+  const total = first + ifd0 + (nz - 1) * ifdN;
+  const buf = new ArrayBuffer(total), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  u8[0] = 0x49; u8[1] = 0x49; dv.setUint16(2, 42, true); dv.setUint32(4, first, true);
+  u8.set(descB, descAt);
+  dv.setUint32(ratAt, Math.round(pxPerUm * 1000), true); dv.setUint32(ratAt + 4, 1000, true);
+  new Float32Array(buf, dataAt, v.length).set(v);   // (little-endian, as every host this page runs on)
+  let at = first;
+  for (let k = 0; k < nz; k++) {
+    const n = k === 0 ? 15 : 14;
+    dv.setUint16(at, n, true);
+    let e = at + 2;
+    const entry = (tag, type, count, value) => {
+      dv.setUint16(e, tag, true); dv.setUint16(e + 2, type, true); dv.setUint32(e + 4, count, true);
+      if (type === 3 && count === 1) { dv.setUint16(e + 8, value, true); dv.setUint16(e + 10, 0, true); } else dv.setUint32(e + 8, value, true);
+      e += 12;
+    };
+    entry(254, 4, 1, 0); entry(256, 4, 1, nx); entry(257, 4, 1, ny); entry(258, 3, 1, 32); entry(259, 3, 1, 1); entry(262, 3, 1, 1);
+    if (k === 0) entry(270, 2, descLen, descAt);
+    entry(273, 4, 1, dataAt + k * plane); entry(277, 3, 1, 1); entry(278, 4, 1, ny); entry(279, 4, 1, plane);
+    entry(282, 5, 1, ratAt); entry(283, 5, 1, ratAt); entry(296, 3, 1, 1); entry(339, 3, 1, 3);
+    const next = k + 1 < nz ? e + 4 : 0;
+    dv.setUint32(e, next, true);
+    at = e + 4;
+  }
+  return new Blob([buf], { type: 'image/tiff' });
+}
+function make() {
+  const p = points();
+  if (!p.length) return;
+  const g = grid(p), v = new Float32Array(g.nx * g.ny * g.nz);
+  let sum = 0;
+  for (let i = 0; i < p.length; i += 4) {
+    const ix = Math.min(g.nx - 1, Math.max(0, Math.floor(p[i] / g.vx) - g.fx0));
+    const iy = Math.min(g.ny - 1, Math.max(0, Math.floor(p[i + 1] / g.vx) - g.fy0));
+    const iz = Math.min(g.nz - 1, Math.max(0, Math.floor(p[i + 2] / g.vz) - g.fz0));
+    v[(iz * g.ny + iy) * g.nx + ix] += p[i + 3];
+    sum += p[i + 3];
+  }
+  let max = 0;
+  for (const x of v) if (x > max) max = x;
+  const w = $('weight').value || 'rows (a count)';
+  const desc = `ImageJ=1.11a\nimages=${g.nz}\nslices=${g.nz}\nunit=micron\nspacing=${g.vz}\nloop=false\nmin=0\nmax=${max}\n` +
+    `insiliscope.value=${w} per voxel (${$('pos').value === 'site' ? 'binding sites' : 'dye positions'})\n` +
+    `insiliscope.source=${table.name}.csv\ninsiliscope.target=${$('target').value || 'all'}\n` +
+    `insiliscope.origin-um=${g.ox.toFixed(6)},${g.oy.toFixed(6)},${g.oz.toFixed(6)}\ninsiliscope.voxel-um=${g.vx},${g.vx},${g.vz}\n`;
+  const blob = floatTiff(v, g.nx, g.ny, g.nz, 1 / g.vx, desc);
+  const name = `${table.name}_${Math.round(g.vx * 1000)}x${Math.round(g.vz * 1000)}nm.tif`;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  $('out').textContent = `Saved ${name}: ${g.nx} × ${g.ny} × ${g.nz} voxels of ${g.vx * 1000} × ${g.vx * 1000} × ${g.vz * 1000} nm, ` +
+    `${sum.toPrecision(6)} in all. Voxel (0, 0, 0)'s corner is at world (${g.ox.toFixed(4)}, ${g.oy.toFixed(4)}, ${g.oz.toFixed(4)}) µm.`;
+}
+
+$('drop').addEventListener('click', () => $('file').click());
+$('drop').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') $('file').click(); });
+$('file').addEventListener('change', () => { if ($('file').files[0]) load($('file').files[0]); });
+$('drop').addEventListener('dragover', e => { e.preventDefault(); $('drop').classList.add('over'); });
+$('drop').addEventListener('dragleave', () => $('drop').classList.remove('over'));
+$('drop').addEventListener('drop', e => { e.preventDefault(); $('drop').classList.remove('over'); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); });
+for (const id of ['pos', 'weight', 'target', 'kind', 'vxy', 'vz']) $(id).addEventListener('input', describe);
+$('go').addEventListener('click', make);
+self.iscVoxelize = { load, make, floatTiff };   // (the browser test drives it)
+</script>
+</body>
+</html>

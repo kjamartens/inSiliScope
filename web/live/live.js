@@ -146,9 +146,10 @@ function request(n) {
 function onResult(d) {
   const job = L.pending;
   if (!job || d.id !== job.id) return;
-  if (d.type === 'movie-progress') { if (job.fresh) onRecProgress(d); return; }
+  if (d.type === 'movie-progress') { if (job.fresh) onRecProgress(d); else if (job.type === 'gt' && job.progress) job.progress(d.frac || 0); return; }
   L.pending = null;
   if (job.type === 'live-replay') { onReplay(d, job); return; }
+  if (job.type === 'gt') { if (d.error) job.reject(new Error(d.error)); else job.resolve(d.bytes); if (job.wasOn) setLive(true); return; }
   if (d.error) { L.err = d.error; L.on = false; if (REC.on) finishRec(); syncButtons(); showInfo(); return; }
   if (job.fresh) { onRecMovie(d, job); return; }
   logFrames(job.spec, job.n || 1);
@@ -210,6 +211,21 @@ function onReplay(d, job) {
   }
   if (job.wasOn) setLive(true);
 }
+// A recording's ground truth (a gt job on this worker: its settings file rendered again with the sink on; Save).
+// opt = {text, min: [a, b], vol: [xy, z], dyeCsv}; progress(fraction). Live pauses while it runs. Resolves with the packed
+// files (name \n size \n bytes, repeated).
+L.groundTruth = (opt, progress) => new Promise((resolve, reject) => {
+  const wasOn = L.on;
+  if (L.on) { L.on = false; syncButtons(); }
+  const go = () => {
+    const w = worker();
+    if (!w) { reject(new Error('the workers are not up yet')); return; }
+    if (L.pending) { setTimeout(go, 20); return; }
+    L.pending = { type: 'gt', id: ++L.id, resolve, reject, wasOn, progress };
+    w.postMessage({ type: 'gt', id: L.id, ...opt });
+  };
+  go();
+});
 // A fresh sample at the next frame (a measurement without history).
 L.freshSample = () => { L.worldKey = null; L.t = 0; L.log = []; };
 L.setLive = on => setLive(on);
@@ -614,7 +630,8 @@ function onRecProgress(d) {
 function onRecMovie(d, job) {
   if (!REC.on) return;
   const px = d.w * d.h, n = Math.min(REC.n, Math.floor(d.frames.length / Math.max(1, px)));
-  Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, buf: d.frames, got: n, engineMs: performance.now() - job.t0 });
+  Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, buf: d.frames, got: n, engineMs: performance.now() - job.t0,
+    gpu: d.gpu && d.gpu !== 'CPU' ? d.gpu : '' });
   L.err = '';
   L.ms = n ? (performance.now() - REC.t0) / n : 0;
   L.frames++;
@@ -680,7 +697,7 @@ function openPlayer(n) {
       log: REC.log || [], chunks: REC.chunks, tSec: L.t }, 'insiliscope-recording');
   } catch (e) { console.warn('the recording\'s settings file:', e); }
   Object.assign(PLAY, { on: true, frames: REC.buf.subarray(0, n * REC.w * REC.h), w: REC.w, h: REC.h, n, desc, spec: REC.spec,
-    exp, pxUm: REC.pxUm || (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1, settings });
+    exp, pxUm: REC.pxUm || (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1, settings, gpu: REC.live ? '' : REC.gpu || '' });
   $('lv_playPos').max = n - 1;
   $('lv_play').hidden = false;
   $('liveView').classList.add('playing');
@@ -721,18 +738,114 @@ function closePlayer() {
 $('lv_playBtn').addEventListener('click', () => { PLAY.run = !PLAY.run && PLAY.n > 1; syncPlay(); if (PLAY.run) schedulePlay(); });
 $('lv_playPos').addEventListener('input', () => { PLAY.run = false; syncPlay(); cancelAnimationFrame(PLAY.timer); showPlayFrame(+$('lv_playPos').value); });
 $('lv_playClose').addEventListener('click', () => { closePlayer(); REC.msg = ''; showInfo(); });
-$('lv_playSave').addEventListener('click', () => {
-  if (!PLAY.on) return;
-  iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(PLAY.n) });
-  const blob = writeTiff16(PLAY.frames, PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
-  const a = document.createElement('a'), name = `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}.tif`;
+// Save: the movie alone (a .tif), or with its settings file (settings.isc.json: the recording reproducible) and its
+// ground truth (gt/, docs/ground-truth.md: computed now by rendering the settings file's movie again with the sink on)
+// in one .zip (web/live/zip.js).
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+function download(blob, name) {
+  const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-  REC.msg = `saved ${name} (${(blob.size / 1e6).toFixed(1)} MB)`;
+}
+// The packed files of a gt job: [[name, bytes], ...].
+function gtFiles(bytes) {
+  const out = [], dec = new TextDecoder();
+  let i = 0;
+  const line = () => { const j = bytes.indexOf(10, i); const s = dec.decode(bytes.subarray(i, j)); i = j + 1; return s; };
+  while (i < bytes.length) {
+    const name = line(), size = +line();
+    out.push([name, bytes.subarray(i, i + size)]);
+    i += size;
+  }
+  return out;
+}
+const SAVE_DEF = { settings: true, gt: false, min1: 5, min2: 300, dyes: true };
+function saveOpts() { try { return Object.assign({}, SAVE_DEF, JSON.parse(store.get('saveOpts', '{}'))); } catch (e) { return { ...SAVE_DEF }; } }
+function openSave() {
+  if (!PLAY.on) return;
+  const D = self.iscSettings;
+  if (!D || !D.dialog) { saveRecording({ settings: false, gt: false }, `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`); return; }
+  const o = saveOpts(), spec = PLAY.spec || '';
+  const opt = k => { const m = new RegExp('(?:^| )' + k + '=(\\S+)').exec(spec); return m ? +m[1] : NaN; };
+  const cut = opt('blink-min-photons'), warn = [];
+  if (cut > 0) warn.push(`Quality: blinks with fewer than ${cut} photons were not drawn, so the tables leave them out too (Quality Exhaustive draws every one).`);
+  if (PLAY.gpu) warn.push(`The frames' mean field came from the GPU (${PLAY.gpu}); the ground truth is the CPU's, the same model (the pixels differ in the last bits).`);
+  if (!PLAY.settings) warn.push('This recording has no settings file, so no ground truth either.');
+  const box = D.dialog('<h3>Save the recording</h3>' +
+    '<div class="row"><label for="svName">Name</label><input type="text" id="svName" maxlength="80"></div>' +
+    `<label class="part"><input type="checkbox" checked disabled> <b>Movie</b><span class="s">${PLAY.n} frames of ${PLAY.w} × ${PLAY.h} px, a 16-bit TIFF stack (ImageJ: pixel size, frame interval, the settings in its header)</span></label>` +
+    '<label class="part"><input type="checkbox" id="svSet"> <b>Instrument settings</b><span class="s">settings.isc.json, as the recording began, with the light before it: Load it here, or insiliscope_cli --settings renders the same frames</span></label>' +
+    '<label class="part"><input type="checkbox" id="svGt"> <b>Ground truth</b><span class="s">gt/: a row per frame; every blink and bead drawn with at least ' +
+    '<input type="number" id="svMin1" min="0" step="1"> and <input type="number" id="svMin2" min="0" step="1"> photons landing on the camera (two tables); ' +
+    'the continuous dyes as density stacks (emitted photons per voxel); README.txt and voxelize.html (other voxel sizes). Made now: the movie is rendered again from its settings</span></label>' +
+    '<label class="part" id="svDyesRow"><input type="checkbox" id="svDyes"> <b>Dye list</b><span class="s">gt/dyes.csv: every continuously emitting dye with its position, site and photons (a WideField recording: about 150 bytes a dye, ~100 MB for 128 px)</span></label>' +
+    warn.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
+    '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip.</div>' +
+    '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>');
+  const q = s => box.querySelector(s);
+  q('#svName').value = `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`;
+  q('#svSet').checked = o.settings && !!PLAY.settings;
+  q('#svSet').disabled = !PLAY.settings;
+  q('#svGt').checked = o.gt && !!PLAY.settings;
+  q('#svGt').disabled = !PLAY.settings;
+  q('#svMin1').value = o.min1;
+  q('#svMin2').value = o.min2;
+  q('#svDyes').checked = o.dyes;
+  const sync = () => { q('#svDyesRow').style.opacity = q('#svGt').checked ? '' : '.5'; q('#svDyes').disabled = !q('#svGt').checked; };
+  q('#svGt').addEventListener('change', sync);
+  sync();
+  q('#svCancel').onclick = () => D.closeDialog();
+  q('#svGo').onclick = async () => {
+    const c = { settings: q('#svSet').checked, gt: q('#svGt').checked, dyes: q('#svDyes').checked,
+      min1: Math.max(0, +q('#svMin1').value || 0), min2: Math.max(0, +q('#svMin2').value || 0) };
+    store.set('saveOpts', JSON.stringify(c));
+    const name = (q('#svName').value.trim() || `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`).replace(/[\\/:*?"<>|]+/g, '_');
+    q('#svGo').disabled = true;
+    try {
+      await saveRecording(c, name, t => { q('#svMsg').textContent = t; });
+      D.closeDialog();
+    } catch (e) {
+      q('#svMsg').innerHTML = `<span class="warn">${esc(e.message || e)}</span>`;
+      q('#svGo').disabled = false;
+    }
+  };
+}
+// c = {settings, gt, dyes, min1, min2}; say(text): progress.
+async function saveRecording(c, name, say = () => {}) {
+  iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(PLAY.n), settings: !!c.settings, gt: !!c.gt });
+  const tif = writeTiff16(PLAY.frames, PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
+  if (!c.settings && !c.gt) {
+    download(tif, name + '.tif');
+    REC.msg = `saved ${name}.tif (${(tif.size / 1e6).toFixed(1)} MB)`;
+    showInfo();
+    return;
+  }
+  const settingsText = JSON.stringify(PLAY.settings, null, 1);
+  const entries = [{ name: 'movie.tif', data: new Uint8Array(await tif.arrayBuffer()) }];
+  if (c.settings) entries.push({ name: 'settings.isc.json', data: settingsText });
+  if (c.gt) {
+    const t0 = performance.now();
+    say('The ground truth: rendering the movie again from its settings ...');
+    const bytes = await L.groundTruth({ text: settingsText, min: [c.min1, c.min2], vol: [50, 25], dyeCsv: !!c.dyes },
+      f => say(`The ground truth: rendering the movie again from its settings, ${Math.round(100 * f)} % ...`));
+    for (const [n, b] of gtFiles(bytes)) entries.push({ name: 'gt/' + n, data: b });
+    try { const r = await fetch('voxelize.html'); if (r.ok) entries.push({ name: 'gt/voxelize.html', data: await r.text() }); } catch (e) { /* offline: without it */ }
+    say(`The ground truth took ${((performance.now() - t0) / 1000).toFixed(1)} s; packing ...`);
+  } else say('Packing ...');
+  entries.push({ name: 'README.txt', data: `inSiliScope recording ${name}, saved ${new Date().toISOString()} (viewer ${self.ISC_VERSION || ''}).\n` +
+    `movie.tif: ${PLAY.n} frames of ${PLAY.w} x ${PLAY.h} px, 16-bit, ImageJ (pixel size ${PLAY.pxUm} um, frame interval ${PLAY.exp} s).\n` +
+    (c.settings ? 'settings.isc.json: the settings as the recording began and the light before it; Load in the viewer, or\n' +
+      '  insiliscope_cli --settings settings.isc.json --out movie.tif renders the same frames (--gt-out gt writes gt/).\n' : '') +
+    (c.gt ? 'gt/: the ground truth; gt/README.txt lists its files, https://kjamartens.github.io/inSiliScope/docs/ground-truth/ the columns.\n' : '') });
+  const blob = await self.iscZip.zip(entries);
+  download(blob, name + '.zip');
+  self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)
+  REC.msg = `saved ${name}.zip (${(blob.size / 1e6).toFixed(1)} MB)`;
   showInfo();
-});
+}
+$('lv_playSave').addEventListener('click', openSave);
 // ● Record opens a small box under the buttons for the number of frames (and, Advanced, "continue the live sample");
 // its Start (or Enter) records. While recording, ● Record stops.
 const recPop = (open) => {

@@ -599,7 +599,7 @@
         <div id="lv_idle"><span id="lv_idlePress">Press <button id="lv_idleLive" title="Live: image the sample under the world view's centre"><span class="ico">▶</span> Live</button></span><span id="lv_idleStart" hidden>Starting<i class="dots"></i></span></div>
         <div id="lv_scale"></div>
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
-        <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header)">Save .tif</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
+        <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the 16-bit TIFF stack alone, or with its settings file and its ground truth in one .zip">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
     <div id="sideTop">
       <div class="bar">
@@ -4127,7 +4127,7 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'gt' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
         // d (nm) each), on the beads' own world.
@@ -4352,6 +4352,20 @@ function iscEngine(M) {
         }
         M._free(err);
         return [{ type: 'live-replay', id: d.id, t: M._isc_live_time(), error }, []];
+      }
+      if (d.type === 'gt') {
+        // A recording's ground truth (web/live/live.js Save; docs/ground-truth.md): its settings file's movie rendered
+        // again with the sink on (isc_scope_gt, = insiliscope_cli --settings --gt-out), the files packed: name \n size
+        // \n bytes, repeated. Progress as a movie's.
+        progressTo(d, post);
+        const n = M.lengthBytesUTF8(d.text) + 1, s = M._malloc(n);
+        M.stringToUTF8(d.text, s, n);
+        let size;
+        try { size = M._isc_scope_gt(s, d.min[0], d.min[1], d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; }
+        if (size < 0) return [{ type: 'gt', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        const p = M._isc_scope_gt_data(), bytes = M.HEAPU8.slice(p, p + size);
+        M._isc_scope_gt_free();
+        return [{ type: 'gt', id: d.id, bytes }, [bytes.buffer]];
       }
       if (d.type === 'setup') {
         // A movie spec's resolved setup (isc_scope_setup: JSON of the light path, excitation, labels).
@@ -7364,6 +7378,7 @@ else initGenWorkers();
 setLayerMode(!/[?&]2d/.test(location.search) && initGl()); // ?2d forces the 2D fallback (for testing)
 resizeCanvas();
 </script>
+<script src="live/zip.js"></script>
 <script src="live/live.js"></script>
 <script src="live/mm_config_ui.js"></script>
 <script src="live/settings_core.js"></script>

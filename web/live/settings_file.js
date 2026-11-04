@@ -293,7 +293,8 @@ css.textContent = `
   #setDlg .part .s{grid-column:2;color:var(--muted);font-size:11px} #setDlg .warn{color:#e0a64a;margin:6px 0}
   #setDlg .msg{color:var(--muted);margin:6px 0;white-space:pre-wrap;max-height:180px;overflow:auto;font-size:11px}
   #setDlg .row{display:flex;gap:8px;align-items:center;margin-top:10px} #setDlg .row .sp{flex:1}
-  #setDlg input[type=text]{flex:1;min-width:0}`;
+  #setDlg input[type=text]{flex:1;min-width:0} #setDlg input[type=number]{width:5em}
+  #setDlg .part input[type=number]{padding:0 2px}`;
 document.head.append(css);
 let setupTimer = 0;
 function showSetup() {
@@ -412,5 +413,7 @@ document.addEventListener('drop', ev => {
 });
 
 // for the browser tests and the console: the file of the current setup, and loading one
-self.iscSettings = { makeFile, recordFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS };
+// The dialog for another box of the same look (live.js: a recording's Save): its HTML, shown; returns the box.
+const dialog = html => { dbox.innerHTML = html; dlg.hidden = false; return dbox; };
+self.iscSettings = { makeFile, recordFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS, dialog, closeDialog: closeDlg };
 })();
