@@ -1387,3 +1387,38 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
 - **Not in this round:** the MM adapter's rows and counter (M2), the viewer's rows, readout and preview (M3), the
   GPU mean field under a pattern (the CPU scenes serve; a job cannot see per-frame plane factors yet), the exact
   per-frame dose, stroboscopic programs.
+
+## 29. Ground truth: the dyes' sites and dipoles (2026-11-04)
+
+C++ only; docs/ground-truth.md has the files.
+
+- **ABI 19.** `isc_dye_details_in_window(w, rect, zMin, zMax, ids, nIds, out, cap)`, `ISC_DYE_DETAIL_STRIDE` 11: the
+  dyes of `isc_sites_in_window` (same order; with `nIds` > 0 only those ids), each with its binding site (world um:
+  where the linkage starts -- the microtubule surface at the protofilament's azimuth, the pore's Nup96 site, the lamina
+  point; a docking strand is its own site) and its mean emission dipole (`World::DyeOrientationOf` rotated by the
+  cell's `packRot`; NaN for Free). `World::DyeSiteOf` repeats `DyesInBlock` / `NpcDyesInBlock` / `LaminDyesInBlock`'s
+  site arithmetic per dye (with no linkage the dye equals its site exactly: `world_checks.lamin`). Goldens and
+  `ISC_WORLD_VERSION` unchanged. The viewer's ABI check reads 19.
+- Engine: `Simulation/GroundTruth.*`, a thread-local sink (`GroundTruthScope`) that `FluorescenceMovie::Begin` /
+  `Render` fill when one is in scope (frames bit for bit the same): the frames, the drawn blinks and beads with their
+  photons on the camera and the PSF-weighted light under them, the continuous dyes with their photons over the movie;
+  at a movie's end one details query over the new rows' dyes (`fl.ground-truth-details`). cli `--gt-out`, `--gt-min`.
+  2026-11-04: one `localizations.csv`, rows with at least `minCorePhotons` (300) expected photons in the 500 nm square
+  centred on the blink (`kCoreBoxNm`; the kernel plane's oversampled cells times their overlap with the box and the
+  camera, `PlaneBoxPart`; a Gaussian PSF by erf; a bead from its sphere-averaged core plane or the point plane, its far
+  Gaussian blended as in `SplatFiducial`), the same at any pixel size; it replaced two tables at 5 and 300 photons on
+  the camera, which kept far-defocused blinks with almost nothing in their centre.
+- Speed (2026-11-04), every file byte for byte (cli scenarios hashed before and after; ctest checks against the old
+  code): `World::DyeDetailsInWindow` looks a run of dyes' cell, rotation and assets up once and shares a microtubule
+  dye's frames / arc / segment / theta between site and dipole (`DyeSiteIn`, `DyeOrientationIn`; `world_checks.lamin`:
+  = `DyeSiteOf` / `DyeOrientationOf` per dye, bit for bit), the id filter an open-addressing table; `EndMovie` keeps a
+  re-seen dye's site and asks the core once per chunk. Per frame: footprints over the halo cut's spans only (later:
+  the offset from the frame before its blinks, no blink drawn twice; a blink's core first, none short of it measured), bead footprints on threads. Files:
+  numbers by `std::to_chars` (`Simulation/CsvNumber.cpp`; ctest `csv_numbers`, also in WASM), rows formatted on all
+  cores, a stack's planes on all cores (`vox::Stack::PlaneInto`), `vox::Deflate` with 8-byte run scans, codes reversed
+  once per block and zero-word Adler-32 (ground_truth_check: = `cli/deflate_reference.inc`, the old one). Measured
+  (128 px, 12 threads): WideField MT + pores 20 f details 2.8 -> 0.8 s, dyes.csv 2.8 -> 0.2 s, stacks 1.4 -> 0.2 s;
+  binned blinks 100 f ground truth 5.3 -> 0.6 s; beads with drift 3.8 -> 2.0 s. `web/voxelize.html` deflates its .tif's planes with the same
+  `vox::Deflate` (`vox_plane_deflated`; was the browser's CompressionStream: the same pixels, other bytes, a few %
+  larger, ~15x slower) and reads the CSV as bytes (the same table bit for bit): 120 MB dyes.csv, 10 nm 2 channels,
+  10.6 -> 1.1 s.

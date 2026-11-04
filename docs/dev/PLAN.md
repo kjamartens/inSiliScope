@@ -53,7 +53,7 @@ Upcoming ideas:
   in mixable parts (instrument, settings, sample, measurement with the light history, view): [x] each option's part
   (`ScopeOptionPart`), names (`ScopeOptionNames`), `LiveScope::Advance`, [x] viewer Save / Load (☰ and two icons), quiet
   apply, the history replayed (`tests/web/viewer_settings_file.mjs`), [x] `insiliscope_cli --settings` (ctest
-  `cli_settings`). Next: [ ] ground-truth export, [ ] MM `Hub.SaveSettingsTo` / `LoadSettingsFrom`, [ ] an
+  `cli_settings`). Next: [x] ground-truth export (2026-11-04, below), [ ] MM `Hub.SaveSettingsTo` / `LoadSettingsFrom`, [ ] an
   instrument's installed hardware.
 - Live WideField speed (2026-10-29, branch `lamin_network`): [x] the Direct3D 11 and WebGPU hosts keep the spectra of
   the 4 scene geometries used last (two scenes in turn re-made ~500 plane spectra per job: a z step 0.5 s, 0.8 fps),
@@ -232,3 +232,12 @@ Upcoming ideas:
   `tests/web/viewer_scope_view.mjs`. [x] Second round: the panels over the world view (the sample keeps loading), the
   light path on top lying down (names only in the tile, details filled), beams dimmed / stopped by the filters, the
   hover marks, equal tile images, the PSF filled as a 2 x 2 grid with the cut's angle. Next: [ ] more panels (camera noise, BrightField pupils) as C++ additions.
+- Ground truth (2026-11-04, branch `gt-export`, docs/ground-truth.md): [x] a Record's settings file reproduces it
+  (fresh / continued, `history.recordFrom`), [x] the engine's sink (`Simulation/GroundTruth.*`, `GroundTruthScope`:
+  frames bit for bit with and without; photons on the camera through the splat's footprint, PSF-weighted background),
+  [x] core ABI 19 `isc_dye_details_in_window` (binding sites, dipoles), [x] density volumes (photon-weighted float32
+  ImageJ stacks), [x] cli `--gt-out` / `--gt-min` / `--gt-volume`, the module's `isc_scope_gt` (both on
+  `settings::RenderMovie`), [x] the viewer's Save box and zip (`web/live/zip.js`), `web/voxelize.html`; ctest
+  `ground_truth`, `tests/web/gt_unit.mjs`, `zip_unit.mjs`, `viewer_save.mjs`. Measured: collecting it during a Record
+  adds ~70 % (cli DNA-PAINT 128 px 200 frames 2.8 -> 4.8 s), so it is computed at Save. Next: [ ] multi-dimensional
+  acquisitions (z planes, tiles) in `frames.csv`, [ ] the same from MM.

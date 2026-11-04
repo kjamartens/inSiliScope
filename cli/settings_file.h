@@ -9,6 +9,7 @@
 #include "LiveScope.h"
 #include "ScopeMovie.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,12 @@ struct Loaded
 {
    sim::ScopeSpec spec;                  // the values of the parts read, in the order read
    std::vector<Record> history;          // the measurement's light history (of the last file read with a measurement)
+   // A Record's file (the viewer's Save of a recording): history[recordFrom..] are the recorded runs (each one
+   // LiveScope::Frames call, as the viewer rendered them), the ones before it the light before the Record; -1: none.
+   long recordFrom = -1;
+   // The measurement's record object (a Record's file): "fresh" (a movie at its start-sec) or "live"; "" for none.
+   // A recorded movie's bleach basis is its own (fresh-basis), as the viewer made it.
+   std::string recordMode;
    bool haveMeasurement = false;
    std::vector<std::string> warnings;    // keys this engine does not know, another release, ...
 };
@@ -38,7 +45,29 @@ void ParseArg(const std::string& arg, std::string& path, std::vector<std::string
 // is not a settings file or names a part it does not have.
 bool ReadText(const std::string& text, const std::vector<std::string>& parts, Loaded& out, std::string& err);
 bool Read(const std::string& path, const std::vector<std::string>& parts, Loaded& out, std::string& err);
-// The sample's light history replayed on live (from a fresh sample): each record with the spec's sample keys put in.
-bool Replay(const Loaded& s, sim::LiveScope& live, std::string& err);
+// History record i's spec with the file's sample keys put in (the runs hold none).
+sim::ScopeSpec RunSpec(const Loaded& s, size_t i);
+// The sample's light history replayed on live (from a fresh sample): each record with the spec's sample keys put in;
+// only the first `count` records (a Record's file: the light before the Record).
+bool Replay(const Loaded& s, sim::LiveScope& live, std::string& err, size_t count = static_cast<size_t>(-1));
+
+// The movie a file describes, frame by frame (insiliscope_cli --settings, the viewer's ground truth at Save). With a
+// light history: the history replayed on a fresh live sample, then a Record's recorded runs (each one
+// LiveScope::Frames call with its own spec, as the viewer rendered them) or, without recordFrom, the spec's frames
+// as the live sample's next ones. Without one: RenderScopeMovie(s.spec). onFrame(f, adu, width, height) in order;
+// false stops (and fails). What it rendered goes in run.
+struct MovieRun
+{
+   unsigned width = 0, height = 0;
+   long frames = 0;
+   bool live = false;          // the live sample (a history)
+   size_t before = 0;          // the history's runs replayed before the frames
+   double tFirst = 0;          // the sample's time at the first frame (live)
+   double replaySec = 0;       // the replay's time
+   std::string description;    // the first page's (set before the first onFrame)
+   sim::ScopeMovieInfo info;   // RenderScopeMovie's (no history)
+};
+bool RenderMovie(const Loaded& s, const std::function<bool(long, const std::vector<uint16_t>&, unsigned, unsigned)>& onFrame,
+                 MovieRun& run, std::string& err);
 
 } // namespace settings

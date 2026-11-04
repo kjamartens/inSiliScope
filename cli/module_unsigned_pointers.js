@@ -6,7 +6,8 @@
 createInsiliscope = (function (create) {
   var POINTERS = ['_malloc', '_isc_params_new', '_isc_world_new', '_isc_world_version', '_isc_origami_design_id',
     '_isc_wf_kernel', '_isc_wf_plane', '_isc_wf_plane_values', '_isc_wf_channel', '_isc_bf_phase', '_isc_bf_atten',
-    '_isc_live_image', '_isc_live_paths', '_isc_live_profile_json', '_isc_memory_json'];
+    '_isc_live_image', '_isc_live_paths', '_isc_live_profile_json', '_isc_memory_json', '_isc_scope_gt_data',
+    '_isc_scope_gt_error'];
   return function (opts) {
     return create(opts).then(function (M) {
       POINTERS.forEach(function (n) {

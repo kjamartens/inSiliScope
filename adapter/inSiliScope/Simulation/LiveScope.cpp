@@ -9,6 +9,8 @@
 
 #include "LiveScope.h"
 
+#include "GroundTruth.h"
+
 #include "ScopeResolved.h"
 
 #include <algorithm>
@@ -193,12 +195,18 @@ bool LiveScope::Frames(const ScopeSpec& specIn, long n, bool countLight, std::ve
    adu.assign(px * static_cast<size_t>(n), 0);
    std::vector<uint16_t> one;
    long done = 0;
+   // A host that drops the frames (GroundTruth::framesUnused, the viewer's Save): no noise, frames of zeros.
+   const GroundTruth* const gt = ActiveGroundTruth();
+   const bool noPixels = gt && gt->framesUnused;
    const bool ok = RenderScopePhotons(spec, [&](long f, const std::vector<float>& photons) {
       if (f < 0 || f >= n || photons.size() != px)
          return false;
-      ApplyNoiseChain(photons, one, R.W, R.H, p.Camera(), offsetMap_, gainMap_, readNoiseMap_, liveNoiseSeed,
-                      noiseCounter_ + static_cast<uint32_t>(f), true);
-      std::copy(one.begin(), one.end(), adu.begin() + static_cast<std::ptrdiff_t>(px * static_cast<size_t>(f)));
+      if (!noPixels)
+      {
+         ApplyNoiseChain(photons, one, R.W, R.H, p.Camera(), offsetMap_, gainMap_, readNoiseMap_, liveNoiseSeed,
+                         noiseCounter_ + static_cast<uint32_t>(f), true);
+         std::copy(one.begin(), one.end(), adu.begin() + static_cast<std::ptrdiff_t>(px * static_cast<size_t>(f)));
+      }
       ++done;
       return true;
    }, mi, err, nullptr, true, &paths, &history_, &st.light);

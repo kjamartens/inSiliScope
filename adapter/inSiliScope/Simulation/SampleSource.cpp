@@ -192,6 +192,7 @@ void SampleSource::MapRow(const SampleQuery& q, const double* e, BlinkEvent& b)
    b.tStart = q.frameIndex + (e[3] - q.tSec) / q.frameSec;
    b.tEnd = q.frameIndex + (e[4] - q.tSec) / q.frameSec;
    b.brightness = e[5];
+   b.id = static_cast<uint32_t>(e[6]);
    b.structure = static_cast<int>(e[7]);
    b.state = static_cast<int>(e[8]);
    b.aux = e[9];
@@ -242,6 +243,28 @@ bool SampleSource::Continuous(const SampleQuery& q, std::vector<BlinkEvent>& out
    return EventRows(q, buf_, [&](double* b, int32_t cap) {
       return isc_continuous_in_window(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, b, cap);
    }, out);
+}
+
+bool SampleSource::DyeDetails(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                              const std::vector<double>& ids, std::vector<double>& out)
+{
+   if (!world_)
+      return false;
+   int32_t cap = static_cast<int32_t>(out.size() / ISC_DYE_DETAIL_STRIDE);
+   for (;;)
+   {
+      const int32_t n = isc_dye_details_in_window(world_, x0, y0, x1, y1, zMin, zMax, ids.empty() ? nullptr : ids.data(),
+                                                  static_cast<int32_t>(ids.size()), out.empty() ? nullptr : out.data(), cap);
+      if (n < 0)
+         return false;
+      if (n <= cap)
+      {
+         out.resize(static_cast<size_t>(n) * ISC_DYE_DETAIL_STRIDE);
+         return true;
+      }
+      cap = n + n / 4;
+      out.resize(static_cast<size_t>(cap) * ISC_DYE_DETAIL_STRIDE);
+   }
 }
 
 bool SampleSource::Sites(double x0, double y0, double x1, double y1, double zMin, double zMax,

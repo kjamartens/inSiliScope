@@ -44,6 +44,8 @@
  * bead is stuck to the next; a clump's beads share its address). ABI 18: the
  * fluorescent slide (specimen ISC_SPECIMEN_SLIDE 3: a uniform dye layer on the
  * coverslip, whose light is the host's; the world has no cells or dyes).
+ * ABI 19: isc_dye_details_in_window (each dye's binding site and mean emission
+ * dipole, for the ground truth); outputs unchanged.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -64,7 +66,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 18
+#define ISC_ABI_VERSION 19
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -172,6 +174,19 @@ ISC_API int32_t isc_world_flush_cache(IscWorld* w);
 #define ISC_SITE_STRIDE 5
 ISC_API int32_t isc_sites_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                                     double zMin, double zMax, double* out, int32_t cap);
+/* ABI 19. The dyes of isc_sites_in_window (same order), ISC_DYE_DETAIL_STRIDE
+ * doubles each: x, y, z, id, structure, then the binding site x, y, z (world
+ * um: where the label's linkage starts -- the microtubule surface, the pore's
+ * Nup96 site, the lamina point; a docking strand's is the dye itself) and the
+ * mean emission dipole x, y, z (a unit vector; NaN for Free orientation, the
+ * docking strands, or an element the world no longer finds; the site NaN then
+ * too). ids (nIds of them, the dyes' uint32 ids as doubles): only those dyes
+ * (the details cost more than the dyes); nIds 0: every dye. Same cap/return
+ * convention. */
+#define ISC_DYE_DETAIL_STRIDE 11
+ISC_API int32_t isc_dye_details_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
+                                          double zMin, double zMax, const double* ids, int32_t nIds,
+                                          double* out, int32_t cap);
 
 /* ---- Labels (ABI 10, issue 16; spec/PORT.md 16) ----
  * The structures that carry dyes, one label each: */

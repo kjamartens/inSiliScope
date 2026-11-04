@@ -34,6 +34,7 @@
 #include <map>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -248,6 +249,20 @@ public:
    // for Free), cell-local. A pore dye: Fixed about the pore axis and its
    // corner's direction.
    bool DyeOrientationOf(const WorldDye& d, Pt3& dir);
+   // The binding site of a dye from SitesInWindow (where the label's linkage starts: the microtubule's surface, the
+   // pore's Nup96 site, the lamina point), cell-local; false for a docking strand (its dye is its site) or a dye
+   // whose element is gone.
+   bool DyeSiteOf(const WorldDye& d, Pt3& site);
+   // ABI 19 (ground truth): every dye of SitesInWindow (same order) with its binding site and mean emission dipole in
+   // world coordinates (um; the dipole a unit vector). A docking strand's site is the dye; hasDir is false for Free.
+   // only (if given): just the dyes whose id is in it.
+   struct DyeDetail {
+      WorldDye dye;
+      Pt3 site, dir;
+      bool hasSite, hasDir;
+   };
+   void DyeDetailsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                           std::vector<DyeDetail>& out, const std::vector<uint32_t>* only = nullptr);
 
    // The pores of the cell of chunk (cx, cy) (cell-local, candidate order);
    // false if that chunk holds no cell (isc_cell_npcs).
@@ -301,6 +316,16 @@ public:
    const WorldStats& Stats() const { return stats_; }
 
 private:
+   // A microtubule dye's place on its axis (DyeSiteOf and DyeOrientationOf share it): frames, arc S, segment, theta.
+   struct MtDyeAt {
+      const MtFrames* fr;
+      size_t seg;
+      double S, theta;
+   };
+   bool MtDyeAtOf(CellAssets& A, const WorldDye& d, MtDyeAt& m);
+   // DyeSiteOf / DyeOrientationOf on the dye's cell assets (mt: its MtDyeAt, nullptr when it has none).
+   bool DyeSiteIn(CellAssets& A, const WorldDye& d, const MtDyeAt* mt, Pt3& site);
+   bool DyeOrientationIn(CellAssets& A, const WorldDye& d, const MtDyeAt* mt, Pt3& dir);
    // The kinetics a schedule reads: a history (nullptr: the label's kinetics) and its fingerprint (0: none); dose: a
    // dose clock with epochs (each dye's history from its bounds; ABI 14).
    struct ClockView {

@@ -20,6 +20,9 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/BinnedBlinks.cpp
   ${ISC_SIM}/Fiducials.cpp
+  ${ISC_SIM}/CsvNumber.cpp
+  ${ISC_SIM}/GroundTruth.cpp
+  ${ISC_SIM}/Voxelize.cpp
   ${ISC_SIM}/Slide.cpp
   ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp
@@ -49,7 +52,7 @@ if(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
 endif()
 
 if(EMSCRIPTEN)
-  add_executable(insiliscope_scope_web scope_wasm.cpp scope_setup.cpp scope_panels.cpp ${ISC_SIM_SRC})
+  add_executable(insiliscope_scope_web scope_wasm.cpp scope_setup.cpp scope_panels.cpp settings_file.cpp ${ISC_SIM_SRC})
   target_include_directories(insiliscope_scope_web PRIVATE ${ISC_SIM})
   target_link_libraries(insiliscope_scope_web PRIVATE insiliscope_core)
   # WASM SIMD for the render code (FFT butterflies, multiply loops); the core
@@ -68,7 +71,7 @@ if(EMSCRIPTEN)
     -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=96MB -sMAXIMUM_MEMORY=4GB
     "--extern-post-js=${CMAKE_CURRENT_SOURCE_DIR}/module_unsigned_pointers.js"
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_setup,_isc_scope_panels,_isc_scope_panel,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_frames,_isc_live_image,_isc_live_paths,_isc_live_reset,_isc_live_advance,_isc_live_time,_isc_live_profile,_isc_live_profile_json,_isc_memory_json]"
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_setup,_isc_scope_panels,_isc_scope_panel,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_frames,_isc_live_image,_isc_live_paths,_isc_live_reset,_isc_live_advance,_isc_live_time,_isc_live_profile,_isc_live_profile_json,_isc_memory_json,_isc_scope_gt,_isc_scope_gt_run,_isc_scope_gt_files,_isc_scope_gt_data,_isc_scope_gt_error,_isc_scope_gt_free]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_scope_web PROPERTIES OUTPUT_NAME insiliscope_scope_single SUFFIX ".js"
@@ -94,6 +97,31 @@ if(EMSCRIPTEN)
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAP32,stringToUTF8,lengthBytesUTF8]"
   )
   set_target_properties(insiliscope_block PROPERTIES OUTPUT_NAME insiliscope_block SUFFIX ".js")
+
+  # web/voxelize.html's module: Simulation/Voxelize.cpp (the ground truth's density stacks' code) behind a small C
+  # API (voxelize_wasm.cpp), self-contained; tools/embed_web_module.mjs puts it into the page.
+  add_executable(insiliscope_voxelize voxelize_wasm.cpp ${ISC_SIM}/Voxelize.cpp)
+  target_include_directories(insiliscope_voxelize PRIVATE ${ISC_SIM})
+  target_link_options(insiliscope_voxelize PRIVATE
+    -O3
+    -sMODULARIZE=1 -sEXPORT_NAME=createVoxelize
+    -sENVIRONMENT=web,worker
+    -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
+    -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=2GB
+    -sFILESYSTEM=0
+    "-sEXPORTED_FUNCTIONS=[_malloc,_free,_vox_grid,_vox_stack,_vox_free,_vox_empty,_vox_plane_bytes,_vox_maxima,_vox_fill,_vox_plane_max,_vox_plane,_vox_plane_deflated,_vox_zeros_deflated,_vox_deflated_len,_vox_describe,_vox_layout,_vox_error,_vox_head,_vox_head_len,_vox_ifd,_vox_ifd_len,_vox_offsets,_vox_first]"
+    "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
+  )
+  set_target_properties(insiliscope_voxelize PROPERTIES OUTPUT_NAME insiliscope_voxelize SUFFIX ".js")
+  # ctest csv_numbers in WASM: the ground truth tables' numbers (Simulation/CsvNumber.cpp: libc++'s std::to_chars) =
+  # musl's snprintf (the module writes the viewer's tables with them).
+  if(ISC_BUILD_TESTS)
+    add_executable(csv_number_check csv_number_check.cpp ${ISC_SIM}/CsvNumber.cpp)
+    target_include_directories(csv_number_check PRIVATE ${ISC_SIM})
+    target_link_options(csv_number_check PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
+    find_program(ISC_NODE_CLI node NAMES node nodejs)
+    add_test(NAME csv_numbers COMMAND ${ISC_NODE_CLI} $<TARGET_FILE:csv_number_check>)
+  endif()
   return()
 endif()
 
@@ -186,6 +214,12 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   target_link_libraries(slide_check PRIVATE insiliscope_sim)
   add_test(NAME slide COMMAND slide_check)
 
+  # The ground truth (Simulation/GroundTruth.h): the frames unchanged, the photons on the camera, beads, volumes
+  # (its tables' numbers: ctest csv_numbers, natively and in WASM).
+  add_executable(ground_truth_check ground_truth_check.cpp)
+  target_link_libraries(ground_truth_check PRIVATE insiliscope_sim)
+  add_test(NAME ground_truth COMMAND ground_truth_check)
+
   # The C++ GibsonLanniZernike PSF against webSMLM's JS (tests/psf/zernike_ref.bin).
   add_executable(zernike_psf_check zernike_psf_check.cpp)
   target_link_libraries(zernike_psf_check PRIVATE insiliscope_sim)
@@ -199,4 +233,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     set_tests_properties(wf_gpu_d3d11 PROPERTIES SKIP_RETURN_CODE 77)   # no hardware Direct3D 11 device
   endif()
   isc_cap_test_threads()
+endif()
+
+# The ground truth tables' numbers (Simulation/CsvNumber.cpp: std::to_chars) = snprintf's (the WASM copy above).
+if(ISC_BUILD_TESTS)
+  add_executable(csv_number_check csv_number_check.cpp)
+  target_link_libraries(csv_number_check PRIVATE insiliscope_sim)
+  add_test(NAME csv_numbers COMMAND csv_number_check)
 endif()

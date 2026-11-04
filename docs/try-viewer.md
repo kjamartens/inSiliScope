@@ -98,8 +98,9 @@ through it step by step.
   then plays in the live view in real time at the exposure it was taken with (100 frames of 1 ms play in 0.1 s; the
   screen shows the frame current at each refresh), with play/pause, a frame slider and ✕ to close it (Live, Snap or a
   new recording close it too),
-  and **Save .tif** there saves it as one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; nothing is saved by
-  itself. A recording is a fresh sample: a movie starting at
+  and **Save** there saves the movie as a 16-bit TIFF stack, or, with its **settings file** (reproduces the movie)
+  and/or **ground truth** ([Ground truth](ground-truth.md)), one `.zip`; drop its `open_in_napari.py` on napari to view
+  it ([napari](ground-truth.md#open-it-in-napari)). Nothing is saved by itself. A recording is a fresh sample: a movie starting at
   that time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
   Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.

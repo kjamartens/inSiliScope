@@ -25,7 +25,8 @@ Ideas, roughly in order of interest. Contributions welcome; see [Extending](exte
   emission near the coverslip and the beam's angular spread.
 - **Widefield**: a defocus law for the optional Gaussian PSF (`WidefieldGaussianSigmaUm`), and a check of the Direct3D
   11 path on more GPUs. (A drifting sample renders on the CPU: measured on 2026-10-29, the GPU would not be faster there.)
-- **Ground-truth export** (emitter positions and frames as CSV) for scoring localisation software.
+- **Ground truth** ([done for the viewer and the CLI](ground-truth.md)): still to come from Micro-Manager, and for
+  recordings that combine time with z planes or stage positions.
 - **`world_version`** stamped in every output so a seed stays reproducible across releases (policy in [Extending](extending.md)).
 - A truly vectorial (polarized, apodized) pupil for the Zernike model; today it is scalar, like webSMLM's.
 - Packages: Python wheel for the CLI/ABI, npm package for the WASM core.

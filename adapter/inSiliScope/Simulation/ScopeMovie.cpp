@@ -9,6 +9,7 @@
 
 #include "ScopeMovie.h"
 #include "Fiducials.h"
+#include "GroundTruth.h"
 #include "Slide.h"
 #include "ScopeResolved.h"
 
@@ -126,7 +127,7 @@ const char* PartOf(const std::string& n)
             return true;
       return false;
    };
-   if (in({ "disk-cache", "prepare", "illum-geometry" }))
+   if (in({ "disk-cache", "prepare", "illum-geometry", "fresh-basis" }))
       return "host";
    if (in({ "x", "y", "z", "focus-um", "frames", "exposure-ms", "start-sec", "frame0" }) || starts("drift-"))
       return "measurement";
@@ -181,6 +182,7 @@ const OptionTable& Options()
          { "world-seed", -1, "cell-field world seed used as is (the viewer's seed); -1 = derive it from seed" },
          { "disk-cache", 1, "per-user cache on disk ($ISC_CACHE_DIR, else %LOCALAPPDATA%/inSiliScope/cache or ~/.cache/insiliscope): 0 = none, 1 = the packed cell positions (a few MB: a rerun with the same seed and cell parameters packs nothing), 2 = also the PSF kernel (one file, up to ~200 MB)" },
          { "prepare", 0, "1 = build the world and the PSF kernel only (warms the caches), no frames" },
+         { "fresh-basis", 0, "1 = a movie's mean-field bleach basis is made for it, anchored at its first frame, never taken from an earlier movie: its frames are a function of its request alone (a Record and its reproduction from the settings file); 0 = an earlier movie's basis that holds the frame is used (faster in live, a few ADU apart)" },
          { "x", 0, "FOV centre x, world um (XY stage position)" },
          { "y", 0, "FOV centre y, world um" },
          { "z", 0.5, "Z stage: focal-plane height above the coverslip, um (as the ZStage device; it starts at 0.5)" },
@@ -1507,6 +1509,8 @@ struct ScopeSetup
    double blinkMeanFieldDensityPerUm2 = 1e9, blinkMeanFieldMaxEmitters = 1e9;
    int blinkBinnedUpscale = 2;
    double blinkMinPhotons = 50;
+   // fresh-basis: the mean-field bleach basis made for this movie (never an earlier movie's).
+   bool freshBasis = false;
    // The fiducial beads (JS S.fid): on at fid-density > 0, the type and its components through the light path.
    bool fidOn = false;
    int fidType = 0;
@@ -1671,6 +1675,7 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    S.blinkBinnedMaxEmitters = std::max(0.0, O("blink-binned-max-emitters"));
    S.blinkBinnedUpscale = std::max(1, std::min(8, static_cast<int>(std::lround(O("blink-binned-upscale")))));
    S.blinkMinPhotons = std::max(0.0, O("blink-min-photons"));
+   S.freshBasis = O("fresh-basis") >= 1;
    S.blinkMeanFieldDensityPerUm2 = std::max(0.0, O("blink-mean-field-density-per-um2"));
    S.blinkMeanFieldMaxEmitters = std::max(0.0, O("blink-mean-field-max-emitters"));
    // Sample drift: the per-frame path, and the query rect grown so every
@@ -2825,6 +2830,28 @@ struct Group
    bool anyMf = false, allMf = false;
 };
 
+// A group as the ground truth names it (GroundTruth.h): its target, dye, mode, the detected light's wavelength and
+// emitted photons per detected one.
+GroundTruth::Label GroundTruthLabel(const ScopeSetup& S, const Group& g)
+{
+   GroundTruth::Label l;
+   l.structure = g.structure;
+   l.pre = g.pre;
+   for (int t = 0; t < TargetCount(); ++t)
+      if (TargetAt(t).structure == g.structure)
+         l.target = TargetAt(t).name;
+   if (g.structure >= 0 && g.structure < static_cast<int>(S.labels.size()))
+   {
+      const LabelPhysics& L = S.labels[static_cast<size_t>(g.structure)];
+      l.dye = L.eff.dye.name ? L.eff.dye.name : "";
+      l.mode = DyeModeNames()[static_cast<size_t>(L.mode)];
+      const StatePhysics& st = g.pre ? L.pre : L.main;
+      l.emittedPerDetected = st.detectedPerSec > 0 ? st.emissionPerSec / st.detectedPerSec : 0;
+   }
+   l.wavelengthNm = g.lambdaNm;
+   return l;
+}
+
 // The mean-field image of a population: its scene, the scene's spec at the spec's focus and its images.
 struct MeanFieldNode
 {
@@ -3306,6 +3333,8 @@ struct FluorescenceMovie::Impl
    // A structured pattern stepping with the frame (Excitation::Varies): each frame's state (the program's index, or
    // every frame its own under a phase drift), its Excitation (memoized per state) and the factor at a site in it.
    bool varies = false;
+   // A ground truth's run that reads no image (Begin): no PSF kernel, mean-field scene or continuous light per frame.
+   bool gtNoImages = false;
    bool driftsPhase = false;
    long period = 1;
    std::map<long, std::shared_ptr<const Excitation>> excStates;
@@ -3597,7 +3626,7 @@ struct FluorescenceMovie::Impl
    }
    // ... and its frame f at stage z into img (+=): the scene refocused if z
    // moved, rendered with the frame's weights.
-   void BlinkWeightedFrame(Population& p, long f, double z, std::vector<float>& img)
+   void BlinkWeightedFrame(Population& p, long f, double z, std::vector<float>& img, std::vector<float>* img2 = nullptr)
    {
       if (p.mf.empty())
          return;
@@ -3623,11 +3652,14 @@ struct FluorescenceMovie::Impl
          nd.slot->scene.RenderFrame(wb, frame);
       for (size_t i = 0; i < img.size(); ++i)
          img[i] += frame[i];
+      if (img2)
+         for (size_t i = 0; i < img2->size(); ++i)
+            (*img2)[i] += frame[i];
    }
    // A weighted rate population with rates (its decay not the same everywhere): its frame f at stage z into img (+=),
    // each entry f exposures later at its own decay rate (wb0 exp(-rate f exposure)), from the scene's basis (refocused
    // if z moved).
-   void RateWeightedFrame(Population& p, long f, double z, std::vector<float>& img)
+   void RateWeightedFrame(Population& p, long f, double z, std::vector<float>& img, std::vector<float>* img2 = nullptr)
    {
       if (p.mf.empty() || !p.rates || p.rates->size() != p.wb0.size())
          return;
@@ -3636,6 +3668,9 @@ struct FluorescenceMovie::Impl
       {
          for (size_t i = 0; i < img.size(); ++i)
             img[i] += nd.image[i];
+         if (img2)
+            for (size_t i = 0; i < img2->size(); ++i)
+               (*img2)[i] += nd.image[i];
          return;
       }
       const auto tR = TimingClock::now();
@@ -3669,6 +3704,9 @@ struct FluorescenceMovie::Impl
       }
       for (size_t i = 0; i < img.size(); ++i)
          img[i] += frame[i];
+      if (img2)
+         for (size_t i = 0; i < img2->size(); ++i)
+            (*img2)[i] += frame[i];
       TimingLog("fl.mean-field-rate-frame", TimingSince(tR));
    }
    void TakeImage(Population& p, size_t j);
@@ -4295,7 +4333,15 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
                uses += StateOf(f) == nd.patternState ? 1 : 0;
             nd.perFrame = uses < kStateBasisImages;
          }
-         if ((S.N > 1 || nd.deferred) && !nd.perFrame)
+         if ((S.N > 1 || nd.deferred) && !nd.perFrame && S.freshBasis)
+         {
+            // fresh-basis: this movie's own basis, anchored at its frame 0 (an earlier movie's, anchored elsewhere,
+            // gives the same frames within a few ADU, not bit for bit).
+            slot.scene.TakeAsyncBasis(false);
+            slot.scene.SetBleachWeights(p.wb0, false);
+            nd.anchored = slot.scene.AnchorDecay(p.wb0, nd.anchor);
+         }
+         else if ((S.N > 1 || nd.deferred) && !nd.perFrame)
          {
             slot.scene.TakeAsyncBasis(false);   // (one made: taken)
             nd.anchored = slot.scene.AnchorDecay(p.wb0, nd.anchor);
@@ -5138,6 +5184,16 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       queryBlinks = queryBlinks || !g.allMf;
    }
 
+   // A ground truth's run that drops the frames, with WideField labels alone and no beads or slide (GroundTruth.h):
+   // no image is read (no blink's footprint, no bead's), so it makes no PSF kernel, mean-field scene or continuous
+   // light per frame; the dye list and density stacks come from the dyes' windows, rates and light (the same files;
+   // 2026-11-04: a cold 128 px run in the viewer's module spent ~6 of its ~9 s on them).
+   m.gtNoImages = ActiveGroundTruth() && ActiveGroundTruth()->framesUnused && ScopeSpecimen(spec) <= 1 &&
+                  !(ScopeSpecGet(spec, "fid-density") > 0) && !m.groups.empty();
+   for (const Group& g : m.groups)
+      if (g.pre || S.labels[static_cast<size_t>(g.structure)].mode != MODE_WIDEFIELD)
+         m.gtNoImages = false;
+
    // The PSF kernels compute while the blinks are queried (as the camera's
    // stack generation does); serially under Emscripten.
    std::string psfErr;
@@ -5146,6 +5202,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    auto kernels = [&]() {
       const auto tk = TimingClock::now();
       for (Group& g : m.groups)
+         if (!m.gtNoImages)
       {
          if (psfOk && !ScopePsfKernel(spec, g.lambdaNm, g.kernel, psfErr))
             psfOk = false;
@@ -5497,7 +5554,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    {
       if (!p.needWindows)
          continue;   // mean-field to the end (or no dye left): no windows needed
-      m.groups[p.group].kernel.PrepareSplat();   // (per-dye frames splat its dyes)
+      if (!m.gtNoImages)
+         m.groups[p.group].kernel.PrepareSplat();   // (per-dye frames splat its dyes)
       if (m.map)
       {
          // The map's windows in T (the initial ON ends on its dye's dose, the pre state at its activation; a DOSE dye
@@ -5568,6 +5626,97 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       }
    }
    TimingLog("fl.windows", TimingSince(tPhase), std::to_string(windows.size()).c_str());
+   // The ground truth's continuous dyes (GroundTruth.h): every population's windows, the mean-field ones' too (fetched
+   // for the list only), each dye's window in the sample's time, its rate at its excitation and its photons over this
+   // movie.
+   if (GroundTruth* gt = ActiveGroundTruth())
+   {
+      const double um = S.p.pixelSizeNm / 1000.0;
+      gt->GrowBox(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um,
+                  S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm - S.q.zHalfRangeUm : S.q.zCullCentreUm - 3.5,
+                  S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm + S.q.zHalfRangeUm : S.q.zCullCentreUm + 3.5);
+      (void)um;
+      if (gt->dyeList && !m.pops.empty())
+      {
+         const auto sec = [&](double fr) { return S.q.tSec + (fr - S.q.frameIndex) * S.expSec; };
+         const double t0 = S.t0Sec, t1 = S.t0Sec + S.N * S.expSec;
+         const auto addDyes = [&](const std::vector<BlinkEvent>& windows, const std::vector<double>& windowClock) {
+         for (const Population& p : m.pops)
+         {
+            if (p.state == ISC_STATE_BLINK)
+               continue;
+            const Group& g = m.groups[p.group];
+            const GroundTruth::Label lab = GroundTruthLabel(S, g);
+            const int label = gt->LabelOf(lab);
+            const bool dose = m.map && m.map->s[static_cast<size_t>(p.structure)].mode == ISC_CLOCK_DOSE;
+            for (size_t wi = 0; wi < windows.size(); ++wi)
+            {
+               const BlinkEvent& e = windows[wi];
+               if (e.structure != p.structure || e.state != p.state)
+                  continue;
+               GroundTruth::Dye d;
+               d.label = label;
+               d.id = e.id;
+               d.structure = e.structure;
+               d.state = e.state;
+               d.xUm = e.xUm + S.q.originXUm;
+               d.yUm = e.yUm + S.q.originYUm;
+               d.zUm = e.zNm / 1000.0 + S.q.zRefUm;
+               double a = !m.shaped ? 1.0
+                          : p.meanLight ? m.MeanExciteAt(g.shares, e.xUm, e.yUm, e.zNm)
+                                        : m.ExciteAt(g.shares, e.xUm, e.yUm, e.zNm);
+               if (dose && !(windowClock[2 * wi + 1] > 0))
+                  a = 0;   // frozen: no light reaches it
+               d.tOnSec = sec(e.tStart);
+               d.tOffSec = sec(e.tEnd);
+               if (!m.map && p.budget > 0)
+                  d.tOffSec = std::min(d.tOffSec, e.aux * p.budget / p.emissionPerSec);   // its photon budget used up
+               if (!(d.tOffSec > t0))
+                  continue;   // over before the movie
+               d.photonsPerSec = p.rate * std::max(0.0, a);
+               d.detectedTotal = d.photonsPerSec * std::max(0.0, std::min(t1, d.tOffSec) - std::max(t0, d.tOnSec));
+               d.emittedTotal = d.detectedTotal * lab.emittedPerDetected;
+               gt->AddDye(d);
+            }
+         }
+         };
+         if (haveWindows)
+            addDyes(windows, windowClock);
+         else
+         {
+            // The mean-field populations fetch no windows: fetched here for the list only, in strips along x (the
+            // core keeps a dye when x0 <= x < x1: shared edges, each dye once), each strip's let go before the next
+            // (4 M dyes by a nucleus: the rows, the windows and their clocks at once took the viewer's heap past 4 GB).
+            const double stripUm = 2.0;
+            const long strips = std::max(1L, static_cast<long>(std::ceil((S.q.x1Um - S.q.x0Um) / stripUm)));
+            SampleQuery sq = S.q;
+            std::vector<BlinkEvent> part;
+            std::vector<double> partClock;
+            for (long k = 0; k < strips; ++k)
+            {
+               sq.x0Um = k == 0 ? S.q.x0Um : sq.x1Um;
+               sq.x1Um = k + 1 == strips ? S.q.x1Um : S.q.x0Um + (k + 1) * stripUm;
+               part.clear();
+               partClock.clear();
+               bool ok;
+               if (m.map)
+               {
+                  ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(sq, part, &partClock);
+                  source.SetClockMap(nullptr);
+               }
+               else
+                  ok = source.Continuous(sq, part);
+               if (!ok)
+               {
+                  err = "cell-field window query failed";
+                  return false;
+               }
+               addDyes(part, partClock);
+            }
+            source.ReleaseBuffers();
+         }
+      }
+   }
    // The blink populations of the groups with mean-field frames.
    for (size_t gi = 0; gi < m.groups.size(); ++gi)
    {
@@ -5592,7 +5741,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // The mean-field images of the populations that start mean-field.
    m.sceneQueue.clear();
    for (Population& p : m.pops)
-      if (p.meanFieldAt0)
+      if (p.meanFieldAt0 && !(m.gtNoImages && !m.fid))
       {
          if (!m.BuildMeanField(p, err))
             return false;
@@ -6052,8 +6201,10 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
 
    // The noise maps only when the movie applies the noise (a host with
    // onPhotons adds its own: a live frame skips building three maps).
+   // A host that drops the frames (GroundTruth::framesUnused, the viewer's Save): no noise, frames of zeros.
+   const bool noPixels = !opt.onPhotons && ActiveGroundTruth() && ActiveGroundTruth()->framesUnused;
    std::unique_ptr<NoiseSetup> noisePtr;
-   if (!opt.onPhotons)
+   if (!opt.onPhotons && !noPixels)
       noisePtr.reset(new NoiseSetup(S.seed, W, H, S.p));
    const CameraNoiseParams cam = S.p.Camera();
    TimingSum tBlinks, tPops, tNoise, tWrite;
@@ -6074,6 +6225,32 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    std::vector<long> frameBlinks(slots);
    std::vector<char> frameBinned(slots), frameMf(slots);
    long blinks = 0, binnedFrames = 0;
+   // The ground truth (GroundTruth.h): each frame's blinks per group as drawn (and whether binned), kept for the
+   // frame's rows after its continuous light is in.
+   GroundTruth* const gt = ActiveGroundTruth();
+   std::vector<std::vector<std::vector<BlinkEvent>>> gtEv(gt ? slots : 0);
+   std::vector<std::vector<char>> gtBin(gt ? slots : 0);
+   std::vector<int> gtLabel;
+   // per slot: its frame's light but the blinks and beads (the background, then the continuous light added as to the
+   // frame: the offset under each blink; was the frame less its blinks drawn again alone and its beads, 2026-11-04)
+   std::vector<std::vector<float>> gtOther(gt ? slots : 0);
+   std::vector<std::vector<float>> gtScratch;   // one per thread chunk
+   // A bead's footprint, kept while the focus and drift stay (its halo reaches across the camera).
+   struct GtBeadFp { double zf = std::numeric_limits<double>::quiet_NaN(), dx = 0, dy = 0; SparseFootprint fp; };
+   std::vector<std::vector<GtBeadFp>> gtBeadFp;
+   const long gtBase = gt ? gt->frameBase : 0;
+   const size_t gtEmFrom = gt ? gt->emitters.size() : 0;
+   if (gt)
+   {
+      gt->width = W;
+      gt->height = H;
+      gt->pixelNm = pixelNm;
+      for (const Group& g : m.groups)
+         gtLabel.push_back(gt->LabelOf(GroundTruthLabel(S, g)));
+      if (m.fid)
+         for (const FiducialMovieComponent& c : m.fid->comps)
+            gtBeadFp.emplace_back(c.beads.size());
+   }
    RenderExtras into;
    into.accumulate = true;
    // The continuous populations' per-dye splats run frame by frame: in bands
@@ -6134,6 +6311,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          frameBlinks[k] = 0;
          frameBinned[k] = 0;
          frameMf[k] = 0;
+         if (gt)
+         {
+            gtEv[k].assign(m.groups.size(), {});
+            gtBin[k].assign(m.groups.size(), 0);
+         }
          const double bgScale = opt.backgroundScale ? opt.backgroundScale(f) : 1.0;
          if (popsOnly)
             photons[k].assign(n, 0.0f);   // the host splats the background and the SMLM frames' blinks
@@ -6154,6 +6336,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                photons[k][i] = static_cast<float>(b * bgScale);
             }
          }
+         if (gt)
+            gtOther[k] = photons[k];   // (the frame before its blinks)
          double dx = 0.0, dy = 0.0;
          if (opt.driftPx)
             opt.driftPx(f, dx, dy);
@@ -6184,17 +6368,25 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                for (BlinkEvent& e : fe[k])
                   e.excite = m.ExciteAtFrame(f, g.shares, e.xUm, e.yUm, e.zNm);
             frameBlinks[k] += static_cast<long>(fe[k].size());
+            if (gt)
+            {
+               gtEv[k][gi] = fe[k];
+               gtBin[k][gi] = binnedFrame ? 1 : 0;
+            }
             if (binnedFrame)
             {
+               frameBinned[k] = 1;
+               if (noPixels)
+                  continue;   // (the ground truth takes the events, not the frame)
                std::vector<FrameEmitter> ems;
                CollectFrameEmitters(fe[k], f, W, H, pixelNm, g.perFrame, dx, dy,
                                     g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, blinkInto.illumField, ems);
-               g.binned.Render(ems, photons[k]);
-               frameBinned[k] = 1;
+               g.binned.Render(ems, photons[k], nullptr);
                continue;
             }
-            RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
-                              g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, nullptr, nullptr, &blinkInto);
+            if (!noPixels)
+               RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
+                                 g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, nullptr, nullptr, &blinkInto);
          }
       };
       if (bands)
@@ -6210,9 +6402,14 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       {
          const long f = f0 + k;
          const double zf = zAt(f);
-         std::vector<float>& img = photons[static_cast<size_t>(k)];
+         // The continuous light goes into the frame and, with the ground truth, its blink-free copy alike (the same
+         // float terms in the same order); a run that drops the frames, into the copy alone.
+         std::vector<float>& img = gt && noPixels ? gtOther[static_cast<size_t>(k)] : photons[static_cast<size_t>(k)];
+         std::vector<float>* img2 = gt && !noPixels ? &gtOther[static_cast<size_t>(k)] : nullptr;
          for (Population& p : m.pops)
          {
+            if (m.gtNoImages && noPixels)
+               break;   // (nothing reads it: Begin)
             const Group& g = m.groups[p.group];
             // The unweighted image (a drifting sample: its images at the frame's drift), or nullptr.
             std::vector<float> driftImage;
@@ -6231,12 +6428,15 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                if (!g.mfFrame[static_cast<size_t>(f)])
                   continue;   // drawn from its events (splat or binned)
                if (p.weighted)
-                  m.BlinkWeightedFrame(p, f, zf, img);
+                  m.BlinkWeightedFrame(p, f, zf, img, img2);
                else if (const std::vector<float>* image = unweighted())
                {
                   const float mp = static_cast<float>(m.FramePhotons(p, f));
                   for (size_t i = 0; i < n; ++i)
                      img[i] += static_cast<float>(static_cast<double>(mp) * (*image)[i]);
+                  if (img2)
+                     for (size_t i = 0; i < n; ++i)
+                        (*img2)[i] += static_cast<float>(static_cast<double>(mp) * (*image)[i]);
                }
                p.meanFieldFrames++;
                paths[static_cast<size_t>(k)].push_back("blinks: mean-field (FFT)");
@@ -6253,7 +6453,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                // (A weighted population with rates: each tile at its light, RateWeightedFrame; under drift in the
                // drift's weights.)
                if (p.weighted && p.rates && !drift)
-                  m.RateWeightedFrame(p, f, zf, img);
+                  m.RateWeightedFrame(p, f, zf, img, img2);
                else if (const std::vector<float>* image = unweighted())
                {
                   if (p.weighted)
@@ -6263,12 +6463,18 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                      const double sc = !p.rates && p.decay > 0 ? std::exp(-p.decay * f * S.expSec) : 1.0;
                      for (size_t i = 0; i < n; ++i)
                         img[i] += static_cast<float>(sc * (*image)[i]);
+                     if (img2)
+                        for (size_t i = 0; i < n; ++i)
+                           (*img2)[i] += static_cast<float>(sc * (*image)[i]);
                   }
                   else
                   {
                      const float mp = static_cast<float>(m.FramePhotons(p, f));
                      for (size_t i = 0; i < n; ++i)
                         img[i] += static_cast<float>(static_cast<double>(mp) * (*image)[i]);
+                     if (img2)
+                        for (size_t i = 0; i < n; ++i)
+                           (*img2)[i] += static_cast<float>(static_cast<double>(mp) * (*image)[i]);
                   }
                }
                p.meanFieldFrames++;
@@ -6296,6 +6502,10 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                for (size_t i = 0; i < n; ++i)
                   if (p.acc[i] != 0)
                      img[i] += static_cast<float>(perFrame * p.acc[i]);
+               if (img2)
+                  for (size_t i = 0; i < n; ++i)
+                     if (p.acc[i] != 0)
+                        (*img2)[i] += static_cast<float>(perFrame * p.acc[i]);
                // Windows that start or end inside this frame: their overlap.
                std::vector<BlinkEvent> partial;
                for (const BlinkEvent& e : p.wins)
@@ -6303,6 +6513,9 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                      partial.push_back(e);
                RenderPhotonImage(img, W, H, partial, f, pixelNm, g.sigmaPx, perFrame, 0.0, ddx, ddy,
                                  g.kernel.valid ? &g.kernel : nullptr, zf, nullptr, nullptr, &into);
+               if (img2)
+                  RenderPhotonImage(*img2, W, H, partial, f, pixelNm, g.sigmaPx, perFrame, 0.0, ddx, ddy,
+                                    g.kernel.valid ? &g.kernel : nullptr, zf, nullptr, nullptr, &into);
                p.perDyeFrames++;
                paths[static_cast<size_t>(k)].push_back(std::string(PopulationName(p.state)) + ": per dye (" +
                                                        std::to_string(p.wins.size()) + " windows)");
@@ -6320,7 +6533,9 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                ddx = S.drift[static_cast<size_t>(f)].x / pixelNm;
                ddy = S.drift[static_cast<size_t>(f)].y / pixelNm;
             }
-            RenderFiducials(img, W, H, *m.fid, f, zf, pixelNm, !drift && !opt.driftPx, ddx, ddy);
+            // (into the frame only: the ground truth's copy has no beads)
+            RenderFiducials(photons[static_cast<size_t>(k)], W, H, *m.fid, f, zf, pixelNm, !drift && !opt.driftPx, ddx,
+                            ddy);
             const double sec = TimingSince(tb);
             m.fid->sec += sec;
             tFid += sec;
@@ -6341,16 +6556,184 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   fr = it != m.slide->fringes.end() ? it->second.get() : nullptr;
                }
                RenderSlide(img, *m.slide, f, fr);
+               if (img2)
+                  RenderSlide(*img2, *m.slide, f, fr);
             }
             m.slide->sec += TimingSince(ts);
             paths[static_cast<size_t>(k)].push_back("slide: " + std::to_string(m.slide->comps.size()) + " dyes, " +
                                                     std::to_string(m.slide->geos.empty() ? 0 : m.slide->geos[0].nodes) +
                                                     " heights");
          }
+         if (gt)
+         {
+            const auto tg = TimingClock::now();
+            double gdx = 0.0, gdy = 0.0;
+            if (opt.driftPx)
+               opt.driftPx(f, gdx, gdy);
+            else if (drift)
+            {
+               gdx = S.drift[static_cast<size_t>(f)].x / pixelNm;
+               gdy = S.drift[static_cast<size_t>(f)].y / pixelNm;
+            }
+            GroundTruth::Frame fr;
+            fr.frame = gtBase + f;
+            fr.tSec = S.t0Sec + f * S.expSec;
+            fr.expSec = S.expSec;
+            fr.stageXUm = ScopeSpecGet(m.spec, "x");
+            fr.stageYUm = ScopeSpecGet(m.spec, "y");
+            fr.focusUm = zBaseAt(f);
+            fr.focusWorldUm = S.q.zRefUm + zf;
+            if (drift)
+            {
+               fr.driftXNm = S.drift[static_cast<size_t>(f)].x;
+               fr.driftYNm = S.drift[static_cast<size_t>(f)].y;
+               fr.driftZNm = S.drift[static_cast<size_t>(f)].z;
+            }
+            if (S.excite.Patterned())
+            {
+               fr.patternAngle = static_cast<int>(info.patternStates[3 * static_cast<size_t>(f)]);
+               fr.patternPhase = static_cast<int>(info.patternStates[3 * static_cast<size_t>(f) + 1]);
+            }
+            gt->frames.push_back(fr);
+            gt->frameBase = gtBase + f + 1;   // (the next movie's frames follow this one's)
+            // The frame's non-blink light: the frame before its blinks, with its continuous light and no beads.
+            const std::vector<float>& gtBg = gtOther[static_cast<size_t>(k)];
+            const double gtCoreHalf = GroundTruth::kCoreBoxNm / 2 / pixelNm;   // the core's half side, camera px
+            const RenderExtras& gi = blinkInto;
+            const bool beads = m.fid && !m.fid->comps.empty();
+            // The blinks drawn, with their photons on the camera and the light under their PSF.
+            for (size_t gj = 0; gj < m.groups.size(); ++gj)
+            {
+               const std::vector<BlinkEvent>& ev = gtEv[static_cast<size_t>(k)][gj];
+               const Group& g = m.groups[gj];
+               const bool binned = gtBin[static_cast<size_t>(k)][gj] != 0;
+               const PsfKernelCache* kern = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
+               const double epd = gt->labels[static_cast<size_t>(gtLabel[gj])].emittedPerDetected;
+               // The events in chunks on threads, each with a scratch image of its own; the rows kept in event order.
+               const unsigned chunks = static_cast<unsigned>(std::min<size_t>(ev.size(), 16));
+               if (gtScratch.size() < chunks)
+                  gtScratch.resize(chunks);
+               std::vector<GroundTruth::Emitter> rows(ev.size());
+               std::vector<char> keep(ev.size(), 0);
+               ParallelFor(chunks, [&](unsigned c) {
+                  const size_t a = ev.size() * c / chunks, b = ev.size() * (c + 1) / chunks;
+               std::vector<BlinkEvent> single(1);
+               std::vector<FrameEmitter> one;
+               for (size_t ei = a; ei < b; ++ei)
+               {
+                  const BlinkEvent& e = ev[ei];
+                  single[0] = e;
+                  one.clear();
+                  CollectFrameEmitters(single, f, W, H, pixelNm, g.perFrame, gdx, gdy, kern, zf, gi.illumField, one);
+                  if (one.empty())
+                     continue;
+                  const FrameEmitter& em = one[0];
+                  if (!binned && (em.photons < m.S.blinkMinPhotons || em.photons <= 0))
+                     continue;   // not drawn (blink-min-photons)
+                  if (em.photons < gt->minCorePhotons)
+                     continue;   // (in its core it is fewer still)
+                  // its core first: a blink short of the threshold there needs no footprint (the row is not kept)
+                  const double core = FootprintCore(W, H, kern, em.zIndex, g.sigmaPx, em.xPx, em.yPx, gtCoreHalf);
+                  if (!(em.photons * core >= gt->minCorePhotons))
+                     continue;
+                  const EmitterFootprint fp = FootprintWithCore(gtScratch[c], W, H, kern, em.zIndex, g.sigmaPx, em.xPx,
+                                                                em.yPx, gtBg, core);
+                  GroundTruth::Emitter& r = rows[ei];
+                  r.frame = gtBase + f;
+                  r.kind = GroundTruth::Emitter_;
+                  r.regime = binned ? GroundTruth::Binned : GroundTruth::Splat;
+                  r.label = gtLabel[gj];
+                  r.id = e.id;
+                  r.structure = e.structure;
+                  r.state = e.state;
+                  r.xUm = e.xUm + S.q.originXUm;
+                  r.yUm = e.yUm + S.q.originYUm;
+                  r.zUm = e.zNm / 1000.0 + S.q.zRefUm;
+                  r.xPx = em.xPx;
+                  r.yPx = em.yPx;
+                  r.zFocusNm = e.zNm - zf * 1000.0;
+                  r.onFraction = em.overlap;
+                  r.detected = em.photons;
+                  r.onCamera = em.photons * fp.onCamera;
+                  r.emitted = em.photons * epd;
+                  r.bg = fp.bg;
+                  r.bgCentre = fp.bgCentre;
+                  r.core = em.photons * fp.core;
+                  r.excite = e.excite;
+                  keep[ei] = r.core >= gt->minCorePhotons;
+               }
+               });
+               for (size_t ei = 0; ei < ev.size(); ++ei)
+                  if (keep[ei])
+                     gt->emitters.push_back(rows[ei]);
+            }
+            // The beads: each one's photons, its footprint (made again when the focus or the drift moves).
+            for (size_t c = 0; beads && c < m.fid->comps.size(); ++c)
+            {
+               const FiducialMovieComponent& F = m.fid->comps[c];
+               // the beads on threads (each its own row and footprint; the bead splat is safe to share), kept in order
+               std::vector<GroundTruth::Emitter> rows(F.beads.size());
+               std::vector<char> keep(F.beads.size(), 0);
+               std::vector<double> phs(F.beads.size());   // (serially: the frame's light, as RenderFiducials asks it)
+               for (size_t b = 0; b < F.beads.size(); ++b)
+                  phs[b] = FiducialBeadPhotons(*m.fid, F, F.beads[b], f);
+               const unsigned chunks = static_cast<unsigned>(std::min<size_t>(F.beads.size(), 16));
+               ParallelFor(chunks, [&](unsigned ch) {
+               std::vector<float> alone;
+               for (size_t b = F.beads.size() * ch / chunks; b < F.beads.size() * (ch + 1) / chunks; ++b)
+               {
+                  const FiducialBeadSite& e = F.beads[b];
+                  const double ph = phs[b];
+                  if (!(ph >= gt->minCorePhotons))
+                     continue;
+                  GtBeadFp& bf = gtBeadFp[c][b];
+                  const double xPx = e.xUm * 1000.0 / pixelNm + gdx, yPx = e.yUm * 1000.0 / pixelNm + gdy;
+                  if (!(bf.zf == zf && bf.dx == gdx && bf.dy == gdy))
+                  {
+                     alone.assign(n, 0.0f);
+                     SplatFiducialBead(alone, W, H, F, e, zf, pixelNm, 1.0, gdx, gdy);
+                     bf.fp = SparseFootprintOf(alone, W, H, xPx, yPx);
+                     bf.fp.core = FiducialBeadCore(F, e, zf, pixelNm, gdx, gdy, W, H, gtCoreHalf);
+                     bf.zf = zf;
+                     bf.dx = gdx;
+                     bf.dy = gdy;
+                  }
+                  const EmitterFootprint fp = ApplyFootprint(bf.fp, gtBg);
+                  GroundTruth::Emitter& r = rows[b];
+                  r.frame = gtBase + f;
+                  r.kind = GroundTruth::Fiducial;
+                  r.regime = GroundTruth::Bead;
+                  r.xUm = e.xUm + S.q.originXUm;
+                  r.yUm = e.yUm + S.q.originYUm;
+                  r.zUm = e.zNm / 1000.0 + S.q.zRefUm;
+                  r.xPx = xPx;
+                  r.yPx = yPx;
+                  r.zFocusNm = e.zNm - zf * 1000.0;
+                  r.detected = ph;
+                  r.onCamera = ph * fp.onCamera;
+                  r.bg = fp.bg;
+                  r.bgCentre = fp.bgCentre;
+                  r.core = ph * fp.core;
+                  r.beadNm = e.d;
+                  keep[b] = r.core >= gt->minCorePhotons;
+               }
+               });
+               for (size_t b = 0; b < F.beads.size(); ++b)
+                  if (keep[b])
+                     gt->emitters.push_back(rows[b]);
+            }
+            TimingLog("fl.ground-truth", TimingSince(tg));
+         }
       }
       tPops.Stop();
       tNoise.Start();
-      if (!opt.onPhotons)
+      if (noPixels)
+         for (long k = 0; k < nb; ++k)
+         {
+            if (adu[static_cast<size_t>(k)].size() != n)
+               adu[static_cast<size_t>(k)].assign(n, 0);
+         }
+      else if (!opt.onPhotons)
          ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
             ApplyNoiseChain(photons[k], adu[k], W, H, cam, noisePtr->offsetMap, noisePtr->gainMap, noisePtr->rnMap,
                             noisePtr->noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)));
@@ -6388,6 +6771,16 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       tWrite.Stop();
       if (!more)
          break;
+   }
+   // The ground truth's movie end: the dyes seen again merged, the new rows' sites and dipoles (core queries over
+   // chunks of them along x).
+   if (gt)
+   {
+      const auto td = TimingClock::now();
+      const size_t asked = gt->EndMovie(gtEmFrom, [&](const double box[6], const std::vector<double>& ids, std::vector<double>& rows) {
+         return m.cache.source.DyeDetails(box[0], box[1], box[2], box[3], box[4], box[5], ids, rows);
+      }, ISC_DYE_DETAIL_STRIDE);
+      TimingLog("fl.ground-truth-details", TimingSince(td), std::to_string(asked).c_str());
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
    tBlinks.Log("fl.frame.blinks (batches)");
@@ -6456,6 +6849,45 @@ bool ScopeBrightfieldSpec(const ScopeSpec& spec, BrightfieldSpec& bs, std::strin
       }
    }
    return true;
+}
+
+// The ground truth's row of a frame no fluorescence movie draws (the lamp alone, no light; GroundTruth.h): its time,
+// stage, focus and drift as FluorescenceMovie::Render writes a frame's, numbered on from the frames before (a
+// recording's later fluorescence frames keep their index in the movie). No sink: nothing.
+static void GroundTruthPlainFrame(const ScopeSetup& S, const ScopeSpec& spec, long f)
+{
+   GroundTruth* const gt = ActiveGroundTruth();
+   if (!gt)
+      return;
+   gt->width = S.W;
+   gt->height = S.H;
+   gt->pixelNm = S.p.pixelSizeNm;
+   GroundTruth::Frame fr;
+   fr.frame = gt->frameBase;
+   fr.tSec = S.t0Sec + f * S.expSec;
+   fr.expSec = S.expSec;
+   fr.stageXUm = ScopeSpecGet(spec, "x");
+   fr.stageYUm = ScopeSpecGet(spec, "y");
+   const double z = ScopeSpecGet(spec, "z");
+   double zf = z;
+   if (S.driftOn)
+   {
+      const auto& d = S.drift[static_cast<size_t>(f)];
+      zf = z - d.z / 1000.0;
+      fr.driftXNm = d.x;
+      fr.driftYNm = d.y;
+      fr.driftZNm = d.z;
+   }
+   fr.focusUm = z;
+   fr.focusWorldUm = S.q.zRefUm + zf;
+   gt->frames.push_back(fr);
+   gt->frameBase++;
+}
+// Whether the thread's ground truth drops the frames (GroundTruth::framesUnused).
+static bool GroundTruthNoPixels()
+{
+   const GroundTruth* gt = ActiveGroundTruth();
+   return gt && gt->framesUnused;
 }
 
 // The lamp's photons per frame (BrightfieldFrames, the combined light): the
@@ -6549,6 +6981,7 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
                       static_cast<uint32_t>(f));
       tNoise.Stop();
       tWrite.Start();
+      GroundTruthPlainFrame(S, spec, f);
       const bool more = onFrame(f, adu);
       tWrite.Stop();
       if (!more)
@@ -7035,13 +7468,20 @@ static bool RenderDarkMovie(const ScopeSpec& spec, const std::function<bool(long
    std::snprintf(desc, sizeof desc, "insiliscope light=none seed=%ld size=%u pixel_nm=%g exposure_ms=%g frames=%ld",
                  S.seed, S.W, S.p.pixelSizeNm, S.expSec * 1000, S.N);
    info.description = desc;
-   NoiseSetup noise(S.seed, S.W, S.H, S.p);
+   const bool noPixels = GroundTruthNoPixels();
+   std::unique_ptr<NoiseSetup> noise;
+   if (!noPixels)
+      noise.reset(new NoiseSetup(S.seed, S.W, S.H, S.p));
    const std::vector<float> photons(static_cast<size_t>(S.W) * S.H, 0.0f);
    std::vector<uint16_t> adu;
+   if (noPixels)
+      adu.assign(photons.size(), 0);
    for (long f = 0; f < S.N; f++)
    {
-      ApplyNoiseChain(photons, adu, S.W, S.H, S.p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap,
-                      noise.noiseSeed, static_cast<uint32_t>(f));
+      if (!noPixels)
+         ApplyNoiseChain(photons, adu, S.W, S.H, S.p.Camera(), noise->offsetMap, noise->gainMap, noise->rnMap,
+                         noise->noiseSeed, static_cast<uint32_t>(f));
+      GroundTruthPlainFrame(S, spec, f);
       if (!onFrame(f, adu))
          break;
    }
@@ -7058,6 +7498,10 @@ static bool RenderCombinedMovie(const ScopeSpec& spec,
                                 ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress)
 {
    FluorescenceMovie fm;
+   // A host that drops the frames (GroundTruth::framesUnused): the fluorescence alone, frames of zeros (the lamp's
+   // light is in no ground-truth column).
+   if (GroundTruthNoPixels())
+      return fm.Begin(spec, false, err) && fm.Render(onFrame, info, err, progress);
    ScopeSetup S;
    BrightfieldSpec bs;
    if (!fm.Begin(spec, false, err) || !MakeScopeSetup(spec, S, err) || !ScopeBrightfieldSpec(spec, bs, err))
@@ -7102,6 +7546,26 @@ bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, cons
       return RenderDarkMovie(spec, onFrame, info, err);
    if (epi && trans)
       return RenderCombinedMovie(spec, onFrame, info, err, progress);
+   if (trans && GroundTruthNoPixels())
+   {
+      // The lamp alone and a host that drops the frames: the ground truth's frame rows, no scene, frames of zeros.
+      ScopeSetup S;
+      if (!MakeScopeSetup(spec, S, err))
+         return false;
+      info = ScopeMovieInfo();
+      info.width = S.W;
+      info.height = S.H;
+      info.frames = S.N;
+      DriftInfo(S, info);
+      const std::vector<uint16_t> zero(static_cast<size_t>(S.W) * S.H, 0);
+      for (long f = 0; f < S.N; f++)
+      {
+         GroundTruthPlainFrame(S, spec, f);
+         if (!onFrame(f, zero))
+            break;
+      }
+      return true;
+   }
    if (trans)
       return RenderBrightfieldMovie(spec, onFrame, info, err);
    FluorescenceMovie fm;
@@ -7186,12 +7650,16 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       info.frames = S.N;
       const std::vector<float> zero(static_cast<size_t>(S.W) * S.H, 0.0f);
       for (long f = 0; f < S.N; f++)
+      {
+         GroundTruthPlainFrame(S, spec, f);
          if (!onPhotons(f, zero))
             break;
+      }
       info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       return true;
    }
-   if (epi && trans)
+   const bool noPixels = GroundTruthNoPixels();   // (the lamp's light is in no ground-truth column)
+   if (epi && trans && !noPixels)
    {
       // RenderCombinedMovie up to its noise chain.
       FluorescenceMovie fm;
@@ -7219,13 +7687,31 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       };
       return fm.Render(noFrames, info, err, progress, &opt);
    }
-   if (trans)
+   if (trans && !epi)
    {
       // RenderBrightfieldMovie / BrightfieldFrames up to the noise chain: the lamp's photons per frame.
       const auto t0 = std::chrono::steady_clock::now();
       ScopeSetup S;
       if (!MakeScopeSetup(spec, S, err))
          return false;
+      if (noPixels)
+      {
+         // A host that drops the frames: the ground truth's frame rows, no scene, zero photons.
+         info = ScopeMovieInfo();
+         info.width = S.W;
+         info.height = S.H;
+         info.frames = S.N;
+         DriftInfo(S, info);
+         const std::vector<float> zero(static_cast<size_t>(S.W) * S.H, 0.0f);
+         for (long f = 0; f < S.N; f++)
+         {
+            GroundTruthPlainFrame(S, spec, f);
+            if (!onPhotons(f, zero))
+               break;
+         }
+         info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+         return true;
+      }
       MovieCache& cache = SharedMovieCache();
       std::lock_guard<std::mutex> lock(cache.mutex);
       if (!ConfigureShared(cache, S.cf, err))
@@ -7243,8 +7729,11 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
       info.querySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       DriftInfo(S, info);
       for (long f = 0; f < S.N; f++)
+      {
+         GroundTruthPlainFrame(S, spec, f);
          if (!onPhotons(f, lamp.At(cache.brightfield, S, f)))
             break;
+      }
       info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
       return true;
    }

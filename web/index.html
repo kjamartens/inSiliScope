@@ -579,7 +579,7 @@
     <div id="liveBar">
       <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button>
       <button id="lv_snap" title="Snap: one frame">Snap</button>
-      <span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save .tif&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header); asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
+      <span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header), or with its settings file and ground truth as one .zip; asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
         <div id="lv_recPop" hidden role="dialog" aria-label="Record">
           <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
           <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
@@ -599,7 +599,7 @@
         <div id="lv_idle"><span id="lv_idlePress">Press <button id="lv_idleLive" title="Live: image the sample under the world view's centre"><span class="ico">▶</span> Live</button></span><span id="lv_idleStart" hidden>Starting<i class="dots"></i></span></div>
         <div id="lv_scale"></div>
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
-        <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header)">Save .tif</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
+        <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the movie, optionally with its settings and ground truth">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
     <div id="sideTop">
       <div class="bar">
@@ -1725,6 +1725,7 @@ menu.innerHTML = '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><inp
   '<h4>Panes</h4><label title="The Settings / Animation tabs: the animation editor (beta)"><input type="checkbox" id="showAnimPane"> Show animation pane (beta)</label>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
   '<div class="btns"><button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all to defaults</button></div>' +
+  '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground-truth table to a density stack at any voxel size">Voxelize ground truth ↗</a>: a ground-truth table to a stack</div>' +
   '<div class="note" id="advNote"></div>' +
   (self.ISC_VERSION ? `<div class="note">inSiliScope ${self.ISC_VERSION}</div>` : '') +
   '<div class="note"><a id="privacyLink" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/privacy/">Privacy</a>: anonymous usage counts, no cookies</div>';
@@ -3881,7 +3882,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 18) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 18');
+  if (M._isc_abi_version() !== 19) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 19');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -4127,7 +4128,7 @@ function iscEngine(M) {
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
-      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
+      const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'gt' || d.type === 'gt-run' || d.type === 'gt-files' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
         // d (nm) each), on the beads' own world.
@@ -4352,6 +4353,46 @@ function iscEngine(M) {
         }
         M._free(err);
         return [{ type: 'live-replay', id: d.id, t: M._isc_live_time(), error }, []];
+      }
+      if (d.type === 'gt') {
+        // A recording's ground truth (web/live/live.js Save; docs/ground-truth.md): its settings file's movie rendered
+        // again with the sink on (isc_scope_gt, = insiliscope_cli --settings --gt-out), the files [[name, bytes], ...]
+        // (Module.onGtFile: each copied out of the heap as it is made). Progress as a movie's.
+        progressTo(d, post);
+        const n = M.lengthBytesUTF8(d.text) + 1, s = M._malloc(n), files = [];
+        M.stringToUTF8(d.text, s, n);
+        M.onGtFile = (name, bytes) => files.push([name, bytes]);   // each file out of the heap as it is made
+        let size;
+        try { size = M._isc_scope_gt(s, d.min, d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; M.onGtFile = null; }
+        if (size < 0) return [{ type: 'gt', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        return [{ type: 'gt', id: d.id, files }, files.map(f => f[1].buffer)];
+      }
+      if (d.type === 'gt-run') {
+        // The same in two steps (live.js starts this one while the Save box is open): the movie rendered with the sink
+        // on, kept in the module (isc_scope_gt_run: rows from d.minPhotons on), then gt-files.
+        progressTo(d, post);
+        const n = M.lengthBytesUTF8(d.text) + 1, s = M._malloc(n);
+        M.stringToUTF8(d.text, s, n);
+        let rc;
+        try { rc = M._isc_scope_gt_run(s, d.minPhotons, d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; }
+        if (rc < 0) return [{ type: 'gt-run', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        // d.files = {min, vol, dyeCsv}: the files for the options the box shows, made now (the run kept for others)
+        if (!d.files) return [{ type: 'gt-run', id: d.id, error: null }, []];
+        const files = [], o = d.files;
+        M.onGtFile = (name, bytes) => files.push([name, bytes]);
+        let size;
+        try { size = M._isc_scope_gt_files(o.min, o.vol[0], o.vol[1], o.dyeCsv ? 1 : 0, 1); } finally { M.onGtFile = null; }
+        if (size < 0) return [{ type: 'gt-run', id: d.id, error: null, filesError: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        return [{ type: 'gt-run', id: d.id, error: null, files, filesFor: o }, files.map(f => f[1].buffer)];
+      }
+      if (d.type === 'gt-files') {
+        // The kept run's files (isc_scope_gt_files), each out of the heap as it is made; the run let go.
+        const files = [];
+        M.onGtFile = (name, bytes) => files.push([name, bytes]);
+        let size;
+        try { size = M._isc_scope_gt_files(d.min, d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0, 0); } finally { M.onGtFile = null; }
+        if (size < 0) return [{ type: 'gt-files', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        return [{ type: 'gt-files', id: d.id, files }, files.map(f => f[1].buffer)];
       }
       if (d.type === 'setup') {
         // A movie spec's resolved setup (isc_scope_setup: JSON of the light path, excitation, labels).
@@ -7364,6 +7405,7 @@ else initGenWorkers();
 setLayerMode(!/[?&]2d/.test(location.search) && initGl()); // ?2d forces the 2D fallback (for testing)
 resizeCanvas();
 </script>
+<script src="live/zip.js"></script>
 <script src="live/live.js"></script>
 <script src="live/mm_config_ui.js"></script>
 <script src="live/settings_core.js"></script>

@@ -81,6 +81,12 @@ function replaySpecs(eng, records, sampleSpec) {
   }
   return out;
 }
+// A Record's file (history.recordFrom, settings_file.cpp RunSpec): the runs before the Record (replayed) and the
+// recorded runs (each rendered as one isc_live_frames call, its bleach basis its own: fresh-basis), as replaySpecs.
+function recordSpecs(eng, history, sampleSpec) {
+  const all = replaySpecs(eng, history.records || [], sampleSpec), k = Math.min(all.length, Math.max(0, history.recordFrom | 0));
+  return { before: all.slice(0, k), record: all.slice(k).map(r => ({ ...r, spec: r.spec + ' fresh-basis=1' })) };
+}
 // A file read: checked, migrated to this version (no renames yet), and the warnings for here ({release, worldVersion}).
 const RENAMED = {};   // old key -> new key, when an option is renamed
 function readFile(text, here) {
@@ -97,5 +103,5 @@ function readFile(text, here) {
   for (const p of Object.values(file.parts)) if (p && p.values) for (const [o, n] of Object.entries(RENAMED)) if (o in p.values) { p.values[n] = p.values[o]; delete p.values[o]; }
   return { file, warnings };
 }
-self.iscSettingsCore = { FORMAT, VERSION, parseSpec, partOf, toName, fromName, idOf, historyOut, replaySpecs, readFile };
+self.iscSettingsCore = { FORMAT, VERSION, parseSpec, partOf, toName, fromName, idOf, historyOut, replaySpecs, recordSpecs, readFile };
 })();

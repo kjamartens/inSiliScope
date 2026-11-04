@@ -166,6 +166,81 @@ that finishes them.
   (~11 s, browser: dialogs, load = the same spec and next frame, mixing, warnings). The objective's NA (`mv_na`,
   Advanced) and the Zernike modes (`zernCoeffs`, Expert: the preset's from the setup readout's `zernike` =
   `ScopeZernike`, typed values go into the spec as all 28 `zern.<j>`, `self.ISC_ZERN`) sit in Objective & PSF.
+- **Ground truth (2026-11-04, branch `gt-export`, [docs/ground-truth.md](docs/ground-truth.md), spec/PORT.md 29):** a
+  Record's **Save** box (`openSave` in `web/live/live.js`): the movie alone (.tif) or a .zip (`web/live/zip.js`,
+  deflate-raw, Zip64) with `settings.isc.json` (`recordFile`, reproduces the movie) and `gt/`. The engine fills a
+  thread-local sink (`Simulation/GroundTruth.*`, `GroundTruthScope`; frames bit for bit with and without): frame rows,
+  drawn blinks and beads with photons on the camera (the splat's 1-photon footprint) and the PSF-weighted non-blink
+  light, continuous dyes with their photons over the frames (the mean field's windows fetched for the list in 2 um
+  strips along x, each let go); at Render's end `EndMovie` merges dyes a later movie saw again (sorted in place) and
+  adds sites and dipoles by core queries over chunks of 2^18 rows along x (core ABI 19 `isc_dye_details_in_window`,
+  stride 11, by id; goldens unchanged; the dyes' only when dyes.csv is written; a merged dye keeps its site; the core
+  looks a run of dyes' cell up once, `DyeSiteIn` / `DyeOrientationIn`, world_checks: = the per-dye functions bit for
+  bit). Speed (2026-11-04, every file byte for byte): footprints within the halo cut's spans, bead footprints on threads, tables by `std::to_chars` (`Simulation/CsvNumber.cpp`, ctest
+  `csv_numbers` natively and in WASM) formatted on all cores, a stack's planes on all cores (`Stack::PlaneInto`),
+  `vox::Deflate` 8 bytes at a time (= a verbatim copy, `cli/deflate_reference.inc`). Later (2026-11-04, the offset
+  columns' last digits moved, every other byte the same): the light under a blink (`offset`, `bg_centre_photons`) is
+  the frame before its blinks with the continuous light added as to the frame (`gtOther` in Render; was the frame less
+  its blinks drawn again alone and its beads), so the blinks are drawn once (none in a run that drops the frames); a
+  blink's core comes first and one short of the threshold gets no footprint (WASM 128 px DNA-PAINT: the GT run 64 -> 10
+  ms/frame, the movie 21). A run that drops the frames with WideField labels alone and no beads or slide
+  (`gtNoImages` in Begin) makes no PSF kernel, mean-field scene or continuous light per frame (nothing reads an image;
+  the same files): cold 128 px 50 frames 8.8 s / 1.5 GB -> 2.3 s / 1.1 GB, with the dye list 15.9 -> 8.5 s. Memory (2026-11-04: 128 px WideField
+  beside a nucleus, 4 M dyes, aborted the viewer at 4 GB): heap 1.9 GB without the dye list, 2.3 GB with. `GroundTruth::Files` writes
+  frames.csv, localizations.csv (2026-11-04: one table, blinks and beads with at least `minCorePhotons` (300) expected
+  photons in their core = the 500 nm square `kCoreBoxNm` centred on them, from the oversampled kernel (`KernelBoxPart`,
+  `GaussianBoxPart`; beads `FiducialBeadCore`): pixel-size independent; column `core_photons`; was two tables at 5 and
+  300 photons on the camera, `localizations_min<N>.csv`, which counted a far-defocused blink's whole spread) / fiducials.csv, dyes.csv (only without a blinking label: localizations or a dye list, never both, also in the Save box;
+  optional: ~100 MB at 128 px WideField),
+  gt_volume_<target>[_<state>].tif (2026-11-04: `Simulation/Voxelize.*`, the one voxelizer, also voxelize.html's
+  through its own WASM; detected photons per voxel, every stack on one grid (the box of all dyes: they overlap),
+  10 nm or as fine as fits 1 GB in all (`GridWithin`, steps of 0.5 nm), 8-bit scaled to the stack's largest voxel
+  (`insiliscope.scale`, Fiji's cf/c1 calibration), planes deflated (`vox::Deflate`: runs as distance-1 matches,
+  dynamic Huffman; the ctest's inflater checks it), a label per slice (its z), the origin as xorigin/yorigin/zorigin
+  (Fiji's status bar); 4 M dyes: 12.5 nm, 6.3 MB), README.txt; `Files(sink, ...)` hands each over
+  as made. Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` = `isc_scope_gt_run`
+  (the movie with the sink on, kept; rows from a `minCorePhotons`) + `isc_scope_gt_files` (2026-11-04: the same files
+  when the run's threshold is at most the lower one and its dye list on or the same); on a worker of its own
+  (`gt-run`, `gt-files` jobs; live.js `GT`, `L.gtWarm`, `L.groundTruth`): the run starts when the Save box opens with
+  Ground truth ticked (again on a lower threshold or the dye list on), or with a fresh sample's Record when the last
+  Save had Ground truth ticked and the recording has blinks (`recGtEarly`, the Record's settings file made at its start,
+  `REC.file`; DNA-PAINT 300 frames: the Record ~7 % slower, Save waits 1.8 s instead of 8.2; WideField with the dye list
+  as that Save had it; Live, Snap or a new Record stop it), Save takes it, the worker is closed after, on
+  the box's close (`dialog(html, onClose)`) and `closePlayer`; `Module.onGtFile` takes each file out of the heap;
+  stages `setup`, `ground truth` per frame, `files`. The module's run drops the frames (`GroundTruth::framesUnused`:
+  no camera noise, no lamp, no BrightField scene; the files = the cli's, which renders them). Frames no fluorescence
+  movie draws (lamp alone, dark) get frames.csv rows (`GroundTruthPlainFrame`; before 2026-11-04 none, and a later
+  fluorescence run's frames were numbered from 0). The cli's `--gt-out` / `--gt-min n` (core photons) / `--gt-volume xy,z`, both
+  on `settings::RenderMovie`; `web/open_in_napari.py` (in every saved zip; dropped on napari's window it opens the
+  recording (napari's .py reader: `in_napari`, the data from `__file__`: the unpacked folder, else the newest recording
+  zip beside it; no `sys.exit` there); `python open_in_napari.py <zip>` too; the zip's `__main__.py` (`python <zip>`)
+  dropped 2026-11-04; napari 0.10's API where present (layer `units`, points `projection_mode` 'all' + a thick z slice,
+  `canvas.overlays.scale_bar`), the older one else: the
+  movie at the stage position (pixel i's centre at stage + (i - W/2) px, no flip), density stacks, localizations per
+  frame, axes frame/z/y/x in world um; also on a voxelize .tif, lazily; native napari opens neither the zip nor the
+  folder as one recording; copied beside the viewer by `build_site.sh`;
+  checked with napari stood in for by `tests/web/napari_open_check.py`, ~1 s, which viewer_save runs on its zip, the
+  drop included); `web/voxelize.html` (the
+  page reads the CSV as bytes (only the columns used; a number of up to 15 digits = its digits / 10^k, = Number()'s;
+  anything else and a quoted line the text way; the tables = the old reader's bit for bit; 120 MB 1.2 -> 0.8 s) and
+  chooses the rows; the grid, the stack plane by plane, the planes' compression (`vox::Deflate`, the density stacks'
+  encoder, `vox_plane_deflated`; 2026-11-04, was the browser's CompressionStream on workers: ~15x slower, a few % larger,
+  the same pixels; a 120 MB dyes.csv's 10 nm 2-channel stack 10.6 -> 4.3 -> 1.1 s), the description, labels and TIFF layout are `Simulation/Voxelize.cpp` through `cli/voxelize_wasm.cpp`
+  (target `insiliscope_voxelize`, in the `wasm-viewer` preset, ~180 KB, written into the page's `<script
+  id="voxModule">` by `tools/embed_web_module.mjs`, whose `--check` covers it); the
+  converter, ☰ › Tools `#voxelizeLink`, copied beside the viewer by `build_site.sh`, in the zip only beside dyes.csv: the
+  CSV streamed into typed columns; the stack made one z plane at a time (rows counting-sorted by plane, two passes for
+  the 8/16-bit scale, each plane kept as its stored Blob: 1.9 GB of 10 nm voxels in 27 s); 8/16/32 bits, a channel per
+  target; reads the saved zip itself (`zipEntries`, Zip64, its tables to pick from); the file `#fmt`: a deflated .tif
+  (the default: ImageJ 1.54f's Import > TIFF Virtual Stack opens it as a hyperstack with its slice labels, 2 GB in
+  0.7 s and 120 MB; opened whole, ImageJ reads no labels from a compressed TIFF), a .zip of one uncompressed TIFF
+  (streamed through `zipStream`; opened whole, with the labels) or an uncompressed .tif; the compressed size
+  estimated from 6 sample planes (`estimate`, within ~10 %); checked in ImageJ 1.53, Micro-Manager's `ij.jar` run with `-batch`). Checks: ctest
+  `ground_truth` (0.9 s: Deflate = its old copy byte for byte, `PlaneInto` = Fill + Quantize), `csv_numbers` (1.2 s;
+  WASM 2.3 s),
+  `tests/web/gt_unit.mjs` (the module's files = the cli's) and `zip_unit.mjs` (CI
+  `viewer-js`; CRC-32 slice by 8 = the byte table), `viewer_save.mjs` (browser, ~25 s: the cli reproduces the zip's movie and tables byte for byte;
+  voxelize's 8-bit and channel stacks).
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider

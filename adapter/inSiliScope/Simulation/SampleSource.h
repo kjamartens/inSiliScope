@@ -129,6 +129,11 @@ public:
    // The fluorescent dyes in the window (isc_sites_in_window): ISC_SITE_STRIDE doubles each (world x, y, z, id,
    // structure), replacing out. False on a core failure.
    bool Sites(double x0, double y0, double x1, double y1, double zMin, double zMax, std::vector<double>& out);
+   // The same dyes with their binding site and dipole (isc_dye_details_in_window, ABI 19): ISC_DYE_DETAIL_STRIDE
+   // doubles each, replacing out. False on a core failure.
+   // ids: only those dyes (empty: every one).
+   bool DyeDetails(double x0, double y0, double x1, double y1, double zMin, double zMax, const std::vector<double>& ids,
+                   std::vector<double>& out);
    // The fiducial beads whose centre lies in the window (isc_fiducials_in_window, ABI 15): ISC_FIDUCIAL_STRIDE doubles
    // each (tx, ty, i, world x, y, z um, diameter nm), replacing out. False on a core failure.
    bool Fiducials(double x0, double y0, double x1, double y1, std::vector<double>& out);
@@ -180,6 +185,9 @@ public:
    // (isc_origami_heights; JS World.maxCellHeight); 0 if none, -1 on a
    // failure.
    double MaxCellHeight(double x0, double y0, double x1, double y1);
+
+   // Lets the query rows' buffer go (it keeps the largest query's size: the ground truth's dye list frees it).
+   void ReleaseBuffers() { std::vector<double>().swap(buf_); }
 
 private:
    IscWorld* world_ = nullptr;

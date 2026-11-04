@@ -125,6 +125,30 @@ in C++, in the viewer and viewer -> cli).
   at `start-sec`" (`ScopeMovie`, as Record and Make movie).
 - Micro-Manager's producer is not on `LiveScope` yet: MM cannot write or replay a history for now.
 
+### A Record's file (2026-11-04)
+
+A ● Record keeps its own settings file, made from the settings as the Record began (`recordFile` in
+`web/live/settings_file.js`; not from the panel at save time), with a `record: {mode, frames}` object in the
+measurement:
+
+- **fresh** (the default Record): no history; `frames` = the recorded frames, `start-sec` = the Record's start time
+  (`lv_recT`, not `mv_start-sec`). `insiliscope_cli --settings` renders it as a movie, whatever light the viewer's live
+  sample had.
+- **live** ("continue the live sample"): the history up to the Record, then the recorded runs, one per chunk the viewer
+  rendered (`isc_live_frames`; chunks are kept apart, as `LiveScope::Frames(n)` is not n `Frame`s bit for bit), and
+  `history.recordFrom` = the first recorded run. The cli replays the runs before it and renders each later run with its
+  own spec (a setting changed during the Record, an early stop: exact). The viewer's Load replays every run, so its live
+  sample goes on after the Record.
+- A recorded movie's mean-field bleach basis is its own (`fresh-basis` 1, a host option: not in the file; the viewer's
+  Record jobs send it, `settings::RunSpec` and a fresh-mode file set it). Without it a movie takes a basis an earlier
+  movie made at the same pose, anchored at another frame: the same frames within a few ADU in a few pixels, not bit for
+  bit (found 2026-11-04: 2 px, up to 4 ADU, in 3 dSTORM frames).
+- The cli's frames equal the viewer's on the CPU path. A fresh Record of a WideField label runs its mean field on
+  WebGPU where the browser has it: those pixels can differ in the last bits.
+
+Checks: ctest `cli_settings` (a Record's file: three recorded runs, the laser changed between two, = the recorded frames
+bit for bit), `tests/web/settings_unit.mjs` (the same through the module).
+
 ## Loading in the viewer
 
 Quiet apply: `self.ISC_QUIET` holds the panel's couplings (a schema `apply` handler's values are dropped, the specimen
@@ -139,8 +163,9 @@ its own values with the file's and lists what it could not take ("Not taken") an
 
 `--settings <file>[:part,part]`, repeatable, later files and options override; all parts but view by default. With a
 light history the cli replays it (`settings::Replay`) and writes the live sample's next `frames` frames
-(`LiveScope::Frames`); without one, the usual movie. Ground-truth export on top of this is a later task; what it will
-meet:
+(`LiveScope::Frames`); without one, the usual movie. A Record's file goes through `settings::RenderMovie` (the cli
+and the module's `isc_scope_gt`, which renders the movie again with a `GroundTruthScope`). The ground truth is done
+(2026-11-04, [docs/ground-truth.md](../ground-truth.md), cli `--gt-out`); the points it had to meet, as planned:
 
 - The render regimes decide what the GT means: binned blinks snap to a grid, mean-field blinks have no events, dim
   blinks under `blink-min-photons` are left out of the image, the halo cut trims kernels; continuous populations
@@ -156,6 +181,6 @@ meet:
 
 ## Later
 
-Ground-truth export; MM `Hub.SaveSettingsTo` / `LoadSettingsFrom` (needs MM's live producer on `LiveScope` for the
+MM `Hub.SaveSettingsTo` / `LoadSettingsFrom` (needs MM's live producer on `LiveScope` for the
 history); an instrument's installed hardware (which lasers, filters, objectives exist) so a settings part can be
 checked against it; usage counts for save/load (only if wanted).

@@ -47,8 +47,10 @@ function viewValues() {
 }
 // The four engine parts: every engine option of each (the spec's value, else the engine's default), the keys the spec
 // has besides (p.*, zern.*, dye fields), names for enumerations; and what the viewer keeps of each beside them.
-function current() {
-  const spec = parseSpec(movieSpec());
+// over: movieSpec's overrides (a Record's frames and start time).
+// specText: the spec as it was (a Record begun before the engine's option list came; else movieSpec(over) now).
+function current(over, specText) {
+  const spec = parseSpec(specText || movieSpec(over));
   const values = { instrument: {}, settings: {}, sample: {}, measurement: {} };
   for (const [k, o] of ENG()) if (values[o.part]) values[o.part][k] = spec.has(k) ? spec.get(k) : o.def;
   for (const [k, v] of spec) { const p = partOf(k); if (!ENG().has(k) && values[p]) values[p][k] = v; }
@@ -100,18 +102,34 @@ function summary(part, values, viewer, history) {
 }
 
 // ---- the file ----
-function makeFile(parts, name) {
-  const now = current(), out = { format: FORMAT, version: VERSION,
+// opt (a Record's file, recordFile): now = current() as the Record began, history (null: none, a fresh sample),
+// record = {mode, frames}.
+function makeFile(parts, name, opt = {}) {
+  const now = opt.now || current(), hist = opt.history !== undefined ? opt.history : historyOut(), out = { format: FORMAT, version: VERSION,
     made: { app: 'viewer', release: self.ISC_VERSION || '', worldVersion: self.ISC_WORLD_VERSION || '', date: new Date().toISOString() },
     parts: {} };
   for (const p of parts) {
-    const part = { name, id: idOf(now.values[p]), summary: summary(p, now.values[p], now.viewer[p], p === 'measurement' ? historyOut() : null),
+    const part = { name, id: idOf(now.values[p]), summary: summary(p, now.values[p], now.viewer[p], p === 'measurement' ? hist : null),
       values: now.values[p] };
     if (now.viewer[p]) part.viewer = now.viewer[p];
-    if (p === 'measurement') part.history = historyOut();
+    if (p === 'measurement' && hist) part.history = hist;
+    if (p === 'measurement' && opt.record) part.record = opt.record;
     out.parts[p] = part;
   }
   return out;
+}
+// A Record's settings file: the movie it made, reproducible (insiliscope_cli --settings; docs/dev/SAVE_SETTINGS.md).
+// rec = {mode: 'fresh' | 'live', now: current() at its start, frames, log: the live log before it, chunks: its runs
+// ({spec, n, lit}, one isc_live_frames call each), tSec}. Fresh: no history (a movie at its start-sec); live: the
+// history with the recorded runs after the light before them (history.recordFrom).
+function recordFile(rec, name) {
+  const parts = ['instrument', 'settings', 'sample', 'measurement'];
+  const now = JSON.parse(JSON.stringify(rec.now));
+  now.values.measurement.frames = rec.frames;
+  if (rec.mode === 'fresh') return makeFile(parts, name, { now, history: null, record: { mode: 'fresh', frames: rec.frames } });
+  const h = C.historyOut(ENG(), [...rec.log, ...rec.chunks], rec.tSec);
+  h.recordFrom = rec.log.length;
+  return makeFile(parts, name, { now, history: h, record: { mode: 'live', frames: rec.frames } });
 }
 const readFile = text => C.readFile(text, { release: self.ISC_VERSION, worldVersion: self.ISC_WORLD_VERSION });
 
@@ -276,7 +294,8 @@ css.textContent = `
   #setDlg .part .s{grid-column:2;color:var(--muted);font-size:11px} #setDlg .warn{color:#e0a64a;margin:6px 0}
   #setDlg .msg{color:var(--muted);margin:6px 0;white-space:pre-wrap;max-height:180px;overflow:auto;font-size:11px}
   #setDlg .row{display:flex;gap:8px;align-items:center;margin-top:10px} #setDlg .row .sp{flex:1}
-  #setDlg input[type=text]{flex:1;min-width:0}`;
+  #setDlg input[type=text]{flex:1;min-width:0} #setDlg input[type=number]{width:5em}
+  #setDlg .part input[type=number]{padding:0 2px}`;
 document.head.append(css);
 let setupTimer = 0;
 function showSetup() {
@@ -308,7 +327,9 @@ dlg.setAttribute('role', 'dialog');
 dlg.innerHTML = '<div class="box"></div>';
 document.body.append(dlg);
 const dbox = dlg.querySelector('.box');
-const closeDlg = () => { dlg.hidden = true; };
+// onClose: the box's own clean-up (the Save box lets its ground truth's run go), once, however the box is closed
+let onDlgClose = null;
+const closeDlg = () => { dlg.hidden = true; const f = onDlgClose; onDlgClose = null; if (f) f(); };
 dlg.addEventListener('pointerdown', ev => { if (ev.target === dlg) closeDlg(); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !dlg.hidden) closeDlg(); });
 const partRows = (have, checked, sums) => PARTS.filter(p => have.includes(p)).map(p =>
@@ -395,5 +416,10 @@ document.addEventListener('drop', ev => {
 });
 
 // for the browser tests and the console: the file of the current setup, and loading one
-self.iscSettings = { makeFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS };
+// The dialog for another box of the same look (live.js: a recording's Save): its HTML, shown; returns the box.
+const dialog = (html, onClose) => {
+  const f = onDlgClose; onDlgClose = null; if (f) f();   // (a box replacing another closes it)
+  dbox.innerHTML = html; dlg.hidden = false; onDlgClose = onClose || null; return dbox;
+};
+self.iscSettings = { makeFile, recordFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS, dialog, closeDialog: closeDlg };
 })();

@@ -131,10 +131,12 @@ function request(n) {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; showInfo(); return; }
   if (L.pending) return;
-  const spec = movieSpec({ frames: 1 });
+  // (a recording chunk: its mean-field bleach basis its own, so its frames are a function of its file: fresh-basis)
+  const spec = movieSpec(n ? { frames: 1, 'fresh-basis': 1 } : { frames: 1 });
   const wk = worldKey(spec);
   const reset = wk !== L.worldKey;
   if (reset) { L.worldKey = wk; L.t = 0; L.log = []; }
+  if (n && !REC.log) REC.log = L.log.map(r => ({ ...r }));   // the light before the Record (its settings file)
   const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && expert() };
   if (n) { job.n = n; job.rec = true; }
   L.pending = job;
@@ -208,6 +210,82 @@ function onReplay(d, job) {
   }
   if (job.wasOn) setLive(true);
 }
+// A recording's ground truth on a worker of its own, closed when done: a fresh heap (on the live worker, beside the
+// live sample's caches, a WideField ground truth took the heap past its 4 GB: an abort, and the box waited on), all of
+// it freed after. Two jobs: gt-run (its settings file rendered again with the sink on, kept in the worker) and gt-files.
+// The run starts as the Save box opens with Ground truth ticked (L.gtWarm), so the sample, the PSF and the frames are
+// made while the box is read; Save takes it when it fits (the same file and dye list, rows kept from at most the
+// threshold: the same files as a run made at Save, isc_scope_gt_run), else starts another. As the run ends it makes
+// the files for the options the box shows then (dyes.csv and the stacks take seconds), which Save takes when they are
+// still the options; else the kept run makes them for the new ones. Live pauses while one runs.
+const GT = { w: null, key: null, run: null, files: null, pre: null, progress: null, last: null, wasOn: false };
+const deferred = () => { let resolve, reject; const p = new Promise((a, b) => { resolve = a; reject = b; }); p.catch(() => {}); return { p, resolve, reject }; };
+function gtStop() {
+  const { w, run, files } = GT;
+  Object.assign(GT, { w: null, key: null, run: null, files: null, pre: null, progress: null, last: null });
+  if (w) w.terminate();
+  const e = new Error('the ground truth was cancelled');
+  if (run) run.reject(e);
+  if (files) files.reject(e);
+  if (GT.wasOn) { GT.wasOn = false; setLive(true); }
+}
+function gtRun(text, minPhotons, dyeCsv, filesFor) {
+  gtStop();
+  if (!genWorkers.ok) return false;
+  if (L.on) { L.on = false; syncButtons(); GT.wasOn = true; }
+  const w = spawnGenWorker(), run = deferred();
+  Object.assign(GT, { w, key: { text, minPhotons, dyeCsv }, run });
+  const fail = msg => {
+    const e = new Error(workerErrorText(msg));
+    run.reject(e);
+    if (GT.files) GT.files.reject(e);
+    GT.key = null;   // (a later Save starts afresh)
+  };
+  w.onmessage = e => {
+    const d = e.data;
+    if (GT.w !== w) return;
+    if (d.type === 'movie-progress') { GT.last = [d.frac || 0, d.stage, d.info]; if (GT.progress) GT.progress(...GT.last); }
+    else if (d.type === 'gt-run') {
+      if (d.error) { fail(d.error); return; }
+      if (d.files) GT.pre = { for: d.filesFor, files: d.files };
+      run.resolve();
+    }
+    else if (d.type === 'gt-files' && GT.files) { if (d.error) fail(d.error); else GT.files.resolve(d.files); }
+  };
+  w.onerror = e => { e.preventDefault(); if (GT.w === w) fail(e.message || 'the ground truth\'s worker failed'); };
+  w.postMessage({ type: 'gt-run', id: 1, text, minPhotons, dyeCsv, files: filesFor || null });
+  return true;
+}
+// Whether the run k gives the files of (text, the threshold min, dyeCsv): a run with the dye list serves one without
+// (isc_scope_gt_files).
+const gtFits = (k, text, min, dyeCsv) => !!k && k.text === text && k.minPhotons <= min && (k.dyeCsv || !dyeCsv);
+// Whether made files are those of the options o = {min, vol, dyeCsv}.
+const gtSameOpts = (a, o) => !!a && a.min === o.min && a.vol[0] === o.vol[0] &&
+  a.vol[1] === o.vol[1] && !!a.dyeCsv === !!o.dyeCsv;
+// The Save box: a run for these options now (kept if the one there fits; filesFor: the files to make as it ends);
+// L.gtDrop: none.
+L.gtWarm = (text, minPhotons, dyeCsv, filesFor) => { if (!gtFits(GT.key, text, minPhotons, dyeCsv)) gtRun(text, minPhotons, dyeCsv, filesFor); };
+L.gtDrop = gtStop;
+// opt = {text, min (photons in a blink's 500 nm core), vol: [xy, z], dyeCsv}; progress(fraction, stage, info):
+// isc_scope_gt's stages (a run
+// already on its way reports where it is). Resolves with the files, [[name, bytes], ...]; a failure (out of memory
+// too) rejects. The worker is closed after.
+L.groundTruth = async (opt, progress) => {
+  const min = opt.min;
+  if (!gtFits(GT.key, opt.text, min, opt.dyeCsv) && !gtRun(opt.text, min, opt.dyeCsv)) throw new Error('the workers are not up yet');
+  const { w, run } = GT;
+  GT.progress = progress || null;
+  if (progress && GT.last) progress(...GT.last);
+  try {
+    await run.p;
+    if (GT.w !== w) throw new Error('the ground truth was cancelled');
+    if (GT.pre && gtSameOpts(GT.pre.for, opt)) return GT.pre.files;   // made as the run ended
+    GT.pre = null;   // (let them go before the new ones come)
+    const files = GT.files = deferred();
+    w.postMessage({ type: 'gt-files', id: 2, min: opt.min, vol: opt.vol, dyeCsv: opt.dyeCsv });
+    return await files.p;
+  } finally { if (GT.w === w) gtStop(); }
+};
 // A fresh sample at the next frame (a measurement without history).
 L.freshSample = () => { L.worldKey = null; L.t = 0; L.log = []; };
 L.setLive = on => setLive(on);
@@ -564,7 +642,7 @@ window.addEventListener('resize', drawScale);
 // (Advanced): chunks of frames, each one movie on the sample's clock (isc_live_frames; ~2 M pixels per chunk), back to
 // back, the last frame of each chunk shown; Record again stops early and saves the frames so far. At most 1 GB.
 const REC = L.rec = { on: false, stop: false, live: false, n: 0, got: 0, buf: null, w: 0, h: 0, spec: '', tStart: 0,
-  litStart: 0, t0: 0, engineMs: 0, msg: '' };
+  litStart: 0, t0: 0, engineMs: 0, msg: '', now: null, log: null, chunks: [] };
 // the fresh sample's time at its first frame (the movie's start-sec; 0 = the light comes on): not the Start time
 // setting, which live keeps; hidden with "continue the live sample", which runs on from the live sample's time
 const syncRecT = () => { $('lv_recTRow').hidden = $('lv_recLive').checked; };
@@ -580,6 +658,7 @@ function startRec() {
   if (REC.on && !REC.live) {   // cancel the movie: replace the worker (its live sample goes with it)
     if (L.worker) L.worker.terminate();
     L.worker = null; L.pending = null; L.worldKey = null;
+    gtStop();   // (its ground truth's run)
     Object.assign(REC, { on: false, buf: null, msg: 'recording cancelled' });
     syncButtons(); showInfo();
     return;
@@ -589,16 +668,38 @@ function startRec() {
   const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), side = Math.max(1, +$('mv_size').value || 128);
   const max = Math.floor(1e9 / (2 * side * side));
   Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n: Math.min(n, max), got: 0, buf: null,
-    exp: exposureSec(), t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '' });
+    exp: exposureSec(), t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '',
+    log: null, chunks: [], pxUm: (+$('mv_pixel-nm').value || 100) / 1000 });
+  // the settings as the Record begins (its file: web/live/settings_file.js recordFile)
+  // (before the engine's option list has come, its values would be empty: the spec kept, the values made at the end)
+  const over = REC.live ? { frames: REC.n } : { frames: REC.n, 'start-sec': recStartSec() };
+  REC.nowArgs = [over, movieSpec(over)];
+  REC.now = self.iscSettings && self.ISC_ENGINE_OPTIONS ? self.iscSettings.current(...REC.nowArgs) : null;
+  // A fresh sample's settings file is known now (a sample continued is known at its end); kept for the player.
+  REC.file = null;
+  try { if (!REC.live && REC.now) REC.file = self.iscSettings.recordFile({ mode: 'fresh', now: REC.now, frames: REC.n }, 'insiliscope-recording'); }
+  catch (e) { console.warn('the recording\'s settings file:', e); }
+  recGtEarly();
   iscTrack('record', { frames: iscTrack.framesBucket(REC.n), continue: REC.live });
   if (L.on) L.on = false;
   syncButtons();
   if (!L.pending) recNext();   // else after the frame in flight
 }
+// The ground truth's run beside the Record, on its own worker (the Save box takes it: L.gtWarm keeps a run that fits),
+// when the last Save asked for one; a WideField one with the dye list as that Save had it. (Its heap, up to a few GB
+// beside the live worker's, comes at the Save box too: the live worker's never shrinks.)
+async function recGtEarly() {
+  const o = saveOpts(), file = REC.file;
+  if (!o.gt || !file) return;
+  const kind = await gtKind(movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }));
+  if (REC.file !== file || !REC.on) return;
+  const min = Math.max(0, +o.minCore || 0), dyeCsv = kind === 'wf' && !!o.dyes;
+  gtRun(JSON.stringify(file, null, 1), min, dyeCsv, { min, vol: GT_VOL, dyeCsv });
+}
 function recMovie() {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; REC.on = false; syncButtons(); showInfo(); return; }
-  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec() }), fresh: true, t0: performance.now() };
+  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }), fresh: true, t0: performance.now() };
   L.pending = job;
   w.postMessage(job);
 }
@@ -609,7 +710,8 @@ function onRecProgress(d) {
 function onRecMovie(d, job) {
   if (!REC.on) return;
   const px = d.w * d.h, n = Math.min(REC.n, Math.floor(d.frames.length / Math.max(1, px)));
-  Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, buf: d.frames, got: n, engineMs: performance.now() - job.t0 });
+  Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, buf: d.frames, got: n, engineMs: performance.now() - job.t0,
+    gpu: d.gpu && d.gpu !== 'CPU' ? d.gpu : '' });
   L.err = '';
   L.ms = n ? (performance.now() - REC.t0) / n : 0;
   L.frames++;
@@ -633,6 +735,7 @@ function onRecChunk(d, job) {
     const k = Math.min(n, REC.n - REC.got);
     REC.buf.set(d.frames.subarray(0, k * px), REC.got * px);
     REC.got += k;
+    REC.chunks.push({ spec: job.spec, n: k, lit: true });
     REC.engineMs += d.workerMs || 0;
   }
   L.err = '';
@@ -652,6 +755,7 @@ function finishRec() {
       (REC.got < REC.n ? ` (stopped at ${n} of ${REC.n})` : '') + (REC.msg ? ' · ' + REC.msg : '');
     openPlayer(n);
   }
+  else gtStop();   // (no recording: a ground truth's run begun with it let go)
   REC.buf = null;
   syncButtons();
 }
@@ -666,9 +770,16 @@ function openPlayer(n) {
       'insiliscope.note=the frames continue the live sample (its light history and drift); insiliscope_cli --spec renders a fresh sample']
       : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.recorded=${new Date().toISOString()}`,
         'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
-  closePlayer();
+  closePlayer(true);   // (a ground truth's run begun with the Record goes on)
+  // the recording's settings file: the movie reproducible from it (insiliscope_cli --settings)
+  if (!REC.now && self.iscSettings && self.ISC_ENGINE_OPTIONS && REC.nowArgs) REC.now = self.iscSettings.current(...REC.nowArgs);
+  let settings = !REC.live && REC.file && n === REC.n ? REC.file : null;
+  try {
+    if (!settings && REC.now && self.iscSettings) settings = self.iscSettings.recordFile({ mode: REC.live ? 'live' : 'fresh', now: REC.now, frames: n,
+      log: REC.log || [], chunks: REC.chunks, tSec: L.t }, 'insiliscope-recording');
+  } catch (e) { console.warn('the recording\'s settings file:', e); }
   Object.assign(PLAY, { on: true, frames: REC.buf.subarray(0, n * REC.w * REC.h), w: REC.w, h: REC.h, n, desc, spec: REC.spec,
-    exp, pxUm: (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1 });
+    exp, pxUm: REC.pxUm || (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1, settings, gpu: REC.live ? '' : REC.gpu || '' });
   $('lv_playPos').max = n - 1;
   $('lv_play').hidden = false;
   $('liveView').classList.add('playing');
@@ -700,7 +811,8 @@ function schedulePlay() {
   PLAY.timer = requestAnimationFrame(tick);
 }
 function syncPlay() { $('lv_playBtn').textContent = PLAY.run ? '❚❚' : '▶'; }
-function closePlayer() {
+function closePlayer(keepGt) {
+  if (!keepGt) gtStop();   // (a ground truth's run of this recording)
   cancelAnimationFrame(PLAY.timer);
   Object.assign(PLAY, { on: false, frames: null, run: false });
   $('lv_play').hidden = true;
@@ -709,18 +821,173 @@ function closePlayer() {
 $('lv_playBtn').addEventListener('click', () => { PLAY.run = !PLAY.run && PLAY.n > 1; syncPlay(); if (PLAY.run) schedulePlay(); });
 $('lv_playPos').addEventListener('input', () => { PLAY.run = false; syncPlay(); cancelAnimationFrame(PLAY.timer); showPlayFrame(+$('lv_playPos').value); });
 $('lv_playClose').addEventListener('click', () => { closePlayer(); REC.msg = ''; showInfo(); });
-$('lv_playSave').addEventListener('click', () => {
-  if (!PLAY.on) return;
-  iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(PLAY.n) });
-  const blob = writeTiff16(PLAY.frames, PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
-  const a = document.createElement('a'), name = `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}.tif`;
+// Save: the movie alone (a .tif), or with its settings file (settings.isc.json: the recording reproducible) and its
+// ground truth (gt/, docs/ground-truth.md: computed now by rendering the settings file's movie again with the sink on)
+// in one .zip (web/live/zip.js).
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+function download(blob, name) {
+  const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-  REC.msg = `saved ${name} (${(blob.size / 1e6).toFixed(1)} MB)`;
+}
+const SAVE_DEF = { settings: true, gt: false, minCore: 300, dyes: true };
+const GT_VOL = [10, 10];   // the density stacks' voxel (nm, lateral and axial; finer when it fits 1 GB)
+// The recording's settings file as text (made once per recording: the ground truth's run is keyed by it).
+const playSettingsText = () => {
+  if (PLAY.settingsText === undefined || PLAY.settingsOf !== PLAY.settings)
+    Object.assign(PLAY, { settingsText: JSON.stringify(PLAY.settings, null, 1), settingsOf: PLAY.settings });
+  return PLAY.settingsText;
+};
+function saveOpts() { try { return Object.assign({}, SAVE_DEF, JSON.parse(store.get('saveOpts', '{}'))); } catch (e) { return { ...SAVE_DEF }; } }
+// What the recording's ground truth is: 'smlm' (a blinking label: localization tables), 'wf' (continuous dyes only:
+// the dye list and density stacks) or 'none' (no label on: the frames, and the beads if any). From the recording's
+// own spec (the setup job: each mounted target's mode); GroundTruth::Blinking decides the files alike.
+async function gtKind(spec) {
+  try {
+    const S = await setupJob(spec), on = S.labels.filter(l => !l.off);
+    return on.some(l => l.mode !== 'WideField') ? 'smlm' : on.length ? 'wf' : 'none';
+  } catch (e) { return 'smlm'; }
+}
+async function openSave() {
+  if (!PLAY.on) return;
+  const D = self.iscSettings;
+  if (!D || !D.dialog) { saveRecording({ settings: false, gt: false }, `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`); return; }
+  const o = saveOpts(), spec = PLAY.spec || '', kind = await gtKind(spec);
+  if (!PLAY.on) return;
+  const opt = k => { const m = new RegExp('(?:^| )' + k + '=(\\S+)').exec(spec); return m ? +m[1] : NaN; };
+  const cut = opt('blink-min-photons'), warn = [];
+  if (cut > 0 && kind === 'smlm') warn.push(`Blinks under ${cut} photons were not drawn (Quality), so they are not in the table.`);
+  if (!PLAY.settings) warn.push('No settings file, so no ground truth.');
+  // What each box writes (GroundTruth::Files decides the ground truth's files alike: localizations with a blinking
+  // label, else the beads; density stacks for dyes that glow throughout; dyes.csv only without a blinking label)
+  const box = D.dialog('<h3>Save the recording</h3>' +
+    '<div class="row"><label for="svName">Name</label><input type="text" id="svName" maxlength="80"></div>' +
+    `<label class="part"><input type="checkbox" checked disabled> <b>Movie</b><span class="s">movie.tif, ${PLAY.n} frames, 16-bit</span></label>` +
+    '<label class="part"><input type="checkbox" id="svSet"> <b>Settings file</b><span class="s">settings.isc.json, ' +
+    'reproduces the movie (☰ › Load)</span></label>' +
+    '<label class="part"><input type="checkbox" id="svGt"> <b>Ground truth</b><span class="s">' +
+    (kind === 'smlm'
+      ? 'localizations.csv: blinks with ≥ <input type="number" id="svMin" min="0" step="10"> photons in the 500 nm square ' +
+        'around them. '
+      : kind === 'wf' ? 'a density stack per target (10 nm voxels). '
+      : 'the beads, if any. ') +
+    'Computed on save; takes a while</span></label>' +
+    (kind === 'wf'
+      ? '<label class="part" id="svDyesRow"><input type="checkbox" id="svDyes"> <b>Dye list</b><span class="s">dyes.csv, every ' +
+        'dye (large: 100-600 MB)</span></label>'
+      : '') +
+    warn.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
+    '<div class="msg" id="svMsg">Movie alone: a .tif. Otherwise a .zip; drop its <code>open_in_napari.py</code> on napari ' +
+    'to view it.</div>' +
+    '<progress id="svBar" max="1" hidden style="width:100%"></progress>' +
+    '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>',
+    () => L.gtDrop());   // (closed however: the run let go)
+  const q = s => box.querySelector(s);
+  q('#svName').value = `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`;
+  q('#svSet').checked = o.settings && !!PLAY.settings;
+  q('#svSet').disabled = !PLAY.settings;
+  q('#svGt').checked = o.gt && !!PLAY.settings;
+  q('#svGt').disabled = !PLAY.settings;
+  if (q('#svMin')) q('#svMin').value = o.minCore;
+  if (q('#svDyes')) q('#svDyes').checked = o.dyes;
+  const sync = () => { if (q('#svDyes')) { q('#svDyesRow').style.opacity = q('#svGt').checked ? '' : '.5'; q('#svDyes').disabled = !q('#svGt').checked; } };
+  q('#svGt').addEventListener('change', sync);
+  sync();
+  // The ground truth's run starts while the box is open (Save takes it if the options still fit: L.gtWarm), and again
+  // when a change needs another one (a lower threshold, the dye list on); unticked, none.
+  const minOf = () => (q('#svMin') ? Math.max(0, +q('#svMin').value || 0) : o.minCore);
+  const warm = () => {
+    if (!q('#svGt').checked || !PLAY.settings) return;
+    const min = minOf(), dyeCsv = kind === 'wf' && (q('#svDyes') ? q('#svDyes').checked : o.dyes);
+    L.gtWarm(playSettingsText(), min, dyeCsv, { min, vol: GT_VOL, dyeCsv });
+  };
+  for (const id of ['#svGt', '#svMin', '#svDyes']) if (q(id)) q(id).addEventListener('change', warm);
+  warm();
+  q('#svCancel').onclick = () => D.closeDialog();
+  q('#svGo').onclick = async () => {
+    // the box shows the threshold or the dye list, never both: the hidden one keeps its stored value
+    const c = { settings: q('#svSet').checked, gt: q('#svGt').checked, dyes: q('#svDyes') ? q('#svDyes').checked : o.dyes,
+      minCore: minOf() };
+    store.set('saveOpts', JSON.stringify(c));
+    if (kind !== 'wf') c.dyes = false;
+    const name = (q('#svName').value.trim() || `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`).replace(/[\\/:*?"<>|]+/g, '_');
+    q('#svGo').disabled = true;
+    try {
+      // say(text, fraction): a bar under the text; fraction null = no fraction yet (a moving bar), undefined = none
+      await saveRecording(c, name, (t, f) => {
+        q('#svMsg').textContent = t;
+        const bar = q('#svBar');
+        bar.hidden = f === undefined;
+        if (f === null) bar.removeAttribute('value'); else if (f !== undefined) bar.value = f;
+      });
+      D.closeDialog();
+    } catch (e) {
+      q('#svBar').hidden = true;
+      q('#svMsg').innerHTML = `<span class="warn">${esc(e.message || e)}</span>`;
+      q('#svGo').disabled = false;
+    }
+  };
+}
+// c = {settings, gt, dyes, minCore}; say(text): progress.
+async function saveRecording(c, name, say = () => {}) {
+  iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(PLAY.n), settings: !!c.settings, gt: !!c.gt });
+  const tif = writeTiff16(PLAY.frames, PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
+  if (!c.settings && !c.gt) {
+    download(tif, name + '.tif');
+    REC.msg = `saved ${name}.tif (${(tif.size / 1e6).toFixed(1)} MB)`;
+    showInfo();
+    return;
+  }
+  const settingsText = playSettingsText();
+  const entries = [{ name: 'movie.tif', data: new Uint8Array(await tif.arrayBuffer()) }];
+  if (c.settings) entries.push({ name: 'settings.isc.json', data: settingsText });
+  if (c.gt) {
+    // The stages of isc_scope_gt: setup (the sample, the PSF: no fraction, often most of the time), the frames (a
+    // fraction), the files; the seconds tick on here (the worker is busy in one call).
+    const t0 = performance.now(), P = { stage: 'setup', f: 0, info: null };
+    const show = () => {
+      const s = `${Math.round((performance.now() - t0) / 1000)} s`;
+      if (P.stage === 'setup') say(`Ground truth: preparing (${s})`, null);
+      else if (P.stage === 'files') say(`Ground truth: writing files (${s})`, null);
+      else say(`Ground truth: frame ${P.info && P.info.frame || Math.round(P.f * PLAY.n)} of ` +
+        `${P.info && P.info.frames || PLAY.n} (${s})`, P.f);
+    };
+    show();
+    const tick = setInterval(show, 500);
+    let files;
+    try {
+      files = await L.groundTruth({ text: settingsText, min: c.minCore, vol: GT_VOL, dyeCsv: !!c.dyes },
+        (f, stage, info) => { Object.assign(P, { f, stage: stage || 'frames', info }); show(); });
+    } finally { clearInterval(tick); }
+    for (const [n, b] of files) entries.push({ name: 'gt/' + n, data: b });
+    // the converter only beside the dye list it reads (the stacks need none; the page is also in ☰ › Tools)
+    if (files.some(([n]) => n === 'dyes.csv'))
+      try { const r = await fetch('voxelize.html'); if (r.ok) entries.push({ name: 'gt/voxelize.html', data: await r.text() }); } catch (e) { /* offline: without it */ }
+    say(`Packing ${Math.round(entries.reduce((s, e) => s + (e.data.length || 0), 0) / 1e6)} MB ...`, null);
+  } else say('Packing ...');
+  // the napari opener (web/open_in_napari.py): unpacked (or beside the zip), dropped on napari's window, it opens the
+  // recording there
+  let napari = false;
+  try {
+    const r = await fetch('open_in_napari.py');
+    if (r.ok) { entries.push({ name: 'open_in_napari.py', data: await r.text() }); napari = true; }
+  } catch (e) { /* offline: without it */ }
+  const vox = entries.some(e => e.name === 'gt/voxelize.html');
+  entries.push({ name: 'README.txt', data: `inSiliScope recording ${name}, saved ${new Date().toISOString()} (viewer ${self.ISC_VERSION || ''}).\n\n` +
+    `movie.tif          ${PLAY.n} frames of ${PLAY.w} x ${PLAY.h} px, 16-bit, ${+(PLAY.pxUm * 1000).toFixed(2)} nm pixels, ${PLAY.exp} s frames\n` +
+    (c.settings ? 'settings.isc.json  reproduces the movie: load it in the viewer, or insiliscope_cli --settings settings.isc.json\n' : '') +
+    (c.gt ? 'gt/                the ground truth (gt/README.txt)\n' : '') +
+    (vox ? 'gt/voxelize.html   open in a browser, drop gt/dyes.csv on it: a stack at any voxel size\n' : '') +
+    (napari ? 'open_in_napari.py  drop on napari\'s window to view everything (pip install "napari[all]" tifffile)\n' : '') });
+  const blob = await self.iscZip.zip(entries);
+  download(blob, name + '.zip');
+  self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)
+  REC.msg = `saved ${name}.zip (${(blob.size / 1e6).toFixed(1)} MB)`;
   showInfo();
-});
+}
+$('lv_playSave').addEventListener('click', openSave);
 // ● Record opens a small box under the buttons for the number of frames (and, Advanced, "continue the live sample");
 // its Start (or Enter) records. While recording, ● Record stops.
 const recPop = (open) => {

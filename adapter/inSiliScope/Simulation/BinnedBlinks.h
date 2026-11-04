@@ -48,8 +48,10 @@ public:
    // img (width x height) += the emitters' photon image. Emitters whose cell
    // lies more than the kernel radius outside the FOV reach no pixel and are
    // skipped. The FFT lines run on all cores (one live frame), serially inside
-   // a ParallelFor worker (frames in parallel); the same result either way.
-   void Render(const std::vector<FrameEmitter>& emitters, std::vector<float>& img) const;
+   // a ParallelFor worker (frames in parallel); the same result either way. alone (optional, width x height): += the
+   // same values (the ground truth's blinks alone, from the one convolution).
+   void Render(const std::vector<FrameEmitter>& emitters, std::vector<float>& img,
+               std::vector<float>* alone = nullptr) const;
 
 private:
    unsigned W_ = 0, H_ = 0;
