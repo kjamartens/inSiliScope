@@ -185,9 +185,11 @@ napari itself opens neither the zip (it has no zip reader) nor the unpacked fold
 folder's images and reads only its own CSV layout, without the pixel size or the stage position), so the program is
 what puts the parts together. napari then shows every part of the recording in world coordinates (µm, z above the coverslip), so they line up:
 
-- **movie**: the frames where the camera saw them (the stage position, the pixel size). In 2D it stands at every z (a
-  camera image is a projection); in 3D it is a plane at the focal height.
-- **density** stacks (`gt_volume_*.tif`), a layer per target, coloured.
+- **movie**: the frames where the camera saw them (the stage position, the pixel size), its contrast set as napari's
+  "auto-contrast: once" sets it. With density stacks, in 2D it stands at every z (a camera image is a projection) and
+  in 3D it is a plane at the focal height; without them the recording has no z axis (frame, y, x).
+- **density** stacks, a layer per target named as its file (`gt_volume_Microtubules`), coloured; the z slider steps
+  through them plane by plane.
 - **localizations** of `localizations.csv`, a layer per label (`localizations Microtubules`, `localizations Nuclear
   pores`, `localizations bead` for the beads), each at its own frame and in its own colour, with their photons and core
   photons as features; "..., all frames" (hidden) holds a label's all at once, for 3D. The point size is in nm (60 by
@@ -195,7 +197,7 @@ what puts the parts together. napari then shows every part of the recording in w
   selected, they change every point of the layer.
 - **beads** (`fiducials.csv`), per frame.
 
-The axes are named frame, z, y, x (µm); the status bar shows the pointer's world position. From a terminal it takes paths too:
+The window's title names the recording, its movie and its labels. The axes are named frame, z, y, x (µm); the status bar shows the pointer's world position. From a terminal it takes paths too:
 `python open_in_napari.py <zip, folder or voxelize .tif> ...` opens several side by side. A voxelize `.tif` opens a layer per channel, read a plane at a time (with `zarr` and
 `dask` installed), so a stack of many GB opens at once. The program is also
 [published beside the viewer](https://kjamartens.github.io/inSiliScope/open_in_napari.py).
