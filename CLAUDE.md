@@ -183,7 +183,9 @@ that finishes them.
   the frame before its blinks with the continuous light added as to the frame (`gtOther` in Render; was the frame less
   its blinks drawn again alone and its beads), so the blinks are drawn once (none in a run that drops the frames); a
   blink's core comes first and one short of the threshold gets no footprint (WASM 128 px DNA-PAINT: the GT run 64 -> 10
-  ms/frame, the movie 21). Memory (2026-11-04: 128 px WideField
+  ms/frame, the movie 21). A run that drops the frames with WideField labels alone and no beads or slide
+  (`gtNoImages` in Begin) makes no PSF kernel, mean-field scene or continuous light per frame (nothing reads an image;
+  the same files): cold 128 px 50 frames 8.8 s / 1.5 GB -> 2.3 s / 1.1 GB, with the dye list 15.9 -> 8.5 s. Memory (2026-11-04: 128 px WideField
   beside a nucleus, 4 M dyes, aborted the viewer at 4 GB): heap 1.9 GB without the dye list, 2.3 GB with. `GroundTruth::Files` writes
   frames.csv, localizations.csv (2026-11-04: one table, blinks and beads with at least `minCorePhotons` (300) expected
   photons in their core = the 500 nm square `kCoreBoxNm` centred on them, from the oversampled kernel (`KernelBoxPart`,
@@ -202,8 +204,8 @@ that finishes them.
   (`gt-run`, `gt-files` jobs; live.js `GT`, `L.gtWarm`, `L.groundTruth`): the run starts when the Save box opens with
   Ground truth ticked (again on a lower threshold or the dye list on), or with a fresh sample's Record when the last
   Save had Ground truth ticked and the recording has blinks (`recGtEarly`, the Record's settings file made at its start,
-  `REC.file`; the Record ~7 % slower, 300 frames: Save waits 1.8 s instead of 8.2; Live, Snap or a new Record stop it;
-  not for WideField: two heaps), Save takes it, the worker is closed after, on
+  `REC.file`; DNA-PAINT 300 frames: the Record ~7 % slower, Save waits 1.8 s instead of 8.2; WideField with the dye list
+  as that Save had it; Live, Snap or a new Record stop it), Save takes it, the worker is closed after, on
   the box's close (`dialog(html, onClose)`) and `closePlayer`; `Module.onGtFile` takes each file out of the heap;
   stages `setup`, `ground truth` per frame, `files`. The module's run drops the frames (`GroundTruth::framesUnused`:
   no camera noise, no lamp, no BrightField scene; the files = the cli's, which renders them). Frames no fluorescence

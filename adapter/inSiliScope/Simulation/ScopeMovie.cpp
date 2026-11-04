@@ -3333,6 +3333,8 @@ struct FluorescenceMovie::Impl
    // A structured pattern stepping with the frame (Excitation::Varies): each frame's state (the program's index, or
    // every frame its own under a phase drift), its Excitation (memoized per state) and the factor at a site in it.
    bool varies = false;
+   // A ground truth's run that reads no image (Begin): no PSF kernel, mean-field scene or continuous light per frame.
+   bool gtNoImages = false;
    bool driftsPhase = false;
    long period = 1;
    std::map<long, std::shared_ptr<const Excitation>> excStates;
@@ -5182,6 +5184,16 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       queryBlinks = queryBlinks || !g.allMf;
    }
 
+   // A ground truth's run that drops the frames, with WideField labels alone and no beads or slide (GroundTruth.h):
+   // no image is read (no blink's footprint, no bead's), so it makes no PSF kernel, mean-field scene or continuous
+   // light per frame; the dye list and density stacks come from the dyes' windows, rates and light (the same files;
+   // 2026-11-04: a cold 128 px run in the viewer's module spent ~6 of its ~9 s on them).
+   m.gtNoImages = ActiveGroundTruth() && ActiveGroundTruth()->framesUnused && ScopeSpecimen(spec) <= 1 &&
+                  !(ScopeSpecGet(spec, "fid-density") > 0) && !m.groups.empty();
+   for (const Group& g : m.groups)
+      if (g.pre || S.labels[static_cast<size_t>(g.structure)].mode != MODE_WIDEFIELD)
+         m.gtNoImages = false;
+
    // The PSF kernels compute while the blinks are queried (as the camera's
    // stack generation does); serially under Emscripten.
    std::string psfErr;
@@ -5190,6 +5202,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    auto kernels = [&]() {
       const auto tk = TimingClock::now();
       for (Group& g : m.groups)
+         if (!m.gtNoImages)
       {
          if (psfOk && !ScopePsfKernel(spec, g.lambdaNm, g.kernel, psfErr))
             psfOk = false;
@@ -5541,7 +5554,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    {
       if (!p.needWindows)
          continue;   // mean-field to the end (or no dye left): no windows needed
-      m.groups[p.group].kernel.PrepareSplat();   // (per-dye frames splat its dyes)
+      if (!m.gtNoImages)
+         m.groups[p.group].kernel.PrepareSplat();   // (per-dye frames splat its dyes)
       if (m.map)
       {
          // The map's windows in T (the initial ON ends on its dye's dose, the pre state at its activation; a DOSE dye
@@ -5727,7 +5741,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // The mean-field images of the populations that start mean-field.
    m.sceneQueue.clear();
    for (Population& p : m.pops)
-      if (p.meanFieldAt0)
+      if (p.meanFieldAt0 && !(m.gtNoImages && !m.fid))
       {
          if (!m.BuildMeanField(p, err))
             return false;
@@ -6394,6 +6408,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          std::vector<float>* img2 = gt && !noPixels ? &gtOther[static_cast<size_t>(k)] : nullptr;
          for (Population& p : m.pops)
          {
+            if (m.gtNoImages && noPixels)
+               break;   // (nothing reads it: Begin)
             const Group& g = m.groups[p.group];
             // The unweighted image (a drifting sample: its images at the frame's drift), or nullptr.
             std::vector<float> driftImage;

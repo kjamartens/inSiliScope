@@ -686,14 +686,15 @@ function startRec() {
   if (!L.pending) recNext();   // else after the frame in flight
 }
 // The ground truth's run beside the Record, on its own worker (the Save box takes it: L.gtWarm keeps a run that fits),
-// when the last Save asked for one and the recording has blinks (a WideField one's run takes GBs; it starts at the box).
+// when the last Save asked for one; a WideField one with the dye list as that Save had it. (Its heap, up to a few GB
+// beside the live worker's, comes at the Save box too: the live worker's never shrinks.)
 async function recGtEarly() {
   const o = saveOpts(), file = REC.file;
   if (!o.gt || !file) return;
   const kind = await gtKind(movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }));
-  if (kind !== 'smlm' || REC.file !== file || !REC.on) return;
-  const min = Math.max(0, +o.minCore || 0);
-  gtRun(JSON.stringify(file, null, 1), min, false, { min, vol: GT_VOL, dyeCsv: false });
+  if (REC.file !== file || !REC.on) return;
+  const min = Math.max(0, +o.minCore || 0), dyeCsv = kind === 'wf' && !!o.dyes;
+  gtRun(JSON.stringify(file, null, 1), min, dyeCsv, { min, vol: GT_VOL, dyeCsv });
 }
 function recMovie() {
   const w = worker();
