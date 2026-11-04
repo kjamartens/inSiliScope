@@ -12,7 +12,7 @@ Layers (docs: https://kjamartens.github.io/inSiliScope/docs/ground-truth/):
   movie                       the recorded frames, where the camera saw them (the stage position, the pixel size); in
                               2D it stands at every z (a camera image is a projection), in 3D it is drawn as a plane
                               at the focal height
-  density <target>            the ground truth's density stacks: detected photons per voxel
+  gt_volume_<target>[_<state>]  the ground truth's density stacks (named as their files): detected photons per voxel
   localizations <target>      every blink of localizations.csv, a layer per label (its beads: "localizations
                               bead"), at its own frame; "<...>, all frames" (hidden) holds them all at once, for
                               3D. The size (nm), symbol and colour controls change every point when none is
@@ -110,10 +110,8 @@ def layers_of_recording(src):
             v = v[None]
         vx, vy, vz = triple(d['insiliscope.voxel-um'])
         ox, oy, oz = triple(d['insiliscope.origin-um'])
-        target = d.get('insiliscope.target', name[len('gt/gt_volume_'):-4])
-        state = d.get('insiliscope.state', '')
         zs += [oz, oz + v.shape[0] * vz]
-        out.append(('image', v, dict(name=f'density {target}' + (f' ({state})' if state and state != 'always-on' else ''),
+        out.append(('image', v, dict(name=name[len('gt/'):-len('.tif')],   # the file's name: gt_volume_<target>[_<state>]
                                      scale=(vz, vy, vx), translate=(oz + vz / 2, oy + vy / 2, ox + vx / 2),
                                      colormap=COLOURS[k % len(COLOURS)], blending='additive',
                                      contrast_limits=(0, 255) if v.dtype.itemsize == 1 else contrast(np.asarray(v)))))
@@ -305,18 +303,45 @@ def edit_whole(layer):
             pass
 
 
+def title_of(path, layers):
+    """What a recording holds, for the window's title: its file, the movie (frames, size, pixel), the labels of its
+    localizations and density stacks."""
+    import numpy as np
+    parts = [os.path.basename(path.rstrip('/\\'))]
+    names = [kw.get('name', '') for _, _, kw in layers]
+    for kind, data, kw in layers:
+        if kw.get('name') == 'movie':
+            s = np.shape(data)
+            parts.append(f'{s[0]} frames of {s[-1]} x {s[-2]} px ({kw["scale"][-1] * 1000:.4g} nm)')
+    loc = [n[len('localizations '):] for n in names if n.startswith('localizations ') and not n.endswith('all frames')]
+    vol = [n[len('gt_volume_'):] for n in names if n.startswith('gt_volume_')]
+    if loc:
+        parts.append('localizations: ' + ', '.join(loc))
+    if vol:
+        parts.append('density: ' + ', '.join(vol))
+    if 'beads' in names:
+        parts.append('beads')
+    if not loc and not vol and len(names) and not any(n == 'movie' for n in names):
+        parts.append('stack: ' + ', '.join(names))
+    return ' | '.join(parts)
+
+
 def show(paths):
     import napari
     import numpy as np
     viewer = napari.Viewer(title='inSiliScope: ' + ', '.join(os.path.basename(p.rstrip('/\\')) for p in paths))
     focus = None
+    titles, movies = [], []
     for p in paths:
         layers, f = layers_of(p)
         focus = f if focus is None else focus
+        titles.append(title_of(p, layers))
         for kind, data, kw in layers:
             layer = add_layer(viewer, kind, data, kw)
             if kind == 'points':
                 edit_whole(layer)
+            if kw.get('name') == 'movie':
+                movies.append(layer)
             if kw.get('name') == 'movie' and np.ndim(data) == 4:
                 try:   # in 3D: a plane at the focal height (the layer's only data plane)
                     layer.depiction = 'plane'
@@ -335,6 +360,15 @@ def show(paths):
             viewer.dims.margin_right = tuple(1e4 if i == zi else m for i, m in enumerate(viewer.dims.margin_right))
         except Exception:   # older napari: no thick slices (the points' out_of_slice_display instead)
             pass
+    for layer in movies:   # the movie's contrast as napari's "auto-contrast: once" sets it: the frame shown
+        try:
+            layer.reset_contrast_limits()
+        except Exception:
+            pass
+    try:   # (dropped on napari, the window was open already: its title set here)
+        viewer.title = 'inSiliScope — ' + '  ||  '.join(titles)
+    except Exception:
+        pass
     overlays = getattr(getattr(viewer, 'canvas', None), 'overlays', None)
     bar = getattr(overlays, 'scale_bar', None) or viewer.scale_bar   # (viewer.scale_bar: before napari 0.9)
     bar.visible = True

@@ -159,7 +159,7 @@ def main(path):
             shape = tf.series[0].shape
         if len(shape) == 2:   # one z plane: a stack of one in napari
             shape = (1,) + tuple(shape)
-        lay = next((l for l in v.layers if str(l.kw.get('name', '')).startswith('density ' + d['insiliscope.target'])), None)
+        lay = byname.get(n[len('gt/'):-len('.tif')])   # named as its file
         vx, vy, vz = (float(x) for x in d['insiliscope.voxel-um'].split(','))
         ox, oy, oz = (float(x) for x in d['insiliscope.origin-um'].split(','))
         check(lay is not None and lay.data.shape == shape and np.allclose(lay.kw['scale'], (vz, vy, vx)) and
