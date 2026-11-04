@@ -1413,4 +1413,7 @@ C++ only; docs/ground-truth.md has the files.
   cores, a stack's planes on all cores (`vox::Stack::PlaneInto`), `vox::Deflate` with 8-byte run scans, codes reversed
   once per block and zero-word Adler-32 (ground_truth_check: = `cli/deflate_reference.inc`, the old one). Measured
   (128 px, 12 threads): WideField MT + pores 20 f details 2.8 -> 0.8 s, dyes.csv 2.8 -> 0.2 s, stacks 1.4 -> 0.2 s;
-  binned blinks 100 f ground truth 5.3 -> 0.6 s; beads with drift 3.8 -> 2.0 s.
+  binned blinks 100 f ground truth 5.3 -> 0.6 s; beads with drift 3.8 -> 2.0 s. `web/voxelize.html` deflates its .tif's planes with the same
+  `vox::Deflate` (`vox_plane_deflated`; was the browser's CompressionStream: the same pixels, other bytes, a few %
+  larger, ~15x slower) and reads the CSV as bytes (the same table bit for bit): 120 MB dyes.csv, 10 nm 2 channels,
+  10.6 -> 1.1 s.

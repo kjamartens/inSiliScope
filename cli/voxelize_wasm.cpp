@@ -2,7 +2,7 @@
 // web/voxelize.html's module (target insiliscope_voxelize): the voxel grid, the stack made plane by plane, its
 // description and slice labels and the TIFF's layout are Simulation/Voxelize.* -- the code of the ground truth's
 // density stacks -- so the page and the ground truth make their stacks one way. The page keeps reading the CSV,
-// choosing the rows and compressing the planes (the browser's CompressionStream). Embedded in the page by
+// choosing the rows and storing the planes; they are compressed here (vox::Deflate). Embedded in the page by
 // tools/embed_web_module.mjs; ~180 KB.
 #include "Voxelize.h"
 
@@ -24,6 +24,7 @@ struct Handle
    TiffLayout layout;
    std::vector<double> offsets;
    std::vector<unsigned char> plane;
+   std::string deflated;
 };
 
 std::vector<std::string> Lines(const char* s)
@@ -81,7 +82,7 @@ EMSCRIPTEN_KEEPALIVE void vox_grid(double x0, double y0, double z0, double x1, d
 EMSCRIPTEN_KEEPALIVE Handle* vox_stack(const double* g, int channels, int bits, const double* x, const double* y,
                                        const double* z, const double* w, const unsigned char* ch, int n)
 {
-   return new Handle{ Stack(GridFrom(g), channels, bits, x, y, z, w, ch, static_cast<size_t>(n)), {}, {}, {}, {}, {}, {} };
+   return new Handle{ Stack(GridFrom(g), channels, bits, x, y, z, w, ch, static_cast<size_t>(n)), {}, {}, {}, {}, {}, {}, {} };
 }
 EMSCRIPTEN_KEEPALIVE void vox_free(Handle* h) { delete h; }
 EMSCRIPTEN_KEEPALIVE int vox_empty(Handle* h, int z) { return h->stack.Empty(static_cast<uint32_t>(z)) ? 1 : 0; }
@@ -104,6 +105,26 @@ EMSCRIPTEN_KEEPALIVE const unsigned char* vox_plane(Handle* h, int ch, double sc
    h->stack.Quantize(ch, h->plane.data(), scale);
    return h->plane.data();
 }
+// The same plane deflated (vox::Deflate: zlib format, the ground truth's density stacks' encoder); its length is
+// vox_deflated_len(). (The page compressed with the browser's CompressionStream until 2026-11-04: zlib's encoder,
+// ~10x the time, other bytes, the same pixels.)
+EMSCRIPTEN_KEEPALIVE const unsigned char* vox_plane_deflated(Handle* h, int ch, double scale)
+{
+   h->plane.resize(h->stack.PlaneBytes());
+   h->stack.Quantize(ch, h->plane.data(), scale);
+   h->deflated.clear();
+   Deflate(h->plane.data(), h->plane.size(), h->deflated);
+   return reinterpret_cast<const unsigned char*>(h->deflated.data());
+}
+// n zero bytes deflated (an empty plane)
+EMSCRIPTEN_KEEPALIVE const unsigned char* vox_zeros_deflated(Handle* h, double n)
+{
+   h->plane.assign(static_cast<size_t>(n), 0);
+   h->deflated.clear();
+   Deflate(h->plane.data(), h->plane.size(), h->deflated);
+   return reinterpret_cast<const unsigned char*>(h->deflated.data());
+}
+EMSCRIPTEN_KEEPALIVE double vox_deflated_len(Handle* h) { return static_cast<double>(h->deflated.size()); }
 // The description (after vox_maxima) and the slice labels: channels one per line, extra lines ending in \n.
 EMSCRIPTEN_KEEPALIVE const char* vox_describe(Handle* h, const char* channels, const char* value, const char* unit,
                                               const char* extra)

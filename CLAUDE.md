@@ -198,9 +198,11 @@ that finishes them.
   centre at stage + (i - W/2) px, no flip), density stacks, localizations per frame, axes frame/z/y/x in world um;
   also unpacked or on a voxelize .tif, lazily; copied beside the viewer by `build_site.sh`; checked with napari stood
   in for by `tests/web/napari_open_check.py`, ~1 s, which viewer_save runs on its zip); `web/voxelize.html` (the
-  page reads the CSV, chooses the rows and deflates the planes (CompressionStream, on up to 8 workers: the page's own
-  runs on its thread, `deflateWorkers`; a 120 MB dyes.csv's 10 nm 2-channel stack 10.6 -> 4.3 s); the grid, the stack plane by
-  plane, the description, labels and TIFF layout are `Simulation/Voxelize.cpp` through `cli/voxelize_wasm.cpp`
+  page reads the CSV as bytes (only the columns used; a number of up to 15 digits = its digits / 10^k, = Number()'s;
+  anything else and a quoted line the text way; the tables = the old reader's bit for bit; 120 MB 1.2 -> 0.8 s) and
+  chooses the rows; the grid, the stack plane by plane, the planes' compression (`vox::Deflate`, the density stacks'
+  encoder, `vox_plane_deflated`; 2026-11-04, was the browser's CompressionStream on workers: ~15x slower, a few % larger,
+  the same pixels; a 120 MB dyes.csv's 10 nm 2-channel stack 10.6 -> 4.3 -> 1.1 s), the description, labels and TIFF layout are `Simulation/Voxelize.cpp` through `cli/voxelize_wasm.cpp`
   (target `insiliscope_voxelize`, in the `wasm-viewer` preset, ~180 KB, written into the page's `<script
   id="voxModule">` by `tools/embed_web_module.mjs`, whose `--check` covers it); the
   converter, ☰ › Tools `#voxelizeLink`, copied beside the viewer by `build_site.sh`, in the zip only beside dyes.csv: the

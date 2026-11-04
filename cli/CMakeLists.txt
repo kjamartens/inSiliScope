@@ -109,7 +109,7 @@ if(EMSCRIPTEN)
     -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0
     -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=2GB
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[_malloc,_free,_vox_grid,_vox_stack,_vox_free,_vox_empty,_vox_plane_bytes,_vox_maxima,_vox_fill,_vox_plane_max,_vox_plane,_vox_describe,_vox_layout,_vox_error,_vox_head,_vox_head_len,_vox_ifd,_vox_ifd_len,_vox_offsets,_vox_first]"
+    "-sEXPORTED_FUNCTIONS=[_malloc,_free,_vox_grid,_vox_stack,_vox_free,_vox_empty,_vox_plane_bytes,_vox_maxima,_vox_fill,_vox_plane_max,_vox_plane,_vox_plane_deflated,_vox_zeros_deflated,_vox_deflated_len,_vox_describe,_vox_layout,_vox_error,_vox_head,_vox_head_len,_vox_ifd,_vox_ifd_len,_vox_offsets,_vox_first]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_voxelize PROPERTIES OUTPUT_NAME insiliscope_voxelize SUFFIX ".js")
