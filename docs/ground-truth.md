@@ -123,9 +123,10 @@ it (it reads the table out of the zip and lets you pick one when there are sever
 table, then choose:
 
 - the dyes' positions or their binding sites;
-- the value per voxel: emitted photons, detected photons, or a count;
-- a target, or all of them as **one stack** (their sum) or **a channel each** (a composite stack for Fiji);
-- the voxel size;
+- the value per voxel: detected photons (the default), emitted photons, or a count;
+- a target, or all of them as **a channel each** (the default: a composite stack for Fiji) or **one stack** (their
+  sum);
+- the voxel size (default 10 × 10 × 10 nm);
 - the bit depth: **8-bit** (the default), 16-bit, or 32-bit float. 8 and 16 bits scale each channel to its maximum;
   the photons per step are in the description (`insiliscope.scale`), and a single-channel stack carries them as its
   calibration, so Fiji measures photons;

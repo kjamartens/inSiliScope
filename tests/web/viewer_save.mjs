@@ -174,8 +174,11 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     check(+l300.replace(/[^\d]/g, '').slice(-String(n300).length) === n300, `the other table picked: ${l300} (${n300} rows in the zip)`);
     await vp.evaluate(() => { const s = document.getElementById('entry'); s.value = '0'; s.dispatchEvent(new Event('change')); });
     await vp.waitForFunction(() => /^localizations_min5\.csv/.test(document.getElementById('load').textContent) && !document.getElementById('opts').hidden, null, { timeout: 20000 });
+    const defs = await vp.evaluate(() => ['weight', 'split', 'vxy', 'vz', 'bits', 'fmt'].map(id => document.getElementById(id).value).join());
+    check(defs === 'photons_detected,channels,10,10,8,tif', `voxelize.html's defaults: detected photons, a channel each, 10 x 10 x 10 nm, 8-bit, compressed .tif (${defs})`);
     await vp.evaluate(() => {
-      const v = document.getElementById('vxy'); v.value = 20;
+      const v = document.getElementById('vxy'); v.value = 20; document.getElementById('vz').value = 25;
+      document.getElementById('split').value = 'sum';
       document.getElementById('fmt').value = 'tif'; v.dispatchEvent(new Event('input'));
     });
     const [dlVox] = await Promise.all([vp.waitForEvent('download', { timeout: 20000 }), vp.click('#go')]);

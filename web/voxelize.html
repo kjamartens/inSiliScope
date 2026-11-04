@@ -42,7 +42,7 @@
   <h1>Voxelize ground truth</h1>
   <p>Turns a ground-truth table of inSiliScope (<code>dyes.csv</code> or a <code>localizations_min*.csv</code>, or the
     saved recording's .zip holding them) into a
-    density stack at the voxel size you choose: the sum of a column (emitted photons, by default) per voxel, or a
+    density stack at the voxel size you choose: the sum of a column (detected photons, by default) per voxel, or a
     count; one stack, or one channel per target. Fiji/ImageJ and napari read its voxel size; Fiji also its world
     origin, so the status bar shows each voxel's world x, y and z (µm). 8 and 16 bits scale each channel to its
     maximum: the photons per step are in the description (<code>insiliscope.scale</code>), and a single-channel
@@ -59,11 +59,11 @@
       <label for="weight">Value per voxel</label><select id="weight"></select>
       <label for="target">Target</label><select id="target"></select>
       <label for="split">Targets as</label><select id="split">
-        <option value="sum">one stack (their sum)</option>
-        <option value="channels">a channel each (a multi-channel stack)</option></select>
+        <option value="channels" selected>a channel each (a multi-channel stack)</option>
+        <option value="sum">one stack (their sum)</option></select>
       <label for="kind">Rows</label><select id="kind"></select>
-      <label for="vxy">Voxel x, y (nm)</label><input type="number" id="vxy" min="1" step="1" value="50">
-      <label for="vz">Voxel z (nm)</label><input type="number" id="vz" min="1" step="1" value="25">
+      <label for="vxy">Voxel x, y (nm)</label><input type="number" id="vxy" min="1" step="1" value="10">
+      <label for="vz">Voxel z (nm)</label><input type="number" id="vz" min="1" step="1" value="10">
       <label for="bits">Bit depth</label><select id="bits">
         <option value="8">8-bit (each channel scaled to its maximum)</option>
         <option value="16">16-bit (each channel scaled to its maximum)</option>
@@ -86,7 +86,8 @@ const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 // { name, n, num: {column: Float64Array}, cat: {column: {codes: Uint16Array, names: [...]}} }
 let table = null;
 const POS = ['x_world_um', 'y_world_um', 'z_world_um', 'site_x_world_um', 'site_y_world_um', 'site_z_world_um'];
-const WEIGHTS = ['photons_emitted_total', 'photons_detected_total', 'photons_emitted', 'intensity [photon]', 'photons_detected'];
+// the value per voxel's choices, the first present the default: detected photons (what the camera got), then emitted
+const WEIGHTS = ['photons_detected_total', 'photons_emitted_total', 'photons_detected', 'photons_emitted', 'intensity [photon]'];
 const CATS = ['target', 'kind'];
 
 // ---- a saved recording's .zip: its tables (gt/dyes.csv, gt/localizations_min*.csv), read without unpacking it ----
