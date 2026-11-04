@@ -472,6 +472,7 @@ int main()
    const std::string storm = base + "ruler-mode=dSTORM frames=40 start-sec=5 fid-density=0.5";
    std::vector<uint16_t> plain, with;
    GroundTruth gt;
+   gt.minCorePhotons = 5;
    const bool ok = Movie(storm, nullptr, plain, err) && Movie(storm, &gt, with, err);
    if (!ok)
       std::printf("      (%s)\n", err.c_str());
@@ -479,7 +480,7 @@ int main()
    Check(gt.frames.size() == 40 && gt.frames.back().frame == 39, "a row per frame (40)");
    const int r = 15 + 2;   // the PSF window's half width (1500 nm at 100 nm), and a pixel either side
    long rows = 0, inside = 0, beads = 0, sites = 0;
-   double worst = 0, below = 0, over = 0;
+   double worst = 0, below = 0, over = 0, coreOver = 0;
    for (const GroundTruth::Emitter& e : gt.emitters)
    {
       if (e.kind == GroundTruth::Fiducial)
@@ -489,17 +490,19 @@ int main()
       }
       rows++;
       sites += std::isfinite(e.siteXUm);
-      below = std::max(below, gt.minPhotons - e.onCamera);
+      below = std::max(below, gt.minCorePhotons - e.core);
       over = std::max(over, e.onCamera / e.detected - 1);
+      coreOver = std::max(coreOver, e.core / e.onCamera - 1);
       if (e.xPx >= r && e.yPx >= r && e.xPx < 64 - r && e.yPx < 64 - r)
       {
          inside++;
          worst = std::max(worst, std::fabs(e.onCamera / e.detected - 1));
       }
    }
-   std::snprintf(b, sizeof b, "%ld blink rows: each at least %g photons on the camera (worst short by %.3g), none more than "
-                 "detected (worst over by %.2g)", rows, gt.minPhotons, below, over);
-   Check(rows > 20 && below <= 0 && over < 1e-4, b);
+   std::snprintf(b, sizeof b, "%ld blink rows: each at least %g photons in its core (worst short by %.3g), none more on the "
+                 "camera than detected (worst over by %.2g), none more in the core than on the camera (%.2g)", rows,
+                 gt.minCorePhotons, below, over, coreOver);
+   Check(rows > 20 && below <= 0 && over < 1e-4 && coreOver < 1e-4, b);
    std::snprintf(b, sizeof b, "%ld blinks with their PSF window inside the image: all their photons on the camera (worst %.2g)",
                  inside, worst);
    Check(inside > 5 && worst < 1e-4, b);
@@ -515,13 +518,60 @@ int main()
             return true;
       return false;
    };
-   const auto stormFiles = gt.Files({ 5, 300 });
-   Check(has(stormFiles, "localizations_min5") && !has(stormFiles, "dyes.csv"),
-         "dSTORM: the localization tables, no dyes.csv");
+   const auto stormFiles = gt.Files(5);
+   Check(has(stormFiles, "localizations.csv") && !has(stormFiles, "localizations_min") && !has(stormFiles, "dyes.csv"),
+         "dSTORM: the localization table, no dyes.csv");
    GroundTruth again;
+   again.minCorePhotons = 5;
    std::vector<uint16_t> f2;
-   Check(Movie(storm, &again, f2, err) && Join(again.Files({ 5, 300 })) == Join(gt.Files({ 5, 300 })),
-         "the same files from a second run");
+   Check(Movie(storm, &again, f2, err) && Join(again.Files(5)) == Join(gt.Files(5)), "the same files from a second run");
+   {
+      // A higher threshold: the rows of the lower one's table with at least that many core photons.
+      const auto lines = [](const std::string& csv) {
+         std::vector<std::string> out;
+         size_t a = 0;
+         for (size_t e; (e = csv.find('\n', a)) != std::string::npos; a = e + 1)
+            out.push_back(csv.substr(a, e - a));
+         return out;
+      };
+      const std::vector<std::string> lo = lines(gt.EmittersCsv(5, true)), hi = lines(gt.EmittersCsv(300, true));
+      size_t kept = 1;
+      for (size_t i = 1; i < lo.size() && kept < hi.size(); ++i)
+         kept += lo[i] == hi[kept];
+      std::snprintf(b, sizeof b, "the 300-photon table = the 5-photon table's rows with 300 or more (%zu of %zu rows)",
+                    hi.size() - 1, lo.size() - 1);
+      Check(hi.size() > 1 && hi.size() < lo.size() && kept == hi.size() && hi[0] == lo[0], b);
+   }
+   {
+      // The core from the PSF at its own sampling: a Gaussian sampled at 25 and 12.5 nm (a 100 nm and a 50 nm pixel at
+      // 4 samples a pixel, its cells' masses) gives what its integral gives, wherever it sits on the pixel grid.
+      double worstCore = 0;
+      for (double px : { 100.0, 50.0 })
+         for (double off : { 0.0, 0.3, 0.5 })
+         {
+            const int os = 4, c = 200, n = 2 * c + 1;
+            const double sigmaNm = 110, cellNm = px / os, s = sigmaNm / cellNm * std::sqrt(2.0);
+            std::vector<float> plane(static_cast<size_t>(n) * n);
+            for (int j = 0; j < n; ++j)
+               for (int i = 0; i < n; ++i)
+               {
+                  const auto m = [&](int k) { return 0.5 * (std::erf((k - c + 0.5) / s) - std::erf((k - c - 0.5) / s)); };
+                  plane[static_cast<size_t>(j) * n + i] = static_cast<float>(m(i) * m(j));
+               }
+            const double half = 250 / px, x = 32 + off, y = 32 - off;
+            const double a = PlaneBoxPart(plane.data(), n, c, os, 256, 256, x, y, half);
+            const double g = GaussianBoxPart(sigmaNm / px, 256, 256, x, y, half);
+            worstCore = std::max(worstCore, std::fabs(a / g - 1));
+         }
+      std::snprintf(b, sizeof b, "the 500 nm core of a sampled Gaussian = its integral, at 100 and 50 nm pixels and off the "
+                    "pixel centres (worst %.2g)", worstCore);
+      Check(worstCore < 2e-3, b);
+      // clipped at the camera's edge: a blink on the edge keeps half
+      const double e = GaussianBoxPart(1.0, 64, 64, -0.5, 32, 2.5);
+      std::snprintf(b, sizeof b, "a blink on the camera's edge: half its core on the camera (%.4f of %.4f)", e,
+                    GaussianBoxPart(1.0, 64, 64, 32, 32, 2.5) / 2);
+      Check(std::fabs(e - GaussianBoxPart(1.0, 64, 64, 32, 32, 2.5) / 2) < 1e-12, b);
+   }
 
    // ---- WideField ----
    const std::string wf = base + "ruler-mode=WideField frames=4 size=32";
@@ -537,7 +587,7 @@ int main()
    std::snprintf(b, sizeof b, "WideField: %zu dyes, each at most its rate x the movie's 0.2 s (worst over by %.3g photons)",
                  g2.Dyes().size(), rateOver);
    Check(okW && g2.Dyes().size() > 10 && rateOver <= 0, b);
-   const auto wfFiles = g2.Files({ 5, 300 }, 10, 10);
+   const auto wfFiles = g2.Files(300, 10, 10);
    Check(has(wfFiles, "dyes.csv") && !has(wfFiles, "localizations_"), "WideField: dyes.csv, no localization table");
    double detected = 0;
    for (const GroundTruth::Dye& d : g2.Dyes())
@@ -562,7 +612,7 @@ int main()
    }
    // a cap the 10 nm voxels pass: the voxels grow (one factor for x, y and z), the README says so
    {
-      const auto small = g2.Files({ 5, 300 }, 10, 10, 64 * 1024);
+      const auto small = g2.Files(300, 10, 10, 64 * 1024);
       Tiff t;
       std::string readme;
       for (const auto& f : small)
@@ -587,7 +637,7 @@ int main()
    const bool ok3 = Movie(two, &g3, f4, err);
    std::vector<Tiff> stacks;
    std::vector<std::string> names;
-   for (const auto& f : g3.Files({ 5, 300 }, 20, 20))
+   for (const auto& f : g3.Files(300, 20, 20))
       if (f.first.compare(0, 10, "gt_volume_") == 0)
       {
          stacks.push_back(ReadTiff(f.second));

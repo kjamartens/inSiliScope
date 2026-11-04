@@ -8,7 +8,8 @@ Versions follow semver; while 0.x, any release may change the output for a given
 - **Ground truth** ([docs](docs/ground-truth.md)): a recording's **Save** (was Save .tif) opens a box: the movie alone
   (.tif), or with its instrument settings (a settings file taken as the Record began, which reproduces the movie with
   `insiliscope_cli --settings`) and its ground truth in one .zip. The ground truth: a table per frame (time, stage,
-  focus, drift, pattern state); localization tables at two thresholds of photons on the camera (5 and 300), with the
+  focus, drift, pattern state); a localization table of the blinks with at least 300 photons (the box sets it) in the 500 × 500 nm square around
+  them, from the PSF at its own sampling (the same at any pixel size), with the
   dye's position, its binding site, photons detected / on the camera / emitted, the PSF-weighted background, the beads
   as `fiducial` rows; for a recording without a blinking label (WideField) a dye list instead; for continuous dyes
   photon-weighted density stacks (a target each, all on one grid, detected photons per 10 nm voxel or as fine as

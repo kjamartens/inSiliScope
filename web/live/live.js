@@ -214,7 +214,7 @@ function onReplay(d, job) {
 // live sample's caches, a WideField ground truth took the heap past its 4 GB: an abort, and the box waited on), all of
 // it freed after. Two jobs: gt-run (its settings file rendered again with the sink on, kept in the worker) and gt-files.
 // The run starts as the Save box opens with Ground truth ticked (L.gtWarm), so the sample, the PSF and the frames are
-// made while the box is read; Save takes it when it fits (the same file and dye list, rows kept from at most the lower
+// made while the box is read; Save takes it when it fits (the same file and dye list, rows kept from at most the
 // threshold: the same files as a run made at Save, isc_scope_gt_run), else starts another. As the run ends it makes
 // the files for the options the box shows then (dyes.csv and the stacks take seconds), which Save takes when they are
 // still the options; else the kept run makes them for the new ones. Live pauses while one runs.
@@ -256,21 +256,22 @@ function gtRun(text, minPhotons, dyeCsv, filesFor) {
   w.postMessage({ type: 'gt-run', id: 1, text, minPhotons, dyeCsv, files: filesFor || null });
   return true;
 }
-// Whether the run k gives the files of (text, the lower threshold min, dyeCsv): a run with the dye list serves one
-// without (isc_scope_gt_files).
+// Whether the run k gives the files of (text, the threshold min, dyeCsv): a run with the dye list serves one without
+// (isc_scope_gt_files).
 const gtFits = (k, text, min, dyeCsv) => !!k && k.text === text && k.minPhotons <= min && (k.dyeCsv || !dyeCsv);
 // Whether made files are those of the options o = {min, vol, dyeCsv}.
-const gtSameOpts = (a, o) => !!a && a.min[0] === o.min[0] && a.min[1] === o.min[1] && a.vol[0] === o.vol[0] &&
+const gtSameOpts = (a, o) => !!a && a.min === o.min && a.vol[0] === o.vol[0] &&
   a.vol[1] === o.vol[1] && !!a.dyeCsv === !!o.dyeCsv;
 // The Save box: a run for these options now (kept if the one there fits; filesFor: the files to make as it ends);
 // L.gtDrop: none.
 L.gtWarm = (text, minPhotons, dyeCsv, filesFor) => { if (!gtFits(GT.key, text, minPhotons, dyeCsv)) gtRun(text, minPhotons, dyeCsv, filesFor); };
 L.gtDrop = gtStop;
-// opt = {text, min: [a, b], vol: [xy, z], dyeCsv}; progress(fraction, stage, info): isc_scope_gt's stages (a run
+// opt = {text, min (photons in a blink's 500 nm core), vol: [xy, z], dyeCsv}; progress(fraction, stage, info):
+// isc_scope_gt's stages (a run
 // already on its way reports where it is). Resolves with the files, [[name, bytes], ...]; a failure (out of memory
 // too) rejects. The worker is closed after.
 L.groundTruth = async (opt, progress) => {
-  const min = Math.min(opt.min[0], opt.min[1]);
+  const min = opt.min;
   if (!gtFits(GT.key, opt.text, min, opt.dyeCsv) && !gtRun(opt.text, min, opt.dyeCsv)) throw new Error('the workers are not up yet');
   const { w, run } = GT;
   GT.progress = progress || null;
@@ -809,7 +810,7 @@ function download(blob, name) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
-const SAVE_DEF = { settings: true, gt: false, min1: 5, min2: 300, dyes: true };
+const SAVE_DEF = { settings: true, gt: false, minCore: 300, dyes: true };
 const GT_VOL = [10, 10];   // the density stacks' voxel (nm, lateral and axial; finer when it fits 1 GB)
 // The recording's settings file as text (made once per recording: the ground truth's run is keyed by it).
 const playSettingsText = () => {
@@ -849,9 +850,9 @@ async function openSave() {
     '<code>insiliscope_cli --settings</code>, renders the same frames</span></label>' +
     '<label class="part"><input type="checkbox" id="svGt"> <b>Ground truth</b><span class="s">gt/, what made the frames: ' +
     (kind === 'smlm'
-      ? 'two localization tables, every blink (and bead) drawn with at least <input type="number" id="svMin1" min="0" step="1"> and ' +
-        '<input type="number" id="svMin2" min="0" step="1"> photons on the camera in a frame (positions in the image and ' +
-        'the world, binding site, photons, background); a density stack of any dyes that glow throughout; '
+      ? 'a localization table, every blink (and bead) drawn with at least <input type="number" id="svMin" min="0" step="10"> ' +
+        'photons in a frame in the 500 × 500 nm square around it (positions in the image and the world, binding site, ' +
+        'photons, background); a density stack of any dyes that glow throughout; '
       : kind === 'wf' ? 'a density stack per target, all on one grid (they overlap): its detected photons per voxel, ' +
         '10 nm or as fine as fits 1 GB in all (8-bit, compressed; Fiji shows each voxel\'s world x, y, z, and each slice\'s ' +
         'z as its label); '
@@ -866,7 +867,7 @@ async function openSave() {
       : '') +
     warn.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
     '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip with a README.txt, which ' +
-    'also opens in napari: <code>python &lt;name&gt;.zip</code>.</div>' +
+    'also opens in napari: drop its <code>open_in_napari.py</code> on napari\'s window.</div>' +
     '<progress id="svBar" max="1" hidden style="width:100%"></progress>' +
     '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>',
     () => L.gtDrop());   // (closed however: the run let go)
@@ -876,26 +877,26 @@ async function openSave() {
   q('#svSet').disabled = !PLAY.settings;
   q('#svGt').checked = o.gt && !!PLAY.settings;
   q('#svGt').disabled = !PLAY.settings;
-  if (q('#svMin1')) { q('#svMin1').value = o.min1; q('#svMin2').value = o.min2; }
+  if (q('#svMin')) q('#svMin').value = o.minCore;
   if (q('#svDyes')) q('#svDyes').checked = o.dyes;
   const sync = () => { if (q('#svDyes')) { q('#svDyesRow').style.opacity = q('#svGt').checked ? '' : '.5'; q('#svDyes').disabled = !q('#svGt').checked; } };
   q('#svGt').addEventListener('change', sync);
   sync();
   // The ground truth's run starts while the box is open (Save takes it if the options still fit: L.gtWarm), and again
   // when a change needs another one (a lower threshold, the dye list on); unticked, none.
-  const minOf = id => (q(id) ? Math.max(0, +q(id).value || 0) : o[id === '#svMin1' ? 'min1' : 'min2']);
+  const minOf = () => (q('#svMin') ? Math.max(0, +q('#svMin').value || 0) : o.minCore);
   const warm = () => {
     if (!q('#svGt').checked || !PLAY.settings) return;
-    const min = [minOf('#svMin1'), minOf('#svMin2')], dyeCsv = kind === 'wf' && (q('#svDyes') ? q('#svDyes').checked : o.dyes);
-    L.gtWarm(playSettingsText(), Math.min(...min), dyeCsv, { min, vol: GT_VOL, dyeCsv });
+    const min = minOf(), dyeCsv = kind === 'wf' && (q('#svDyes') ? q('#svDyes').checked : o.dyes);
+    L.gtWarm(playSettingsText(), min, dyeCsv, { min, vol: GT_VOL, dyeCsv });
   };
-  for (const id of ['#svGt', '#svMin1', '#svMin2', '#svDyes']) if (q(id)) q(id).addEventListener('change', warm);
+  for (const id of ['#svGt', '#svMin', '#svDyes']) if (q(id)) q(id).addEventListener('change', warm);
   warm();
   q('#svCancel').onclick = () => D.closeDialog();
   q('#svGo').onclick = async () => {
-    // the box shows the thresholds or the dye list, never both: the hidden one keeps its stored value
+    // the box shows the threshold or the dye list, never both: the hidden one keeps its stored value
     const c = { settings: q('#svSet').checked, gt: q('#svGt').checked, dyes: q('#svDyes') ? q('#svDyes').checked : o.dyes,
-      min1: q('#svMin1') ? Math.max(0, +q('#svMin1').value || 0) : o.min1, min2: q('#svMin2') ? Math.max(0, +q('#svMin2').value || 0) : o.min2 };
+      minCore: minOf() };
     store.set('saveOpts', JSON.stringify(c));
     if (kind !== 'wf') c.dyes = false;
     const name = (q('#svName').value.trim() || `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`).replace(/[\\/:*?"<>|]+/g, '_');
@@ -916,7 +917,7 @@ async function openSave() {
     }
   };
 }
-// c = {settings, gt, dyes, min1, min2}; say(text): progress.
+// c = {settings, gt, dyes, minCore}; say(text): progress.
 async function saveRecording(c, name, say = () => {}) {
   iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(PLAY.n), settings: !!c.settings, gt: !!c.gt });
   const tif = writeTiff16(PLAY.frames, PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
@@ -944,7 +945,7 @@ async function saveRecording(c, name, say = () => {}) {
     const tick = setInterval(show, 500);
     let files;
     try {
-      files = await L.groundTruth({ text: settingsText, min: [c.min1, c.min2], vol: GT_VOL, dyeCsv: !!c.dyes },
+      files = await L.groundTruth({ text: settingsText, min: c.minCore, vol: GT_VOL, dyeCsv: !!c.dyes },
         (f, stage, info) => { Object.assign(P, { f, stage: stage || 'frames', info }); show(); });
     } finally { clearInterval(tick); }
     for (const [n, b] of files) entries.push({ name: 'gt/' + n, data: b });

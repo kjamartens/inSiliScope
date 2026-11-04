@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The ground truth at Save (docs/ground-truth.md) under Node, on the viewer's WASM module (web/insiliscope_module.js):
 //   - isc_scope_gt on a fresh Record's file (dSTORM on the nanorulers, with beads): the files packed as the viewer
-//     unpacks them (frames.csv, the localization tables, README.txt), a row per frame, beads as kind fiducial;
+//     unpacks them (frames.csv, localizations.csv, README.txt), a row per frame, beads as kind fiducial, the rows
+//     at a higher threshold of core photons the lower one's with that many;
 //   - a Record's file with a light history (recordFrom): the replay, then the recorded runs;
 //   - a WideField file: dyes.csv and the density volume (an ImageJ float32 stack: its description's spacing and
 //     unit), dyes.csv left out on request (the volume stays); the viewer's way (Module.onGtFile: each file out of the
@@ -40,9 +41,9 @@ function unpack(bytes) {
   }
   return files;
 }
-function gt(text, { min = [5, 300], vol = [10, 10], dyeCsv = 1 } = {}) {
+function gt(text, { min = 300, vol = [10, 10], dyeCsv = 1 } = {}) {
   const s = str(text);
-  const n = M._isc_scope_gt(s, min[0], min[1], vol[0], vol[1], dyeCsv);
+  const n = M._isc_scope_gt(s, min, vol[0], vol[1], dyeCsv);
   M._free(s);
   if (n < 0) throw new Error(M.UTF8ToString(M._isc_scope_gt_error()));
   const p = M._isc_scope_gt_data(), out = unpack(M.HEAPU8.slice(p, p + n));
@@ -60,18 +61,23 @@ const fresh = file({
   measurement: { values: { size: 32, frames: 6, 'exposure-ms': 50, 'start-sec': 5 }, record: { mode: 'fresh', frames: 6 } },
 });
 let tf = performance.now();
-const a = gt(fresh);
+const a = gt(fresh, { min: 5 });
 const msFresh = performance.now() - tf;
-const loc = a.get('localizations_min5.csv'), loc300 = a.get('localizations_min300.csv');
+const a300 = gt(fresh);
+const loc = a.get('localizations.csv'), loc300 = a300.get('localizations.csv');
 const fr = a.get('frames.csv');
 const head = loc ? rows(loc)[0].split(',') : [];
 const col = k => head.indexOf(k);
 const body = loc ? rows(loc).slice(1).map(r => r.split(',')) : [];
-check(fr && rows(fr).length === 7 && loc && loc300 && a.has('README.txt'),
-  `a fresh Record: frames.csv (6 rows), localizations_min5/300.csv, README.txt (${[...a.keys()].join(', ')}; ${msFresh.toFixed(0)} ms)`);
-check(body.length > 0 && body.every(r => +r[col('intensity [photon]')] >= 5) &&
-  rows(loc300).length - 1 === body.filter(r => +r[col('intensity [photon]')] >= 300).length,
-  `the tables' thresholds: photons on the camera >= 5 (${body.length} rows), the 300 table its subset`);
+check(fr && rows(fr).length === 7 && loc && loc300 && a.has('README.txt') && ![...a.keys()].some(k => k.startsWith('localizations_min')),
+  `a fresh Record: frames.csv (6 rows), localizations.csv, README.txt (${[...a.keys()].join(', ')}; ${msFresh.toFixed(0)} ms)`);
+{
+  const core = col('core_photons'), hi = rows(loc300);
+  const want = [rows(loc)[0], ...rows(loc).slice(1).filter(r => +r.split(',')[core] >= 300)];
+  check(core > 0 && body.length > 0 && body.every(r => +r[core] >= 5 && +r[core] <= +r[col('intensity [photon]')] + 1e-3) &&
+    hi.length > 1 && hi.length < body.length + 1 && hi.join('\n') === want.join('\n'),
+    `the threshold on core photons: >= 5 (${body.length} rows, each no more than its photons on the camera); at 300 the same rows with >= 300 (${hi.length - 1})`);
+}
 check(body.some(r => r[col('kind')] === 'fiducial') && body.some(r => r[col('kind')] === 'emitter'),
   'beads in the localization tables as kind fiducial, beside the blinks');
 check(body.filter(r => r[col('kind')] === 'emitter').every(r => r[col('site_x_world_um')] !== ''),
@@ -109,7 +115,7 @@ check(!c2.has('dyes.csv') && c2.has(vol), 'dyes.csv left out on request, the vol
 {
   const got = [];
   M.onGtFile = (name, bytes) => got.push([name, bytes]);
-  const s = str(wf), n = M._isc_scope_gt(s, 5, 300, 100, 50, 1);
+  const s = str(wf), n = M._isc_scope_gt(s, 300, 100, 50, 1);
   M._free(s);
   M.onGtFile = null;
   const same = got.length === c.size && got.every(([k, b], i) => k === [...c.keys()][i] && b.length === c.get(k).length && b.every((x, j) => x === c.get(k)[j]));
@@ -118,29 +124,29 @@ check(!c2.has('dyes.csv') && c2.has(vol), 'dyes.csv left out on request, the vol
 
 // ---- in two steps (the Save box starts the run while it is open): rows from a lower threshold, the dye list's
 // sites found for a files call without it: the same files ----
-function gtSplit(text, minPhotons, runDyes, { min = [5, 300], vol = [10, 10], dyeCsv = 1, keepFirst = false } = {}) {
-  const s = str(text), rc = M._isc_scope_gt_run(s, minPhotons, runDyes);
+function gtSplit(text, runMin, runDyes, { min = 300, vol = [10, 10], dyeCsv = 1, keepFirst = false } = {}) {
+  const s = str(text), rc = M._isc_scope_gt_run(s, runMin, runDyes);
   M._free(s);
   if (rc < 0) throw new Error(M.UTF8ToString(M._isc_scope_gt_error()));
   if (keepFirst) {   // files for other options first, the run kept (the viewer's files made as the run ends)
-    if (M._isc_scope_gt_files(1e9, 1e9, 50, 50, 1 - dyeCsv, 1) < 0) throw new Error(M.UTF8ToString(M._isc_scope_gt_error()));
+    if (M._isc_scope_gt_files(1e9, 50, 50, 1 - dyeCsv, 1) < 0) throw new Error(M.UTF8ToString(M._isc_scope_gt_error()));
     M._isc_scope_gt_free();
   }
-  const n = M._isc_scope_gt_files(min[0], min[1], vol[0], vol[1], dyeCsv, 0);
+  const n = M._isc_scope_gt_files(min, vol[0], vol[1], dyeCsv, 0);
   if (n < 0) throw new Error(M.UTF8ToString(M._isc_scope_gt_error()));
   const p = M._isc_scope_gt_data(), out = unpack(M.HEAPU8.slice(p, p + n));
   M._isc_scope_gt_free();
   return out;
 }
 const sameFiles = (x, y) => x.size === y.size && [...x].every(([k, v], i) => k === [...y.keys()][i] && v.length === y.get(k).length && v.every((q, j) => q === y.get(k)[j]));
-check(sameFiles(gtSplit(fresh, 0, 1), a) && sameFiles(gtSplit(hist, 2, 1), b),
-  'isc_scope_gt_run from a lower threshold (0, 2), then isc_scope_gt_files(5, 300): the same files (fresh, history)');
+check(sameFiles(gtSplit(fresh, 0, 1, { min: 5 }), a) && sameFiles(gtSplit(fresh, 5, 1), a300) && sameFiles(gtSplit(hist, 2, 1), b),
+  'isc_scope_gt_run from a lower threshold (0, 5, 2), then isc_scope_gt_files at 5 or 300: the same files (fresh, history)');
 check(sameFiles(gtSplit(wf, 5, 1, { vol: [100, 50], dyeCsv: 0 }), c2) && sameFiles(gtSplit(wf, 5, 1, { vol: [100, 50] }), c),
   'a run with the dye list serves files without it (and with it): the same files');
-check(sameFiles(gtSplit(fresh, 0, 1, { keepFirst: true }), a) && sameFiles(gtSplit(wf, 5, 1, { vol: [100, 50], keepFirst: true }), c),
+check(sameFiles(gtSplit(fresh, 0, 1, { min: 5, keepFirst: true }), a) && sameFiles(gtSplit(wf, 5, 1, { vol: [100, 50], keepFirst: true }), c),
   'files for other options first (the run kept), then these: the same files');
 {
-  const n = M._isc_scope_gt_files(5, 300, 10, 10, 1, 0);
+  const n = M._isc_scope_gt_files(300, 10, 10, 1, 0);
   check(n < 0 && /no ground truth rendered/.test(M.UTF8ToString(M._isc_scope_gt_error())), 'isc_scope_gt_files with no run: an error');
 }
 
@@ -155,9 +161,9 @@ const lamp = file({
       { n: 2, lit: true, set: { 'light-epi': 1, 'light-trans': 0 } }, { n: 2, lit: true, set: { 'light-trans': 1 } }] },
   },
 });
-const d = gt(lamp, { min: [0, 300] });
+const d = gt(lamp, { min: 0 });
 const dRows = rows(d.get('frames.csv')).slice(1).map(r => +r.split(',')[0]);
-const dLoc = d.has('localizations_min0.csv') ? rows(d.get('localizations_min0.csv')).slice(1).map(r => +r.split(',')[0]) : [];
+const dLoc = d.has('localizations.csv') ? rows(d.get('localizations.csv')).slice(1).map(r => +r.split(',')[0]) : [];
 check(dRows.join() === '0,1,2,3,4,5' && dLoc.length > 0 && dLoc.every(f => f >= 2),
   `lamp alone, fluorescence, both: frames.csv rows ${dRows.join(',')}, the beads and blinks at frames ${[...new Set(dLoc)].join(',')}`);
 const bfOnly = file({
@@ -177,7 +183,7 @@ else {
     const d = path.join(dir, name);
     fs.mkdirSync(d);
     fs.writeFileSync(path.join(d, 'f.isc.json'), t);
-    const vol = name === 'widefield' ? ['--gt-volume', '100,50'] : name === 'lamp' ? ['--gt-min', '0,300'] : [];
+    const vol = name === 'widefield' ? ['--gt-volume', '100,50'] : name === 'lamp' ? ['--gt-min', '0'] : name === 'fresh' ? ['--gt-min', '5'] : [];
     execFileSync(cli, ['--settings', path.join(d, 'f.isc.json'), '--out', path.join(d, 'm.tif'), '--gt-out', d, ...vol], { stdio: 'pipe' });
     const want = files || c;
     const same = [...want].every(([n, bytes]) => {

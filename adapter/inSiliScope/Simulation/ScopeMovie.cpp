@@ -6549,6 +6549,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             gt->frameBase = gtBase + f + 1;   // (the next movie's frames follow this one's)
             // The frame's non-blink light: the frame less its blinks (drawn alone in blinkFrame) and its beads.
             const std::vector<float>& blinkAlone = gtBlink[static_cast<size_t>(k)];
+            const double gtCoreHalf = GroundTruth::kCoreBoxNm / 2 / pixelNm;   // the core's half side, camera px
             const RenderExtras& gi = blinkInto;
             const bool beads = m.fid && !m.fid->comps.empty();
             if (beads)
@@ -6588,9 +6589,10 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   const FrameEmitter& em = one[0];
                   if (!binned && (em.photons < m.S.blinkMinPhotons || em.photons <= 0))
                      continue;   // not drawn (blink-min-photons)
-                  if (em.photons < gt->minPhotons)
-                     continue;   // (on the camera it is fewer still)
-                  const EmitterFootprint fp = FootprintOf(gtScratch[c], W, H, kern, em.zIndex, g.sigmaPx, em.xPx, em.yPx, gtBg);
+                  if (em.photons < gt->minCorePhotons)
+                     continue;   // (in its core it is fewer still)
+                  const EmitterFootprint fp = FootprintOf(gtScratch[c], W, H, kern, em.zIndex, g.sigmaPx, em.xPx, em.yPx, gtBg,
+                                                          gtCoreHalf);
                   GroundTruth::Emitter& r = rows[ei];
                   r.frame = gtBase + f;
                   r.kind = GroundTruth::Emitter_;
@@ -6611,8 +6613,9 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   r.emitted = em.photons * epd;
                   r.bg = fp.bg;
                   r.bgCentre = fp.bgCentre;
+                  r.core = em.photons * fp.core;
                   r.excite = e.excite;
-                  keep[ei] = r.onCamera >= gt->minPhotons;
+                  keep[ei] = r.core >= gt->minCorePhotons;
                }
                });
                for (size_t ei = 0; ei < ev.size(); ++ei)
@@ -6636,7 +6639,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                {
                   const FiducialBeadSite& e = F.beads[b];
                   const double ph = phs[b];
-                  if (!(ph >= gt->minPhotons))
+                  if (!(ph >= gt->minCorePhotons))
                      continue;
                   GtBeadFp& bf = gtBeadFp[c][b];
                   const double xPx = e.xUm * 1000.0 / pixelNm + gdx, yPx = e.yUm * 1000.0 / pixelNm + gdy;
@@ -6645,6 +6648,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                      alone.assign(n, 0.0f);
                      SplatFiducialBead(alone, W, H, F, e, zf, pixelNm, 1.0, gdx, gdy);
                      bf.fp = SparseFootprintOf(alone, W, H, xPx, yPx);
+                     bf.fp.core = FiducialBeadCore(F, e, zf, pixelNm, gdx, gdy, W, H, gtCoreHalf);
                      bf.zf = zf;
                      bf.dx = gdx;
                      bf.dy = gdy;
@@ -6664,8 +6668,9 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   r.onCamera = ph * fp.onCamera;
                   r.bg = fp.bg;
                   r.bgCentre = fp.bgCentre;
+                  r.core = ph * fp.core;
                   r.beadNm = e.d;
-                  keep[b] = r.onCamera >= gt->minPhotons;
+                  keep[b] = r.core >= gt->minCorePhotons;
                }
                });
                for (size_t b = 0; b < F.beads.size(); ++b)

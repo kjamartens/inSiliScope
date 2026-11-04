@@ -13,7 +13,7 @@ Layers (docs: https://kjamartens.github.io/inSiliScope/docs/ground-truth/):
                               2D it stands at every z (a camera image is a projection), in 3D it is drawn as a plane
                               at the focal height
   density <target>            the ground truth's density stacks: detected photons per voxel
-  localizations               every blink (and bead) of the lowest-threshold table, at its own frame, coloured by
+  localizations               every blink (and bead) of localizations.csv, at its own frame, coloured by
                               target; "all frames" (hidden) holds them all at once, for 3D
   beads                       fiducials.csv, per frame
   <stack> <channel>           a voxelize .tif: a layer per channel, read a plane at a time
@@ -110,8 +110,10 @@ def layers_of_recording(src):
                                      scale=(vz, vy, vx), translate=(oz + vz / 2, oy + vy / 2, ox + vx / 2),
                                      colormap=COLOURS[k % len(COLOURS)], blending='additive',
                                      contrast_limits=(0, 255) if v.dtype.itemsize == 1 else contrast(np.asarray(v)))))
-    tables = sorted((n for n in src.names() if n.startswith('gt/localizations_min') and n.endswith('.csv')),
-                    key=lambda n: float(n[len('gt/localizations_min'):-4]))
+    # localizations.csv (before 2026-11-04: localizations_min<N>.csv per threshold, the lowest taken)
+    tables = ['gt/localizations.csv'] if src.has('gt/localizations.csv') else sorted(
+        (n for n in src.names() if n.startswith('gt/localizations_min') and n.endswith('.csv')),
+        key=lambda n: float(n[len('gt/localizations_min'):-4]))
     targets = []
     if tables:
         rows = src.table(tables[0])
@@ -121,6 +123,8 @@ def layers_of_recording(src):
             targets = sorted(set(target))
             zs += [float(np.nanmin(z)), float(np.nanmax(z))]
             feats = dict(target=target, photons=num(rows, 'intensity [photon]'), kind=np.array([r['kind'] for r in rows]))
+            if 'core_photons' in rows[0]:
+                feats['core_photons'] = num(rows, 'core_photons')
             style = dict(features=feats, face_color='target', face_color_cycle=COLOURS[:max(1, len(targets))],
                          border_width=0, size=0.06)
             out.append(('points', np.stack([t, z, y, x], 1), dict(name=f'localizations ({tables[0][3:-4]})', **style)))

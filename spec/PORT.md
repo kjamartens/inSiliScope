@@ -1403,6 +1403,11 @@ C++ only; docs/ground-truth.md has the files.
   `Render` fill when one is in scope (frames bit for bit the same): the frames, the drawn blinks and beads with their
   photons on the camera and the PSF-weighted light under them, the continuous dyes with their photons over the movie;
   at a movie's end one details query over the new rows' dyes (`fl.ground-truth-details`). cli `--gt-out`, `--gt-min`.
+  2026-11-04: one `localizations.csv`, rows with at least `minCorePhotons` (300) expected photons in the 500 nm square
+  centred on the blink (`kCoreBoxNm`; the kernel plane's oversampled cells times their overlap with the box and the
+  camera, `PlaneBoxPart`; a Gaussian PSF by erf; a bead from its sphere-averaged core plane or the point plane, its far
+  Gaussian blended as in `SplatFiducial`), the same at any pixel size; it replaced two tables at 5 and 300 photons on
+  the camera, which kept far-defocused blinks with almost nothing in their centre.
 - Speed (2026-11-04), every file byte for byte (cli scenarios hashed before and after; ctest checks against the old
   code): `World::DyeDetailsInWindow` looks a run of dyes' cell, rotation and assets up once and shares a microtubule
   dye's frames / arc / segment / theta between site and dipole (`DyeSiteIn`, `DyeOrientationIn`; `world_checks.lamin`:

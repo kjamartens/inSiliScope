@@ -100,8 +100,8 @@ through it step by step.
   new recording close it too),
   and **Save** there opens a box: the movie alone is one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; with
   the **settings file** (taken as the Record began, which reproduces the movie: `insiliscope_cli
-  --settings`) and/or **ground truth** (localization tables above two thresholds of photons on the camera, 5 and 300 by
-  default, for a blinking label; for WideField labels the dye list instead (optional, large); density stacks; a table
+  --settings`) and/or **ground truth** (a localization table of every blink with at least 300 photons, by default, in the 500 nm square
+  around it, for a blinking label; for WideField labels the dye list instead (optional, large); density stacks; a table
   per frame; see
   [Ground truth](ground-truth.md)) it is one `.zip`. ☰ › Tools › Voxelize ground truth turns a saved table into a
   stack at any voxel size (drop the saved .zip on it); its `open_in_napari.py` dropped on napari's window opens the recording in napari, every part in world coordinates

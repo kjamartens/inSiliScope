@@ -4363,7 +4363,7 @@ function iscEngine(M) {
         M.stringToUTF8(d.text, s, n);
         M.onGtFile = (name, bytes) => files.push([name, bytes]);   // each file out of the heap as it is made
         let size;
-        try { size = M._isc_scope_gt(s, d.min[0], d.min[1], d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; M.onGtFile = null; }
+        try { size = M._isc_scope_gt(s, d.min, d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; M.onGtFile = null; }
         if (size < 0) return [{ type: 'gt', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
         return [{ type: 'gt', id: d.id, files }, files.map(f => f[1].buffer)];
       }
@@ -4381,7 +4381,7 @@ function iscEngine(M) {
         const files = [], o = d.files;
         M.onGtFile = (name, bytes) => files.push([name, bytes]);
         let size;
-        try { size = M._isc_scope_gt_files(o.min[0], o.min[1], o.vol[0], o.vol[1], o.dyeCsv ? 1 : 0, 1); } finally { M.onGtFile = null; }
+        try { size = M._isc_scope_gt_files(o.min, o.vol[0], o.vol[1], o.dyeCsv ? 1 : 0, 1); } finally { M.onGtFile = null; }
         if (size < 0) return [{ type: 'gt-run', id: d.id, error: null, filesError: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
         return [{ type: 'gt-run', id: d.id, error: null, files, filesFor: o }, files.map(f => f[1].buffer)];
       }
@@ -4390,7 +4390,7 @@ function iscEngine(M) {
         const files = [];
         M.onGtFile = (name, bytes) => files.push([name, bytes]);
         let size;
-        try { size = M._isc_scope_gt_files(d.min[0], d.min[1], d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0, 0); } finally { M.onGtFile = null; }
+        try { size = M._isc_scope_gt_files(d.min, d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0, 0); } finally { M.onGtFile = null; }
         if (size < 0) return [{ type: 'gt-files', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
         return [{ type: 'gt-files', id: d.id, files }, files.map(f => f[1].buffer)];
       }

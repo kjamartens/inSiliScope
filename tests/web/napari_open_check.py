@@ -98,7 +98,7 @@ def main(path):
         W, H = movie.shape[2], movie.shape[1]
         check(abs(x0 + (W / 2) * px - sx) < 1e-9 and abs(y0 + (H / 2) * px - sy) < 1e-9 and abs(z0 - float(f0['focus_world_um'])) < 1e-9,
               f'movie at the stage ({sx}, {sy}) um, the focus {z0} um, {px * 1000:.2f} nm pixels')
-    tables = sorted((n for n in names if n.startswith('gt/localizations_min')), key=lambda n: float(n[20:-4]))
+    tables = [n for n in names if n == 'gt/localizations.csv']
     rows = list(csv.DictReader(io.TextIOWrapper(zf.open(tables[0])))) if tables else []
     if tables and not rows:
         check(not any(str(l.kw.get('name', '')).startswith('localizations') for l in v.layers),

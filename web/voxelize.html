@@ -42,7 +42,7 @@
 <body>
 <main>
   <h1>Voxelize ground truth</h1>
-  <p>Turns a ground-truth table of inSiliScope (<code>dyes.csv</code> or a <code>localizations_min*.csv</code>, or the
+  <p>Turns a ground-truth table of inSiliScope (<code>dyes.csv</code> or <code>localizations.csv</code>, or the
     saved recording's .zip holding them) into a
     density stack at the voxel size you choose: the sum of a column (detected photons, by default) per voxel, or a
     count; one stack, or one channel per target. Fiji/ImageJ and napari read its voxel size; Fiji also its world
@@ -97,9 +97,9 @@ const POS = ['x_world_um', 'y_world_um', 'z_world_um', 'site_x_world_um', 'site_
 const WEIGHTS = ['photons_detected_total', 'photons_emitted_total', 'photons_detected', 'photons_emitted', 'intensity [photon]'];
 const CATS = ['target', 'kind'];
 
-// ---- a saved recording's .zip: its tables (gt/dyes.csv, gt/localizations_min*.csv), read without unpacking it ----
+// ---- a saved recording's .zip: its tables (gt/dyes.csv, gt/localizations.csv), read without unpacking it ----
 // (the zip of web/live/zip.js: stored or deflated entries, Zip64 records when a size or offset passes 4 GB)
-const TABLE = /(^|\/)(dyes|localizations_min[\d.]+|fiducials)\.csv$/;
+const TABLE = /(^|\/)(dyes|localizations(_min[\d.]+)?|fiducials)\.csv$/;   // (_min<N>: zips before 2026-11-04)
 async function zipEntries(file) {
   const u64 = (v, o) => v.getUint32(o, true) + 4294967296 * v.getUint32(o + 4, true);
   const view = async (o, n) => new DataView(await file.slice(o, o + n).arrayBuffer());
@@ -149,8 +149,8 @@ async function openInput(file) {
   if (!/\.zip$/i.test(file.name) && !(sig.byteLength === 4 && sig.getUint32(0, true) === 0x04034b50)) return load(file);
   try {
     const tables = (await zipEntries(file)).filter(e => TABLE.test(e.name));
-    if (!tables.length) { $('load').innerHTML = `<span class="warn">${esc(file.name)} holds no ground-truth table (gt/dyes.csv, gt/localizations_min*.csv): saved without the ground truth?</span>`; return; }
-    // dyes.csv first, then the localization tables by threshold
+    if (!tables.length) { $('load').innerHTML = `<span class="warn">${esc(file.name)} holds no ground-truth table (gt/dyes.csv, gt/localizations.csv): saved without the ground truth?</span>`; return; }
+    // dyes.csv first, then the localization table(s) (an older zip: by threshold)
     const rank = e => /dyes\.csv$/.test(e.name) ? -1 : /fiducials/.test(e.name) ? 1e9 : +(/min([\d.]+)/.exec(e.name) || [0, 0])[1];
     tables.sort((a, b) => rank(a) - rank(b));
     zipped = { file, tables };

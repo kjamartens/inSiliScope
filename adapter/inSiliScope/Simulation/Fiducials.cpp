@@ -2,6 +2,7 @@
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 
 #include "Fiducials.h"
+#include "GroundTruth.h"
 #include "MemoryReport.h"
 #include "DyeLibrary.h"
 #include "Parallel.h"
@@ -228,7 +229,7 @@ double BeadKernel::CoreBytes()
    std::lock_guard<std::mutex> lock(mu_);
    double b = 0.0;
    for (const auto& kv : cores_)
-      b += VectorBytes(kv.second->blockSums);
+      b += VectorBytes(kv.second->blockSums) + VectorBytes(kv.second->plane);
    return b;
 }
 
@@ -450,6 +451,7 @@ std::shared_ptr<const BeadKernel::Core> BeadKernel::CoreAt(int k, double dBin)
    C->geom.sizeOversampled = size;
    C->geom.blockSumWidth = size + os - 1;
    C->blockSums = BuildBlockSums(plane.data(), size, os);
+   C->plane = plane;
    std::lock_guard<std::mutex> lock(mu_);
    auto ins = cores_.emplace(key, C);
    if (ins.second)
@@ -530,6 +532,22 @@ void BeadKernel::Splat(std::vector<float>& img, unsigned W, unsigned H, int k, d
    SplatRect(img, W, r0, r1, G, sh, Q, photons, -R, R, camRad + 1, R);
    SplatRect(img, W, r0, r1, G, sh, Q, photons, -R, -camRad - 1, -camRad, camRad);
    SplatRect(img, W, r0, r1, G, sh, Q, photons, camRad + 1, R, -camRad, camRad);
+}
+
+double BeadKernel::BoxPart(unsigned W, unsigned H, int k, double dNm, double xPx, double yPx, double half,
+                           const BeadHalo* halo)
+{
+   const PsfKernelCache& K = K_;
+   if (!K.valid || k < 0 || k >= K.nz)
+      return 0.0;
+   const bool withHalo = halo && halo->Nz() == K.nz;
+   const double inner = withHalo ? InnerScale(*halo, k) : 1.0;
+   // the square lies within the core's rc camera px (kBeadCoreUm); the core's plane there, else the point plane's
+   const std::shared_ptr<const Core> C = CoreAt(k, BeadBinNm(dNm));
+   if (C)
+      return inner * PlaneBoxPart(C->plane.data(), C->geom.sizeOversampled, C->geom.halfWidthOversampled,
+                                  C->geom.oversampling, W, H, xPx, yPx, std::min(half, static_cast<double>(rc_)));
+   return inner * KernelBoxPart(K, k, W, H, xPx, yPx, half);
 }
 
 std::shared_ptr<BeadKernel> BeadKernelFor(const PsfKernelCache& K, double pixelNm)
@@ -766,6 +784,32 @@ void RenderFiducials(std::vector<float>& img, unsigned W, unsigned H, FiducialMo
          return FM.frameScale ? v * FM.frameScale(f, F, e) : v;
       });
    }
+}
+
+double FiducialBeadCore(const FiducialMovieComponent& F, const FiducialBeadSite& e, double zf, double pixelNm, double dx,
+                        double dy, unsigned W, unsigned H, double half)
+{
+   // As SplatFiducial draws it: the Gaussian PSF with the sphere's r^2 / 5; else the kernel, blended into the growing
+   // Gaussian beyond its z span.
+   const double xPx = e.xUm * 1000.0 / pixelNm + dx, yPx = e.yUm * 1000.0 / pixelNm + dy;
+   if (!F.B)
+   {
+      const double rPx = e.d / 2.0 / pixelNm;
+      return GaussianBoxPart(std::sqrt(F.sigmaPx * F.sigmaPx + rPx * rPx / 5.0), W, H, xPx, yPx, half);
+   }
+   const double dz = e.zNm / 1000.0 - zf, adz = std::fabs(dz);
+   const double edgeUm = (F.kernel.nz - 1) / 2.0 * F.kernel.zStepNm / 1000.0, sigmaPerUm = F.farSigmaPxPerUm[dz > 0];
+   if (F.kernel.nz > 1 && adz > edgeUm && !(sigmaPerUm > 0))
+      return 0.0;
+   const double w = F.kernel.nz > 1 && sigmaPerUm > 0
+                       ? std::min(1.0, std::max(0.0, (adz - (edgeUm - kBeadFarFadeUm)) / kBeadFarFadeUm))
+                       : 0.0;
+   double part = 0.0;
+   if (w < 1.0)
+      part += (1.0 - w) * F.B->BoxPart(W, H, F.kernel.NearestZIndex(dz), e.d, xPx, yPx, half, F.halo.get());
+   if (w > 0.0)
+      part += w * GaussianBoxPart(adz * sigmaPerUm, W, H, xPx, yPx, half);
+   return part;
 }
 
 double FiducialBeadPhotons(const FiducialMovie& FM, const FiducialMovieComponent& F, const FiducialBeadSite& e, long f)

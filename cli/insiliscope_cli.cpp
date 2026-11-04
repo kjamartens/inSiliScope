@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -79,10 +80,11 @@ void Usage()
                "  --nucleus-json <file>  the shaped nucleus surface of the cells within --geometry-um\n"
                "\n"
                "ground truth (with --out; docs/ground-truth.md):\n"
-               "  --gt-out <dir>         the movie's ground truth as tables in dir: frames.csv, localizations_min<N>.csv\n"
-               "                         (blinks and beads drawn, N photons on the camera or more), dyes.csv (continuous\n"
-               "                         dyes), fiducials.csv; the frames are the same as without\n"
-               "  --gt-min a,b           the localization tables' thresholds (5,300)\n"
+               "  --gt-out <dir>         the movie's ground truth as tables in dir: frames.csv, localizations.csv\n"
+               "                         (blinks and beads drawn with --gt-min photons or more in their 500 nm core),\n"
+               "                         dyes.csv (continuous dyes), fiducials.csv; the frames are the same as without\n"
+               "  --gt-min n             the localization table's threshold: expected photons in the 500 x 500 nm square\n"
+               "                         centred on a blink (300)\n"
                "  --gt-volume xy,z       the continuous dyes' density stacks' voxel (nm; 10,10; 0 = none): detected photons\n"
                "                         per voxel, a stack per target on one grid, 8-bit ImageJ, at most 1 GB in all\n"
                "                         uncompressed (coarser above); README.txt\n"
@@ -114,7 +116,7 @@ int RunCli(int argc, char** argv)
    double densityZ[3] = { 0, 4, 8 }, densityUp = 1;
    bool haveDyesRect = false;
    std::string historyBefore, gtOut;
-   double gtMin[2] = { 5, 300 }, gtVol[2] = { 10, 10 };
+   double gtMin = 300, gtVol[2] = { 10, 10 };
    sim::ScopeSpec spec;
    settings::Loaded loaded;   // --settings: the files' light history
    for (int i = 1; i < argc; i++) {
@@ -132,7 +134,7 @@ int RunCli(int argc, char** argv)
          continue;
       }
       if (a == "--gt-min" && i + 1 < argc) {
-         if (!ParseList(argv[++i], gtMin, 2)) { std::fprintf(stderr, "--gt-min needs 2 comma-separated numbers\n"); return 2; }
+         if (std::strchr(argv[i + 1], ',') || !ParseList(argv[++i], &gtMin, 1)) { std::fprintf(stderr, "--gt-min needs one number (photons in the core)\n"); return 2; }
          continue;
       }
       if (i + 1 < argc) {
@@ -298,7 +300,7 @@ int RunCli(int argc, char** argv)
    if (!tif.ok()) { std::fprintf(stderr, "cannot write %s\n", out.c_str()); return 1; }
    // --gt-out: every movie below fills it (GroundTruth.h); written when the frames are.
    sim::GroundTruth gt;
-   gt.minPhotons = std::min(gtMin[0], gtMin[1]);
+   gt.minCorePhotons = gtMin;
    sim::GroundTruthScope gtScope(gtOut.empty() ? nullptr : &gt);
    const auto writeGt = [&]() {
       if (gtOut.empty()) return true;
@@ -311,7 +313,7 @@ int RunCli(int argc, char** argv)
          const bool wrote = f && std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
          if (f) std::fclose(f);
          if (!wrote) { std::fprintf(stderr, "cannot write %s (does the directory exist?)\n", path.c_str()); ok = false; }
-      }, { gtMin[0], gtMin[1] }, gtVol[0], gtVol[1]);
+      }, gtMin, gtVol[0], gtVol[1]);
       if (!ok) return false;
       std::printf("%s: ground truth, %zu frames, %zu emitter rows, %zu continuous dyes (%.3f s)\n", gtOut.c_str(), gt.frames.size(),
                   gt.emitters.size(), gt.Dyes().size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - tg).count());

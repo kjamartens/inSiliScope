@@ -131,12 +131,16 @@ public:
    // same z planes) (JS splatBead, which takes every row).
    void Splat(std::vector<float>& img, unsigned W, unsigned H, int k, double dNm, double xPx, double yPx,
               double photons, const BeadHalo* halo = nullptr, int rowLo = 0, int rowHi = -1);
+   // Of one photon so splatted, the part in the square of half side half (camera px) centred on it and on the camera
+   // (GroundTruth.h PlaneBoxPart: the bead's oversampled plane, scaled to the halo's share as Splat scales it).
+   double BoxPart(unsigned W, unsigned H, int k, double dNm, double xPx, double yPx, double half,
+                  const BeadHalo* halo = nullptr);
 
 private:
    struct Core
    {
       PsfKernelCache geom;   // oversampling, size, half-width, block-sum width (SplatSetup's inputs)
-      std::vector<float> blockSums;
+      std::vector<float> plane, blockSums;   // the bead's plane (the ground truth's core photons) and its sums
    };
    // The bead kernel of plane k and diameter bin dBin, or null where the point PSF's plane serves (kBeadSphereTol).
    std::shared_ptr<const Core> CoreAt(int k, double dBin);
@@ -228,6 +232,10 @@ void RenderFiducials(std::vector<float>& img, unsigned W, unsigned H, FiducialMo
 // The ground truth (GroundTruth.h): one bead's detected photons in frame f (RenderFiducials' value without the Taylor
 // images), and its image alone (photons of it at the drift dx, dy px) added into img.
 double FiducialBeadPhotons(const FiducialMovie& FM, const FiducialMovieComponent& F, const FiducialBeadSite& e, long f);
+// Of one photon of bead e as SplatFiducialBead draws it (focus zf, drift (dx, dy) px), the part in the square of half
+// side half camera px centred on it and on the W x H camera (the ground truth's core photons; GroundTruth.h).
+double FiducialBeadCore(const FiducialMovieComponent& F, const FiducialBeadSite& e, double zf, double pixelNm, double dx,
+                        double dy, unsigned W, unsigned H, double half);
 void SplatFiducialBead(std::vector<float>& img, unsigned W, unsigned H, const FiducialMovieComponent& F,
                        const FiducialBeadSite& e, double zf, double pixelNm, double photons, double dx, double dy);
 

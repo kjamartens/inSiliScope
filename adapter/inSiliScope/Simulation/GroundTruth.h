@@ -38,8 +38,11 @@ struct PsfKernelCache;
 class GroundTruth
 {
 public:
-   // Emitter rows with fewer expected photons on the camera than this in their frame are left out.
-   double minPhotons = 5;
+   // Emitter rows with fewer expected photons than this in their core (the kCoreBoxNm square around them) in their
+   // frame are left out.
+   double minCorePhotons = 300;
+   // The core: a square of this side (nm) centred on the emitter's position, in the camera's plane.
+   static constexpr double kCoreBoxNm = 500;
    // The continuous dyes' list (Dye rows; the volumes need it), and whether Files writes it as dyes.csv (only without a
    // blinking label: a movie's ground truth is its localizations or its dye list).
    bool dyeList = true;
@@ -82,6 +85,7 @@ public:
       double onFraction = 1;              // the part of the frame it was on
       double detected = 0, onCamera = 0, emitted = 0;   // expected photons (before shot noise)
       double bg = 0, bgCentre = 0;        // the non-blink light per pixel under its PSF (PSF-weighted), at its centre
+      double core = 0;                    // expected photons in its core (kCoreBoxNm square, on the camera)
       double excite = 1;                  // the excitation factor at its site
       double beadNm = 0;                  // a bead's diameter
       // The dye's target site (world um) and mean dipole (degrees: polar from z, azimuth from x; NaN: free) -- filled
@@ -135,10 +139,10 @@ public:
    using DetailQuery = std::function<bool(const double box[6], const std::vector<double>& ids, std::vector<double>& rows)>;
    size_t EndMovie(size_t emitterFrom, const DetailQuery& query, int stride, size_t chunk = size_t(1) << 18);
 
-   // The tables (CSV, a header line; docs/ground-truth.md). Emitters: rows with onCamera >= minOnCamera, by frame;
-   // fiducials: whether the beads go in (else FiducialsCsv has them).
+   // The tables (CSV, a header line; docs/ground-truth.md). Emitters: rows with core >= minCore, by frame; fiducials:
+   // whether the beads go in (else FiducialsCsv has them).
    std::string FramesCsv() const;
-   std::string EmittersCsv(double minOnCamera, bool fiducials) const;
+   std::string EmittersCsv(double minCore, bool fiducials) const;
    std::string FiducialsCsv() const;
    std::string DyesCsv() const;
    // The continuous dyes as density stacks (Voxelize.h, the converter page's code): per target and state, the
@@ -153,16 +157,16 @@ public:
       std::string name, bytes, line;
    };
    std::vector<Volume> Volumes(double lateralNm, double axialNm, double capBytes, std::string* note) const;
-   // Every file (name, contents): frames.csv; with a blinking label, a localizations_min<N>.csv per threshold N
-   // (photons on the camera; the beads in them too); else fiducials.csv for beads; dyes.csv and the volumes
+   // Every file (name, contents): frames.csv; with a blinking label, localizations.csv (the rows with at least
+   // minCore photons in their core; the beads in it too); else fiducials.csv for beads; dyes.csv and the volumes
    // (volumeLateralNm 0: none) with continuous dyes; README.txt describing them.
-   std::vector<std::pair<std::string, std::string>> Files(const std::vector<double>& thresholds,
+   std::vector<std::pair<std::string, std::string>> Files(double minCore,
                                                           double volumeLateralNm = 10, double volumeAxialNm = 10,
                                                           double volumeCapBytes = 1024.0 * 1024 * 1024) const;
    // The same files handed to sink one at a time as each is made (a WideField ground truth's dyes.csv is ~150 bytes
    // a dye: the viewer packs each and lets it go, never holding every file and the packed copy at once).
    using FileSink = std::function<void(const std::string& name, std::string&& bytes)>;
-   void Files(const FileSink& sink, const std::vector<double>& thresholds, double volumeLateralNm = 10,
+   void Files(const FileSink& sink, double minCore, double volumeLateralNm = 10,
               double volumeAxialNm = 10, double volumeCapBytes = 1024.0 * 1024 * 1024) const;
 
 private:
@@ -187,20 +191,22 @@ private:
 
 // One emitter's PSF on the camera: of one photon at camera position (xPx, yPx) on kernel plane zIndex (kernel
 // nullptr or invalid: the Gaussian of sigmaPx), the part that lands on the camera (as the splat draws it), the
-// mean of bg (W x H) weighted by it, and bg at the pixel under its centre (NaN off the camera). scratch: W x H
-// zeros, left zero.
+// mean of bg (W x H) weighted by it, bg at the pixel under its centre (NaN off the camera), and the part that lands
+// in its core: the square of side 2 coreHalfPx centred on it (KernelBoxPart / GaussianBoxPart). scratch: W x H zeros,
+// left zero.
 struct EmitterFootprint
 {
-   double onCamera = 0, bg = 0, bgCentre = 0;
+   double onCamera = 0, bg = 0, bgCentre = 0, core = 0;
 };
 EmitterFootprint FootprintOf(std::vector<float>& scratch, unsigned W, unsigned H, const PsfKernelCache* kernel,
-                             int zIndex, double sigmaPx, double xPx, double yPx, const std::vector<float>& bg);
+                             int zIndex, double sigmaPx, double xPx, double yPx, const std::vector<float>& bg,
+                             double coreHalfPx);
 // The same from an image of the emitter alone (one photon over the whole camera: a bead and its halo), kept for
-// the frames at the same focus and drift: its sum on the camera, and the pixels holding at least cut of it (they
-// weigh the background; a bead's halo reaches past the FOV).
+// the frames at the same focus and drift: its sum on the camera, the pixels holding at least cut of it (they
+// weigh the background; a bead's halo reaches past the FOV); its core part the host's (FiducialBeadCore).
 struct SparseFootprint
 {
-   double onCamera = 0;
+   double onCamera = 0, core = 0;
    std::vector<uint32_t> idx;
    std::vector<float> w;
    long centre = -1;
@@ -208,5 +214,15 @@ struct SparseFootprint
 SparseFootprint SparseFootprintOf(const std::vector<float>& image, unsigned W, unsigned H, double xPx, double yPx,
                                   double cut = 1e-4);
 EmitterFootprint ApplyFootprint(const SparseFootprint& fp, const std::vector<float>& bg);
+
+// The part of one photon that lands in an emitter's core, the square of half side half (camera px) centred on it, and
+// on the W x H camera, from the PSF at its own sampling (not the camera's pixels: the same blink counts the same at any
+// pixel size and at any place on the pixel grid). An oversampled plane: n x n cells of side 1 / os camera px, cell
+// (c, c) centred on the emitter at camera (xPx, yPx), each cell's mass times its part inside the square and the camera.
+double PlaneBoxPart(const float* plane, int n, int c, int os, unsigned W, unsigned H, double xPx, double yPx,
+                    double half);
+// A kernel's plane zIndex (PlaneBoxPart); a Gaussian of sigma camera px (its integral: erf).
+double KernelBoxPart(const PsfKernelCache& k, int zIndex, unsigned W, unsigned H, double xPx, double yPx, double half);
+double GaussianBoxPart(double sigma, unsigned W, unsigned H, double xPx, double yPx, double half);
 
 } // namespace sim

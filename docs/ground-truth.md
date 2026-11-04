@@ -43,7 +43,7 @@ noisy count.
 | `movie.tif` | always | the frames, 16-bit, ImageJ (pixel size, frame interval, the engine spec in the header) |
 | `settings.isc.json` | Settings file | the microscope, sample and acquisition as the Record began, with the light the sample had seen before ([settings files](try-viewer.md)) |
 | `gt/frames.csv` | Ground truth | one row per image |
-| `gt/localizations_min5.csv`, `_min300.csv` | a blinking label (dSTORM, PALM, DNA-PAINT) | every blink drawn (and every bead) with at least 5 or 300 photons on the camera, one row per frame |
+| `gt/localizations.csv` | a blinking label (dSTORM, PALM, DNA-PAINT) | every blink drawn (and every bead) with at least 300 photons in its core (the threshold is the Save box's), one row per frame |
 | `gt/fiducials.csv` | beads, no blinking label | every bead per frame |
 | `gt/dyes.csv` | Dye list (no blinking label, WideField) | one row per dye |
 | `gt/voxelize.html` | Dye list | a converter from `dyes.csv` to a stack at any voxel size (below) |
@@ -65,11 +65,18 @@ One row per image, so a recording that later combines time with z planes or stag
 | `drift_x_nm`, `drift_y_nm`, `drift_z_nm` | the sample's drift at the frame |
 | `pattern_angle`, `pattern_phase` | only under structured illumination: the frame's pattern state |
 
-### Localization tables
+### localizations.csv
 
-One row per blink per frame. The two tables differ only in their threshold: the photons that **land on the camera**,
-meaning the part of the blink's PSF inside the image (the pop-up sets both thresholds). The column names follow
-ThunderSTORM where it has one.
+One row per blink per frame, for every blink with at least so many photons in its **core**: the expected photons
+landing in the 500 × 500 nm square centred on it (and inside the image), taken from the PSF at its own fine sampling, so
+the same blink has the same core at any pixel size. 300 by default (the Save box sets it; the cli's `--gt-min`). A blink
+far out of focus spreads its photons over many pixels: it can put thousands on the camera and only a few dozen in its
+core, which is why the threshold counts the core and not the whole. Beads count alike, from their own kernel (the
+sphere's light averaged over its volume). The column names follow ThunderSTORM where it has one.
+
+What a level looks like, under four conditions (the default background, a better camera, none, and both):
+
+<!-- fig:gt-core -->
 
 | Column | Meaning |
 |---|---|
@@ -86,13 +93,14 @@ ThunderSTORM where it has one.
 | `photons_emitted` | photons it emitted (detected / collection x light path x QE) |
 | `offset [photon]` | the other light per pixel under this blink's PSF, weighted by the PSF: Σ w b / Σ w over the pixels it draws. This is everything except the blinks: the background, the free imager, continuous dyes, beads, the slide. |
 | `bg_centre_photons` | that light in the centre pixel alone |
+| `core_photons` | the expected photons in its 500 × 500 nm core on the camera (the threshold's number) |
 | `wavelength_nm`, `excitation` | the emission's wavelength (the PSF's) and the excitation factor at the dye |
 | `regime` | `splat`, `binned` (approximate SMLM at high density) or `bead` |
 | `bead_diameter_nm` | a bead's diameter |
 | `orient_polar_deg`, `orient_azimuth_deg` | the dye's mean emission dipole, if its label fixes one (see below) |
 
 A blink that **Quality** left out of the image is left out of the tables too. At Fast and Realistic, blinks under 100 or
-50 photons are not drawn, so in practice the ≥ 5 table starts there. Quality Exhaustive draws every blink.
+50 photons are not drawn (whole photons, not the core), so a lower threshold finds no dimmer blink than that. Quality Exhaustive draws every blink.
 
 ### Continuous dyes: dyes.csv and the density stacks
 

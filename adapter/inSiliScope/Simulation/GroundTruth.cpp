@@ -332,13 +332,13 @@ std::string GroundTruth::FramesCsv() const
    return out;
 }
 
-std::string GroundTruth::EmittersCsv(double minOnCamera, bool fiducials) const
+std::string GroundTruth::EmittersCsv(double minCore, bool fiducials) const
 {
    // ThunderSTORM's names where it has one (frame, x [nm], y [nm], z [nm], intensity [photon], offset [photon]).
    std::string out = "frame,t_s,kind,id,target,dye,mode,state,x [nm],y [nm],z [nm],x_world_um,y_world_um,z_world_um,"
                      "site_x_world_um,site_y_world_um,site_z_world_um,on_fraction,photons_detected,intensity [photon],"
-                     "photons_emitted,offset [photon],bg_centre_photons,wavelength_nm,excitation,regime,bead_diameter_nm,"
-                     "orient_polar_deg,orient_azimuth_deg\n";
+                     "photons_emitted,offset [photon],bg_centre_photons,core_photons,wavelength_nm,"
+                     "excitation,regime,bead_diameter_nm,orient_polar_deg,orient_azimuth_deg\n";
    out.reserve(out.size() + emitters.size() * 260);
    static const char* regimes[] = { ",splat", ",binned", ",bead" };
    // Each label's ",target,dye,mode" once (none: a bead's ",bead,,", an emitter's ",,,").
@@ -348,7 +348,7 @@ std::string GroundTruth::EmittersCsv(double minOnCamera, bool fiducials) const
    const double nan = std::numeric_limits<double>::quiet_NaN();
    Rows(out, emitters.size(), [&](size_t i, std::string& o) {
       const Emitter& e = emitters[i];
-      if (!(e.onCamera >= minOnCamera))
+      if (!(e.core >= minCore))
          return;
       if (e.kind == Fiducial && !fiducials)
          return;
@@ -382,6 +382,7 @@ std::string GroundTruth::EmittersCsv(double minOnCamera, bool fiducials) const
       Num(o, e.emitted, "%.4f");
       Num(o, e.bg, "%.4f");
       Num(o, e.bgCentre, "%.4f");
+      Num(o, e.core, "%.4f");
       Num(o, L ? L->wavelengthNm : nan, "%.4g");
       Num(o, e.excite, "%.6g");
       o += regimes[std::min<int>(e.regime, 2)];
@@ -396,7 +397,7 @@ std::string GroundTruth::EmittersCsv(double minOnCamera, bool fiducials) const
 std::string GroundTruth::FiducialsCsv() const
 {
    std::string out = "frame,t_s,x [nm],y [nm],z [nm],x_world_um,y_world_um,z_world_um,bead_diameter_nm,photons_detected,"
-                     "intensity [photon],offset [photon],bg_centre_photons\n";
+                     "intensity [photon],offset [photon],bg_centre_photons,core_photons\n";
    const double nan = std::numeric_limits<double>::quiet_NaN();
    Rows(out, emitters.size(), [&](size_t i, std::string& o) {
       const Emitter& e = emitters[i];
@@ -416,6 +417,7 @@ std::string GroundTruth::FiducialsCsv() const
       Num(o, e.onCamera, "%.4f");
       Num(o, e.bg, "%.4f");
       Num(o, e.bgCentre, "%.4f");
+      Num(o, e.core, "%.4f");
       o += '\n';
    });
    return out;
@@ -617,17 +619,17 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
    return out;
 }
 
-std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::vector<double>& thresholds,
+std::vector<std::pair<std::string, std::string>> GroundTruth::Files(double minCore,
                                                                     double volumeLateralNm, double volumeAxialNm,
                                                                     double volumeCapBytes) const
 {
    std::vector<std::pair<std::string, std::string>> out;
-   Files([&](const std::string& name, std::string&& bytes) { out.emplace_back(name, std::move(bytes)); }, thresholds,
+   Files([&](const std::string& name, std::string&& bytes) { out.emplace_back(name, std::move(bytes)); }, minCore,
          volumeLateralNm, volumeAxialNm, volumeCapBytes);
    return out;
 }
 
-void GroundTruth::Files(const FileSink& sink, const std::vector<double>& thresholds, double volumeLateralNm,
+void GroundTruth::Files(const FileSink& sink, double minCore, double volumeLateralNm,
                         double volumeAxialNm, double volumeCapBytes) const
 {
    std::string readme =
@@ -641,22 +643,21 @@ void GroundTruth::Files(const FileSink& sink, const std::vector<double>& thresho
    readme += "frames.csv: one row per image: its time, stage position, focus, drift (and pattern state under SIM).\n";
    bool beads = false;
    for (const Emitter& e : emitters)
-      beads = beads || e.kind == Fiducial;
+      beads = beads || (e.kind == Fiducial && e.core >= minCore);   // in the table (a run kept from a lower threshold: alike)
    const bool blinking = Blinking();
    if (blinking)
-      for (double t : thresholds)
-      {
-         char name[64];
-         std::snprintf(name, sizeof name, "localizations_min%g.csv", t);
-         t0 = TimingClock::now();
-         std::string csv = EmittersCsv(t, true);
-         TimingLog("gt.localizations-csv", TimingSince(t0), name);
-         sink(name, std::move(csv));
-         readme += std::string(name) + ": every blink drawn" + (beads ? " and every bead (kind fiducial)" : "") +
-                   " with at least " + Fmt("%g", t) +
-                   " expected photons landing on the camera in a frame, one row per frame. A blink the Quality's\n"
-                   "  blink-min-photons cut left out of the image is not in it either.\n";
-      }
+   {
+      t0 = TimingClock::now();
+      std::string csv = EmittersCsv(minCore, true);
+      TimingLog("gt.localizations-csv", TimingSince(t0));
+      sink("localizations.csv", std::move(csv));
+      readme += std::string("localizations.csv: every blink drawn") + (beads ? " and every bead (kind fiducial)" : "") +
+                " with at least " + Fmt("%g", minCore) + " expected photons in its core in a frame, one row per frame:\n"
+                "  core_photons, the photons landing in the " + Fmt("%g", kCoreBoxNm) + " x " + Fmt("%g", kCoreBoxNm) +
+                " nm square centred on it (a blink far out of focus spreads its\n"
+                "  photons wider: intensity [photon] counts all on the camera). A blink the Quality's blink-min-photons\n"
+                "  cut left out of the image is not in it either.\n";
+   }
    else if (beads)
    {
       t0 = TimingClock::now();
@@ -695,8 +696,75 @@ GroundTruth* ActiveGroundTruth() { return g_active; }
 GroundTruthScope::GroundTruthScope(GroundTruth* gt) : prev_(g_active) { g_active = gt; }
 GroundTruthScope::~GroundTruthScope() { g_active = prev_; }
 
+namespace {
+
+// The overlap of [a0, a1] and [b0, b1] (0 when apart).
+double Overlap(double a0, double a1, double b0, double b1)
+{
+   return std::max(0.0, std::min(a1, b1) - std::max(a0, b0));
+}
+
+} // namespace
+
+double PlaneBoxPart(const float* plane, int n, int c, int os, unsigned W, unsigned H, double xPx, double yPx,
+                    double half)
+{
+   if (!plane || n <= 0 || !(half > 0) || !std::isfinite(xPx) || !std::isfinite(yPx))
+      return 0.0;
+   os = std::max(1, os);
+   const double cell = 1.0 / os;
+   // the window of the square and the camera, relative to the plane's centre (camera px)
+   const double x0 = std::max(-half, -0.5 - xPx), x1 = std::min(half, W - 0.5 - xPx);
+   const double y0 = std::max(-half, -0.5 - yPx), y1 = std::min(half, H - 0.5 - yPx);
+   if (!(x1 > x0) || !(y1 > y0))
+      return 0.0;
+   const int i0 = std::max(0, c + static_cast<int>(std::floor(x0 * os + 0.5)));
+   const int i1 = std::min(n - 1, c + static_cast<int>(std::ceil(x1 * os - 0.5)));
+   const int j0 = std::max(0, c + static_cast<int>(std::floor(y0 * os + 0.5)));
+   const int j1 = std::min(n - 1, c + static_cast<int>(std::ceil(y1 * os - 0.5)));
+   double sum = 0;
+   for (int j = j0; j <= j1; ++j)
+   {
+      const double d = (j - c) * cell, oy = Overlap(d - cell / 2, d + cell / 2, y0, y1) / cell;
+      if (oy <= 0)
+         continue;
+      const float* row = plane + static_cast<size_t>(j) * n;
+      double rs = 0;
+      for (int i = i0; i <= i1; ++i)
+      {
+         const double e = (i - c) * cell, ox = Overlap(e - cell / 2, e + cell / 2, x0, x1) / cell;
+         if (ox > 0)
+            rs += ox * row[i];
+      }
+      sum += oy * rs;
+   }
+   return sum;
+}
+
+double GaussianBoxPart(double sigma, unsigned W, unsigned H, double xPx, double yPx, double half)
+{
+   if (!(sigma > 0) || !(half > 0) || !std::isfinite(xPx) || !std::isfinite(yPx))
+      return 0.0;
+   const double s = sigma * std::sqrt(2.0);
+   const auto part = [&](double c, unsigned N) {
+      const double a = std::max(c - half, -0.5), b = std::min(c + half, N - 0.5);
+      return b > a ? 0.5 * (std::erf((b - c) / s) - std::erf((a - c) / s)) : 0.0;
+   };
+   return part(xPx, W) * part(yPx, H);
+}
+
+double KernelBoxPart(const PsfKernelCache& k, int zIndex, unsigned W, unsigned H, double xPx, double yPx, double half)
+{
+   const auto& planes = k.Planes();
+   if (zIndex < 0 || zIndex >= static_cast<int>(planes.size()))
+      return 0.0;
+   return PlaneBoxPart(planes[static_cast<size_t>(zIndex)].data(), k.sizeOversampled, k.halfWidthOversampled,
+                       k.oversampling, W, H, xPx, yPx, half);
+}
+
 EmitterFootprint FootprintOf(std::vector<float>& scratch, unsigned W, unsigned H, const PsfKernelCache* kernel,
-                             int zIndex, double sigmaPx, double xPx, double yPx, const std::vector<float>& bg)
+                             int zIndex, double sigmaPx, double xPx, double yPx, const std::vector<float>& bg,
+                             double coreHalfPx)
 {
    EmitterFootprint fp;
    const size_t n = static_cast<size_t>(W) * H;
@@ -720,6 +788,9 @@ EmitterFootprint FootprintOf(std::vector<float>& scratch, unsigned W, unsigned H
       cy = static_cast<int>(std::lround(yPx));
       r = static_cast<int>(std::ceil(3.0 * sigmaPx));
    }
+   // the core, before the scan below clears the scratch
+   fp.core = kernel && kernel->valid ? KernelBoxPart(*kernel, zIndex, W, H, xPx, yPx, coreHalfPx)
+                                     : GaussianBoxPart(sigmaPx, W, H, xPx, yPx, coreHalfPx);
    const int x0 = std::max(0, cx - r), x1 = std::min(static_cast<int>(W) - 1, cx + r);
    const int y0 = std::max(0, cy - r), y1 = std::min(static_cast<int>(H) - 1, cy + r);
    // the halo cut's spans, as SplatRows takes them: the pixels outside them were not written (zero, skipped anyway)
@@ -781,6 +852,7 @@ EmitterFootprint ApplyFootprint(const SparseFootprint& fp, const std::vector<flo
 {
    EmitterFootprint out;
    out.onCamera = fp.onCamera;
+   out.core = fp.core;
    double sw = 0, dot = 0;
    for (size_t k = 0; k < fp.idx.size(); ++k)
    {

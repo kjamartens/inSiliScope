@@ -182,7 +182,10 @@ that finishes them.
   `csv_numbers` natively and in WASM) formatted on all cores, a stack's planes on all cores (`Stack::PlaneInto`),
   `vox::Deflate` 8 bytes at a time (= a verbatim copy, `cli/deflate_reference.inc`). Memory (2026-11-04: 128 px WideField
   beside a nucleus, 4 M dyes, aborted the viewer at 4 GB): heap 1.9 GB without the dye list, 2.3 GB with. `GroundTruth::Files` writes
-  frames.csv, localizations_min<N>.csv / fiducials.csv, dyes.csv (only without a blinking label: localizations or a dye list, never both, also in the Save box;
+  frames.csv, localizations.csv (2026-11-04: one table, blinks and beads with at least `minCorePhotons` (300) expected
+  photons in their core = the 500 nm square `kCoreBoxNm` centred on them, from the oversampled kernel (`KernelBoxPart`,
+  `GaussianBoxPart`; beads `FiducialBeadCore`): pixel-size independent; column `core_photons`; was two tables at 5 and
+  300 photons on the camera, `localizations_min<N>.csv`, which counted a far-defocused blink's whole spread) / fiducials.csv, dyes.csv (only without a blinking label: localizations or a dye list, never both, also in the Save box;
   optional: ~100 MB at 128 px WideField),
   gt_volume_<target>[_<state>].tif (2026-11-04: `Simulation/Voxelize.*`, the one voxelizer, also voxelize.html's
   through its own WASM; detected photons per voxel, every stack on one grid (the box of all dyes: they overlap),
@@ -191,7 +194,7 @@ that finishes them.
   dynamic Huffman; the ctest's inflater checks it), a label per slice (its z), the origin as xorigin/yorigin/zorigin
   (Fiji's status bar); 4 M dyes: 12.5 nm, 6.3 MB), README.txt; `Files(sink, ...)` hands each over
   as made. Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` = `isc_scope_gt_run`
-  (the movie with the sink on, kept; rows from a `minPhotons`) + `isc_scope_gt_files` (2026-11-04: the same files
+  (the movie with the sink on, kept; rows from a `minCorePhotons`) + `isc_scope_gt_files` (2026-11-04: the same files
   when the run's threshold is at most the lower one and its dye list on or the same); on a worker of its own
   (`gt-run`, `gt-files` jobs; live.js `GT`, `L.gtWarm`, `L.groundTruth`): the run starts when the Save box opens with
   Ground truth ticked (again on a lower threshold or the dye list on), Save takes it, the worker is closed after, on
@@ -199,7 +202,7 @@ that finishes them.
   stages `setup`, `ground truth` per frame, `files`. The module's run drops the frames (`GroundTruth::framesUnused`:
   no camera noise, no lamp, no BrightField scene; the files = the cli's, which renders them). Frames no fluorescence
   movie draws (lamp alone, dark) get frames.csv rows (`GroundTruthPlainFrame`; before 2026-11-04 none, and a later
-  fluorescence run's frames were numbered from 0). The cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both
+  fluorescence run's frames were numbered from 0). The cli's `--gt-out` / `--gt-min n` (core photons) / `--gt-volume xy,z`, both
   on `settings::RenderMovie`; `web/open_in_napari.py` (in every saved zip; dropped on napari's window it opens the
   recording (napari's .py reader: `in_napari`, the data from `__file__`: the unpacked folder, else the newest recording
   zip beside it; no `sys.exit` there); `python open_in_napari.py <zip>` too; the zip's `__main__.py` (`python <zip>`)

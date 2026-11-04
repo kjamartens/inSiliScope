@@ -621,21 +621,22 @@ ISC_API int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight,
 // The ground truth of the movie a settings file describes (a Record's file, settings_file.h RenderMovie: the cli's
 // --settings f --gt-out), made by rendering it again with the sink on (GroundTruth.h; the frames are dropped). The
 // files packed into one buffer, isc_scope_gt_data(): per file its name, a newline, its size in bytes (decimal), a
-// newline, the bytes. Thresholds minA, minB (photons on the camera), the volumes' voxel (nm; 0: none), dyeCsv 0
-// leaves dyes.csv out (the volumes stay). Returns the buffer's size, or -1 with the error in isc_scope_gt_error().
+// newline, the bytes. The localization table's threshold minCore (photons in a blink's core, the 500 x 500 nm square
+// around it: GroundTruth::kCoreBoxNm), the volumes' voxel (nm; 0: none), dyeCsv 0 leaves dyes.csv out (the volumes
+// stay). Returns the buffer's size, or -1 with the error in isc_scope_gt_error().
 // With Module.onGtFile set, each file goes there as it is made instead (nothing packed; returns their bytes in all).
 // Progress: Module.onMovieProgress(stage, fraction, detail): "setup" 0 (the sample, the PSF, the light history: no
 // fraction; most of a short movie's time), "ground truth" per frame (fraction of the frames, detail {"frame","frames"}),
 // "files" 1 (the dyes' sites, the tables and stacks).
-// In two steps (the viewer starts the first while its Save box is open): isc_scope_gt_run(settingsJson, minPhotons,
-// dyeCsv) renders the movie with the sink on and keeps it (0, or -1 with the error); isc_scope_gt_files(minA, minB,
+// In two steps (the viewer starts the first while its Save box is open): isc_scope_gt_run(settingsJson, runMin,
+// dyeCsv) renders the movie with the sink on and keeps it (0, or -1 with the error); isc_scope_gt_files(minCore,
 // volLateralNm, volAxialNm, dyeCsv, keep) writes its files, and lets it go unless keep (files for other options can
-// follow; the viewer makes them as the run ends, for the options the box shows). The same files as isc_scope_gt(minA, minB, ...)
-// when minPhotons <= min(minA, minB) (rows are kept from minPhotons, the tables cut at each threshold) and the run's
+// follow; the viewer makes them as the run ends, for the options the box shows). The same files as
+// isc_scope_gt(minCore, ...) when runMin <= minCore (rows are kept from runMin, the table cut at minCore) and the run's
 // dyeCsv is the files' or 1 (the dyes' sites are found only for dyes.csv).
 static std::string g_gt, g_gtErr;
 static std::unique_ptr<sim::GroundTruth> g_gtRun;
-ISC_API int32_t isc_scope_gt_run(const char* settingsJson, double minPhotons, int32_t dyeCsv)
+ISC_API int32_t isc_scope_gt_run(const char* settingsJson, double runMin, int32_t dyeCsv)
 {
    g_gtRun.reset();
    g_gtErr.clear();
@@ -655,7 +656,7 @@ ISC_API int32_t isc_scope_gt_run(const char* settingsJson, double minPhotons, in
       }
       std::unique_ptr<sim::GroundTruth> kept(new sim::GroundTruth);
       sim::GroundTruth& gt = *kept;
-      gt.minPhotons = minPhotons;
+      gt.minCorePhotons = runMin;
       gt.writeDyeCsv = dyeCsv != 0;
       gt.framesUnused = true;   // (no camera noise, no lamp: the frames are dropped)
       settings::MovieRun run;
@@ -688,8 +689,7 @@ ISC_API int32_t isc_scope_gt_run(const char* settingsJson, double minPhotons, in
       return -1;
    }
 }
-ISC_API double isc_scope_gt_files(double minA, double minB, double volLateralNm, double volAxialNm, int32_t dyeCsv,
-                                  int32_t keep)
+ISC_API double isc_scope_gt_files(double minCore, double volLateralNm, double volAxialNm, int32_t dyeCsv, int32_t keep)
 {
    g_gt.clear();
    g_gtErr.clear();
@@ -719,7 +719,7 @@ ISC_API double isc_scope_gt_files(double minA, double minB, double volLateralNm,
          g_gt += '\n';
          g_gt += bytes;
          std::string().swap(bytes);   // let it go before the next file is made
-      }, { minA, minB }, volLateralNm, volAxialNm);
+      }, minCore, volLateralNm, volAxialNm);
       return g_gt.empty() ? delivered : static_cast<double>(g_gt.size());
    }
    catch (const std::exception& e)
@@ -728,13 +728,13 @@ ISC_API double isc_scope_gt_files(double minA, double minB, double volLateralNm,
       return -1;
    }
 }
-ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, double volLateralNm, double volAxialNm,
+ISC_API double isc_scope_gt(const char* settingsJson, double minCore, double volLateralNm, double volAxialNm,
                             int32_t dyeCsv)
 {
    g_gt.clear();
-   if (isc_scope_gt_run(settingsJson, std::min(minA, minB), dyeCsv) < 0)
+   if (isc_scope_gt_run(settingsJson, minCore, dyeCsv) < 0)
       return -1;
-   return isc_scope_gt_files(minA, minB, volLateralNm, volAxialNm, dyeCsv, 0);
+   return isc_scope_gt_files(minCore, volLateralNm, volAxialNm, dyeCsv, 0);
 }
 ISC_API const char* isc_scope_gt_data() { return g_gt.data(); }
 ISC_API const char* isc_scope_gt_error() { return g_gtErr.c_str(); }
