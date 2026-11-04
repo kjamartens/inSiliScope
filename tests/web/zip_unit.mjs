@@ -75,6 +75,28 @@ for (const z64 of [false, true]) {
   const f = path.join(dir, z64 ? 'z64.zip' : 'plain.zip');
   fs.writeFileSync(f, buf);
 }
+// CRC-32 slice by 8 (zip.js and voxelize.html's zip stream) = the one-table loop (and node:zlib's), on buffers of every
+// length 0..80, random 1 MB ones and voxelize's streamed in uneven chunks.
+{
+  let r = 99;
+  const rnd = n => { const b = new Uint8Array(n); for (let i = 0; i < n; i++) { r = (r * 1664525 + 1013904223) >>> 0; b[i] = r >>> 24; } return b; };
+  const bufs = [];
+  for (let n = 0; n <= 80; n++) bufs.push(rnd(n));
+  for (let k = 0; k < 4; k++) bufs.push(rnd(1048576 + k * 13));
+  bufs.push(new Uint8Array(100003), new Uint8Array(70001).fill(255));
+  const html = fs.readFileSync(path.join(ROOT, 'web/voxelize.html'), 'utf8');
+  const a = html.indexOf('const CRC = (() => {'), b = html.indexOf('function zipStream(');
+  const vox = new Function(html.slice(a, b) + '; return crcUpdate;')();
+  let bad = 0;
+  for (const x of bufs) {
+    const want = Z.crc32Bytewise(x);
+    if (Z.crc32(x) !== want || (zlib.crc32 && zlib.crc32(x) !== want)) bad++;
+    let c = 0xFFFFFFFF;
+    for (let i = 0, s = 1; i < x.length; i += s, s = s * 3 % 1000 + 1) c = vox(c, x.subarray(i, i + s));
+    if (((c ^ 0xFFFFFFFF) >>> 0) !== want) bad++;
+  }
+  check(a > 0 && b > a && bad === 0, `CRC-32 slice by 8 (zip.js, voxelize.html in chunks) = the byte-table loop on ${bufs.length} buffers${bad ? ` (${bad} differ)` : ''}`);
+}
 // Python's zipfile, if there is one: the archives as another reader sees them.
 let py = null;
 for (const exe of ['python3', 'python']) {

@@ -340,7 +340,7 @@ async function estimate(c, g, bits) {
         const m = M._vox_plane_max(h, ch);
         planes.push(heapCopy(M._vox_plane(h, ch, bits === 32 ? 1 : m > 0 ? m / top : 1), pb));
       }
-      for (const q of planes) sampled += (await deflate(q)).length;
+      for (const q of await Promise.all(planes.map(deflateOff))) sampled += q.length;
     }
     const zero = (await deflate(new Uint8Array(pb))).length;
     if (my !== estToken) return null;
@@ -381,6 +381,45 @@ async function deflate(bytes) {
   const s = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'));
   return new Uint8Array(await new Response(s).arrayBuffer());
 }
+// The planes' deflates on worker threads (a CompressionStream each: the same bytes as deflate(); the page's own
+// CompressionStream works on the page's thread, one plane at a time): up to 8 workers, made once and tried on a small
+// plane first; none (no workers, or they fail): deflate() here.
+let deflaters = null;
+function deflateWorkers() {
+  if (deflaters) return deflaters;
+  deflaters = (async () => {
+    try {
+      const n = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 2) - 1));
+      const src = `onmessage = async e => { const s = new Blob([e.data.b]).stream().pipeThrough(new CompressionStream('deflate'));
+        const o = new Uint8Array(await new Response(s).arrayBuffer()); postMessage({ id: e.data.id, o }, [o.buffer]); };`;
+      const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+      const ws = [];
+      for (let i = 0; i < n; i++) {
+        const w = new Worker(url);
+        w.jobs = new Map();
+        w.onmessage = e => { const j = w.jobs.get(e.data.id); w.jobs.delete(e.data.id); j(e.data.o); };
+        ws.push(w);
+      }
+      const probe = new Uint8Array(4096), want = await deflate(probe);
+      const got = await Promise.race([send(ws[0], probe.slice()), new Promise(r => setTimeout(() => r(null), 3000))]);
+      if (!got || got.length !== want.length || got.some((v, i) => v !== want[i])) throw new Error('deflate workers');
+      return ws;
+    } catch {
+      return [];
+    }
+  })();
+  return deflaters;
+}
+let deflateJob = 0;
+function send(w, bytes) {
+  return new Promise(res => { const id = ++deflateJob; w.jobs.set(id, res); w.postMessage({ id, b: bytes }, [bytes.buffer]); });
+}
+// bytes deflated off the page's thread when it can (bytes: its own buffer, handed over)
+async function deflateOff(bytes) {
+  const ws = await deflateWorkers();
+  if (!ws.length) return deflate(bytes);
+  return send(ws.reduce((a, b) => a.jobs.size <= b.jobs.size ? a : b), bytes);
+}
 // data: each plane's bytes as stored (a Blob or a byte array), in order; L: the module's layout for their sizes. The
 // file is a Blob of parts, so the planes need not be in one buffer.
 function tiffBlob(data, L) {
@@ -394,19 +433,30 @@ function tiffBlob(data, L) {
 }
 
 // ---- a .zip of one file, deflated as it streams in (CRC-32 over the bytes; sizes under 4 GB: no Zip64) ----
+// (CRC-32 slice by 8, as web/live/zip.js: table k = a byte's CRC followed by k zero bytes)
 const CRC = (() => {
-  const t = new Uint32Array(256);
+  const t = new Uint32Array(8 * 256);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  for (let k = 1; k < 8; k++) for (let n = 0; n < 256; n++) t[k * 256 + n] = (t[(k - 1) * 256 + n] >>> 8) ^ t[t[(k - 1) * 256 + n] & 255];
   return t;
 })();
+function crcUpdate(c, b) {
+  const T = CRC, n = b.length, n8 = n - (n & 7);
+  let i = 0;
+  for (; i < n8; i += 8) {
+    const a = c ^ (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24));
+    c = T[1792 + (a & 255)] ^ T[1536 + ((a >>> 8) & 255)] ^ T[1280 + ((a >>> 16) & 255)] ^ T[1024 + (a >>> 24)] ^
+      T[768 + b[i + 4]] ^ T[512 + b[i + 5]] ^ T[256 + b[i + 6]] ^ T[b[i + 7]];
+  }
+  for (; i < n; i++) c = T[(c ^ b[i]) & 255] ^ (c >>> 8);
+  return c >>> 0;
+}
 function zipStream(name) {
   const cs = new CompressionStream('deflate-raw'), w = cs.writable.getWriter(), out = new Response(cs.readable).blob();
   let crc = 0xFFFFFFFF, size = 0;
   return {
     async write(b) {
-      let c = crc;
-      for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8);
-      crc = c; size += b.length;
+      crc = crcUpdate(crc, b); size += b.length;
       await w.write(b);
     },
     async end() {
@@ -493,6 +543,18 @@ async function make() {
       await zs.write(bytes);
       pos = L.offs[k] + bytes.length;
     };
+    // (compressed: several planes' deflates in flight on the workers, up to 96 MB of planes or two per worker, stored in
+    // order)
+    const ws = comp ? await deflateWorkers() : [], inFlight = Math.max(2, 2 * ws.length);
+    const queue = [];
+    let queued = 0;
+    const drain = async keep => {
+      while (queue.length > keep) {
+        const q = queue.shift();
+        await store(q.k, await q.out);
+        queued -= q.bytes;
+      }
+    };
     for (let z = 0, k = 0; z < g.nz; z++) {
       await progress(fmt === 'zip' ? 'writing' : 'the planes', z);
       const none = M._vox_empty(h, z) === 1;
@@ -500,14 +562,19 @@ async function make() {
       for (let ch = 0; ch < nc; ch++, k++) {
         if (none) {   // an empty plane: zeros (deflated once, shared)
           if (!comp) { await store(k, zeros); continue; }
-          if (!empty.has(ch)) empty.set(ch, new Blob([await deflate(zeros)]));
-          await store(k, empty.get(ch));
+          if (!empty.has(ch)) empty.set(ch, deflate(zeros).then(b => new Blob([b])));
+          queue.push({ k, out: empty.get(ch), bytes: 0 });
+        } else if (!comp) {
+          await store(k, heapCopy(M._vox_plane(h, ch, 0), pb));
           continue;
+        } else {
+          queue.push({ k, out: deflateOff(heapCopy(M._vox_plane(h, ch, 0), pb)), bytes: pb });
+          queued += pb;
         }
-        const bytes = heapCopy(M._vox_plane(h, ch, 0), pb);
-        await store(k, comp ? await deflate(bytes) : bytes);
+        if (queue.length >= inFlight || queued > 96 * 1048576) await drain(Math.max(0, Math.floor(queue.length / 2)));
       }
     }
+    await drain(0);
     await say(`Making the stack: writing the file (${((performance.now() - t0) / 1000).toFixed(1)} s so far) ...`);
     let blob, file = name;
     if (zs) {

@@ -7,16 +7,32 @@
 //   await iscZip.zip([{ name: 'a.txt', data: 'text' | Uint8Array, store?: bool }], { zip64?: bool }) -> Blob
 'use strict';
 (function (self) {
+  // CRC-32 slice by 8: table k (k * 256 + byte) = the byte's CRC followed by k zero bytes; 8 bytes per step, the rest
+  // byte by byte (the same CRC as the one-table loop, crc32Bytewise)
   const CRC = (() => {
-    const t = new Uint32Array(256);
+    const t = new Uint32Array(8 * 256);
     for (let n = 0; n < 256; n++) {
       let c = n;
       for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
       t[n] = c >>> 0;
     }
+    for (let k = 1; k < 8; k++)
+      for (let n = 0; n < 256; n++) t[k * 256 + n] = (t[(k - 1) * 256 + n] >>> 8) ^ t[t[(k - 1) * 256 + n] & 255];
     return t;
   })();
-  function crc32(b) {
+  function crcUpdate(c, b) {
+    const T = CRC, n = b.length, n8 = n - (n & 7);
+    let i = 0;
+    for (; i < n8; i += 8) {
+      const a = c ^ (b[i] | (b[i + 1] << 8) | (b[i + 2] << 16) | (b[i + 3] << 24));
+      c = T[1792 + (a & 255)] ^ T[1536 + ((a >>> 8) & 255)] ^ T[1280 + ((a >>> 16) & 255)] ^ T[1024 + (a >>> 24)] ^
+        T[768 + b[i + 4]] ^ T[512 + b[i + 5]] ^ T[256 + b[i + 6]] ^ T[b[i + 7]];
+    }
+    for (; i < n; i++) c = T[(c ^ b[i]) & 255] ^ (c >>> 8);
+    return c >>> 0;
+  }
+  function crc32(b) { return (crcUpdate(0xFFFFFFFF, b) ^ 0xFFFFFFFF) >>> 0; }
+  function crc32Bytewise(b) {
     let c = 0xFFFFFFFF;
     for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8);
     return (c ^ 0xFFFFFFFF) >>> 0;
@@ -91,5 +107,5 @@
       .u32(end64 ? BIG : cdSize).u32(end64 ? BIG : cdStart).u16(0).out);
     return new Blob(parts, { type: 'application/zip' });
   }
-  self.iscZip = { zip, crc32 };
+  self.iscZip = { zip, crc32, crcUpdate, crc32Bytewise };
 })(typeof self !== 'undefined' ? self : globalThis);
