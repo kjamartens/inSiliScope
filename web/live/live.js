@@ -954,12 +954,12 @@ async function saveRecording(c, name, say = () => {}) {
     say(`The ground truth took ${((performance.now() - t0) / 1000).toFixed(1)} s; packing ` +
       `${Math.round(entries.reduce((s, e) => s + (e.data.length || 0), 0) / 1e6)} MB into the zip ...`, null);
   } else say('Packing ...');
-  // the napari opener at the zip's root as __main__.py: python <name>.zip runs it (web/open_in_napari.py)
+  // the napari opener (web/open_in_napari.py): unpacked (or beside the zip), dropped on napari's window, it opens the
+  // recording there
   let napari = false;
-  // and as open_in_napari.py: unpacked (or beside the zip), dropped on napari's window, it opens the recording there
   try {
     const r = await fetch('open_in_napari.py');
-    if (r.ok) { const py = await r.text(); entries.push({ name: '__main__.py', data: py }, { name: 'open_in_napari.py', data: py }); napari = true; }
+    if (r.ok) { entries.push({ name: 'open_in_napari.py', data: await r.text() }); napari = true; }
   } catch (e) { /* offline: without it */ }
   const vox = entries.some(e => e.name === 'gt/voxelize.html');
   entries.push({ name: 'README.txt', data: `inSiliScope recording ${name}, saved ${new Date().toISOString()} (viewer ${self.ISC_VERSION || ''}).\n` +
@@ -971,10 +971,10 @@ async function saveRecording(c, name, say = () => {}) {
       '  https://kjamartens.github.io/inSiliScope/docs/ground-truth/ explains the columns.\n' : '') +
     (vox ? 'gt/voxelize.html: open it in a browser (offline) and drop gt/dyes.csv on it for a density stack at any voxel size,\n' +
       '  or a channel per target.\n' : '') +
-    (napari ? `open_in_napari.py (and __main__.py, the same): opens this recording in napari, every part in world\n` +
-      `  coordinates (the movie, the density stacks, the localizations per frame). Either drop open_in_napari.py on\n` +
-      `  napari's window (unpacked, or the file beside this zip: it opens the newest recording zip next to it), or run\n` +
-      `  python ${name}.zip   (needs: pip install "napari[all]" tifffile)\n` : '') });
+    (napari ? `open_in_napari.py: opens this recording in napari, every part in world coordinates (the movie, the\n` +
+      `  density stacks, the localizations per frame). Drop it on napari's window, unpacked or taken out beside this zip\n` +
+      `  (it opens the newest recording zip next to it); or run python open_in_napari.py ${name}.zip\n` +
+      `  (needs: pip install "napari[all]" tifffile)\n` : '') });
   const blob = await self.iscZip.zip(entries);
   download(blob, name + '.zip');
   self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)

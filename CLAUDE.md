@@ -200,11 +200,14 @@ that finishes them.
   no camera noise, no lamp, no BrightField scene; the files = the cli's, which renders them). Frames no fluorescence
   movie draws (lamp alone, dark) get frames.csv rows (`GroundTruthPlainFrame`; before 2026-11-04 none, and a later
   fluorescence run's frames were numbered from 0). The cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both
-  on `settings::RenderMovie`; `web/open_in_napari.py` (every saved zip's `__main__.py` and `open_in_napari.py`, so
-  `python <zip>` opens it in napari, and so does the .py dropped on napari's window (napari's .py reader: `in_napari`,
-  the data from `__file__`: the unpacked folder, else the newest recording zip beside it; no `sys.exit` there): the
+  on `settings::RenderMovie`; `web/open_in_napari.py` (in every saved zip; dropped on napari's window it opens the
+  recording (napari's .py reader: `in_napari`, the data from `__file__`: the unpacked folder, else the newest recording
+  zip beside it; no `sys.exit` there); `python open_in_napari.py <zip>` too; the zip's `__main__.py` (`python <zip>`)
+  dropped 2026-11-04; napari 0.10's API where present (layer `units`, points `projection_mode` 'all' + a thick z slice,
+  `canvas.overlays.scale_bar`), the older one else: the
   movie at the stage position (pixel i's centre at stage + (i - W/2) px, no flip), density stacks, localizations per
-  frame, axes frame/z/y/x in world um; also on a voxelize .tif, lazily; copied beside the viewer by `build_site.sh`;
+  frame, axes frame/z/y/x in world um; also on a voxelize .tif, lazily; native napari opens neither the zip nor the
+  folder as one recording; copied beside the viewer by `build_site.sh`;
   checked with napari stood in for by `tests/web/napari_open_check.py`, ~1 s, which viewer_save runs on its zip, the
   drop included); `web/voxelize.html` (the
   page reads the CSV as bytes (only the columns used; a number of up to 15 digits = its digits / 10^k, = Number()'s;

@@ -104,8 +104,7 @@ through it step by step.
   default, for a blinking label; for WideField labels the dye list instead (optional, large); density stacks; a table
   per frame; see
   [Ground truth](ground-truth.md)) it is one `.zip`. ☰ › Tools › Voxelize ground truth turns a saved table into a
-  stack at any voxel size (drop the saved .zip on it); its `open_in_napari.py` dropped on napari's window (or `python
-  <name>.zip`) opens the recording in napari, every part in world coordinates
+  stack at any voxel size (drop the saved .zip on it); its `open_in_napari.py` dropped on napari's window opens the recording in napari, every part in world coordinates
   ([Ground truth](ground-truth.md#open-it-in-napari)). The ground truth is computed on a worker of its own, starting as
   the box opens with it ticked, so it is mostly done by the time you press Save (a few times the recording's time; the
   stage, its % and a bar in the box); the box warns when the Quality leaves dim

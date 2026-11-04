@@ -18,7 +18,7 @@ Versions follow semver; while 0.x, any release may change the output for a given
   the saved zip itself, estimates the compressed size and makes the stack plane by plane, a compressed TIFF that
   Fiji's Import › TIFF Virtual Stack opens without loading it, with each slice's z in its title line (or a .zip
   holding an uncompressed TIFF); 8, 16 or 32 bits, one stack or a channel per target,
-  compressed). Every saved zip opens in napari with `python <name>.zip` (its `__main__.py`): the movie, the density
+  compressed). Every saved zip opens in napari through its `open_in_napari.py`, dropped on napari's window: the movie, the density
   stacks and the localizations per frame, all in world coordinates. The ground truth is made at Save on a worker of its own, with its progress shown; a 128 px WideField
   recording beside a nucleus (4 million dyes) fits in the viewer's memory. The cli writes the same files: `--gt-out`, `--gt-min`, `--gt-volume`. Core ABI 19
   (`isc_dye_details_in_window`); every output unchanged.

@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""The napari opener (web/open_in_napari.py, a saved zip's __main__.py) on a saved recording, with napari stood in
-for (no window): python tests/web/napari_open_check.py <recording.zip>   (needs numpy, tifffile; ~1 s)
+"""The napari opener (web/open_in_napari.py, in every saved zip) on a saved recording, with napari stood in for (no
+window): python tests/web/napari_open_check.py <recording.zip>   (needs numpy, tifffile; ~1 s)
 
-Runs the zip as `python <zip>` does (runpy on the zip: its __main__.py) and checks the layers: the movie (its frames,
+Runs the zip's open_in_napari.py as `python open_in_napari.py <zip>` does and checks the layers: the movie (its frames,
 its pixel size, at the stage position: the localizations sit on brighter movie pixels than they would flipped in y),
 the localizations (every row of the lowest-threshold table, at its frame), the density stacks (their voxel size and
-origin; one grid for all), the axis names. Exit 0 when every check passes. viewer_save.mjs runs it on its zip."""
+origin; one grid for all), the axis names; then the same file dropped on napari (unpacked, and beside the zip). Exit 0
+when every check passes. viewer_save.mjs runs it on its zip."""
 import csv
 import io
 import os
@@ -63,14 +64,19 @@ def main(path):
     napari = types.ModuleType('napari')
     napari.Viewer, napari.run = Viewer, lambda: None
     sys.modules['napari'] = napari
-    argv = sys.argv
-    sys.argv = [path]
-    try:
-        runpy.run_path(path, run_name='__main__')
-    except SystemExit as e:
-        check(not e.code, f'python {os.path.basename(path)} exits with {e.code}')
-    finally:
-        sys.argv = argv
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        script = os.path.join(tmp, 'open_in_napari.py')
+        with zipfile.ZipFile(path) as z, open(script, 'wb') as g:
+            g.write(z.read('open_in_napari.py'))
+        argv = sys.argv
+        sys.argv = [script, path]
+        try:
+            runpy.run_path(script, run_name='__main__')
+        except SystemExit as e:
+            check(not e.code, f'python open_in_napari.py {os.path.basename(path)} exits with {e.code}')
+        finally:
+            sys.argv = argv
     v = Viewer.last
     check(v is not None, 'it opens a viewer')
     if v is None:
@@ -141,7 +147,6 @@ def main(path):
     # __main__ and __file__ the script, napari's own command line, napari.Viewer() = the open viewer, napari.run() a
     # no-op, a SystemExit an error notification. Unpacked: its folder; beside the zip: the newest recording zip there.
     want = [(l.kind, l.kw.get('name'), tuple(np.shape(l.data))) for l in v.layers]
-    import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         unpacked, beside = os.path.join(tmp, 'unpacked'), os.path.join(tmp, 'downloads')
         zf.extractall(unpacked)
@@ -152,7 +157,6 @@ def main(path):
             with zipfile.ZipFile(g, 'w') as z:
                 z.writestr('a.txt', 'a')
         os.utime(os.path.join(beside, 'other.zip'))
-        check(zf.read('open_in_napari.py') == zf.read('__main__.py'), 'open_in_napari.py in the zip = its __main__.py')
         for where, script in (('unpacked', os.path.join(unpacked, 'open_in_napari.py')),
                               ('beside the zip', os.path.join(beside, 'open_in_napari.py'))):
             if where == 'beside the zip':

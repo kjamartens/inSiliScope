@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Opens an inSiliScope recording in napari, every part in world coordinates (um; z above the coverslip).
 
-    python <recording>.zip                  Python runs this file from the zip (it is the zip's __main__.py)
-    python open_in_napari.py                the same, in the unpacked folder (or beside the zip: the newest there)
+    drop open_in_napari.py on napari        napari runs it (0.10 checked): the recording opens in that window (the
+                                            folder the file lies in, unpacked, else the newest recording zip beside it)
+    python open_in_napari.py                the same from a terminal
     python open_in_napari.py <recording.zip | folder | voxelize .tif> ...
-    drop open_in_napari.py on napari        napari runs it (0.10 checked): the recording opens in that window, found as
-                                            above (the folder it lies in, else the newest recording zip beside it)
 
 Needs napari and tifffile:  pip install "napari[all]" tifffile   (a voxelize .tif opened lazily also needs zarr, dask)
 
@@ -123,7 +122,7 @@ def layers_of_recording(src):
             zs += [float(np.nanmin(z)), float(np.nanmax(z))]
             feats = dict(target=target, photons=num(rows, 'intensity [photon]'), kind=np.array([r['kind'] for r in rows]))
             style = dict(features=feats, face_color='target', face_color_cycle=COLOURS[:max(1, len(targets))],
-                         border_width=0, size=0.06, out_of_slice_display=True)
+                         border_width=0, size=0.06)
             out.append(('points', np.stack([t, z, y, x], 1), dict(name=f'localizations ({tables[0][3:-4]})', **style)))
             out.append(('points', np.stack([z, y, x], 1), dict(name='localizations, all frames', visible=False, **style)))
     if src.has('gt/fiducials.csv'):
@@ -131,8 +130,7 @@ def layers_of_recording(src):
         if rows:
             pts = np.stack([num(rows, 'frame'), num(rows, 'z_world_um'), num(rows, 'y_world_um'), num(rows, 'x_world_um')], 1)
             zs += [float(np.nanmin(pts[:, 1])), float(np.nanmax(pts[:, 1]))]
-            out.append(('points', pts, dict(name='beads', face_color='yellow', border_width=0, size=0.1,
-                                            out_of_slice_display=True)))
+            out.append(('points', pts, dict(name='beads', face_color='yellow', border_width=0, size=0.1)))
     if src.has('movie.tif'):
         with tifffile.TiffFile(io.BytesIO(src.read('movie.tif'))) as tf:
             m = tf.asarray()
@@ -222,16 +220,35 @@ def is_recording(path):
 
 
 def own_recording(script):
-    """The recording this file belongs to: the zip it runs from (python <zip>: <zip>/__main__.py), the folder it lies
-    in (unpacked), else the newest recording zip beside it; None: none found."""
+    """The recording this file belongs to: the folder it lies in (unpacked), else the newest recording zip beside it;
+    None: none found."""
     here = os.path.dirname(os.path.abspath(script))
-    if not os.path.isdir(here):
-        return here if zipfile.is_zipfile(here) else None
     if is_recording(here):
         return here
     zips = [os.path.join(here, n) for n in os.listdir(here) if n.lower().endswith('.zip')]
     zips = [z for z in zips if is_recording(z)]
     return max(zips, key=os.path.getmtime) if zips else None
+
+
+def add_layer(viewer, kind, data, kw):
+    """A layer in the napari at hand: units on every axis (um; the frame axis napari's own 'pixel') and points shown
+    through a thick z slice (napari 0.9+); else, older, the points' out_of_slice_display, edge_width (border_width
+    since 0.5), no colour cycle."""
+    import numpy as np
+    add = viewer.add_image if kind == 'image' else viewer.add_points
+    ndim = np.ndim(data) if kind == 'image' else np.shape(data)[1]
+    units = ('pixel',) * (ndim - 3) + ('um',) * min(3, ndim)
+    try:
+        return add(data, units=units, **(dict(projection_mode='all') if kind == 'points' else {}), **kw)
+    except TypeError:
+        pass
+    if kind == 'points':
+        kw = dict(kw, out_of_slice_display=True)
+    try:
+        return add(data, **kw)
+    except TypeError:
+        kw = {('edge_width' if k == 'border_width' else k): v for k, v in kw.items() if k != 'face_color_cycle'}
+        return add(data, **kw)
 
 
 def show(paths):
@@ -242,12 +259,7 @@ def show(paths):
         layers, f = layers_of(p)
         focus = f if focus is None else focus
         for kind, data, kw in layers:
-            add = viewer.add_image if kind == 'image' else viewer.add_points
-            try:
-                layer = add(data, **kw)
-            except TypeError:   # an older napari: edge_width (border_width since 0.5), no colour cycle
-                kw = {('edge_width' if k == 'border_width' else k): v for k, v in kw.items() if k != 'face_color_cycle'}
-                layer = add(data, **kw)
+            layer = add_layer(viewer, kind, data, kw)
             if kw.get('name') == 'movie':
                 try:   # in 3D: a plane at the focal height (the layer's only data plane)
                     layer.depiction = 'plane'
@@ -259,11 +271,20 @@ def show(paths):
     viewer.dims.axis_labels = labels[-viewer.dims.ndim:]
     if focus is not None and viewer.dims.ndim >= 3:
         viewer.dims.set_point(viewer.dims.ndim - 3, focus)   # the z slider at the focal height
-    viewer.scale_bar.visible = True
-    try:
-        viewer.scale_bar.unit = 'um'
-    except Exception:   # napari 0.10: no unit on the scale bar (the layers carry units)
-        pass
+        try:   # in 2D a slice through every z: the frame's points at any height, as the movie stands at every z
+            zi = viewer.dims.ndim - 3
+            viewer.dims.margin_left = tuple(1e4 if i == zi else m for i, m in enumerate(viewer.dims.margin_left))
+            viewer.dims.margin_right = tuple(1e4 if i == zi else m for i, m in enumerate(viewer.dims.margin_right))
+        except Exception:   # older napari: no thick slices (the points' out_of_slice_display instead)
+            pass
+    overlays = getattr(getattr(viewer, 'canvas', None), 'overlays', None)
+    bar = getattr(overlays, 'scale_bar', None) or viewer.scale_bar   # (viewer.scale_bar: before napari 0.9)
+    bar.visible = True
+    if overlays is None:
+        try:
+            bar.unit = 'um'   # (since 0.9 the layers' units name it)
+        except Exception:
+            pass
     napari.run()
 
 

@@ -50,7 +50,7 @@ noisy count.
 | `gt/gt_volume_<target>[_<state>].tif` | continuous dyes | a density stack per target, all on one grid: detected photons per voxel |
 | `gt/README.txt` | Ground truth | what is in `gt/` |
 | `README.txt` | any of the above | what is in the zip |
-| `open_in_napari.py`, `__main__.py` | any of the above | open the recording in napari: drop `open_in_napari.py` on napari's window, or `python <name>.zip` ([below](#open-it-in-napari)) |
+| `open_in_napari.py` | any of the above | open the recording in napari: drop it on napari's window ([below](#open-it-in-napari)) |
 
 ### frames.csv
 
@@ -164,18 +164,18 @@ at 10 nm voxels (1469 × 1297 × 364 voxels × 2 channels, 1.4 GB uncompressed) 
 
 ## Open it in napari
 
-Every saved zip carries `open_in_napari.py`, a small Python program (and the same as `__main__.py`, which Python runs
-when given the zip). With napari installed (`pip install "napari[all]" tifffile`), either
-
-- **drop `open_in_napari.py` on napari's window** (napari runs a dropped `.py`; checked with napari 0.10): from the unpacked zip it
-  opens that folder; a copy kept beside the zips (in Downloads, say) opens the newest recording zip next to it; or
-- run the zip:
+Every saved zip carries `open_in_napari.py`, a small Python program. With napari installed
+(`pip install "napari[all]" tifffile`), **drop `open_in_napari.py` on napari's window** (napari runs a dropped `.py`;
+checked with napari 0.10): from the unpacked zip it opens that folder; a copy kept beside the zips (in Downloads, say)
+opens the newest recording zip next to it. From a terminal:
 
 ```bash
-python insiliscope_live_128x128x10.zip
+python open_in_napari.py insiliscope_live_128x128x10.zip
 ```
 
-Either way napari shows every part of the recording in world coordinates (µm, z above the coverslip), so they line up:
+napari itself opens neither the zip (it has no zip reader) nor the unpacked folder as one recording (it stacks a
+folder's images and reads only its own CSV layout, without the pixel size or the stage position), so the program is
+what puts the parts together. napari then shows every part of the recording in world coordinates (µm, z above the coverslip), so they line up:
 
 - **movie**: the frames where the camera saw them (the stage position, the pixel size). In 2D it stands at every z (a
   camera image is a projection); in 3D it is a plane at the focal height.

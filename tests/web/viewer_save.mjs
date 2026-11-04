@@ -4,8 +4,8 @@
 //   - Save opens a box: the movie, its settings, its ground truth: for a blinking label two thresholds and no dye list,
 //     for WideField labels the dye list and no thresholds;
 //   - the movie alone is a .tif; with its settings and ground truth one .zip: movie.tif, settings.isc.json, README.txt,
-//     gt/frames.csv, gt/localizations_min<N>.csv, gt/README.txt (voxelize.html only beside a dye list), __main__.py
-//     (web/open_in_napari.py: python <zip> opens it in napari; tests/web/napari_open_check.py runs it); ☰ › Tools
+//     gt/frames.csv, gt/localizations_min<N>.csv, gt/README.txt (voxelize.html only beside a dye list), open_in_napari.py
+//     (web/open_in_napari.py: it opens the zip in napari; tests/web/napari_open_check.py runs it); ☰ › Tools
 //     links voxelize.html;
 //   - with the cli (build/msvc/cli/Release/insiliscope_cli.exe, or ISC_CLI): insiliscope_cli --settings
 //     settings.isc.json renders movie.tif's frames bit for bit and --gt-out writes gt/'s tables byte for byte;
@@ -112,7 +112,7 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     })]);
     const zipSec = (Date.now() - tz) / 1000;
     const z = unzip(fs.readFileSync(await dlZip.path())), names = Object.keys(z);
-    const want = ['movie.tif', 'settings.isc.json', 'README.txt', 'gt/frames.csv', 'gt/localizations_min5.csv', 'gt/localizations_min300.csv', 'gt/README.txt', '__main__.py', 'open_in_napari.py'];
+    const want = ['movie.tif', 'settings.isc.json', 'README.txt', 'gt/frames.csv', 'gt/localizations_min5.csv', 'gt/localizations_min300.csv', 'gt/README.txt', 'open_in_napari.py'];
     check(dlZip.suggestedFilename() === 'insiliscope_live_64x64x8.zip' && want.every(n => names.includes(n)) && !names.includes('gt/dyes.csv') &&
       !names.includes('gt/voxelize.html'),
       `with settings and ground truth: ${dlZip.suggestedFilename()} (${zipSec.toFixed(1)} s): ${names.join(', ')}`);
@@ -121,7 +121,7 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     check(frames.length === 9 && /^frame,t_start_s,exposure_s,stage_x_um/.test(frames[0]), `gt/frames.csv: a row per frame (${frames.length - 1})`);
     const closed = await page.evaluate(() => document.getElementById('setDlg').hidden && /saved insiliscope_live_64x64x8\.zip/.test(document.getElementById('lv_info').title));
     check(closed, 'the box closes, the info names the saved zip');
-    // python <zip>: its __main__.py opens it in napari (stood in for: tests/web/napari_open_check.py)
+    // its open_in_napari.py opens it in napari (stood in for: tests/web/napari_open_check.py)
     {
       const zp = path.join(dir, 'recording_for_napari.zip');
       fs.writeFileSync(zp, fs.readFileSync(await dlZip.path()));
@@ -129,7 +129,7 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
       try { outN = execFileSync('python', [path.join(ROOT, 'tests/web/napari_open_check.py'), zp], { encoding: 'utf8' }); okN = true; }
       catch (e) { outN = String(e.stdout || '') + String(e.stderr || e.message); }
       if (/No module named '(numpy|tifffile)'|ENOENT/.test(outN)) console.log('skip  the napari opener (no python with numpy and tifffile)');
-      else check(okN && /napari opener: PASS/.test(outN), `python <zip> opens it in napari (stood in for): ${outN.trim().split('\n').filter(l => /^(ok|FAIL)/.test(l)).length} checks` +
+      else check(okN && /napari opener: PASS/.test(outN), `the zip's open_in_napari.py opens it in napari (stood in for): ${outN.trim().split('\n').filter(l => /^(ok|FAIL)/.test(l)).length} checks` +
         (okN ? '' : '\n' + outN));
     }
 
