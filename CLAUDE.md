@@ -187,9 +187,13 @@ that finishes them.
   converter, ☰ › Tools `#voxelizeLink`, copied beside the viewer by `build_site.sh`, in the zip only beside dyes.csv: the
   CSV streamed into typed columns; the stack made one z plane at a time (rows counting-sorted by plane, two passes for
   the 8/16-bit scale, each plane kept as its stored Blob: 1.9 GB of 10 nm voxels in 27 s); 8/16/32 bits, a channel per
-  target, deflate (ImageJ 1.53 and 1.54f read no slice labels from a compressed stack: z only in the status bar); checked in ImageJ 1.53, Micro-Manager's `ij.jar` run with `-batch`). Checks: ctest
+  target; reads the saved zip itself (`zipEntries`, Zip64, its tables to pick from); the file `#fmt`: a deflated .tif
+  (the default: ImageJ 1.54f's Import > TIFF Virtual Stack opens it as a hyperstack with its slice labels, 2 GB in
+  0.7 s and 120 MB; opened whole, ImageJ reads no labels from a compressed TIFF), a .zip of one uncompressed TIFF
+  (streamed through `zipStream`; opened whole, with the labels) or an uncompressed .tif; the compressed size
+  estimated from 6 sample planes (`estimate`, within ~10 %); checked in ImageJ 1.53, Micro-Manager's `ij.jar` run with `-batch`). Checks: ctest
   `ground_truth` (0.4 s), `tests/web/gt_unit.mjs` (the module's files = the cli's) and `zip_unit.mjs` (CI
-  `viewer-js`), `viewer_save.mjs` (browser, ~25 s: the cli reproduces the zip's movie and tables byte for byte;
+  `viewer-js`), `viewer_save.mjs` (browser, ~35 s: the cli reproduces the zip's movie and tables byte for byte;
   voxelize's 8-bit and channel stacks).
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live

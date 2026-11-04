@@ -117,8 +117,9 @@ The density stacks come with either.
 
 The viewer's ☰ › Tools › **Voxelize ground truth** opens it
 ([online](https://kjamartens.github.io/inSiliScope/voxelize.html)); a zip with the dye list carries a copy,
-`gt/voxelize.html`, which opens in any browser, offline, with nothing installed. Drop `dyes.csv` or a localization
-table on it, then choose:
+`gt/voxelize.html`, which opens in any browser, offline, with nothing installed. Drop the saved recording's `.zip` on
+it (it reads the table out of the zip and lets you pick one when there are several), or `dyes.csv` or a localization
+table, then choose:
 
 - the dyes' positions or their binding sites;
 - the value per voxel: emitted photons, detected photons, or a count;
@@ -127,12 +128,24 @@ table on it, then choose:
 - the bit depth: **8-bit** (the default), 16-bit, or 32-bit float. 8 and 16 bits scale each channel to its maximum;
   the photons per step are in the description (`insiliscope.scale`), and a single-channel stack carries them as its
   calibration, so Fiji measures photons;
-- compression (on by default; a mostly empty stack shrinks ~100 times). Fiji shows a voxel's world z in µm in its
-  status bar either way. The slice's z in the window's title line is a slice label, and ImageJ (1.53, 1.54) reads
-  slice labels only from an uncompressed stack.
+- the file:
+  - **a compressed .tif** (the default, also when you dropped a zip). In Fiji, open it with **File › Import › TIFF
+    Virtual Stack**: Fiji reads each plane only when shown (a 2 GB stack opens in under a second, in ~120 MB of
+    memory), as a hyperstack with a channel per target, and the window's title line shows each slice's z in µm
+    ("Nuclear pores, z = 1.9450 µm"). Dragged in, Fiji loads it whole and shows a voxel's world z only in its status
+    bar: ImageJ (1.53 and 1.54 checked) reads no slice labels from a compressed TIFF opened that way. napari and
+    tifffile read it too.
+  - **a .zip holding an uncompressed .tif**: Fiji opens the .zip directly, whole, with the slice labels.
+  - **an uncompressed .tif**, with the labels, at full size.
 
-It reads the table as it streams in and makes the stack one z plane at a time, so a 600 MB `dyes.csv` at 10 nm voxels
-(1648 × 1636 × 371 voxels × 2 channels, 1.9 GB before compression) takes about half a minute and gives a 9 MB file.
+  A mostly empty stack shrinks ~100 times. The page estimates the compressed size before you make it, by deflating a
+  few sample planes; on the stacks tried it came within 10 %. The uncompressed size is what Fiji holds in memory when
+  it opens the stack whole. The .zip's TIFF and the uncompressed .tif stay under 4 GB (a classic TIFF's limit); the
+  compressed .tif can describe a larger stack.
+
+It reads the table as it streams in and makes the stack one z plane at a time. A 600 MB `dyes.csv` at 10 nm voxels
+(1648 × 1636 × 371 voxels × 2 channels, 2.0 GB uncompressed) takes about half a minute and gives a 9 MB file, which
+ImageJ opens as a virtual stack in 0.7 s.
 
 ## Caveats
 

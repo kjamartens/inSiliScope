@@ -1,6 +1,7 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: BSD-3-Clause -->
-<!-- inSiliScope ground truth: a CSV of dyes or localizations to a density stack (docs/ground-truth.md). Self-contained:
+<!-- inSiliScope ground truth: a CSV of dyes or localizations (or the saved .zip holding them) to a density stack
+     (docs/ground-truth.md). Self-contained:
      it opens from the saved zip (no network, nothing installed) and is published beside the viewer. -->
 <html lang="en">
 <head>
@@ -36,13 +37,18 @@
 <body>
 <main>
   <h1>Voxelize ground truth</h1>
-  <p>Turns a ground-truth table of inSiliScope (<code>dyes.csv</code> or a <code>localizations_min*.csv</code>) into a
+  <p>Turns a ground-truth table of inSiliScope (<code>dyes.csv</code> or a <code>localizations_min*.csv</code>, or the
+    saved recording's .zip holding them) into a
     density stack at the voxel size you choose: the sum of a column (emitted photons, by default) per voxel, or a
     count; one stack, or one channel per target. Fiji/ImageJ and napari read its voxel size; Fiji also its world
     origin, so the status bar shows each voxel's world x, y and z (µm). 8 and 16 bits scale each channel to its
     maximum: the photons per step are in the description (<code>insiliscope.scale</code>), and a single-channel
-    stack carries them as its calibration. Everything runs in this page: nothing is uploaded.</p>
-  <div id="drop" tabindex="0">Drop a CSV here, or click to choose one<input type="file" id="file" accept=".csv,text/csv" hidden></div>
+    stack carries them as its calibration. In Fiji, open the .tif with <b>File › Import › TIFF Virtual Stack</b>: it
+    reads each plane only when shown (a stack of many GB opens in a second), as a hyperstack with a channel per target,
+    and its title line shows each slice's z in µm. Dragged in, Fiji loads it whole and shows z only in its status bar
+    (ImageJ reads no slice labels from a compressed TIFF that way). Everything runs in this page: nothing is uploaded.</p>
+  <div id="drop" tabindex="0">Drop a CSV or a saved recording's .zip here, or click to choose one<input type="file" id="file" accept=".csv,text/csv,.zip,application/zip" hidden></div>
+  <div id="pick" hidden><label for="entry">Table in the zip</label> <select id="entry"></select></div>
   <div id="load"></div>
   <div class="panel" id="opts" hidden>
     <div class="grid">
@@ -59,9 +65,10 @@
         <option value="8">8-bit (each channel scaled to its maximum)</option>
         <option value="16">16-bit (each channel scaled to its maximum)</option>
         <option value="32">32-bit float (the values themselves)</option></select>
-      <label class="chk"><input type="checkbox" id="zip" checked> Compress (a mostly empty stack shrinks a lot). Fiji
-        shows a voxel's z in µm in its status bar either way; the slice's z in the window's title line (a slice
-        label) only uncompressed: ImageJ reads no slice labels from a compressed stack</label>
+      <label for="fmt">File</label><select id="fmt">
+        <option value="tif" selected>.tif, compressed: small (Fiji: Import › TIFF Virtual Stack; napari, tifffile)</option>
+        <option value="zip">.zip holding an uncompressed .tif: small; Fiji drag-and-drop loads it whole, z in the title line</option>
+        <option value="raw">.tif, uncompressed: full size</option></select>
     </div>
     <div id="info"></div>
     <p><button class="go" id="go">Make the stack</button></p>
@@ -79,6 +86,71 @@ const POS = ['x_world_um', 'y_world_um', 'z_world_um', 'site_x_world_um', 'site_
 const WEIGHTS = ['photons_emitted_total', 'photons_detected_total', 'photons_emitted', 'intensity [photon]', 'photons_detected'];
 const CATS = ['target', 'kind'];
 
+// ---- a saved recording's .zip: its tables (gt/dyes.csv, gt/localizations_min*.csv), read without unpacking it ----
+// (the zip of web/live/zip.js: stored or deflated entries, Zip64 records when a size or offset passes 4 GB)
+const TABLE = /(^|\/)(dyes|localizations_min[\d.]+|fiducials)\.csv$/;
+async function zipEntries(file) {
+  const u64 = (v, o) => v.getUint32(o, true) + 4294967296 * v.getUint32(o + 4, true);
+  const view = async (o, n) => new DataView(await file.slice(o, o + n).arrayBuffer());
+  const tailAt = Math.max(0, file.size - 65557), tail = await view(tailAt, file.size - tailAt);
+  let e = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('not a zip file');
+  let count = tail.getUint16(e + 10, true), cdSize = tail.getUint32(e + 12, true), cdAt = tail.getUint32(e + 16, true);
+  if ((count === 0xFFFF || cdSize === 0xFFFFFFFF || cdAt === 0xFFFFFFFF) && e >= 20 && tail.getUint32(e - 20, true) === 0x07064b50) {
+    const z = await view(u64(tail, e - 12), 56);
+    count = u64(z, 32); cdSize = u64(z, 40); cdAt = u64(z, 48);
+  }
+  const cd = await view(cdAt, cdSize), dec = new TextDecoder(), out = [];
+  for (let o = 0, k = 0; k < count && o + 46 <= cd.byteLength; k++) {
+    if (cd.getUint32(o, true) !== 0x02014b50) break;
+    const method = cd.getUint16(o + 10, true), nl = cd.getUint16(o + 28, true), xl = cd.getUint16(o + 30, true), cl = cd.getUint16(o + 32, true);
+    let csize = cd.getUint32(o + 20, true), size = cd.getUint32(o + 24, true), at = cd.getUint32(o + 42, true);
+    const name = dec.decode(new Uint8Array(cd.buffer, o + 46, nl));
+    for (let x = o + 46 + nl; x + 4 <= o + 46 + nl + xl;) {   // the Zip64 extra: the fields that read 0xFFFFFFFF, in order
+      const id = cd.getUint16(x, true), len = cd.getUint16(x + 2, true);
+      if (id === 1) {
+        let y = x + 4;
+        if (size === 0xFFFFFFFF) { size = u64(cd, y); y += 8; }
+        if (csize === 0xFFFFFFFF) { csize = u64(cd, y); y += 8; }
+        if (at === 0xFFFFFFFF) { at = u64(cd, y); y += 8; }
+      }
+      x += 4 + len;
+    }
+    out.push({ name, method, csize, size, at });
+    o += 46 + nl + xl + cl;
+  }
+  return out;
+}
+// an entry as load() reads a file: name, size (unpacked), stream()
+async function zipEntryFile(file, ent) {
+  const h = new DataView(await file.slice(ent.at, ent.at + 30).arrayBuffer());
+  const from = ent.at + 30 + h.getUint16(26, true) + h.getUint16(28, true), body = file.slice(from, from + ent.csize);
+  if (ent.method !== 0 && ent.method !== 8) throw new Error(`${ent.name}: compression method ${ent.method} is not read here`);
+  return { name: ent.name.split('/').pop(), size: ent.size,
+    stream: () => ent.method === 8 ? body.stream().pipeThrough(new DecompressionStream('deflate-raw')) : body.stream() };
+}
+let zipped = null;   // the dropped zip and its tables
+async function openInput(file) {
+  $('pick').hidden = true;
+  zipped = null;
+  const sig = new DataView(await file.slice(0, 4).arrayBuffer());
+  if (!/\.zip$/i.test(file.name) && !(sig.byteLength === 4 && sig.getUint32(0, true) === 0x04034b50)) return load(file);
+  try {
+    const tables = (await zipEntries(file)).filter(e => TABLE.test(e.name));
+    if (!tables.length) { $('load').innerHTML = `<span class="warn">${esc(file.name)} holds no ground-truth table (gt/dyes.csv, gt/localizations_min*.csv): saved without the ground truth?</span>`; return; }
+    // dyes.csv first, then the localization tables by threshold
+    const rank = e => /dyes\.csv$/.test(e.name) ? -1 : /fiducials/.test(e.name) ? 1e9 : +(/min([\d.]+)/.exec(e.name) || [0, 0])[1];
+    tables.sort((a, b) => rank(a) - rank(b));
+    zipped = { file, tables };
+    $('entry').innerHTML = tables.map((e, i) => `<option value="${i}">${esc(e.name)} (${(e.size / 1e6).toFixed(1)} MB)</option>`).join('');
+    $('pick').hidden = tables.length < 2;
+    await load(await zipEntryFile(file, tables[0]), file.name);
+  } catch (err) {
+    $('load').innerHTML = `<span class="warn">${esc(file.name)}: ${esc(err.message || err)}</span>`;
+  }
+}
+
 // ---- reading the CSV (fields as written by inSiliScope: quoted when they hold a comma) ----
 function splitLine(s) {
   if (s.indexOf('"') < 0) return s.split(',');
@@ -94,7 +166,7 @@ function splitLine(s) {
   out.push(cur);
   return out;
 }
-async function load(file) {
+async function load(file, from) {
   $('out').textContent = '';
   $('opts').hidden = true;
   table = null;
@@ -137,7 +209,7 @@ async function load(file) {
     if (head && !('x_world_um' in num)) break;
     if (performance.now() - lastShown > 200) {
       lastShown = performance.now();
-      $('load').textContent = `Reading ${file.name}: ${n.toLocaleString()} rows (~${Math.min(100, Math.round(100 * read / Math.max(1, file.size)))} %) ...`;
+      $('load').textContent = `Reading ${file.name}${from ? ' from ' + from : ''}: ${n.toLocaleString()} rows (~${Math.min(100, Math.round(100 * read / Math.max(1, file.size)))} %) ...`;
       await new Promise(r => setTimeout(r));
     }
   }
@@ -149,7 +221,7 @@ async function load(file) {
   for (const k in num) num[k] = num[k].subarray(0, n);
   for (const k in cat) cat[k].codes = cat[k].codes.subarray(0, n);
   table = { name: file.name.replace(/\.csv$/i, ''), n, num, cat };
-  $('load').textContent = `${file.name}: ${n.toLocaleString()} rows.`;
+  $('load').textContent = `${file.name}${from ? ' (from ' + from + ')' : ''}: ${n.toLocaleString()} rows.`;
   const pos = [['world', 'the dyes (x/y/z_world_um)']];
   if ('site_x_world_um' in num) pos.push(['site', 'their binding sites (site_*_world_um)']);
   $('pos').innerHTML = pos.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
@@ -198,22 +270,79 @@ function grid(c) {
   return { vx, vz, fx0, fy0, fz0, nx, ny, nz, ox: fx0 * vx, oy: fy0 * vx, oz: fz0 * vz };
 }
 // The stack is made one z plane at a time (the rows sorted by plane), so the page holds the table, one plane per
-// channel and the finished planes: compressed, a mostly empty stack of any depth fits. The limits: a plane of every
-// channel (in float32) up to PLANE_MB, and a classic TIFF's 4 GB (its offsets are 32-bit).
+// channel and the finished planes as they are stored: compressed, a mostly empty stack of any depth fits. The
+// limits: a plane of every channel (in float32) up to PLANE_MB, and a classic TIFF's 4 GB (its offsets are 32-bit),
+// which the uncompressed TIFF inside a .zip has too.
+// The file (#fmt): 'tif' (the default, also for a zip dropped in) = a TIFF with deflated planes: ImageJ 1.54f's
+// File > Import > TIFF Virtual Stack opens it as a hyperstack without loading it (2 GB in 0.7 s, 120 MB of memory)
+// and reads its slice labels (each slice's z in the title line); opened whole (dragged in) ImageJ 1.53 and 1.54f
+// read no slice labels from a compressed TIFF. 'zip' = a .zip holding one uncompressed TIFF (ImageJ's own "Save As >
+// ZIP": opened whole, with the labels). 'raw' = an uncompressed TIFF (full size).
 const PLANE_MB = 1024, FILE_MB = 4000;
+// The compressed size, estimated: a few planes that hold rows (evenly over them) made and deflated as make() does
+// (quantized to the samples' own maximum), their mean times the planes that hold rows, plus the empty planes (one
+// deflated once). Async; a newer call wins.
+let estToken = 0;
+const SAMPLES = 6;
+async function estimate(c, g, bits) {
+  const my = ++estToken, plane = g.nx * g.ny, nc = c.channels.length, n = c.rows.length;
+  const izOf = new Uint32Array(n), used = new Uint8Array(g.nz);
+  for (let k = 0; k < n; k++) {
+    const iz = Math.min(g.nz - 1, Math.max(0, Math.floor(c.Z[c.rows[k]] / g.vz) - g.fz0));
+    izOf[k] = iz; used[iz] = 1;
+  }
+  const occ = [];
+  for (let z = 0; z < g.nz; z++) if (used[z]) occ.push(z);
+  const S = Math.min(SAMPLES, occ.length), pick = new Map(), lists = Array.from({ length: S }, () => []);
+  for (let s = 0; s < S; s++) pick.set(occ[Math.floor((s + 0.5) * occ.length / S)], s);
+  for (let k = 0; k < n; k++) { const s = pick.get(izOf[k]); if (s !== undefined) lists[s].push(k); }
+  const acc = Array.from({ length: nc }, () => new Float32Array(plane)), top = bits === 8 ? 255 : 65535;
+  let sampled = 0;
+  for (const list of lists) {
+    await new Promise(r => setTimeout(r));
+    if (my !== estToken) return null;
+    for (const a of acc) a.fill(0);
+    for (const k of list) { const i = c.rows[k]; acc[c.chan ? c.chan[k] : 0][Math.min(g.ny - 1, Math.max(0, Math.floor(c.Y[i] / g.vx) - g.fy0)) * g.nx +
+      Math.min(g.nx - 1, Math.max(0, Math.floor(c.X[i] / g.vx) - g.fx0))] += c.W ? c.W[i] : 1; }
+    for (const a of acc) {
+      let q = a;
+      if (bits !== 32) {
+        let m = 0;
+        for (let j = 0; j < plane; j++) if (a[j] > m) m = a[j];
+        q = bits === 8 ? new Uint8Array(plane) : new Uint16Array(plane);
+        for (let j = 0; j < plane; j++) if (a[j] !== 0) q[j] = Math.round(a[j] * top / m);
+      }
+      sampled += (await deflate(new Uint8Array(q.buffer, 0, plane * bits / 8))).length;
+    }
+  }
+  const zero = (await deflate(new Uint8Array(plane * bits / 8))).length;
+  if (my !== estToken) return null;
+  return (S ? sampled / S * occ.length : 0) + (g.nz - occ.length) * nc * zero + g.nz * nc * 200;
+}
+const mb = b => b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : b >= 1e7 ? (b / 1e6).toFixed(0) + ' MB' : (b / 1e6).toFixed(1) + ' MB';
+let estTimer = 0;
 function describe() {
   if (!table) return;
   const c = chosen();
   if (!c.rows.length) { $('info').textContent = 'No rows with this choice.'; $('go').disabled = true; return; }
-  const g = grid(c), nc = c.channels.length, bytes = +$('bits').value / 8, zip = $('zip').checked;
+  const g = grid(c), nc = c.channels.length, bytes = +$('bits').value / 8, fmt = $('fmt').value;
   const plane = g.nx * g.ny * nc * 4 / 1048576, file = g.nx * g.ny * g.nz * nc * bytes / 1048576;
   const tooBig = plane > PLANE_MB ? 'too large: a plane takes ' + plane.toFixed(0) + ' MB, take bigger x, y voxels'
-    : !zip && file > FILE_MB ? 'too large for a TIFF uncompressed: compress, or take bigger voxels' : '';
+    : fmt !== 'tif' && file > FILE_MB ? 'too large for an uncompressed TIFF (4 GB): a compressed .tif, or bigger voxels' : '';
   $('go').disabled = !!tooBig;
+  const raw = file * 1048576, big = raw > 8e9;
   $('info').innerHTML = `${c.rows.length.toLocaleString()} rows → ${g.nx} × ${g.ny} × ${g.nz} voxels` +
     (nc > 1 ? ` × ${nc} channels (${c.channels.map(esc).join(', ')})` : '') +
-    ` (${file.toFixed(1)} MB${zip ? ' before compression' : ''})` +
-    (tooBig ? ` <span class="warn">— ${tooBig}</span>` : !zip && file > 500 ? ' <span class="warn">— large</span>' : '');
+    `: ${mb(raw)} uncompressed (in memory if Fiji opens it whole${big || fmt !== 'zip' ? '; Import › TIFF Virtual Stack reads each plane as shown' : ''})` +
+    (fmt === 'raw' ? '' : '<span id="est">, compressed: estimating ...</span>') +
+    (tooBig ? ` <span class="warn">— ${tooBig}</span>` : fmt === 'raw' && file > 500 ? ' <span class="warn">— large</span>' : '');
+  clearTimeout(estTimer);
+  estToken++;
+  if (fmt !== 'raw' && typeof CompressionStream === 'function' && plane <= PLANE_MB)
+    estTimer = setTimeout(async () => {
+      const t0 = performance.now(), b = await estimate(c, g, +$('bits').value).catch(() => null);
+      if (b !== null && $('est')) $('est').textContent = `, compressed: about ${mb(b)} (from sample planes, ${((performance.now() - t0) / 1000).toFixed(1)} s)`;
+    }, 250);
 }
 
 // ---- the stack: an ImageJ TIFF (classic, little-endian), an IFD per plane; planes c-fastest (ImageJ's order) ----
@@ -227,17 +356,16 @@ async function writeTiff(planes, nx, ny, bits, pxPerUm, desc, labels, zip) {
   const raw = planes.map(p => new Uint8Array(p.buffer, p.byteOffset, p.byteLength));
   return tiffBlob(zip ? await Promise.all(raw.map(deflate)) : raw, nx, ny, bits, pxPerUm, desc, labels, zip);
 }
-// data: each plane's bytes as stored (a Blob or a byte array), in order; the file is assembled as a Blob of parts,
-// so the planes need not be in one buffer
-function tiffBlob(data, nx, ny, bits, pxPerUm, desc, labels, zip) {
-  const size = d => d.size !== undefined ? d.size : d.length;
+// The file's layout from the planes' stored sizes: head = the bytes before the first plane (header, description,
+// tag values), offs = each plane's offset (each even), first = the IFDs' offset, ifd = the IFDs' bytes.
+function tiffLayout(sizes, nx, ny, bits, pxPerUm, desc, labels, zip) {
   const enc = new TextEncoder(), descB = enc.encode(desc + '\0');
   const utf16 = s => { const b = new Uint8Array(2 * s.length); for (let i = 0; i < s.length; i++) { b[2 * i] = s.charCodeAt(i) & 255; b[2 * i + 1] = s.charCodeAt(i) >> 8; } return b; };
   const labB = labels.map(utf16), hdr = 4 + 8;
   const metaLen = labels.length ? hdr + labB.reduce((s, b) => s + b.length, 0) : 0;
   const parts = [], even = n => n + (n & 1);
   let at = 8;
-  const put = b => { const o = at; parts.push([o, b]); at = even(at + size(b)); return o; };
+  const put = b => { const o = at; parts.push([o, b]); at = even(at + b.length); return o; };
   const descAt = put(descB);
   const rat = new Uint8Array(8); new DataView(rat.buffer).setUint32(0, Math.round(pxPerUm * 1000), true); new DataView(rat.buffer).setUint32(4, 1000, true);
   const ratAt = put(rat);
@@ -254,26 +382,17 @@ function tiffBlob(data, nx, ny, bits, pxPerUm, desc, labels, zip) {
     labB.forEach((b, i) => cv.setUint32(4 * (i + 1), b.length, true));
     cntAt = put(cnt);
   }
-  const head = at;   // the description and tags' values: one buffer; the planes follow as parts
-  const offs = data.map(put);
-  if (at > 4294967295 - 4096 * data.length) throw new Error('the stack passes a TIFF\'s 4 GB: take bigger voxels');
+  const head = new Uint8Array(at), hv = new DataView(head.buffer);
+  for (const [o, b] of parts) head.set(b, o);
+  const offs = sizes.map(s => { const o = at; at = even(at + s); return o; });
   const first = at, nTags = k => 14 + (k === 0 ? 1 + (labels.length ? 2 : 0) : 0);
   let ifdBytes = 0;
-  for (let k = 0; k < data.length; k++) ifdBytes += 2 + 12 * nTags(k) + 4;
-  const hb = new Uint8Array(head), hv = new DataView(hb.buffer);
-  hb[0] = 0x49; hb[1] = 0x49; hv.setUint16(2, 42, true); hv.setUint32(4, first, true);
-  const blobParts = [hb];
-  let pos = head;
-  for (const [o, b] of parts) {
-    if (o < head) { hb.set(b, o); continue; }
-    if (o > pos) blobParts.push(new Uint8Array(o - pos));   // the even padding
-    blobParts.push(b);
-    pos = o + size(b);
-  }
-  if (first > pos) blobParts.push(new Uint8Array(first - pos));
-  const buf = new ArrayBuffer(ifdBytes), dv = new DataView(buf);
+  for (let k = 0; k < sizes.length; k++) ifdBytes += 2 + 12 * nTags(k) + 4;
+  if (first + ifdBytes > 4294967295) throw new Error('the stack passes a TIFF\'s 4 GB: take bigger voxels');
+  head[0] = 0x49; head[1] = 0x49; hv.setUint16(2, 42, true); hv.setUint32(4, first, true);
+  const ifd = new Uint8Array(ifdBytes), dv = new DataView(ifd.buffer);
   let e = 0;
-  for (let k = 0; k < data.length; k++) {
+  for (let k = 0; k < sizes.length; k++) {
     dv.setUint16(e, nTags(k), true);
     e += 2;
     const entry = (tag, type, count, value) => {
@@ -283,14 +402,67 @@ function tiffBlob(data, nx, ny, bits, pxPerUm, desc, labels, zip) {
     };
     entry(254, 4, 1, 0); entry(256, 4, 1, nx); entry(257, 4, 1, ny); entry(258, 3, 1, bits); entry(259, 3, 1, zip ? 8 : 1); entry(262, 3, 1, 1);
     if (k === 0) entry(270, 2, descB.length, descAt);
-    entry(273, 4, 1, offs[k]); entry(277, 3, 1, 1); entry(278, 4, 1, ny); entry(279, 4, 1, data[k].length);
+    entry(273, 4, 1, offs[k]); entry(277, 3, 1, 1); entry(278, 4, 1, ny); entry(279, 4, 1, sizes[k]);
     entry(282, 5, 1, ratAt); entry(283, 5, 1, ratAt); entry(296, 3, 1, 1); entry(339, 3, 1, bits === 32 ? 3 : 1);
     if (k === 0 && labels.length) { entry(50838, 4, 1 + labels.length, cntAt); entry(50839, 1, metaLen, metaAt); }
-    dv.setUint32(e, k + 1 < data.length ? first + e + 4 : 0, true);
+    dv.setUint32(e, k + 1 < sizes.length ? first + e + 4 : 0, true);
     e += 4;
   }
-  blobParts.push(buf);
-  return new Blob(blobParts, { type: 'image/tiff' });
+  return { head, offs, first, ifd };
+}
+// data: each plane's bytes as stored (a Blob or a byte array), in order; the file is a Blob of parts, so the planes
+// need not be in one buffer
+function tiffBlob(data, nx, ny, bits, pxPerUm, desc, labels, zip) {
+  const size = d => d.size !== undefined ? d.size : d.length;
+  const L = tiffLayout(data.map(size), nx, ny, bits, pxPerUm, desc, labels, zip), parts = [L.head];
+  let pos = L.head.length;
+  data.forEach((d, k) => { if (L.offs[k] > pos) parts.push(new Uint8Array(L.offs[k] - pos)); parts.push(d); pos = L.offs[k] + size(d); });
+  if (L.first > pos) parts.push(new Uint8Array(L.first - pos));
+  parts.push(L.ifd);
+  return new Blob(parts, { type: 'image/tiff' });
+}
+
+// ---- a .zip of one file, deflated as it streams in (CRC-32 over the bytes; sizes under 4 GB: no Zip64) ----
+const CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+function zipStream(name) {
+  const cs = new CompressionStream('deflate-raw'), w = cs.writable.getWriter(), out = new Response(cs.readable).blob();
+  let crc = 0xFFFFFFFF, size = 0;
+  return {
+    async write(b) {
+      let c = crc;
+      for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 255] ^ (c >>> 8);
+      crc = c; size += b.length;
+      await w.write(b);
+    },
+    async end() {
+      await w.close();
+      const body = await out, enc = new TextEncoder().encode(name), d = new Date();
+      const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
+      const date = (Math.max(0, d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+      const sum = (crc ^ 0xFFFFFFFF) >>> 0;
+      const rec = (n, f) => { const b = new Uint8Array(n), v = new DataView(b.buffer); f(v, b); return b; };
+      const local = rec(30 + enc.length, (v, b) => {
+        v.setUint32(0, 0x04034b50, true); v.setUint16(4, 20, true); v.setUint16(6, 0x0800, true); v.setUint16(8, 8, true);
+        v.setUint16(10, time, true); v.setUint16(12, date, true); v.setUint32(14, sum, true); v.setUint32(18, body.size, true);
+        v.setUint32(22, size, true); v.setUint16(26, enc.length, true); b.set(enc, 30);
+      });
+      const central = rec(46 + enc.length, (v, b) => {
+        v.setUint32(0, 0x02014b50, true); v.setUint16(4, 20, true); v.setUint16(6, 20, true); v.setUint16(8, 0x0800, true);
+        v.setUint16(10, 8, true); v.setUint16(12, time, true); v.setUint16(14, date, true); v.setUint32(16, sum, true);
+        v.setUint32(20, body.size, true); v.setUint32(24, size, true); v.setUint16(28, enc.length, true); b.set(enc, 46);
+      });
+      const cd = local.length + body.size;
+      const end = rec(22, v => {
+        v.setUint32(0, 0x06054b50, true); v.setUint16(8, 1, true); v.setUint16(10, 1, true);
+        v.setUint32(12, central.length, true); v.setUint32(16, cd, true);
+      });
+      return new Blob([local, body, central, end], { type: 'application/zip' });
+    },
+  };
 }
 
 async function make() {
@@ -301,7 +473,8 @@ async function make() {
   $('out').textContent = 'Making the stack ...';
   await new Promise(r => setTimeout(r));
   try {
-    const g = grid(c), nc = c.channels.length, bits = +$('bits').value, zip = $('zip').checked && typeof CompressionStream === 'function';
+    const g = grid(c), nc = c.channels.length, bits = +$('bits').value, hasCS = typeof CompressionStream === 'function';
+    const fmt = hasCS ? $('fmt').value : 'raw', comp = fmt === 'tif';
     const plane = g.nx * g.ny, n = c.rows.length, sums = new Float64Array(nc);
     // each row's voxel: its place in the plane and its plane; the rows sorted by plane (a counting sort)
     const at = new Uint32Array(n), izOf = new Uint32Array(n), start = new Uint32Array(g.nz + 1);
@@ -325,43 +498,22 @@ async function make() {
       }
     };
     const say = async t => { $('out').textContent = t; await new Promise(r => setTimeout(r)); };
+    const t0 = performance.now();
+    let seen = t0;
+    const progress = async (what, z) => { if (performance.now() - seen > 300) { seen = performance.now(); await say(`Making the stack: ${what}, plane ${z + 1} of ${g.nz} ...`); } };
     // the first pass: each channel's maximum (8 / 16 bits scale each channel to it: photons per step = scale)
     const top = bits === 8 ? 255 : 65535, maxes = new Float64Array(nc);
     for (let k = 0; k < n; k++) sums[c.chan ? c.chan[k] : 0] += c.W ? c.W[c.rows[k]] : 1;
-    if (bits !== 32)
-      for (let z = 0; z < g.nz; z++) {
-        if (start[z + 1] === start[z]) continue;
-        planeAt(z);
-        acc.forEach((a, ch) => { let m = maxes[ch]; for (let j = 0; j < plane; j++) if (a[j] > m) m = a[j]; maxes[ch] = m; });
-      }
-    const scales = Array.from(maxes, m => bits === 32 ? 1 : m > 0 ? m / top : 1);
-    // the second pass: each plane quantized, compressed and kept as a Blob (the page holds only the stored bytes)
-    const data = [], labels = [], empty = new Map(), t0 = performance.now();
-    let seen = performance.now();
     for (let z = 0; z < g.nz; z++) {
-      if (performance.now() - seen > 300) { seen = performance.now(); await say(`Making the stack: plane ${z + 1} of ${g.nz} ...`); }
-      const none = start[z + 1] === start[z];
-      if (!none) planeAt(z);
-      for (let ch = 0; ch < nc; ch++) {
-        labels.push((nc > 1 ? c.channels[ch] + ', ' : '') + `z = ${(g.oz + (z + 0.5) * g.vz).toFixed(4)} µm`);
-        if (none && empty.has(ch)) { data.push(empty.get(ch)); continue; }   // an empty plane is stored once, shared
-        const a = acc[ch];
-        let q;
-        if (none) q = bits === 8 ? new Uint8Array(plane) : bits === 16 ? new Uint16Array(plane) : new Float32Array(plane);
-        else if (bits === 32) { q = new Float32Array(plane); q.set(a); }
-        else {
-          const s = scales[ch];
-          q = bits === 8 ? new Uint8Array(plane) : new Uint16Array(plane);
-          for (let j = 0; j < plane; j++) if (a[j] !== 0) q[j] = Math.round(a[j] / s);
-        }
-        const bytes = new Uint8Array(q.buffer);
-        const stored = new Blob([zip ? await deflate(bytes) : bytes]);
-        if (bits === 32 && !none) for (let j = 0; j < plane; j++) if (a[j] > maxes[ch]) maxes[ch] = a[j];
-        if (none) empty.set(ch, stored);
-        data.push(stored);
-      }
+      if (start[z + 1] === start[z]) continue;
+      await progress('the maxima', z);
+      planeAt(z);
+      acc.forEach((a, ch) => { let m = maxes[ch]; for (let j = 0; j < plane; j++) if (a[j] > m) m = a[j]; maxes[ch] = m; });
     }
-
+    const scales = Array.from(maxes, m => bits === 32 ? 1 : m > 0 ? m / top : 1);
+    const labels = [];
+    for (let z = 0; z < g.nz; z++)
+      for (let ch = 0; ch < nc; ch++) labels.push((nc > 1 ? c.channels[ch] + ', ' : '') + `z = ${(g.oz + (z + 0.5) * g.vz).toFixed(4)} µm`);
     const w = $('weight').value || 'rows (a count)';
     const unit = $('weight').value ? 'photons' : 'rows';
     // ImageJ's origin is in voxels: x and y at the voxel corner (ImageJ's pixel coordinates), z at a slice's centre
@@ -374,17 +526,64 @@ async function make() {
       `insiliscope.source=${table.name}.csv\ninsiliscope.channels=${c.channels.join(';')}\n` +
       (bits === 32 ? '' : `insiliscope.scale=${scales.join(';')} ${unit} per step\n`) +
       `insiliscope.origin-um=${g.ox.toFixed(6)},${g.oy.toFixed(6)},${g.oz.toFixed(6)}\ninsiliscope.voxel-um=${g.vx},${g.vx},${g.vz}\n`;
-    await say(`Making the stack: writing the file (${((performance.now() - t0) / 1000).toFixed(1)} s so far) ...`);
-    const blob = tiffBlob(data, g.nx, g.ny, bits, 1 / g.vx, desc, labels, zip);
     const name = `${table.name}${nc > 1 ? '_channels' : $('target').value !== '' ? '_' + c.channels[0].replace(/[^\w.-]+/g, '_') : ''}` +
       `_${Math.round(g.vx * 1000)}x${Math.round(g.vz * 1000)}nm_${bits}bit.tif`;
+    // the second pass: each plane quantized, then stored (a .tif: kept as a Blob, deflated or not) or streamed into
+    // the .zip's deflate (an uncompressed TIFF, its layout known up front: every plane the same size)
+    const rawSize = plane * bits / 8, nP = g.nz * nc;
+    let zs = null, L = null, pos = 0;
+    if (fmt === 'zip') {
+      L = tiffLayout(new Array(nP).fill(rawSize), g.nx, g.ny, bits, 1 / g.vx, desc, labels, false);
+      zs = zipStream(name);
+      await zs.write(L.head);
+      pos = L.head.length;
+    }
+    const data = [], empty = new Map(), zeros = new Uint8Array(rawSize);
+    const store = async (k, bytes) => {
+      if (!zs) { data.push(bytes instanceof Blob ? bytes : new Blob([bytes])); return; }
+      if (L.offs[k] > pos) await zs.write(new Uint8Array(L.offs[k] - pos));
+      await zs.write(bytes);
+      pos = L.offs[k] + bytes.length;
+    };
+    for (let z = 0, k = 0; z < g.nz; z++) {
+      await progress(fmt === 'zip' ? 'writing' : 'the planes', z);
+      const none = start[z + 1] === start[z];
+      if (!none) planeAt(z);
+      for (let ch = 0; ch < nc; ch++, k++) {
+        if (none) {   // an empty plane: zeros (deflated once, shared)
+          if (!comp) { await store(k, zeros); continue; }
+          if (!empty.has(ch)) empty.set(ch, new Blob([await deflate(zeros)]));
+          await store(k, empty.get(ch));
+          continue;
+        }
+        const a = acc[ch];
+        let q;
+        if (bits === 32) { q = new Float32Array(plane); q.set(a); }
+        else {
+          const s = scales[ch];
+          q = bits === 8 ? new Uint8Array(plane) : new Uint16Array(plane);
+          for (let j = 0; j < plane; j++) if (a[j] !== 0) q[j] = Math.round(a[j] / s);
+        }
+        const bytes = new Uint8Array(q.buffer);
+        await store(k, comp ? await deflate(bytes) : bytes);
+      }
+    }
+    await say(`Making the stack: writing the file (${((performance.now() - t0) / 1000).toFixed(1)} s so far) ...`);
+    let blob, file = name;
+    if (zs) {
+      if (L.first > pos) await zs.write(new Uint8Array(L.first - pos));
+      await zs.write(L.ifd);
+      blob = await zs.end();
+      file = name.replace(/\.tif$/, '.zip');
+    } else blob = tiffBlob(data, g.nx, g.ny, bits, 1 / g.vx, desc, labels, comp);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    a.href = URL.createObjectURL(blob); a.download = file; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-    $('out').textContent = `Saved ${name} (${(blob.size / 1e6).toFixed(2)} MB): ${g.nx} × ${g.ny} × ${g.nz} voxels of ` +
+    $('out').textContent = `Saved ${file} (${(blob.size / 1e6).toFixed(2)} MB${zs ? `, holding ${name}` : ''}): ${g.nx} × ${g.ny} × ${g.nz} voxels of ` +
       `${g.vx * 1000} × ${g.vx * 1000} × ${g.vz * 1000} nm` + (nc > 1 ? `, ${nc} channels` : '') + '; ' +
       c.channels.map((n, k) => `${nc > 1 ? n + ': ' : ''}${sums[k].toPrecision(6)} in all` + (bits === 32 ? '' : `, ${scales[k].toPrecision(4)} ${unit} per step`)).join('; ') +
-      `. Voxel (0, 0, 0)'s corner is at world (${g.ox.toFixed(4)}, ${g.oy.toFixed(4)}, ${g.oz.toFixed(4)}) µm.`;
+      `. Voxel (0, 0, 0)'s corner is at world (${g.ox.toFixed(4)}, ${g.oy.toFixed(4)}, ${g.oz.toFixed(4)}) µm. ` +
+      `${((performance.now() - t0) / 1000).toFixed(1)} s.`;
   } catch (err) {
     $('out').innerHTML = `<span class="warn">${esc(err.message || err)}</span>`;
   } finally {
@@ -394,13 +593,18 @@ async function make() {
 
 $('drop').addEventListener('click', () => $('file').click());
 $('drop').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') $('file').click(); });
-$('file').addEventListener('change', () => { if ($('file').files[0]) load($('file').files[0]); });
+$('file').addEventListener('change', () => { if ($('file').files[0]) openInput($('file').files[0]); });
+$('entry').addEventListener('change', async () => {
+  if (!zipped) return;
+  try { await load(await zipEntryFile(zipped.file, zipped.tables[+$('entry').value]), zipped.file.name); }
+  catch (err) { $('load').innerHTML = `<span class="warn">${esc(err.message || err)}</span>`; }
+});
 $('drop').addEventListener('dragover', e => { e.preventDefault(); $('drop').classList.add('over'); });
 $('drop').addEventListener('dragleave', () => $('drop').classList.remove('over'));
-$('drop').addEventListener('drop', e => { e.preventDefault(); $('drop').classList.remove('over'); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); });
-for (const id of ['pos', 'weight', 'target', 'split', 'kind', 'vxy', 'vz', 'bits', 'zip']) $(id).addEventListener('input', describe);
+$('drop').addEventListener('drop', e => { e.preventDefault(); $('drop').classList.remove('over'); if (e.dataTransfer.files[0]) openInput(e.dataTransfer.files[0]); });
+for (const id of ['pos', 'weight', 'target', 'split', 'kind', 'vxy', 'vz', 'bits', 'fmt']) $(id).addEventListener('input', describe);
 $('go').addEventListener('click', make);
-self.iscVoxelize = { load, make, writeTiff, tiffBlob };   // (the browser test drives it)
+self.iscVoxelize = { openInput, load, make, writeTiff, tiffBlob, zipEntries };   // (the browser test drives it)
 </script>
 </body>
 </html>

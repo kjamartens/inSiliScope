@@ -8,11 +8,13 @@
 //     links voxelize.html;
 //   - with the cli (build/msvc/cli/Release/insiliscope_cli.exe, or ISC_CLI): insiliscope_cli --settings
 //     settings.isc.json renders movie.tif's frames bit for bit and --gt-out writes gt/'s tables byte for byte;
-//   - voxelize.html (served beside the viewer) turns a localization table into an ImageJ stack: 8-bit by default,
-//     deflated, its voxel size, its world origin (Fiji's status bar), the photons per step as its calibration; with
-//     "a channel each" a composite stack of the two targets; 32-bit uncompressed, the voxels sum to the table's
-//     photons (the stack is made plane by plane).
-//   node tests/web/viewer_save.mjs [--swiftshader]   (~25 s)
+//   - voxelize.html (served beside the viewer) reads the saved zip itself (its tables to pick from) and turns a
+//     localization table into an ImageJ stack: 8-bit by default; a compressed .tif with its voxel size, its world
+//     origin (Fiji's status bar), the photons per step as its calibration; with "a channel each" a composite stack of
+//     the two targets; 32-bit uncompressed, the voxels sum to the table's photons (the stack is made plane by plane);
+//     the compressed .tif is the default (also for a zip dropped in); the .zip holds that uncompressed TIFF with its
+//     slice labels, the same voxels.
+//   node tests/web/viewer_save.mjs [--swiftshader]   (~35 s)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -50,7 +52,7 @@ function readTiff(buf) {
       t[tag] = type === 3 ? dv.getUint16(o + 8, true) : type === 5 ? (() => { const a = dv.getUint32(o + 8, true); return dv.getUint32(a, true) / dv.getUint32(a + 4, true); })()
         : type === 2 ? new TextDecoder().decode(buf.subarray(dv.getUint32(o + 8, true), dv.getUint32(o + 8, true) + cnt - 1)) : dv.getUint32(o + 8, true);
     }
-    pages.push({ w: t[256], h: t[257], bits: t[258], comp: t[259], desc: t[270], xres: t[282], data: t[273] });
+    pages.push({ w: t[256], h: t[257], bits: t[258], comp: t[259], desc: t[270], xres: t[282], data: t[273], labels: t[50839] !== undefined });
     ifd = dv.getUint32(ifd + 2 + 12 * n, true);
   }
   return pages;
@@ -139,14 +141,31 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
 
     const tool = await page.evaluate(() => { const a = document.getElementById('voxelizeLink'); return a && a.closest('#menu') ? a.getAttribute('href') : null; });
     check(tool === 'voxelize.html', `☰ › Tools links the converter (${tool})`);
-    // voxelize.html: the localization table to a stack with its voxel size
-    const loc = path.join(dir, 'localizations_min5.csv');
-    fs.writeFileSync(loc, z['gt/localizations_min5.csv']);
+    // voxelize.html: the saved zip itself; its tables to pick from, the lowest threshold first
+    const recZip = path.join(dir, 'recording.zip');
+    fs.writeFileSync(recZip, fs.readFileSync(await dlZip.path()));
+    const rows = n => new TextDecoder().decode(z[`gt/localizations_min${n}.csv`]).trim().split('\n').length - 1;
     const vp = page;   // (the viewer's checks are done)
     await vp.goto(`http://localhost:${port}/voxelize.html`);
-    await vp.setInputFiles('#file', loc);
+    await vp.setInputFiles('#file', recZip);
     await vp.waitForFunction(() => !document.getElementById('opts').hidden && !document.getElementById('go').disabled, null, { timeout: 20000 });
-    await vp.evaluate(() => { const v = document.getElementById('vxy'); v.value = 20; v.dispatchEvent(new Event('input')); });
+    const picked = await vp.evaluate(() => ({ shown: !document.getElementById('pick').hidden, fmt: document.getElementById('fmt').value,
+      options: [...document.getElementById('entry').options].map(o => o.textContent.split(' ')[0]), load: document.getElementById('load').textContent }));
+    const n5 = rows(5), n300 = rows(300), countOf = t => +((/: ([\d.,\s ]+) rows/.exec(t) || [])[1] || '').replace(/\D/g, '');
+    check(picked.shown && picked.options.join() === 'gt/localizations_min5.csv,gt/localizations_min300.csv' &&
+      picked.load.startsWith('localizations_min5.csv (from recording.zip): ') && countOf(picked.load) === n5,
+      `voxelize.html reads the saved zip: ${picked.options.join(', ')}; ${picked.load}`);
+    check(picked.fmt === 'tif', `a zip in, a compressed .tif out by default (${picked.fmt})`);
+    await vp.evaluate(() => { const s = document.getElementById('entry'); s.value = '1'; s.dispatchEvent(new Event('change')); });
+    await vp.waitForFunction(() => /^localizations_min300\.csv/.test(document.getElementById('load').textContent) && !document.getElementById('opts').hidden, null, { timeout: 20000 });
+    const l300 = await vp.evaluate(() => document.getElementById('load').textContent);
+    check(+l300.replace(/[^\d]/g, '').slice(-String(n300).length) === n300, `the other table picked: ${l300} (${n300} rows in the zip)`);
+    await vp.evaluate(() => { const s = document.getElementById('entry'); s.value = '0'; s.dispatchEvent(new Event('change')); });
+    await vp.waitForFunction(() => /^localizations_min5\.csv/.test(document.getElementById('load').textContent) && !document.getElementById('opts').hidden, null, { timeout: 20000 });
+    await vp.evaluate(() => {
+      const v = document.getElementById('vxy'); v.value = 20;
+      document.getElementById('fmt').value = 'tif'; v.dispatchEvent(new Event('input'));
+    });
     const [dlVox] = await Promise.all([vp.waitForEvent('download', { timeout: 20000 }), vp.click('#go')]);
     const vox = fs.readFileSync(await dlVox.path()), vpages = readTiff(vox), d0 = vpages[0] || {}, desc = d0.desc || '';
     check(vpages.length > 0 && d0.bits === 8 && d0.comp === 8 && Math.abs(d0.xres - 50) < 1e-6 && /\nspacing=0\.025\n/.test(desc) &&
@@ -164,7 +183,7 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     // 32-bit, uncompressed: the voxels (made plane by plane) sum to the rows' photons (summed apart, the page's "in all")
     await vp.evaluate(() => {
       const s = document.getElementById('split'); s.value = 'sum';
-      document.getElementById('bits').value = '32'; document.getElementById('zip').checked = false;
+      document.getElementById('bits').value = '32'; document.getElementById('fmt').value = 'raw';
       s.dispatchEvent(new Event('input'));
     });
     const [dl32] = await Promise.all([vp.waitForEvent('download', { timeout: 20000 }), vp.click('#go')]);
@@ -174,6 +193,14 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     const inAll = +(/([\d.e+]+) in all/.exec(await vp.evaluate(() => document.getElementById('out').textContent)) || [])[1];
     check(p32.length > 0 && p32[0].bits === 32 && p32[0].comp === 1 && Math.abs(vsum - inAll) <= 1e-5 * inAll,
       `voxelize.html, 32-bit uncompressed: the voxels sum to ${vsum.toPrecision(7)}, the rows ${inAll}`);
+    // the other file: a .zip holding that uncompressed TIFF, slice labels and all
+    await vp.evaluate(() => { const f = document.getElementById('fmt'); f.value = 'zip'; f.dispatchEvent(new Event('input')); });
+    const [dlZ] = await Promise.all([vp.waitForEvent('download', { timeout: 20000 }), vp.click('#go')]);
+    const zz = unzip(fs.readFileSync(await dlZ.path())), zn = Object.keys(zz), inner = zz[zn[0]] || new Uint8Array(0);
+    const pz = zn.length === 1 ? readTiff(Buffer.from(inner)) : [];
+    check(/\.zip$/.test(dlZ.suggestedFilename()) && zn.length === 1 && zn[0] === dl32.suggestedFilename() && same(inner, b32),
+      `voxelize.html, the .zip: ${dlZ.suggestedFilename()} holds ${zn.join()}, the uncompressed TIFF byte for byte (${(inner.length / 1e6).toFixed(1)} MB)`);
+    check(pz.length === p32.length && pz[0].comp === 1 && pz[0].labels, `its ${pz.length} planes carry slice labels (Fiji's title line)`);
 
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
