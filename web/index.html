@@ -599,7 +599,7 @@
         <div id="lv_idle"><span id="lv_idlePress">Press <button id="lv_idleLive" title="Live: image the sample under the world view's centre"><span class="ico">▶</span> Live</button></span><span id="lv_idleStart" hidden>Starting<i class="dots"></i></span></div>
         <div id="lv_scale"></div>
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
-        <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the 16-bit TIFF stack alone, or with its settings file and its ground truth in one .zip">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
+        <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the movie, optionally with its settings and ground truth">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
     <div id="sideTop">
       <div class="bar">
@@ -1725,7 +1725,7 @@ menu.innerHTML = '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><inp
   '<h4>Panes</h4><label title="The Settings / Animation tabs: the animation editor (beta)"><input type="checkbox" id="showAnimPane"> Show animation pane (beta)</label>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
   '<div class="btns"><button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all to defaults</button></div>' +
-  '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground truth\'s dyes.csv or localization table to a density stack at any voxel size, one stack or a channel per target, for Fiji (a page of its own; nothing is uploaded)">Voxelize ground truth ↗</a>: a table of a saved ground truth to a stack for Fiji</div>' +
+  '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground-truth table to a density stack at any voxel size">Voxelize ground truth ↗</a>: a ground-truth table to a stack</div>' +
   '<div class="note" id="advNote"></div>' +
   (self.ISC_VERSION ? `<div class="note">inSiliScope ${self.ISC_VERSION}</div>` : '') +
   '<div class="note"><a id="privacyLink" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/privacy/">Privacy</a>: anonymous usage counts, no cookies</div>';

@@ -1,25 +1,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
-"""Opens an inSiliScope recording in napari, every part in world coordinates (um; z above the coverslip).
+"""Opens an inSiliScope recording in napari.
 
-    drop open_in_napari.py on napari        napari runs it (0.10 checked): the recording opens in that window (the
-                                            folder the file lies in, unpacked, else the newest recording zip beside it)
-    python open_in_napari.py                the same from a terminal
-    python open_in_napari.py <recording.zip | folder | voxelize .tif> ...
+    Drop this file on napari's window (it opens the folder it is in, or the newest recording zip beside it), or:
+    python open_in_napari.py [recording.zip | folder | voxelize .tif] ...
 
-Needs napari and tifffile:  pip install "napari[all]" tifffile   (a voxelize .tif opened lazily also needs zarr, dask)
-
-Layers (docs: https://kjamartens.github.io/inSiliScope/docs/ground-truth/):
-  movie                       the recorded frames, where the camera saw them (the stage position, the pixel size); in
-                              2D it stands at every z (a camera image is a projection), in 3D it is drawn as a plane
-                              at the focal height
-  gt_volume_<target>[_<state>]  the ground truth's density stacks (named as their files): detected photons per voxel
-  localizations <target>      every blink of localizations.csv, a layer per label (its beads: "localizations
-                              bead"), at its own frame; "<...>, all frames" (hidden) holds them all at once, for
-                              3D. The size (nm), symbol and colour controls change every point when none is
-                              selected.
-  beads                       fiducials.csv, per frame
-  <stack> <channel>           a voxelize .tif: a layer per channel, read a plane at a time
-The axes are frame, z, y, x; the status bar shows the pointer's world position in um.
+Needs:  pip install "napari[all]" tifffile
+Docs:   https://kjamartens.github.io/inSiliScope/docs/ground-truth/
 """
 import csv
 import io
@@ -349,7 +335,7 @@ def show(paths):
                     layer.plane.normal = (1, 0, 0)
                 except Exception:
                     pass
-    labels = ('frame', 'z (µm)', 'y (µm)', 'x (µm)') if focus is not None or viewer.dims.ndim != 3 else \
+    labels = ('frame', 'z (slice)', 'y (µm)', 'x (µm)') if focus is not None or viewer.dims.ndim != 3 else \
         ('frame', 'y (µm)', 'x (µm)')   # a recording with no z: frame, y, x
     viewer.dims.axis_labels = labels[-viewer.dims.ndim:]
     if focus is not None and viewer.dims.ndim >= 3:
@@ -360,6 +346,22 @@ def show(paths):
             viewer.dims.margin_right = tuple(1e4 if i == zi else m for i, m in enumerate(viewer.dims.margin_right))
         except Exception:   # older napari: no thick slices (the points' out_of_slice_display instead)
             pass
+        # napari's z slider counts slices (of the finest layer's step, e.g. 12.5 nm; hence "z (slice)"): the height in
+        # um in a corner of the canvas
+        overlays = getattr(getattr(viewer, 'canvas', None), 'overlays', None)
+        text = getattr(overlays, 'text', None) or getattr(viewer, 'text_overlay', None)   # (text_overlay: before 0.9)
+        if text is not None:
+            try:
+                zi = viewer.dims.ndim - 3
+
+                def show_z(event=None):
+                    text.text = f'z = {viewer.dims.point[zi]:.3f} µm'
+                text.visible = True
+                text.position = 'top_left'
+                viewer.dims.events.point.connect(show_z)
+                show_z()
+            except Exception:
+                pass
     for layer in movies:   # the movie's contrast as napari's "auto-contrast: once" sets it: the frame shown
         try:
             layer.reset_contrast_limits()
@@ -389,8 +391,8 @@ def main(argv):
     if not paths:
         own = own_recording(__file__)
         if own is None:
-            msg = (f'no inSiliScope recording found by {os.path.abspath(__file__)}: put this file in the unpacked '
-                   'recording (or beside its .zip), or name one:  python open_in_napari.py <recording.zip>')
+            msg = (f'No inSiliScope recording next to {os.path.abspath(__file__)}. '
+                   'Usage: python open_in_napari.py <recording.zip>')
             if in_napari():
                 raise FileNotFoundError(msg)   # (napari shows it as a notification)
             print(msg)
@@ -399,7 +401,7 @@ def main(argv):
     try:
         show(paths)
     except ImportError as e:
-        print(f'{e}\nnapari and tifffile are needed:  pip install "napari[all]" tifffile')
+        print(f'{e}\nNeeds:  pip install "napari[all]" tifffile')
         return 1
     return 0
 

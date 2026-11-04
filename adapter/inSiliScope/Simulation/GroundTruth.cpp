@@ -510,11 +510,17 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
    if (note && f > 1)
    {
       char b[300];
-      std::snprintf(b, sizeof b,
-                    "The density stacks' voxels are %g x %g x %g nm: the %g x %g x %g nm asked would pass %.0f MB "
-                    "uncompressed in all.", grid.vx * 1000, grid.vx * 1000, grid.vz * 1000, lateralNm, lateralNm,
-                    axialNm, capBytes / 1048576.0);
+      std::snprintf(b, sizeof b, "  Voxels grown to %g x %g x %g nm: %g x %g x %g nm would pass %.0f MB.",
+                    grid.vx * 1000, grid.vx * 1000, grid.vz * 1000, lateralNm, lateralNm, axialNm,
+                    capBytes / 1048576.0);
       *note = b;
+   }
+   if (note)
+   {
+      char b[200];
+      std::snprintf(b, sizeof b, "  All stacks share one grid; voxel (0, 0, 0)'s corner is at world (%.4f, %.4f, %.4f) um.",
+                    grid.Ox(), grid.Oy(), grid.Oz());
+      *note = std::string(b) + (note->empty() ? std::string() : "\n" + *note);
    }
    for (const Group& g : groups)
    {
@@ -603,15 +609,15 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
       vol.bytes.resize(static_cast<size_t>(lay.first), '\0');
       vol.bytes += lay.ifd;
       char line[700];
-      std::snprintf(line, sizeof line,
-                    "%s: %s (%s, %s), %u x %u x %u voxels of %g x %g x %g nm, 8 bits: the detected photons of its dyes "
-                    "over the recorded frames per voxel, %.6g photons per step (%.6g in all, %zu dyes). Every density "
-                    "stack lies on the same grid: voxel (0, 0, 0)'s corner is at world (%.4f, %.4f, %.4f) um, so voxel "
-                    "(i, j, k)'s centre at origin + ((i, j, k) + 0.5) x voxel; Fiji reads the voxel size, the origin "
-                    "(its status bar shows world x, y, z) and a label per slice (its z), napari the voxel size.",
-                    name.c_str(), target.c_str(), L ? L->dye.c_str() : "?", StateName(g.state), grid.nx, grid.ny,
-                    grid.nz, grid.vx * 1000, grid.vx * 1000, grid.vz * 1000, st.Scales()[0], st.Sums()[0], g.x.size(),
-                    grid.Ox(), grid.Oy(), grid.Oz());
+      char size[60];
+      if (grid.vz == grid.vx)
+         std::snprintf(size, sizeof size, "%g nm", grid.vx * 1000);
+      else
+         std::snprintf(size, sizeof size, "%g x %g x %g nm", grid.vx * 1000, grid.vx * 1000, grid.vz * 1000);
+      const std::string state = std::string(StateName(g.state)) == "always-on" ? "" : std::string(", ") + StateName(g.state);
+      std::snprintf(line, sizeof line, "%s  detected photons per voxel (%s%s): %u x %u x %u voxels of %s, %.4g photons "
+                    "per 8-bit step", name.c_str(), L ? L->dye.c_str() : "?", state.c_str(), grid.nx, grid.ny, grid.nz,
+                    size, st.Scales()[0]);
       vol.line = line;
       TimingLog("gt.volume-tiff", TimingSince(tv));
       out.push_back(std::move(vol));
@@ -633,14 +639,14 @@ void GroundTruth::Files(const FileSink& sink, double minCore, double volumeLater
                         double volumeAxialNm, double volumeCapBytes) const
 {
    std::string readme =
-      "inSiliScope ground truth. The columns, units and caveats: https://kjamartens.github.io/inSiliScope/docs/ground-truth/\n"
-      "Photons are expected values (before shot noise); world coordinates are um, z above the coverslip; camera x, y\n"
-      "are nm from the image's top-left corner, drift included; z [nm] is the height above the focal plane.\n\n";
+      "inSiliScope ground truth. Columns: https://kjamartens.github.io/inSiliScope/docs/ground-truth/\n"
+      "Photons are expected values (no noise). World positions in um, z above the coverslip; camera x, y in nm from\n"
+      "the image's top-left corner.\n\n";
    auto t0 = TimingClock::now();
    std::string framesCsv = FramesCsv();
    TimingLog("gt.frames-csv", TimingSince(t0));
    sink("frames.csv", std::move(framesCsv));
-   readme += "frames.csv: one row per image: its time, stage position, focus, drift (and pattern state under SIM).\n";
+   readme += "frames.csv         one row per frame: time, stage, focus, drift\n";
    bool beads = false;
    for (const Emitter& e : emitters)
       beads = beads || (e.kind == Fiducial && e.core >= minCore);   // in the table (a run kept from a lower threshold: alike)
@@ -651,12 +657,9 @@ void GroundTruth::Files(const FileSink& sink, double minCore, double volumeLater
       std::string csv = EmittersCsv(minCore, true);
       TimingLog("gt.localizations-csv", TimingSince(t0));
       sink("localizations.csv", std::move(csv));
-      readme += std::string("localizations.csv: every blink drawn") + (beads ? " and every bead (kind fiducial)" : "") +
-                " with at least " + Fmt("%g", minCore) + " expected photons in its core in a frame, one row per frame:\n"
-                "  core_photons, the photons landing in the " + Fmt("%g", kCoreBoxNm) + " x " + Fmt("%g", kCoreBoxNm) +
-                " nm square centred on it (a blink far out of focus spreads its\n"
-                "  photons wider: intensity [photon] counts all on the camera). A blink the Quality's blink-min-photons\n"
-                "  cut left out of the image is not in it either.\n";
+      readme += std::string("localizations.csv  every blink") + (beads ? " and bead" : "") + " with >= " +
+                Fmt("%g", minCore) + " photons in the " + Fmt("%g", kCoreBoxNm) + " x " + Fmt("%g", kCoreBoxNm) +
+                " nm square around it, one row per frame\n";
    }
    else if (beads)
    {
@@ -664,7 +667,7 @@ void GroundTruth::Files(const FileSink& sink, double minCore, double volumeLater
       std::string csv = FiducialsCsv();
       TimingLog("gt.fiducials-csv", TimingSince(t0));
       sink("fiducials.csv", std::move(csv));
-      readme += "fiducials.csv: every bead per frame (no blinking label in this movie).\n";
+      readme += "fiducials.csv      every bead, one row per frame\n";
    }
    if (!dyes_.empty())
    {
@@ -674,8 +677,7 @@ void GroundTruth::Files(const FileSink& sink, double minCore, double volumeLater
          std::string csv = DyesCsv();
          TimingLog("gt.dyes-csv", TimingSince(t0), std::to_string(dyes_.size()).c_str());
          sink("dyes.csv", std::move(csv));
-         readme += "dyes.csv: every dye in the queried box: its window, its detected rate now and its photons over the\n"
-                   "  recorded frames.\n";
+         readme += "dyes.csv           every dye: position, on/off times, photons\n";
       }
       std::string note;
       for (Volume& v : Volumes(volumeLateralNm, volumeAxialNm, volumeCapBytes, &note))
@@ -686,8 +688,6 @@ void GroundTruth::Files(const FileSink& sink, double minCore, double volumeLater
       if (!note.empty())
          readme += note + "\n";
    }
-   readme += "\nThe orientation columns give each dye's mean emission dipole (polar angle from z, azimuth from x);\n"
-             "the image does not use it yet (the PSF is isotropic). Empty: a freely rotating dye.\n";
    sink("README.txt", std::move(readme));
 }
 

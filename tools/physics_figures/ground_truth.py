@@ -142,14 +142,8 @@ def gt_core(ctx):
     body = ctx.plot("", draw, h=3.45, alt="Movie crops of lone, in-focus blinks with 30 to 2000 photons in their core "
                                          "under four conditions")
     return figure(body + "\n" + provenance(ctx),
-                  "What a blink with so many photons in its core looks like: localizations.csv keeps the blinks with "
-                  "at least %d (by default; the Save box sets it). Each tile is 15 x 15 pixels (100 nm) of one frame of "
-                  "the default sample and microscope (DNA-PAINT microtubules, ATTO 655, 50 ms frames), its microtubules "
-                  "labelled at %d %% so blinks stand alone (the background, the free imager's, is the same), centred "
-                  "on a blink within %d nm of the focal plane with no other blink near it; the dashed square is its "
-                  "core, the 500 x 500 nm the count is over (from the PSF at its own sampling, the same at any pixel "
-                  "size), the number its count. Every tile is scaled from 2.5 noise sigmas below its own background to "
-                  "6 above, so equal noise looks the same, or to its brightest pixel where that is higher. Rows: the default (HILO, with the imager in "
-                  "solution), the same with a camera of 0.5 e⁻ read noise (the same blinks), epi with no imager in "
-                  "solution (no background), and that with the better camera. Median background under a blink "
-                  "(photons per pixel): %s." % (DEFAULT_LEVEL, LABEL_PCT, FOCUS_NM, bgs))
+                  "Blinks by the photons in their 500 nm core (dashed; the number in the corner). Each tile: 15 x 15 "
+                  "pixels of one frame, a lone blink within %d nm of focus (DNA-PAINT microtubules, labelled at %d %% so "
+                  "blinks stand alone), scaled to its own noise. %d (marked) is the default threshold. Rows: the "
+                  "default microscope; a 0.5 e⁻ read-noise camera; epi without imager background; both. Median "
+                  "background (photons/pixel): %s." % (FOCUS_NM, LABEL_PCT, DEFAULT_LEVEL, bgs))

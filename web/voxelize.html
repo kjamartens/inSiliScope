@@ -42,16 +42,9 @@
 <body>
 <main>
   <h1>Voxelize ground truth</h1>
-  <p>Turns a ground-truth table of inSiliScope (<code>dyes.csv</code> or <code>localizations.csv</code>, or the
-    saved recording's .zip holding them) into a
-    density stack at the voxel size you choose: the sum of a column (detected photons, by default) per voxel, or a
-    count; one stack, or one channel per target. Fiji/ImageJ and napari read its voxel size; Fiji also its world
-    origin, so the status bar shows each voxel's world x, y and z (µm). 8 and 16 bits scale each channel to its
-    maximum: the photons per step are in the description (<code>insiliscope.scale</code>), and a single-channel
-    stack carries them as its calibration. In Fiji, open the .tif with <b>File › Import › TIFF Virtual Stack</b>: it
-    reads each plane only when shown (a stack of many GB opens in a second), as a hyperstack with a channel per target,
-    and its title line shows each slice's z in µm. Dragged in, Fiji loads it whole and shows z only in its status bar
-    (ImageJ reads no slice labels from a compressed TIFF that way). Everything runs in this page: nothing is uploaded.</p>
+  <p>Turns a ground-truth table (<code>dyes.csv</code>, <code>localizations.csv</code>, or the saved .zip) into a
+    density stack at any voxel size. Open the .tif in Fiji with <b>File › Import › TIFF Virtual Stack</b>. Nothing is
+    uploaded.</p>
   <div id="drop" tabindex="0">Drop a CSV or a saved recording's .zip here, or click to choose one<input type="file" id="file" accept=".csv,text/csv,.zip,application/zip" hidden></div>
   <div id="pick" hidden><label for="entry">Table in the zip</label> <select id="entry"></select></div>
   <div id="load"></div>
@@ -61,19 +54,19 @@
       <label for="weight">Value per voxel</label><select id="weight"></select>
       <label for="target">Target</label><select id="target"></select>
       <label for="split">Targets as</label><select id="split">
-        <option value="channels" selected>a channel each (a multi-channel stack)</option>
-        <option value="sum">one stack (their sum)</option></select>
+        <option value="channels" selected>a channel each</option>
+        <option value="sum">one stack (summed)</option></select>
       <label for="kind">Rows</label><select id="kind"></select>
       <label for="vxy">Voxel x, y (nm)</label><input type="number" id="vxy" min="1" step="1" value="10">
       <label for="vz">Voxel z (nm)</label><input type="number" id="vz" min="1" step="1" value="10">
       <label for="bits">Bit depth</label><select id="bits">
-        <option value="8">8-bit (each channel scaled to its maximum)</option>
-        <option value="16">16-bit (each channel scaled to its maximum)</option>
-        <option value="32">32-bit float (the values themselves)</option></select>
+        <option value="8">8-bit (scaled)</option>
+        <option value="16">16-bit (scaled)</option>
+        <option value="32">32-bit float</option></select>
       <label for="fmt">File</label><select id="fmt">
-        <option value="tif" selected>.tif, compressed: small (Fiji: Import › TIFF Virtual Stack; napari, tifffile)</option>
-        <option value="zip">.zip holding an uncompressed .tif: small; Fiji drag-and-drop loads it whole, z in the title line</option>
-        <option value="raw">.tif, uncompressed: full size</option></select>
+        <option value="tif" selected>.tif, compressed</option>
+        <option value="zip">.zip of an uncompressed .tif (Fiji opens it by drag-and-drop)</option>
+        <option value="raw">.tif, uncompressed</option></select>
     </div>
     <div id="info"></div>
     <p><button class="go" id="go">Make the stack</button></p>
@@ -149,7 +142,7 @@ async function openInput(file) {
   if (!/\.zip$/i.test(file.name) && !(sig.byteLength === 4 && sig.getUint32(0, true) === 0x04034b50)) return load(file);
   try {
     const tables = (await zipEntries(file)).filter(e => TABLE.test(e.name));
-    if (!tables.length) { $('load').innerHTML = `<span class="warn">${esc(file.name)} holds no ground-truth table (gt/dyes.csv, gt/localizations.csv): saved without the ground truth?</span>`; return; }
+    if (!tables.length) { $('load').innerHTML = `<span class="warn">${esc(file.name)} holds no ground-truth table.</span>`; return; }
     // dyes.csv first, then the localization table(s) (an older zip: by threshold)
     const rank = e => /dyes\.csv$/.test(e.name) ? -1 : /fiducials/.test(e.name) ? 1e9 : +(/min([\d.]+)/.exec(e.name) || [0, 0])[1];
     tables.sort((a, b) => rank(a) - rank(b));
@@ -301,18 +294,18 @@ async function load(file, from) {
     if (!head || q >= 0) line(text(carry, 0, carry.length)); else fast(carry, 0, carry.length);
   }
   if (!head || !('x_world_um' in num)) {
-    $('load').innerHTML = '<span class="warn">Not an inSiliScope ground-truth table (no x_world_um column).</span>';
+    $('load').innerHTML = '<span class="warn">Not an inSiliScope ground-truth table.</span>';
     return;
   }
   for (const k in num) num[k] = num[k].subarray(0, n);
   for (const k in cat) cat[k].codes = cat[k].codes.subarray(0, n);
   table = { name: file.name.replace(/\.csv$/i, ''), n, num, cat };
   $('load').textContent = `${file.name}${from ? ' (from ' + from + ')' : ''}: ${n.toLocaleString()} rows.`;
-  const pos = [['world', 'the dyes (x/y/z_world_um)']];
-  if ('site_x_world_um' in num) pos.push(['site', 'their binding sites (site_*_world_um)']);
+  const pos = [['world', 'dyes']];
+  if ('site_x_world_um' in num) pos.push(['site', 'binding sites']);
   $('pos').innerHTML = pos.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
   const weights = WEIGHTS.filter(c => c in num).map(c => [c, c]);
-  weights.push(['', 'the number of rows (a count)']);
+  weights.push(['', 'count']);
   $('weight').innerHTML = weights.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
   const targets = cat.target ? cat.target.names : [];
   $('target').innerHTML = '<option value="">all</option>' + targets.map((t, i) => `<option value="${i}">${esc(t)}</option>`).join('');
@@ -429,21 +422,21 @@ function describe() {
   if (!c.rows.length) { $('info').textContent = 'No rows with this choice.'; $('go').disabled = true; return; }
   const g = grid(c), nc = c.channels.length, bytes = +$('bits').value / 8, fmt = $('fmt').value;
   const plane = g.nx * g.ny * nc * 4 / 1048576, file = g.nx * g.ny * g.nz * nc * bytes / 1048576;
-  const tooBig = plane > PLANE_MB ? 'too large: a plane takes ' + plane.toFixed(0) + ' MB, take bigger x, y voxels'
-    : fmt !== 'tif' && file > FILE_MB ? 'too large for an uncompressed TIFF (4 GB): a compressed .tif, or bigger voxels' : '';
+  const tooBig = plane > PLANE_MB ? 'too large: use bigger x, y voxels'
+    : fmt !== 'tif' && file > FILE_MB ? 'over 4 GB: use the compressed .tif or bigger voxels' : '';
   $('go').disabled = !!tooBig;
-  const raw = file * 1048576, big = raw > 8e9;
+  const raw = file * 1048576;
   $('info').innerHTML = `${c.rows.length.toLocaleString()} rows → ${g.nx} × ${g.ny} × ${g.nz} voxels` +
     (nc > 1 ? ` × ${nc} channels (${c.channels.map(esc).join(', ')})` : '') +
-    `: ${mb(raw)} uncompressed (in memory if Fiji opens it whole${big || fmt !== 'zip' ? '; Import › TIFF Virtual Stack reads each plane as shown' : ''})` +
-    (fmt === 'raw' ? '' : '<span id="est">, compressed: estimating ...</span>') +
+    `: ${mb(raw)} uncompressed` +
+    (fmt === 'raw' ? '' : '<span id="est">, compressed: ...</span>') +
     (tooBig ? ` <span class="warn">— ${tooBig}</span>` : fmt === 'raw' && file > 500 ? ' <span class="warn">— large</span>' : '');
   clearTimeout(estTimer);
   estToken++;
   if (fmt !== 'raw' && plane <= PLANE_MB)
     estTimer = setTimeout(async () => {
-      const t0 = performance.now(), b = await estimate(c, g, +$('bits').value).catch(() => null);
-      if (b !== null && $('est')) $('est').textContent = `, compressed: about ${mb(b)} (from sample planes, ${((performance.now() - t0) / 1000).toFixed(1)} s)`;
+      const b = await estimate(c, g, +$('bits').value).catch(() => null);
+      if (b !== null && $('est')) $('est').textContent = `, about ${mb(b)} compressed`;
     }, 250);
 }
 
@@ -535,8 +528,8 @@ async function make() {
     const say = async t => { $('out').textContent = t; await new Promise(r => setTimeout(r)); };
     const t0 = performance.now();
     let seen = t0;
-    const progress = async (what, z) => { if (performance.now() - seen > 300) { seen = performance.now(); await say(`Making the stack: ${what}, plane ${z + 1} of ${g.nz} ...`); } };
-    await say('Making the stack: sorting the rows and finding each channel\'s maximum ...');
+    const progress = async (what, z) => { if (performance.now() - seen > 300) { seen = performance.now(); await say(`Making the stack: plane ${z + 1} of ${g.nz} ...`); } };
+    await say('Making the stack ...');
     h = stackOf(c, g, bits);
     const pb = M._vox_plane_bytes(h);
     // the first pass: each channel's maximum and sum (8 / 16 bits scale each channel to its maximum: value per step)
@@ -589,7 +582,7 @@ async function make() {
         } else await store(k, comp ? planeDeflated(h, ch, 0) : heapCopy(M._vox_plane(h, ch, 0), pb));
       }
     }
-    await say(`Making the stack: writing the file (${((performance.now() - t0) / 1000).toFixed(1)} s so far) ...`);
+    await say('Writing the file ...');
     let blob, file = name;
     if (zs) {
       if (L.first > pos) await zs.write(new Uint8Array(L.first - pos));
@@ -603,8 +596,7 @@ async function make() {
     $('out').textContent = `Saved ${file} (${(blob.size / 1e6).toFixed(2)} MB${zs ? `, holding ${name}` : ''}): ${g.nx} × ${g.ny} × ${g.nz} voxels of ` +
       `${g.vx * 1000} × ${g.vx * 1000} × ${g.vz * 1000} nm` + (nc > 1 ? `, ${nc} channels` : '') + '; ' +
       c.channels.map((n, k) => `${nc > 1 ? n + ': ' : ''}${sums[k].toPrecision(6)} in all` + (bits === 32 ? '' : `, ${scales[k].toPrecision(4)} ${unit} per step`)).join('; ') +
-      `. Voxel (0, 0, 0)'s corner is at world (${g.ox.toFixed(4)}, ${g.oy.toFixed(4)}, ${g.oz.toFixed(4)}) µm. ` +
-      `${((performance.now() - t0) / 1000).toFixed(1)} s.`;
+      '.';
   } catch (err) {
     $('out').innerHTML = `<span class="warn">${esc(err.message || err)}</span>`;
   } finally {

@@ -95,7 +95,7 @@ def main(path):
           np.array_equal(mframes, movie),
           f'movie: its {movie.shape[0]} frames of {movie.shape[2]} x {movie.shape[1]} px, frame by frame' +
           (' (frame, y, x: no z)' if flat else ''))
-    want_axes = ('frame', 'y (µm)', 'x (µm)') if flat else ('frame', 'z (µm)', 'y (µm)', 'x (µm)')
+    want_axes = ('frame', 'y (µm)', 'x (µm)') if flat else ('frame', 'z (slice)', 'y (µm)', 'x (µm)')
     check(v.dims.axis_labels == want_axes, f'axes named {v.dims.axis_labels}')
     check(not flat or v.dims.point == {}, 'no z slider set where there is no z')
     # the viewer's thick z slice is for the points (every frame's at any z in 2D); an image shows the plane at the z
