@@ -171,7 +171,8 @@ bool BinnedBlinkRenderer::Setup(const PsfKernelCache* kernel, double sigmaPx, un
    return true;
 }
 
-void BinnedBlinkRenderer::Render(const std::vector<FrameEmitter>& emitters, std::vector<float>& img) const
+void BinnedBlinkRenderer::Render(const std::vector<FrameEmitter>& emitters, std::vector<float>& img,
+                                 std::vector<float>* alone) const
 {
    if (!spectra_ || emitters.empty())
       return;
@@ -239,6 +240,8 @@ void BinnedBlinkRenderer::Render(const std::vector<FrameEmitter>& emitters, std:
                sum += std::max(0.0f, row[dx]);
          }
          img[static_cast<size_t>(y) * W_ + x] += static_cast<float>(sum);
+         if (alone)
+            (*alone)[static_cast<size_t>(y) * W_ + x] += static_cast<float>(sum);
       }
 }
 

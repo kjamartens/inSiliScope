@@ -6206,7 +6206,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    std::vector<std::vector<std::vector<BlinkEvent>>> gtEv(gt ? slots : 0);
    std::vector<std::vector<char>> gtBin(gt ? slots : 0);
    std::vector<int> gtLabel;
-   std::vector<float> gtBlink, gtBead, gtBg;
+   std::vector<std::vector<float>> gtBlink(gt ? slots : 0);   // per slot: its frame's blinks alone (blinkFrame)
+   std::vector<float> gtBead, gtBg;
    std::vector<std::vector<float>> gtScratch;   // one per thread chunk
    // A bead's footprint, kept while the focus and drift stay (its halo reaches across the camera).
    struct GtBeadFp { double zf = std::numeric_limits<double>::quiet_NaN(), dx = 0, dy = 0; SparseFootprint fp; };
@@ -6288,6 +6289,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          {
             gtEv[k].assign(m.groups.size(), {});
             gtBin[k].assign(m.groups.size(), 0);
+            gtBlink[k].assign(n, 0.0f);
          }
          const double bgScale = opt.backgroundScale ? opt.backgroundScale(f) : 1.0;
          if (popsOnly)
@@ -6349,12 +6351,16 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                std::vector<FrameEmitter> ems;
                CollectFrameEmitters(fe[k], f, W, H, pixelNm, g.perFrame, dx, dy,
                                     g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, blinkInto.illumField, ems);
-               g.binned.Render(ems, photons[k]);
+               // (the ground truth's blinks alone: the same convolution's values)
+               g.binned.Render(ems, photons[k], gt && !fe[k].empty() ? &gtBlink[k] : nullptr);
                frameBinned[k] = 1;
                continue;
             }
             RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
                               g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, nullptr, nullptr, &blinkInto);
+            if (gt && !fe[k].empty())   // the ground truth's blinks alone, group after group
+               RenderPhotonImage(gtBlink[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
+                                 g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, nullptr, nullptr, &blinkInto);
          }
       };
       if (bands)
@@ -6539,28 +6545,9 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             }
             gt->frames.push_back(fr);
             gt->frameBase = gtBase + f + 1;   // (the next movie's frames follow this one's)
-            // The frame's non-blink light: the frame less its blinks (drawn again alone) and its beads.
-            gtBlink.assign(n, 0.0f);
-            RenderExtras gi = blinkInto;
-            gi.parallel = true;
-            gi.accumulate = true;
-            for (size_t gj = 0; gj < m.groups.size(); ++gj)
-            {
-               const std::vector<BlinkEvent>& ev = gtEv[static_cast<size_t>(k)][gj];
-               if (ev.empty())
-                  continue;
-               const Group& g = m.groups[gj];
-               const PsfKernelCache* kern = g.blinkKernel.valid ? &g.blinkKernel : nullptr;
-               if (gtBin[static_cast<size_t>(k)][gj])
-               {
-                  std::vector<FrameEmitter> ems;
-                  CollectFrameEmitters(ev, f, W, H, pixelNm, g.perFrame, gdx, gdy, kern, zf, gi.illumField, ems);
-                  g.binned.Render(ems, gtBlink);
-               }
-               else
-                  RenderPhotonImage(gtBlink, W, H, ev, f, pixelNm, g.sigmaPx, g.perFrame, 0.0, gdx, gdy, kern, zf,
-                                    nullptr, nullptr, &gi);
-            }
+            // The frame's non-blink light: the frame less its blinks (drawn alone in blinkFrame) and its beads.
+            const std::vector<float>& blinkAlone = gtBlink[static_cast<size_t>(k)];
+            const RenderExtras& gi = blinkInto;
             const bool beads = m.fid && !m.fid->comps.empty();
             if (beads)
             {
@@ -6569,7 +6556,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             }
             gtBg.resize(n);
             for (size_t i = 0; i < n; ++i)
-               gtBg[i] = img[i] - gtBlink[i] - (beads ? gtBead[i] : 0.0f);
+               gtBg[i] = img[i] - blinkAlone[i] - (beads ? gtBead[i] : 0.0f);
             // The blinks drawn, with their photons on the camera and the light under their PSF.
             for (size_t gj = 0; gj < m.groups.size(); ++gj)
             {
@@ -6586,12 +6573,14 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                std::vector<char> keep(ev.size(), 0);
                ParallelFor(chunks, [&](unsigned c) {
                   const size_t a = ev.size() * c / chunks, b = ev.size() * (c + 1) / chunks;
+               std::vector<BlinkEvent> single(1);
+               std::vector<FrameEmitter> one;
                for (size_t ei = a; ei < b; ++ei)
                {
                   const BlinkEvent& e = ev[ei];
-                  std::vector<FrameEmitter> one;
-                  CollectFrameEmitters(std::vector<BlinkEvent>{ e }, f, W, H, pixelNm, g.perFrame, gdx, gdy, kern, zf,
-                                       gi.illumField, one);
+                  single[0] = e;
+                  one.clear();
+                  CollectFrameEmitters(single, f, W, H, pixelNm, g.perFrame, gdx, gdy, kern, zf, gi.illumField, one);
                   if (one.empty())
                      continue;
                   const FrameEmitter& em = one[0];
@@ -6632,17 +6621,26 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             for (size_t c = 0; beads && c < m.fid->comps.size(); ++c)
             {
                const FiducialMovieComponent& F = m.fid->comps[c];
+               // the beads on threads (each its own row and footprint; the bead splat is safe to share), kept in order
+               std::vector<GroundTruth::Emitter> rows(F.beads.size());
+               std::vector<char> keep(F.beads.size(), 0);
+               std::vector<double> phs(F.beads.size());   // (serially: the frame's light, as RenderFiducials asks it)
                for (size_t b = 0; b < F.beads.size(); ++b)
+                  phs[b] = FiducialBeadPhotons(*m.fid, F, F.beads[b], f);
+               const unsigned chunks = static_cast<unsigned>(std::min<size_t>(F.beads.size(), 16));
+               ParallelFor(chunks, [&](unsigned ch) {
+               std::vector<float> alone;
+               for (size_t b = F.beads.size() * ch / chunks; b < F.beads.size() * (ch + 1) / chunks; ++b)
                {
                   const FiducialBeadSite& e = F.beads[b];
-                  const double ph = FiducialBeadPhotons(*m.fid, F, e, f);
+                  const double ph = phs[b];
                   if (!(ph >= gt->minPhotons))
                      continue;
                   GtBeadFp& bf = gtBeadFp[c][b];
                   const double xPx = e.xUm * 1000.0 / pixelNm + gdx, yPx = e.yUm * 1000.0 / pixelNm + gdy;
                   if (!(bf.zf == zf && bf.dx == gdx && bf.dy == gdy))
                   {
-                     std::vector<float> alone(n, 0.0f);
+                     alone.assign(n, 0.0f);
                      SplatFiducialBead(alone, W, H, F, e, zf, pixelNm, 1.0, gdx, gdy);
                      bf.fp = SparseFootprintOf(alone, W, H, xPx, yPx);
                      bf.zf = zf;
@@ -6650,7 +6648,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                      bf.dy = gdy;
                   }
                   const EmitterFootprint fp = ApplyFootprint(bf.fp, gtBg);
-                  GroundTruth::Emitter r;
+                  GroundTruth::Emitter& r = rows[b];
                   r.frame = gtBase + f;
                   r.kind = GroundTruth::Fiducial;
                   r.regime = GroundTruth::Bead;
@@ -6665,9 +6663,12 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   r.bg = fp.bg;
                   r.bgCentre = fp.bgCentre;
                   r.beadNm = e.d;
-                  if (r.onCamera >= gt->minPhotons)
-                     gt->emitters.push_back(r);
+                  keep[b] = r.onCamera >= gt->minPhotons;
                }
+               });
+               for (size_t b = 0; b < F.beads.size(); ++b)
+                  if (keep[b])
+                     gt->emitters.push_back(rows[b]);
             }
             TimingLog("fl.ground-truth", TimingSince(tg));
          }

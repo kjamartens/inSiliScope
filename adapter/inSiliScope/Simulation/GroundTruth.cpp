@@ -743,12 +743,24 @@ EmitterFootprint FootprintOf(std::vector<float>& scratch, unsigned W, unsigned H
    }
    const int x0 = std::max(0, cx - r), x1 = std::min(static_cast<int>(W) - 1, cx + r);
    const int y0 = std::max(0, cy - r), y1 = std::min(static_cast<int>(H) - 1, cy + r);
+   // the halo cut's spans, as SplatRows takes them: the pixels outside them were not written (zero, skipped anyway)
+   const PsfHaloSpans* halo = kernel && kernel->valid && kernel->halo && zIndex >= 0 && zIndex < kernel->halo->nz &&
+                                    kernel->halo->camRad == r
+                                 ? kernel->halo.get()
+                                 : nullptr;
    double sum = 0, dot = 0;
    for (int y = y0; y <= y1; ++y)
    {
       float* row = scratch.data() + static_cast<size_t>(y) * W;
       const float* b = bg.data() + static_cast<size_t>(y) * W;
-      for (int x = x0; x <= x1; ++x)
+      int xa = x0, xb = x1;
+      if (halo)
+      {
+         const size_t k = static_cast<size_t>(zIndex) * (2 * static_cast<size_t>(r) + 1) + static_cast<size_t>(y - cy + r);
+         xa = std::max(xa, cx + halo->lo[k]);
+         xb = std::min(xb, cx + halo->hi[k]);
+      }
+      for (int x = xa; x <= xb; ++x)
          if (row[x] != 0.0f)
          {
             sum += row[x];
