@@ -288,8 +288,8 @@ int32_t isc_dye_details_in_window(IscWorld* w, double x0, double y0, double x1, 
 {
    if (!w || BadRect(x0, y0, x1, y1) || (cap > 0 && !out) || nIds < 0 || (nIds > 0 && !ids)) return -1;
    try {
-      std::unordered_set<uint32_t> only;
-      for (int32_t i = 0; i < nIds; i++) only.insert((uint32_t)ids[i]);
+      std::vector<uint32_t> only((size_t)nIds);
+      for (int32_t i = 0; i < nIds; i++) only[(size_t)i] = (uint32_t)ids[i];
       std::vector<isc::World::DyeDetail> d;
       w->w.DyeDetailsInWindow(x0, y0, x1, y1, zMin, zMax, d, nIds > 0 ? &only : nullptr);
       if (d.size() > (size_t)INT32_MAX) return -1;

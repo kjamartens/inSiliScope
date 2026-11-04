@@ -192,9 +192,16 @@ size_t GroundTruth::EndMovie(size_t emitterFrom, const DetailQuery& query, int s
                 o.zUm == d.zUm)
             {
                const double det = o.detectedTotal + d.detectedTotal, emi = o.emittedTotal + d.emittedTotal;
+               // (the site and dipole are the dye's, found already: not asked again)
+               const bool known = !std::isnan(o.siteXUm) && std::isnan(d.siteXUm);
+               const double sx = o.siteXUm, sy = o.siteYUm, sz = o.siteZUm, po = o.polarDeg, az = o.azimuthDeg;
                o = d;
                o.detectedTotal = det;
                o.emittedTotal = emi;
+               if (known)
+               {
+                  o.siteXUm = sx; o.siteYUm = sy; o.siteZUm = sz; o.polarDeg = po; o.azimuthDeg = az;
+               }
                continue;
             }
          }
@@ -223,7 +230,7 @@ size_t GroundTruth::EndMovie(size_t emitterFrom, const DetailQuery& query, int s
    std::sort(todo.begin(), todo.end(), [](const Pending& a, const Pending& b) { return a.x < b.x || (a.x == b.x && a.i < b.i); });
    const auto rowKey = [](const double* r) { return static_cast<uint64_t>(r[3]) | (static_cast<uint64_t>(r[4]) << 32); };
    std::vector<double> ids, rows;
-   std::vector<uint32_t> order;
+   std::vector<std::pair<uint64_t, uint32_t>> order;   // the rows' (id, structure) keys and indices, sorted
    for (size_t a = 0; a < todo.size(); a += chunk)
    {
       const size_t b = std::min(todo.size(), a + chunk);
@@ -248,25 +255,22 @@ size_t GroundTruth::EndMovie(size_t emitterFrom, const DetailQuery& query, int s
       box[2] += pad; box[3] += pad; box[5] += pad;
       std::sort(ids.begin(), ids.end());
       ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-      rows.clear();
+      // room for the rows asked for up front (the query's capacity: one core query, not one to count and one to fill)
+      rows.assign((ids.size() + ids.size() / 8 + 64) * static_cast<size_t>(stride), 0.0);
       if (!query(box, ids, rows))
          continue;
       const size_t n = rows.size() / static_cast<size_t>(stride);
       order.resize(n);
       for (size_t i = 0; i < n; ++i)
-         order[i] = static_cast<uint32_t>(i);
-      std::sort(order.begin(), order.end(), [&](uint32_t u, uint32_t v) {
-         return rowKey(&rows[u * static_cast<size_t>(stride)]) < rowKey(&rows[v * static_cast<size_t>(stride)]);
-      });
+         order[i] = { rowKey(&rows[i * static_cast<size_t>(stride)]), static_cast<uint32_t>(i) };
+      std::sort(order.begin(), order.end());
       const auto fill = [&](uint32_t id, int structure, double x, double y, double z, double& sx, double& sy,
                             double& sz, double& polar, double& azimuth) {
          const uint64_t k = static_cast<uint64_t>(id) | (static_cast<uint64_t>(structure & 0xFF) << 32);
-         auto it = std::lower_bound(order.begin(), order.end(), k, [&](uint32_t u, uint64_t kk) {
-            return rowKey(&rows[u * static_cast<size_t>(stride)]) < kk;
-         });
-         for (; it != order.end() && rowKey(&rows[*it * static_cast<size_t>(stride)]) == k; ++it)
+         auto it = std::lower_bound(order.begin(), order.end(), std::make_pair(k, uint32_t(0)));
+         for (; it != order.end() && it->first == k; ++it)
          {
-            const double* r = &rows[*it * static_cast<size_t>(stride)];
+            const double* r = &rows[it->second * static_cast<size_t>(stride)];
             if (!(std::fabs(r[0] - x) < 1e-6 && std::fabs(r[1] - y) < 1e-6 && std::fabs(r[2] - z) < 1e-6))
                continue;
             sx = r[5]; sy = r[6]; sz = r[7];
@@ -281,8 +285,7 @@ size_t GroundTruth::EndMovie(size_t emitterFrom, const DetailQuery& query, int s
             return;
          }
       };
-      for (size_t k = a; k < b; ++k)
-      {
+      const auto fillRow = [&](size_t k) {
          const Pending& p = todo[k];
          if (p.dye)
          {
@@ -294,7 +297,19 @@ size_t GroundTruth::EndMovie(size_t emitterFrom, const DetailQuery& query, int s
             Emitter& e = emitters[p.i];
             fill(e.id, e.structure, e.xUm, e.yUm, e.zUm, e.siteXUm, e.siteYUm, e.siteZUm, e.polarDeg, e.azimuthDeg);
          }
-      }
+      };
+#if defined(__EMSCRIPTEN__)
+      for (size_t k = a; k < b; ++k)
+         fillRow(k);
+#else
+      // (each row fills only itself: on all cores, in bands)
+      const unsigned bands = static_cast<unsigned>(std::min<size_t>(std::max(1u, HardwareThreads()), (b - a + 4095) / 4096));
+      ParallelFor(bands, [&](unsigned t) {
+         const size_t k0 = a + (b - a) * t / bands, k1 = a + (b - a) * (t + 1) / bands;
+         for (size_t k = k0; k < k1; ++k)
+            fillRow(k);
+      });
+#endif
    }
    return todo.size();
 }

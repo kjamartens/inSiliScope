@@ -2881,21 +2881,52 @@ void DyeDetails(uint32_t seed, const Params& p, const Cell& c0)
    const double x0 = c0.x - 4, y0 = c0.y - 4, x1 = c0.x + 4, y1 = c0.y + 4;
    const int structs[3] = { STRUCTURE_MT, STRUCTURE_NPC, STRUCTURE_LAMIN };
    const char* names[3] = { "microtubules", "pores", "lamina" };
-   for (int linked = 0; linked < 2; linked++) {
-      World w = Fresh(seed, p);
+   for (int pass = 0; pass < 3; pass++) {
+      // pass 0, 1: no linkage / linked, MT Fixed, pores Random, lamina Free; 2: linked, MT Random, the others Fixed
+      const int linked = pass > 0;
+      World w = Fresh(seed, p), w1 = Fresh(seed, p);
       for (int s : structs) {
          Label l = MakeLabel(LabelMode::DnaPaint, 0.2);
          l.linkage = linked ? Linkage{ 12, 5, 2, 5 } : Linkage{ 0, 0, 0, 0 };
          l.hasLinkage = true;   // (else the structure's legacy linkage)
-         l.orientation.mode = s == STRUCTURE_MT ? OrientationMode::Fixed
-                              : s == STRUCTURE_NPC ? OrientationMode::Random : OrientationMode::Free;
+         if (pass < 2)
+            l.orientation.mode = s == STRUCTURE_MT ? OrientationMode::Fixed
+                                 : s == STRUCTURE_NPC ? OrientationMode::Random : OrientationMode::Free;
+         else
+            l.orientation.mode = s == STRUCTURE_MT ? OrientationMode::Random : OrientationMode::Fixed;
          w.SetLabel(s, l);
+         w1.SetLabel(s, l);
       }
       std::vector<World::DyeDetail> v;
       w.DyeDetailsInWindow(x0, y0, x1, y1, -INF, INF, v);
+      {
+         // The batch = DyeSiteOf / DyeOrientationOf dye by dye on another world, rotated into the world (the batch's
+         // first form), bit for bit.
+         std::string d;
+         for (size_t i = 0; d.empty() && i < v.size(); i++) {
+            const WorldDye& e = v[i].dye;
+            Pt3 site = { e.x, e.y, e.z }, dir = { 0, 0, 0 };
+            bool hasSite = false, hasDir = false;
+            Cell c;
+            if (w1.FindCell(e.cx, e.cy, c)) {
+               const double rot = c.packRot;
+               const bool rotated = !(rot == 0 || std::isnan(rot));
+               const double cr = rotated ? jsm::cos(rot) : 1, sr = rotated ? jsm::sin(rot) : 0;
+               Pt3 a, b;
+               if (w1.DyeSiteOf(e, a)) { site = { c.x + a.x * cr - a.y * sr, c.y + a.x * sr + a.y * cr, a.z }; hasSite = true; }
+               if (w1.DyeOrientationOf(e, b)) { dir = { b.x * cr - b.y * sr, b.x * sr + b.y * cr, b.z }; hasDir = true; }
+            }
+            const World::DyeDetail& r = v[i];
+            if (r.hasSite != hasSite || r.hasDir != hasDir || std::memcmp(&r.site, &site, sizeof site) != 0 ||
+                std::memcmp(&r.dir, &dir, sizeof dir) != 0)
+               d = Fmt("dye %zu (structure %d): batch (%.17g, %.17g, %.17g) dir (%.17g, %.17g, %.17g) vs (%.17g, %.17g, %.17g) dir (%.17g, %.17g, %.17g)",
+                       i, (int)e.structure, r.site.x, r.site.y, r.site.z, r.dir.x, r.dir.y, r.dir.z, site.x, site.y, site.z, dir.x, dir.y, dir.z);
+         }
+         Same(d, Fmt("dye details (pass %d, %zu dyes): the batch = the per-dye site and dipole", pass, v.size()));
+      }
       std::vector<WorldDye> sites;
       w.SitesInWindow(x0, y0, x1, y1, -INF, INF, sites);
-      Check(v.size() == sites.size() && !v.empty(), Fmt("dye details (%s): one per dye of SitesInWindow", linked ? "linked" : "no linkage"),
+      Check(v.size() == sites.size() && !v.empty(), Fmt("dye details (%s%s): one per dye of SitesInWindow", linked ? "linked" : "no linkage", pass == 2 ? ", other orientations" : ""),
             Fmt("%zu vs %zu", v.size(), sites.size()));
       const double reach = (12 + 5 + 5) * 1e-3 + 1e-12;
       for (int si = 0; si < 3; si++) {
@@ -2913,13 +2944,14 @@ void DyeDetails(uint32_t seed, const Params& p, const Cell& c0)
                const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
                if (linked ? !(dist <= reach) : dist != 0) d = Fmt("dye %zu: %.6g nm from its site", i, dist * 1000);
             }
-            const bool wantDir = structs[si] != STRUCTURE_LAMIN;
+            const bool wantDir = pass == 2 || structs[si] != STRUCTURE_LAMIN;
             if (d.empty() && r.hasDir != wantDir) d = Fmt("dye %zu: dipole %s", i, r.hasDir ? "given for Free" : "missing");
             const double dd = r.dir.x * r.dir.x + r.dir.y * r.dir.y + r.dir.z * r.dir.z;
             if (d.empty() && wantDir && std::fabs(dd - 1) > 1e-9) d = Fmt("dye %zu: |dipole|^2 = %.12g", i, dd);
          }
          if (d.empty() && n == 0) d = "no dyes";
-         Same(d, Fmt("dye details, %s (%s, %ld dyes): site and dipole", names[si], linked ? "linked" : "no linkage", n));
+         Same(d, Fmt("dye details, %s (%s%s, %ld dyes): site and dipole", names[si], linked ? "linked" : "no linkage",
+                  pass == 2 ? ", other orientations" : "", n));
       }
    }
    // The C ABI on a fresh world (default labels): SitesInWindow's columns, then the details.

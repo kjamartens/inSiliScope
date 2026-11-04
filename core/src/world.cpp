@@ -1164,16 +1164,20 @@ void World::ContinuousInWindow(double x0, double y0, double x1, double y1, doubl
    });
 }
 
-bool World::DyeOrientationOf(const WorldDye& d, Pt3& dir)
+bool World::MtDyeAtOf(CellAssets& A, const WorldDye& d, MtDyeAt& m)
 {
-   PoolScope scope(pool_);
+   if (d.mtIndex < 0 || (size_t)d.mtIndex >= A.mts.size()) return false;
+   m.fr = &A.Frames((size_t)d.mtIndex);
+   if (m.fr->T.empty()) return false;   // no segment (MtSegmentAt needs one)
+   m.S = (MtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
+   m.theta = MtProtofilamentTheta(MtSeamPhase(seed_, d.cx, d.cy, d.mtIndex), d.k);
+   m.seg = MtSegmentAt(*m.fr, m.S);
+   return true;
+}
+
+bool World::DyeOrientationIn(CellAssets& A, const WorldDye& d, const MtDyeAt* mt, Pt3& dir)
+{
    const Label& label = labels_[(size_t)d.structure];
-   if (label.orientation.mode == OrientationMode::Free) return false;
-   // Docking strands: no orientation model (Free only; the JS refuses the others).
-   if (d.structure != STRUCTURE_MT && d.structure != STRUCTURE_NPC && d.structure != STRUCTURE_LAMIN) return false;
-   Cell c;
-   if (!FindCell(d.cx, d.cy, c)) return false;
-   CellAssets& A = Assets(c);
    if (d.structure == STRUCTURE_NPC) {
       // Fixed: from the pore axis (its outward normal), azimuth from the corner's direction in the ring plane.
       const Orientation& o = label.orientation;
@@ -1214,20 +1218,12 @@ bool World::DyeOrientationOf(const WorldDye& d, Pt3& dir)
       dir = DyeOrientationFixed(o, q.n, f1);
       return true;
    }
-   if (d.mtIndex < 0 || (size_t)d.mtIndex >= A.mts.size()) return false;
-   const MtFrames& fr = A.Frames((size_t)d.mtIndex);
-   const double S = (MtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
-   const double theta = MtProtofilamentTheta(MtSeamPhase(seed_, d.cx, d.cy, d.mtIndex), d.k);
-   return DyeOrientation(DyeH1(seed_, d.cx, d.cy, d.mtIndex), d.k, d.n, label, fr, MtSegmentAt(fr, S), theta, dir);
+   if (!mt) return false;
+   return DyeOrientation(DyeH1(seed_, d.cx, d.cy, d.mtIndex), d.k, d.n, label, *mt->fr, mt->seg, mt->theta, dir);
 }
 
-bool World::DyeSiteOf(const WorldDye& d, Pt3& site)
+bool World::DyeSiteIn(CellAssets& A, const WorldDye& d, const MtDyeAt* mt, Pt3& site)
 {
-   PoolScope scope(pool_);
-   if (d.structure != STRUCTURE_MT && d.structure != STRUCTURE_NPC && d.structure != STRUCTURE_LAMIN) return false;
-   Cell c;
-   if (!FindCell(d.cx, d.cy, c)) return false;
-   CellAssets& A = Assets(c);
    if (d.structure == STRUCTURE_NPC) {
       // NpcDyesInBlock's attachment point (attachNm 0: the site is the base).
       EnsureNpcs(seed_, A, p_);
@@ -1260,14 +1256,13 @@ bool World::DyeSiteOf(const WorldDye& d, Pt3& site)
       return true;
    }
    // DyesInBlock's site: the axis point at arc S, out by the radius along the protofilament's direction.
-   if (d.mtIndex < 0 || (size_t)d.mtIndex >= A.mts.size()) return false;
+   if (!mt) return false;
    const std::vector<Pt3>& pts = A.mts[(size_t)d.mtIndex].pts;
-   const MtFrames& fr = A.Frames((size_t)d.mtIndex);
    if (pts.size() < 2) return false;
-   const double S = (MtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
-   const double theta = MtProtofilamentTheta(MtSeamPhase(seed_, d.cx, d.cy, d.mtIndex), d.k);
-   const double ct = jsm::cos(theta), st = jsm::sin(theta);
-   const size_t seg = MtSegmentAt(fr, S);
+   const MtFrames& fr = *mt->fr;
+   const double S = mt->S;
+   const double ct = jsm::cos(mt->theta), st = jsm::sin(mt->theta);
+   const size_t seg = mt->seg;
    const Pt3& ft = fr.T[seg]; const Pt3& fu = fr.U[seg]; const Pt3& fv = fr.V[seg];
    const double f = S - fr.cum[seg];
    const double R = MT_RADIUS_NM * 1e-3;
@@ -1276,15 +1271,68 @@ bool World::DyeSiteOf(const WorldDye& d, Pt3& site)
    return true;
 }
 
-void World::DyeDetailsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
-                               std::vector<DyeDetail>& out, const std::unordered_set<uint32_t>* only)
+bool World::DyeOrientationOf(const WorldDye& d, Pt3& dir)
 {
    PoolScope scope(pool_);
+   const Label& label = labels_[(size_t)d.structure];
+   if (label.orientation.mode == OrientationMode::Free) return false;
+   // Docking strands: no orientation model (Free only; the JS refuses the others).
+   if (d.structure != STRUCTURE_MT && d.structure != STRUCTURE_NPC && d.structure != STRUCTURE_LAMIN) return false;
+   Cell c;
+   if (!FindCell(d.cx, d.cy, c)) return false;
+   CellAssets& A = Assets(c);
+   MtDyeAt m;
+   const bool isMt = d.structure == STRUCTURE_MT && MtDyeAtOf(A, d, m);
+   return DyeOrientationIn(A, d, isMt ? &m : nullptr, dir);
+}
+
+bool World::DyeSiteOf(const WorldDye& d, Pt3& site)
+{
+   PoolScope scope(pool_);
+   if (d.structure != STRUCTURE_MT && d.structure != STRUCTURE_NPC && d.structure != STRUCTURE_LAMIN) return false;
+   Cell c;
+   if (!FindCell(d.cx, d.cy, c)) return false;
+   CellAssets& A = Assets(c);
+   MtDyeAt m;
+   const bool isMt = d.structure == STRUCTURE_MT && MtDyeAtOf(A, d, m);
+   return DyeSiteIn(A, d, isMt ? &m : nullptr, site);
+}
+
+void World::DyeDetailsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                               std::vector<DyeDetail>& out, const std::vector<uint32_t>* only)
+{
+   PoolScope scope(pool_);
+   // only as an open-addressing table (every dye of the window is tested against it): slot = id + 1, 0 empty
+   std::vector<uint64_t> table;
+   uint32_t bits = 0;
+   if (only) {
+      while (bits < 31 && (size_t(1) << bits) < 2 * only->size() + 2) bits++;
+      table.assign(size_t(1) << bits, 0);
+      const size_t mask = table.size() - 1;
+      for (uint32_t id : *only)
+         for (size_t h = (size_t)((id * 0x9E3779B97F4A7C15ull) >> (64 - bits)); ; h = (h + 1) & mask) {
+            if (table[h] == (uint64_t)id + 1) break;
+            if (table[h] == 0) { table[h] = (uint64_t)id + 1; break; }
+         }
+   }
+   const auto wanted = [&](uint32_t id) {
+      const size_t mask = table.size() - 1;
+      for (size_t h = (size_t)((id * 0x9E3779B97F4A7C15ull) >> (64 - bits)); ; h = (h + 1) & mask) {
+         if (table[h] == (uint64_t)id + 1) return true;
+         if (table[h] == 0) return false;
+      }
+   };
    std::vector<WorldDye> dyes;
    ForEachDye(x0, y0, x1, y1, zMin, zMax, [&](const DyeBlock& b, const PackedDye& d) {
-      if (!only || only->count(d.id)) dyes.push_back(DyeAt(b, d));
+      if (!only || wanted(d.id)) dyes.push_back(DyeAt(b, d));
    });
    out.reserve(out.size() + dyes.size());
+   // Dyes come block by block, so a run of them shares a cell: its packing, rotation and assets are looked up once
+   // per run (DyeSiteOf / DyeOrientationOf per dye, the same arithmetic).
+   bool haveCell = false, cellFound = false;
+   int32_t ccx = 0, ccy = 0;
+   double cxw = 0, cyw = 0, cr = 1, sr = 0;
+   CellAssets* A = nullptr;
    for (const WorldDye& d : dyes) {
       DyeDetail r;
       r.dye = d;
@@ -1296,17 +1344,33 @@ void World::DyeDetailsInWindow(double x0, double y0, double x1, double y1, doubl
          out.push_back(r);
          continue;
       }
-      Cell c;
-      if (FindCell(d.cx, d.cy, c)) {
-         const double rot = c.packRot;
-         const bool rotated = !(rot == 0 || std::isnan(rot));
-         const double cr = rotated ? jsm::cos(rot) : 1, sr = rotated ? jsm::sin(rot) : 0;
+      if (!haveCell || d.cx != ccx || d.cy != ccy) {
+         haveCell = true;
+         ccx = d.cx;
+         ccy = d.cy;
+         Cell c;
+         cellFound = FindCell(d.cx, d.cy, c);
+         A = nullptr;
+         if (cellFound) {
+            const double rot = c.packRot;
+            const bool rotated = !(rot == 0 || std::isnan(rot));
+            cr = rotated ? jsm::cos(rot) : 1;
+            sr = rotated ? jsm::sin(rot) : 0;
+            cxw = c.x;
+            cyw = c.y;
+            A = &Assets(c);
+         }
+      }
+      if (cellFound && (d.structure == STRUCTURE_MT || d.structure == STRUCTURE_NPC || d.structure == STRUCTURE_LAMIN)) {
+         MtDyeAt m;
+         const bool isMt = d.structure == STRUCTURE_MT && MtDyeAtOf(*A, d, m);
          Pt3 s, v;
-         if (DyeSiteOf(d, s)) {
-            r.site = { c.x + s.x * cr - s.y * sr, c.y + s.x * sr + s.y * cr, s.z };
+         if (DyeSiteIn(*A, d, isMt ? &m : nullptr, s)) {
+            r.site = { cxw + s.x * cr - s.y * sr, cyw + s.x * sr + s.y * cr, s.z };
             r.hasSite = true;
          }
-         if (DyeOrientationOf(d, v)) {
+         if (labels_[(size_t)d.structure].orientation.mode != OrientationMode::Free &&
+             DyeOrientationIn(*A, d, isMt ? &m : nullptr, v)) {
             r.dir = { v.x * cr - v.y * sr, v.x * sr + v.y * cr, v.z };
             r.hasDir = true;
          }

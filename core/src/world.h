@@ -262,7 +262,7 @@ public:
       bool hasSite, hasDir;
    };
    void DyeDetailsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
-                           std::vector<DyeDetail>& out, const std::unordered_set<uint32_t>* only = nullptr);
+                           std::vector<DyeDetail>& out, const std::vector<uint32_t>* only = nullptr);
 
    // The pores of the cell of chunk (cx, cy) (cell-local, candidate order);
    // false if that chunk holds no cell (isc_cell_npcs).
@@ -316,6 +316,16 @@ public:
    const WorldStats& Stats() const { return stats_; }
 
 private:
+   // A microtubule dye's place on its axis (DyeSiteOf and DyeOrientationOf share it): frames, arc S, segment, theta.
+   struct MtDyeAt {
+      const MtFrames* fr;
+      size_t seg;
+      double S, theta;
+   };
+   bool MtDyeAtOf(CellAssets& A, const WorldDye& d, MtDyeAt& m);
+   // DyeSiteOf / DyeOrientationOf on the dye's cell assets (mt: its MtDyeAt, nullptr when it has none).
+   bool DyeSiteIn(CellAssets& A, const WorldDye& d, const MtDyeAt* mt, Pt3& site);
+   bool DyeOrientationIn(CellAssets& A, const WorldDye& d, const MtDyeAt* mt, Pt3& dir);
    // The kinetics a schedule reads: a history (nullptr: the label's kinetics) and its fingerprint (0: none); dose: a
    // dose clock with epochs (each dye's history from its bounds; ABI 14).
    struct ClockView {
