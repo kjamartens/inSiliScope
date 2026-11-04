@@ -163,8 +163,9 @@ its own values with the file's and lists what it could not take ("Not taken") an
 
 `--settings <file>[:part,part]`, repeatable, later files and options override; all parts but view by default. With a
 light history the cli replays it (`settings::Replay`) and writes the live sample's next `frames` frames
-(`LiveScope::Frames`); without one, the usual movie. Ground-truth export on top of this is a later task; what it will
-meet:
+(`LiveScope::Frames`); without one, the usual movie. A Record's file goes through `settings::RenderMovie` (the cli
+and the module's `isc_scope_gt`, which renders the movie again with a `GroundTruthScope`). The ground truth is done
+(2026-11-04, [docs/ground-truth.md](../ground-truth.md), cli `--gt-out`); the points it had to meet, as planned:
 
 - The render regimes decide what the GT means: binned blinks snap to a grid, mean-field blinks have no events, dim
   blinks under `blink-min-photons` are left out of the image, the halo cut trims kernels; continuous populations
@@ -180,6 +181,6 @@ meet:
 
 ## Later
 
-Ground-truth export; MM `Hub.SaveSettingsTo` / `LoadSettingsFrom` (needs MM's live producer on `LiveScope` for the
+MM `Hub.SaveSettingsTo` / `LoadSettingsFrom` (needs MM's live producer on `LiveScope` for the
 history); an instrument's installed hardware (which lasers, filters, objectives exist) so a settings part can be
 checked against it; usage counts for save/load (only if wanted).

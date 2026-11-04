@@ -3,6 +3,18 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## Unreleased
+
+- **Ground truth** ([docs](docs/ground-truth.md)): a recording's **Save** (was Save .tif) opens a box: the movie alone
+  (.tif), or with its instrument settings (a settings file taken as the Record began, which reproduces the movie with
+  `insiliscope_cli --settings`) and its ground truth in one .zip. The ground truth: a table per frame (time, stage,
+  focus, drift, pattern state); localization tables at two thresholds of photons on the camera (5 and 300), with the
+  dye's position, its binding site, photons detected / on the camera / emitted, the PSF-weighted background, the beads
+  as `fiducial` rows; for continuous dyes (WideField, dSTORM's initial ON, PALM's pre state) a dye list and
+  photon-weighted density stacks (float32, voxel size for Fiji and napari) with `voxelize.html`, a converter that
+  needs no installation. The cli writes the same files: `--gt-out`, `--gt-min`, `--gt-volume`. Core ABI 19
+  (`isc_dye_details_in_window`); every output unchanged.
+
 ## v0.1.0-rc17 (changes since v0.1.0-rc16)
 
 New samples and illumination:

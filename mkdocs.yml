@@ -65,6 +65,7 @@ nav:
   - Quickstart: quickstart.md
   - Gallery: gallery/index.md
   - Micro-Manager: micro-manager.md
+  - Ground truth: ground-truth.md
   - Samples:
       - Overview: samples/index.md
       - Cell field:

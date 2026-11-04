@@ -166,6 +166,20 @@ that finishes them.
   (~11 s, browser: dialogs, load = the same spec and next frame, mixing, warnings). The objective's NA (`mv_na`,
   Advanced) and the Zernike modes (`zernCoeffs`, Expert: the preset's from the setup readout's `zernike` =
   `ScopeZernike`, typed values go into the spec as all 28 `zern.<j>`, `self.ISC_ZERN`) sit in Objective & PSF.
+- **Ground truth (2026-11-04, branch `gt-export`, [docs/ground-truth.md](docs/ground-truth.md), spec/PORT.md 29):** a
+  Record's **Save** box (`openSave` in `web/live/live.js`): the movie alone (.tif) or a .zip (`web/live/zip.js`,
+  deflate-raw, Zip64) with `settings.isc.json` (`recordFile`, reproduces the movie) and `gt/`. The engine fills a
+  thread-local sink (`Simulation/GroundTruth.*`, `GroundTruthScope`; frames bit for bit with and without): frame rows,
+  drawn blinks and beads with photons on the camera (the splat's 1-photon footprint) and the PSF-weighted non-blink
+  light, continuous dyes with their photons over the frames; at Render's end one core query adds sites and dipoles
+  (core ABI 19 `isc_dye_details_in_window`, stride 11, by id; goldens unchanged). `GroundTruth::Files` writes
+  frames.csv, localizations_min<N>.csv / fiducials.csv, dyes.csv (optional: ~100 MB at 128 px WideField),
+  density_<target>[_<state>].tif (emitted photons per voxel, 50/50/25 nm, float32 ImageJ, capped 256 MB), README.txt.
+  Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` (a `gt` job on the live worker) and
+  the cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both on `settings::RenderMovie`; `web/voxelize.html` (the
+  converter, copied beside the viewer by `build_site.sh`). Checks: ctest `ground_truth` (2.6 s), `tests/web/gt_unit.mjs`
+  (6 s: the module's files = the cli's) and `zip_unit.mjs` (CI `viewer-js`), `viewer_save.mjs` (browser, 12 s: the cli
+  reproduces the zip's movie and tables byte for byte).
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider

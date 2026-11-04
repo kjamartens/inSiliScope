@@ -1,0 +1,127 @@
+# Ground truth
+
+A simulated movie comes with what made it. After a **● Record**, the viewer's **Save** offers three things:
+
+- the **movie** (a 16-bit TIFF stack);
+- its **instrument settings** (`settings.isc.json`, which reproduces the movie);
+- its **ground truth** (`gt/`): where every fluorophore was, frame by frame, and how much light it gave.
+
+The movie alone saves a `.tif`. With anything else, everything goes in one `.zip`. The command line writes the same
+ground truth:
+
+```bash
+insiliscope_cli --settings settings.isc.json --out movie.tif --gt-out gt
+```
+
+## How it is made
+
+The ground truth is computed when you save, not while recording. The viewer renders the recording again from its
+settings file with the ground truth switched on, which costs about two to three times the recording's own time.
+(Collecting it during the Record would add ~70 % to every recording, saved or not.)
+
+The settings file is taken as the Record began. It reproduces the frames bit for bit:
+
+- A **fresh** Record is a movie from its start time.
+- A Record that **continued the live sample** replays the light the sample had before, then renders the recorded
+  chunks as they were rendered.
+
+The one exception is a fresh Record whose mean field ran on WebGPU (WideField labels): those frames can differ from the
+CPU's in the last bits, while the ground truth is the CPU's. The Save box says when this applies.
+
+Every number is an expected value, before shot noise and camera noise: the photons the model put into the image, not a
+noisy count.
+
+## The files
+
+| File | When | What |
+|---|---|---|
+| `movie.tif` | always | the frames, 16-bit, ImageJ (pixel size, frame interval, the engine spec in the header) |
+| `settings.isc.json` | Instrument settings | the settings as the Record began and the light before it ([settings files](try-viewer.md)) |
+| `gt/frames.csv` | Ground truth | one row per image |
+| `gt/localizations_min5.csv`, `_min300.csv` | a blinking label (dSTORM, PALM, DNA-PAINT) | every blink drawn (and every bead) with at least 5 or 300 photons on the camera, one row per frame |
+| `gt/fiducials.csv` | beads, no blinking label | every bead per frame |
+| `gt/dyes.csv` | continuous dyes (WideField, dSTORM's initial ON, PALM's pre state); optional | one row per dye |
+| `gt/density_<target>[_<state>].tif` | continuous dyes | a density stack per target: emitted photons per voxel |
+| `gt/README.txt`, `gt/voxelize.html` | Ground truth | what is in this zip; a converter to other voxel sizes |
+
+### frames.csv
+
+One row per image, so a recording that later combines time with z planes or stage positions needs no other format.
+
+| Column | Meaning |
+|---|---|
+| `frame` | the image's index from 0 |
+| `t_start_s`, `exposure_s` | the sample's time at the frame's start and the exposure (s) |
+| `stage_x_um`, `stage_y_um` | the field of view's centre (world µm) |
+| `focus_um`, `focus_world_um` | the focus as set, and the focal plane's height above the coverslip with the drift in |
+| `drift_x_nm`, `drift_y_nm`, `drift_z_nm` | the sample's drift at the frame |
+| `pattern_angle`, `pattern_phase` | only under structured illumination: the frame's pattern state |
+
+### Localization tables
+
+One row per blink per frame. The two tables differ only in their threshold: the photons that **land on the camera**,
+meaning the part of the blink's PSF inside the image (the pop-up sets both thresholds). The column names follow
+ThunderSTORM where it has one.
+
+| Column | Meaning |
+|---|---|
+| `frame`, `t_s` | the frame and its start time |
+| `kind` | `emitter`, or `fiducial` for a bead |
+| `id`, `target`, `dye`, `mode`, `state` | the dye (its id is stable across frames and recordings) and its label |
+| `x [nm]`, `y [nm]` | position on the camera, nm from the image's top-left corner, drift included |
+| `z [nm]` | height above the focal plane |
+| `x/y/z_world_um` | position in the sample (µm, z above the coverslip), without drift |
+| `site_x/y/z_world_um` | the binding site the dye hangs from (the microtubule's surface, the pore's Nup96 site, the lamina point; a docking strand is its own site). The dye minus the site is the linkage error. |
+| `on_fraction` | the part of the frame the blink was on |
+| `photons_detected` | photons the blink sent to the camera, if the camera were infinite |
+| `intensity [photon]` | those landing on the camera |
+| `photons_emitted` | photons it emitted (detected / collection x light path x QE) |
+| `offset [photon]` | the other light per pixel under this blink's PSF, weighted by the PSF: Σ w b / Σ w over the pixels it draws. This is everything except the blinks: the background, the free imager, continuous dyes, beads, the slide. |
+| `bg_centre_photons` | that light in the centre pixel alone |
+| `wavelength_nm`, `excitation` | the emission's wavelength (the PSF's) and the excitation factor at the dye |
+| `regime` | `splat`, `binned` (approximate SMLM at high density) or `bead` |
+| `bead_diameter_nm` | a bead's diameter |
+| `orient_polar_deg`, `orient_azimuth_deg` | the dye's mean emission dipole, if its label fixes one (see below) |
+
+A blink that **Quality** left out of the image is left out of the tables too. At Fast and Realistic, blinks under 100 or
+50 photons are not drawn, so in practice the ≥ 5 table starts there. Quality Exhaustive draws every blink.
+
+### Continuous dyes: dyes.csv and the density stacks
+
+WideField dyes, dSTORM's initial-ON phase and PALM's pre-state shine together rather than as separate blinks, so a
+localization table makes no sense for them. Two other files cover them instead:
+
+- `dyes.csv` lists each dye with its position and binding site, its window in the sample's time (`t_on_s`, `t_off_s`:
+  when it bleaches or switches), its detected rate now (`photons_per_s`, 0 when no light reaches it) and its photons
+  over the recorded frames (`photons_detected_total`, `photons_emitted_total`). A 128 px WideField recording lists
+  about 800 000 dyes (~100 MB), so the dye list is optional; the stacks stay.
+- `density_<target>.tif` sums `photons_emitted_total` per voxel (default 50 × 50 × 25 nm), over the box of that
+  target's dyes. The stack is 32-bit, which is what a reconstruction is scored against: the light each place gave,
+  not just whether a dye was there.
+  - Fiji/ImageJ and napari read the voxel size: X/YResolution in pixels per µm, `spacing` and `unit=micron` in the
+    ImageJ description.
+  - The world position of voxel (0, 0, 0)'s corner is in the description (`insiliscope.origin-um`) and in
+    `gt/README.txt`. Voxel (i, j, k)'s centre is that origin plus ((i, j, k) + ½) × the voxel size.
+  - Above 256 MB in all, the voxels grow by whole factors, and the README says so.
+
+### Other voxel sizes: voxelize.html
+
+`gt/voxelize.html` opens in any browser, offline, with nothing installed (it is also
+[published beside the viewer](https://kjamartens.github.io/inSiliScope/voxelize.html)). Drop `dyes.csv` or a
+localization table on it, then choose:
+
+- the dyes' positions or their binding sites;
+- the value per voxel: emitted photons, detected photons, or a count;
+- a target;
+- the voxel size.
+
+It writes the same kind of stack.
+
+## Caveats
+
+- **Orientation is not imaged yet.** The PSF is isotropic, so the dipole columns describe the label (Fixed or Random
+  orientation in its settings) but did not shape the image. They are empty for a freely rotating dye, the default.
+- **The PSF window.** "On the camera" counts the PSF over its kernel window (`psf-kernel-half-width-nm`) after the
+  Quality's halo cut. A blink just outside the image can still put photons on it; it is listed (with an empty
+  `bg_centre_photons`) when they reach the threshold.
+- **Drift** is in the camera coordinates, not in the world ones. The drift per frame is in `frames.csv`.

@@ -37,9 +37,11 @@ A first tour, about five minutes:
    fiducial beads alone on the glass (focus about 0.05 µm), or a **Fluorescent Slide**: a uniform dye layer that shows
    the beam's profile and bleaches where it is brightest. **Basic / Advanced /
    Expert** (top right) shows more settings; the search box finds any of them, and every name has a help text on hover (a long press on a phone).
-6. **Record a movie.** **● Record** asks for a number of frames, renders them and plays them back. **Save .tif**
+6. **Record a movie.** **● Record** asks for a number of frames, renders them and plays them back. **Save**
    writes a 16-bit TIFF stack that opens in ImageJ/Fiji with its pixel size and frame interval, ready for your SMLM
    or tracking software. The file's header holds every setting, so `insiliscope_cli --spec` reproduces it exactly.
+   Tick **instrument settings** and **ground truth** in its box for one `.zip` with the settings file and where every
+   fluorophore was ([ground truth](ground-truth.md)): localizations to score your analysis against.
 7. **Save your setup.** The disk icon beside Basic / Advanced / Expert (or **Save…** in the ☰ menu) writes a `.isc.json` file in parts
    (instrument, settings, sample, measurement with the sample's light history, view); the folder icon (**Load…**) takes all of a file
    or only some parts, so the same sample can be seen on another microscope.
