@@ -91,6 +91,10 @@ def main(path):
     check(mv is not None and mv.data.shape == (movie.shape[0], 1) + movie.shape[1:] and np.array_equal(mv.data[:, 0], movie),
           f'movie: its {movie.shape[0]} frames of {movie.shape[2]} x {movie.shape[1]} px, frame by frame')
     check(v.dims.axis_labels == ('frame', 'z (µm)', 'y (µm)', 'x (µm)'), f'axes named {v.dims.axis_labels}')
+    # the viewer's thick z slice is for the points (every frame's at any z in 2D); an image shows the plane at the z
+    # slider (napari 0.10's add_image defaults to 'mean': a density stack averaged over every z)
+    check(all(l.kw.get('projection_mode') == ('none' if l.kind == 'image' else 'all') for l in v.layers),
+          'projection modes: images none (a stack slice by slice), points all')
     if frames:
         f0 = frames[0]
         sx, sy, px = float(f0['stage_x_um']), float(f0['stage_y_um']), mv.kw['scale'][2]

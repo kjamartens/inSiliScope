@@ -89,7 +89,9 @@ def contrast(a):
 
 def layers_of_recording(src):
     """The layers of a saved recording (zip or folder), as (kind, data, kwargs) in world coordinates, the axes
-    (frame, z, y, x); and the focal height (for the z slider)."""
+    (frame, z, y, x); and the focal height (for the z slider). A recording without density stacks has nothing to
+    slice in z (a camera movie and its localizations): its axes are (frame, y, x), each localization's height a
+    feature (z_um), and the focal height None (no z slider)."""
     import numpy as np
     import tifffile
     out, zs = [], []
@@ -97,6 +99,8 @@ def layers_of_recording(src):
     focus = float(frames[0]['focus_world_um']) if frames else 0.0
     # the density stacks: a target each, all on one grid (they overlap), 8 bits (x insiliscope.scale = photons)
     stacks = sorted(n for n in src.names() if n.startswith('gt/gt_volume_') and n.endswith('.tif'))
+    flat = not stacks   # no z axis: (frame, y, x)
+    UM = ('pixel', 'um', 'um')   # a flat layer's units: the frame, y, x
     for k, name in enumerate(stacks):
         raw = src.read(name)
         with tifffile.TiffFile(io.BytesIO(raw)) as tf:
@@ -128,12 +132,21 @@ def layers_of_recording(src):
             feats = dict(target=target, photons=num(rows, 'intensity [photon]'), kind=np.array([r['kind'] for r in rows]))
             if 'core_photons' in rows[0]:
                 feats['core_photons'] = num(rows, 'core_photons')
-            # a layer per label (its own colour, size and symbol to change), and its every frame at once (hidden, for 3D);
-            # in nm with a scale of 1e-3 (the same world um): napari's size slider takes whole data units from 1
+            feats['z_um'] = z
+            # a layer per label (its own colour, size and symbol to change), and its every frame at once (hidden: in
+            # 3D, or flat as all the localizations together); in nm with a scale of 1e-3 (the same world um):
+            # napari's size slider takes whole data units from 1
             for k, name in enumerate(targets):
                 on = target == name
                 style = dict(features={c: v[on] for c, v in feats.items()}, face_color=COLOURS[k % len(COLOURS)],
                              border_width=0, size=100 if name == 'bead' else 60)
+                if flat:
+                    out.append(('points', np.stack([t, y * NM, x * NM], 1)[on],
+                                dict(name=f'localizations {name}', scale=(1,) + (1 / NM,) * 2, units=UM, **style)))
+                    out.append(('points', np.stack([y * NM, x * NM], 1)[on],
+                                dict(name=f'localizations {name}, all frames', scale=(1 / NM,) * 2, units=UM[1:],
+                                     visible=False, **style)))
+                    continue
                 out.append(('points', np.stack([t, z * NM, y * NM, x * NM], 1)[on],
                             dict(name=f'localizations {name}', scale=(1,) + (1 / NM,) * 3, **style)))
                 out.append(('points', np.stack([z * NM, y * NM, x * NM], 1)[on],
@@ -144,8 +157,12 @@ def layers_of_recording(src):
             pts = np.stack([num(rows, 'frame'), num(rows, 'z_world_um'), num(rows, 'y_world_um'), num(rows, 'x_world_um')], 1)
             zs += [float(np.nanmin(pts[:, 1])), float(np.nanmax(pts[:, 1]))]
             pts[:, 1:] *= NM
-            out.append(('points', pts, dict(name='beads', scale=(1,) + (1 / NM,) * 3, face_color='yellow',
-                                            border_width=0, size=100)))
+            bead = dict(name='beads', face_color='yellow', border_width=0, size=100)
+            if flat:
+                out.append(('points', pts[:, [0, 2, 3]], dict(scale=(1,) + (1 / NM,) * 2, units=UM,
+                                                             features=dict(z_um=pts[:, 1] / NM), **bead)))
+            else:
+                out.append(('points', pts, dict(scale=(1,) + (1 / NM,) * 3, **bead)))
     if src.has('movie.tif'):
         with tifffile.TiffFile(io.BytesIO(src.read('movie.tif'))) as tf:
             m = tf.asarray()
@@ -163,13 +180,16 @@ def layers_of_recording(src):
         sy = float(frames[0]['stage_y_um']) if frames else 0.0
         # pixel i's centre is at the stage position + (i - W/2) pixels (the camera x, y = world x, y, no flip)
         x0, y0 = sx - (m.shape[2] / 2) * px, sy - (m.shape[1] / 2) * px
-        # in 2D the movie stands at every z the other layers reach (a projection), in 3D a plane at the focus
-        half = max([abs(z - focus) for z in zs] + [1.0]) + 0.5
         lo, hi = np.percentile(m[0], [0.5, 99.8])
-        out.insert(0, ('image', m[:, None], dict(name='movie', scale=(1, 2 * half, px, px), translate=(0, focus, y0, x0),
-                                                 colormap='gray', contrast_limits=(float(lo), float(max(hi, lo + 1))),
-                                                 metadata=dict(focus=focus))))
-    return out, focus
+        look = dict(name='movie', colormap='gray', contrast_limits=(float(lo), float(max(hi, lo + 1))))
+        if flat:
+            out.insert(0, ('image', m, dict(scale=(1, px, px), translate=(0, y0, x0), units=UM, **look)))
+        else:
+            # in 2D the movie stands at every z the other layers reach (a projection), in 3D a plane at the focus
+            half = max([abs(z - focus) for z in zs] + [1.0]) + 0.5
+            out.insert(0, ('image', m[:, None], dict(scale=(1, 2 * half, px, px), translate=(0, focus, y0, x0),
+                                                     metadata=dict(focus=focus), **look)))
+    return out, (None if flat else focus)
 
 
 def lazy(f):
@@ -252,9 +272,12 @@ def add_layer(viewer, kind, data, kw):
     import numpy as np
     add = viewer.add_image if kind == 'image' else viewer.add_points
     ndim = np.ndim(data) if kind == 'image' else np.shape(data)[1]
-    units = ('pixel',) * (ndim - 3) + ('um',) * min(3, ndim)
+    kw = dict(kw)
+    units = kw.pop('units', None) or ('pixel',) * (ndim - 3) + ('um',) * min(3, ndim)   # (a flat layer names its own)
     try:
-        return add(data, units=units, **(dict(projection_mode='all') if kind == 'points' else {}), **kw)
+        # the thick z slice is for the points; an image shows the plane at the z slider (add_image's default 'mean'
+        # would average a density stack over every z, the same dim image at any height)
+        return add(data, units=units, projection_mode='all' if kind == 'points' else 'none', **kw)
     except TypeError:
         pass
     if kind == 'points':
@@ -293,14 +316,15 @@ def show(paths):
             layer = add_layer(viewer, kind, data, kw)
             if kind == 'points':
                 edit_whole(layer)
-            if kw.get('name') == 'movie':
+            if kw.get('name') == 'movie' and np.ndim(data) == 4:
                 try:   # in 3D: a plane at the focal height (the layer's only data plane)
                     layer.depiction = 'plane'
                     layer.plane.position = (0, data.shape[2] / 2, data.shape[3] / 2)
                     layer.plane.normal = (1, 0, 0)
                 except Exception:
                     pass
-    labels = ('frame', 'z (µm)', 'y (µm)', 'x (µm)')
+    labels = ('frame', 'z (µm)', 'y (µm)', 'x (µm)') if focus is not None or viewer.dims.ndim != 3 else \
+        ('frame', 'y (µm)', 'x (µm)')   # a recording with no z: frame, y, x
     viewer.dims.axis_labels = labels[-viewer.dims.ndim:]
     if focus is not None and viewer.dims.ndim >= 3:
         viewer.dims.set_point(viewer.dims.ndim - 3, focus)   # the z slider at the focal height
