@@ -103,6 +103,9 @@
     <ClCompile Include="Simulation\Slide.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\CsvNumber.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\GroundTruth.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -265,6 +268,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\Slide.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\CsvNumber.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\GroundTruth.h">

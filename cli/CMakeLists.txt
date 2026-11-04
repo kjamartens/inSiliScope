@@ -20,6 +20,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/Fft2d.cpp
   ${ISC_SIM}/BinnedBlinks.cpp
   ${ISC_SIM}/Fiducials.cpp
+  ${ISC_SIM}/CsvNumber.cpp
   ${ISC_SIM}/GroundTruth.cpp
   ${ISC_SIM}/Voxelize.cpp
   ${ISC_SIM}/Slide.cpp
@@ -112,6 +113,15 @@ if(EMSCRIPTEN)
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_voxelize PROPERTIES OUTPUT_NAME insiliscope_voxelize SUFFIX ".js")
+  # ctest csv_numbers in WASM: the ground truth tables' numbers (Simulation/CsvNumber.cpp: libc++'s std::to_chars) =
+  # musl's snprintf (the module writes the viewer's tables with them).
+  if(ISC_BUILD_TESTS)
+    add_executable(csv_number_check csv_number_check.cpp ${ISC_SIM}/CsvNumber.cpp)
+    target_include_directories(csv_number_check PRIVATE ${ISC_SIM})
+    target_link_options(csv_number_check PRIVATE -O3 -sALLOW_MEMORY_GROWTH=1 -sENVIRONMENT=node)
+    find_program(ISC_NODE_CLI node NAMES node nodejs)
+    add_test(NAME csv_numbers COMMAND ${ISC_NODE_CLI} $<TARGET_FILE:csv_number_check>)
+  endif()
   return()
 endif()
 
@@ -204,7 +214,8 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   target_link_libraries(slide_check PRIVATE insiliscope_sim)
   add_test(NAME slide COMMAND slide_check)
 
-  # The ground truth (Simulation/GroundTruth.h): the frames unchanged, the photons on the camera, beads, volumes.
+  # The ground truth (Simulation/GroundTruth.h): the frames unchanged, the photons on the camera, beads, volumes
+  # (its tables' numbers: ctest csv_numbers, natively and in WASM).
   add_executable(ground_truth_check ground_truth_check.cpp)
   target_link_libraries(ground_truth_check PRIVATE insiliscope_sim)
   add_test(NAME ground_truth COMMAND ground_truth_check)
@@ -222,4 +233,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
     set_tests_properties(wf_gpu_d3d11 PROPERTIES SKIP_RETURN_CODE 77)   # no hardware Direct3D 11 device
   endif()
   isc_cap_test_threads()
+endif()
+
+# The ground truth tables' numbers (Simulation/CsvNumber.cpp: std::to_chars) = snprintf's (the WASM copy above).
+if(ISC_BUILD_TESTS)
+  add_executable(csv_number_check csv_number_check.cpp)
+  target_link_libraries(csv_number_check PRIVATE insiliscope_sim)
+  add_test(NAME csv_numbers COMMAND csv_number_check)
 endif()

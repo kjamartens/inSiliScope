@@ -133,6 +133,7 @@
     <ClCompile Include="Simulation\BinnedBlinks.cpp" />
     <ClCompile Include="Simulation\Fiducials.cpp" />
     <ClCompile Include="Simulation\Slide.cpp" />
+    <ClCompile Include="Simulation\CsvNumber.cpp" />
     <ClCompile Include="Simulation\GroundTruth.cpp" />
     <ClCompile Include="Simulation\Voxelize.cpp" />
     <ClCompile Include="Simulation\BlinkExpectation.cpp" />
@@ -197,6 +198,7 @@
     <ClInclude Include="Simulation\BinnedBlinks.h" />
     <ClInclude Include="Simulation\Fiducials.h" />
     <ClInclude Include="Simulation\Slide.h" />
+    <ClInclude Include="Simulation\CsvNumber.h" />
     <ClInclude Include="Simulation\GroundTruth.h" />
     <ClInclude Include="Simulation\Voxelize.h" />
     <ClInclude Include="Simulation\BlinkExpectation.h" />
