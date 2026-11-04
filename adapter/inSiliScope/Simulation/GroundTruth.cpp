@@ -12,6 +12,7 @@
 
 #include "PsfGeneratorBridge.h"
 #include "SMLMSimulation.h"
+#include "Timing.h"
 #include "Voxelize.h"
 
 #include <algorithm>
@@ -454,8 +455,11 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
       if (g.state != 3)
          name += std::string("_") + StateName(g.state);
       name += ".tif";
+      auto tv = TimingClock::now();
       vox::Stack st(grid, 1, 8, g.x.data(), g.y.data(), g.z.data(), g.w.data(), nullptr, g.x.size());
       st.Maxima();
+      TimingLog("gt.volume-stack", TimingSince(tv), std::to_string(g.x.size()).c_str());
+      tv = TimingClock::now();
       const std::vector<std::string> chans{ channel };
       const std::string desc = vox::Description(
          st, chans, "photons_detected_total per voxel (the detected photons of its dyes over the recorded frames)",
@@ -468,6 +472,7 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
       std::vector<int64_t> sameAs(grid.nz, -1);
       std::vector<unsigned char> q(st.PlaneBytes());
       int64_t empty = -1;
+      double fillSec = 0, deflateSec = 0;
       for (uint32_t z = 0; z < grid.nz; ++z)
       {
          if (st.Empty(z) && empty >= 0)
@@ -476,13 +481,21 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
             sizes[z] = sizes[static_cast<size_t>(empty)];
             continue;
          }
+         const auto tp = TimingClock::now();
          st.Fill(z);
          st.Quantize(0, q.data());
+         const auto tq = TimingClock::now();
          vox::Deflate(q.data(), q.size(), planes[z]);
+         fillSec += std::chrono::duration<double>(tq - tp).count();
+         deflateSec += TimingSince(tq);
          sizes[z] = planes[z].size();
          if (st.Empty(z))
             empty = z;
       }
+      TimingLog("gt.volume-planes", TimingSince(tv), std::to_string(grid.nz).c_str());
+      TimingLog("gt.volume-fill-quantize", fillSec);
+      TimingLog("gt.volume-deflate", deflateSec);
+      tv = TimingClock::now();
       const vox::TiffLayout lay = vox::LayoutTiff(sizes, &sameAs, grid.nx, grid.ny, 8, 1.0 / grid.vx, desc,
                                                   vox::Labels(grid, chans), 8);
       Volume vol;
@@ -504,6 +517,7 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
                     grid.nz, grid.vx * 1000, grid.vx * 1000, grid.vz * 1000, st.Scales()[0], st.Sums()[0], g.x.size(),
                     grid.Ox(), grid.Oy(), grid.Oz());
       vol.line = line;
+      TimingLog("gt.volume-tiff", TimingSince(tv));
       out.push_back(std::move(vol));
    }
    return out;
@@ -526,7 +540,10 @@ void GroundTruth::Files(const FileSink& sink, const std::vector<double>& thresho
       "inSiliScope ground truth. The columns, units and caveats: https://kjamartens.github.io/inSiliScope/docs/ground-truth/\n"
       "Photons are expected values (before shot noise); world coordinates are um, z above the coverslip; camera x, y\n"
       "are nm from the image's top-left corner, drift included; z [nm] is the height above the focal plane.\n\n";
-   sink("frames.csv", FramesCsv());
+   auto t0 = TimingClock::now();
+   std::string framesCsv = FramesCsv();
+   TimingLog("gt.frames-csv", TimingSince(t0));
+   sink("frames.csv", std::move(framesCsv));
    readme += "frames.csv: one row per image: its time, stage position, focus, drift (and pattern state under SIM).\n";
    bool beads = false;
    for (const Emitter& e : emitters)
@@ -537,7 +554,10 @@ void GroundTruth::Files(const FileSink& sink, const std::vector<double>& thresho
       {
          char name[64];
          std::snprintf(name, sizeof name, "localizations_min%g.csv", t);
-         sink(name, EmittersCsv(t, true));
+         t0 = TimingClock::now();
+         std::string csv = EmittersCsv(t, true);
+         TimingLog("gt.localizations-csv", TimingSince(t0), name);
+         sink(name, std::move(csv));
          readme += std::string(name) + ": every blink drawn" + (beads ? " and every bead (kind fiducial)" : "") +
                    " with at least " + Fmt("%g", t) +
                    " expected photons landing on the camera in a frame, one row per frame. A blink the Quality's\n"
@@ -545,14 +565,20 @@ void GroundTruth::Files(const FileSink& sink, const std::vector<double>& thresho
       }
    else if (beads)
    {
-      sink("fiducials.csv", FiducialsCsv());
+      t0 = TimingClock::now();
+      std::string csv = FiducialsCsv();
+      TimingLog("gt.fiducials-csv", TimingSince(t0));
+      sink("fiducials.csv", std::move(csv));
       readme += "fiducials.csv: every bead per frame (no blinking label in this movie).\n";
    }
    if (!dyes_.empty())
    {
       if (writeDyeCsv && !blinking)   // a movie's ground truth is its localizations or its dye list, never both
       {
-         sink("dyes.csv", DyesCsv());
+         t0 = TimingClock::now();
+         std::string csv = DyesCsv();
+         TimingLog("gt.dyes-csv", TimingSince(t0), std::to_string(dyes_.size()).c_str());
+         sink("dyes.csv", std::move(csv));
          readme += "dyes.csv: every dye in the queried box: its window, its detected rate now and its photons over the\n"
                    "  recorded frames.\n";
       }
