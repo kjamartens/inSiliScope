@@ -22,6 +22,7 @@
 #pragma once
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -76,7 +77,7 @@ public:
       double excite = 1;                  // the excitation factor at its site
       double beadNm = 0;                  // a bead's diameter
       // The dye's target site (world um) and mean dipole (degrees: polar from z, azimuth from x; NaN: free) -- filled
-      // by the host's details pass (ScopeGroundTruthDetails); NaN until then.
+      // by the host's details pass (ApplyDetails); NaN until then.
       double siteXUm, siteYUm, siteZUm, polarDeg, azimuthDeg;
       Emitter();
    };
@@ -91,7 +92,10 @@ public:
       // Over the recorded frames (every movie that saw it: its window's overlap with each movie's time x its rate):
       // the photons it gave, detected and emitted (the density volume's weight).
       double detectedTotal = 0, emittedTotal = 0;
+      // As an Emitter's (ApplyDetails).
+      double siteXUm = NaN(), siteYUm = NaN(), siteZUm = NaN(), polarDeg = NaN(), azimuthDeg = NaN();
    };
+   static double NaN() { return std::numeric_limits<double>::quiet_NaN(); }
 
    std::vector<Label> labels;
    std::vector<Frame> frames;
@@ -112,6 +116,13 @@ public:
    void GrowBox(double x0, double y0, double x1, double y1, double z0, double z1);
    // Whether any label blinks (dSTORM, PALM, DNA-PAINT): the beads then go into the emitter tables.
    bool Blinking() const;
+   // The details pass (a movie's end): the world box (x0, y0, x1, y1, z0, z1; um, padded) of the dyes still without
+   // a site -- the emitter rows from emitterFrom on and every continuous dye; false if none. Then the core's rows
+   // (isc_dye_details_in_window, stride doubles each: x, y, z, id, structure, site xyz, dipole xyz) give each such
+   // row its site and orientation (matched by id, structure and position).
+   // ids: their dyes' ids (each once).
+   bool NeedsDetails(size_t emitterFrom, double box[6], std::vector<double>& ids) const;
+   void ApplyDetails(const double* rows, size_t n, int stride, size_t emitterFrom);
 
    // The tables (CSV, a header line; docs/ground-truth.md). Emitters: rows with onCamera >= minOnCamera, by frame;
    // fiducials: whether the beads go in (else FiducialsCsv has them).

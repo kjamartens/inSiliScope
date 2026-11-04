@@ -1387,3 +1387,19 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
 - **Not in this round:** the MM adapter's rows and counter (M2), the viewer's rows, readout and preview (M3), the
   GPU mean field under a pattern (the CPU scenes serve; a job cannot see per-frame plane factors yet), the exact
   per-frame dose, stroboscopic programs.
+
+## 29. Ground truth: the dyes' sites and dipoles (2026-11-04)
+
+C++ only; docs/ground-truth.md has the files.
+
+- **ABI 19.** `isc_dye_details_in_window(w, rect, zMin, zMax, ids, nIds, out, cap)`, `ISC_DYE_DETAIL_STRIDE` 11: the
+  dyes of `isc_sites_in_window` (same order; with `nIds` > 0 only those ids), each with its binding site (world um:
+  where the linkage starts -- the microtubule surface at the protofilament's azimuth, the pore's Nup96 site, the lamina
+  point; a docking strand is its own site) and its mean emission dipole (`World::DyeOrientationOf` rotated by the
+  cell's `packRot`; NaN for Free). `World::DyeSiteOf` repeats `DyesInBlock` / `NpcDyesInBlock` / `LaminDyesInBlock`'s
+  site arithmetic per dye (with no linkage the dye equals its site exactly: `world_checks.lamin`). Goldens and
+  `ISC_WORLD_VERSION` unchanged. The viewer's ABI check reads 19.
+- Engine: `Simulation/GroundTruth.*`, a thread-local sink (`GroundTruthScope`) that `FluorescenceMovie::Begin` /
+  `Render` fill when one is in scope (frames bit for bit the same): the frames, the drawn blinks and beads with their
+  photons on the camera and the PSF-weighted light under them, the continuous dyes with their photons over the movie;
+  at a movie's end one details query over the new rows' dyes (`fl.ground-truth-details`). cli `--gt-out`, `--gt-min`.

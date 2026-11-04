@@ -6192,6 +6192,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    struct GtBeadFp { double zf = std::numeric_limits<double>::quiet_NaN(), dx = 0, dy = 0; SparseFootprint fp; };
    std::vector<std::vector<GtBeadFp>> gtBeadFp;
    const long gtBase = gt ? gt->frameBase : 0;
+   const size_t gtEmFrom = gt ? gt->emitters.size() : 0;
    if (gt)
    {
       gt->width = W;
@@ -6691,6 +6692,17 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       tWrite.Stop();
       if (!more)
          break;
+   }
+   // The ground truth's details: the new rows' sites and dipoles, one core query over their box.
+   double gtBox[6];
+   std::vector<double> gtIds;
+   if (gt && gt->NeedsDetails(gtEmFrom, gtBox, gtIds))
+   {
+      const auto td = TimingClock::now();
+      std::vector<double> rows;
+      if (m.cache.source.DyeDetails(gtBox[0], gtBox[1], gtBox[2], gtBox[3], gtBox[4], gtBox[5], gtIds, rows))
+         gt->ApplyDetails(rows.data(), rows.size() / ISC_DYE_DETAIL_STRIDE, ISC_DYE_DETAIL_STRIDE, gtEmFrom);
+      TimingLog("fl.ground-truth-details", TimingSince(td), std::to_string(rows.size() / ISC_DYE_DETAIL_STRIDE).c_str());
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
    tBlinks.Log("fl.frame.blinks (batches)");

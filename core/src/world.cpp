@@ -1221,6 +1221,100 @@ bool World::DyeOrientationOf(const WorldDye& d, Pt3& dir)
    return DyeOrientation(DyeH1(seed_, d.cx, d.cy, d.mtIndex), d.k, d.n, label, fr, MtSegmentAt(fr, S), theta, dir);
 }
 
+bool World::DyeSiteOf(const WorldDye& d, Pt3& site)
+{
+   PoolScope scope(pool_);
+   if (d.structure != STRUCTURE_MT && d.structure != STRUCTURE_NPC && d.structure != STRUCTURE_LAMIN) return false;
+   Cell c;
+   if (!FindCell(d.cx, d.cy, c)) return false;
+   CellAssets& A = Assets(c);
+   if (d.structure == STRUCTURE_NPC) {
+      // NpcDyesInBlock's attachment point (attachNm 0: the site is the base).
+      EnsureNpcs(seed_, A, p_);
+      const std::vector<Npc>& pores = A.npcs;
+      if (pores.empty() || d.k < 0 || d.k >= NPC_SITES) return false;
+      size_t lo = 0, hi = pores.size() - 1;
+      while (lo < hi) {
+         const size_t m = (lo + hi) / 2;
+         if (pores[m].cand < d.n) lo = m + 1; else hi = m;
+      }
+      const Npc& q = pores[lo];
+      if (q.cand != d.n) return false;
+      const double* s = A.npcSites;
+      const double sa = s[3 * d.k] * 1e-3, sb = s[3 * d.k + 1] * 1e-3, sc = s[3 * d.k + 2] * 1e-3;
+      site = { q.c.x + sa * q.e1.x + sb * q.e2.x + sc * q.n.x, q.c.y + sa * q.e1.y + sb * q.e2.y + sc * q.n.y,
+               q.c.z + sa * q.e1.z + sb * q.e2.z + sc * q.n.z };
+      return true;
+   }
+   if (d.structure == STRUCTURE_LAMIN) {
+      EnsureLamin(seed_, A, p_);
+      const std::vector<LaminPoint>& pts = A.lamin;
+      if (pts.empty() || d.k != 0) return false;
+      size_t lo = 0, hi = pts.size() - 1;
+      while (lo < hi) {
+         const size_t m = (lo + hi) / 2;
+         if (pts[m].cand < d.n) lo = m + 1; else hi = m;
+      }
+      if (pts[lo].cand != d.n) return false;
+      site = pts[lo].c;
+      return true;
+   }
+   // DyesInBlock's site: the axis point at arc S, out by the radius along the protofilament's direction.
+   if (d.mtIndex < 0 || (size_t)d.mtIndex >= A.mts.size()) return false;
+   const std::vector<Pt3>& pts = A.mts[(size_t)d.mtIndex].pts;
+   const MtFrames& fr = A.Frames((size_t)d.mtIndex);
+   if (pts.size() < 2) return false;
+   const double S = (MtProtofilamentOffsetNm(d.k) + d.n * MT_DIMER_NM) * 1e-3;
+   const double theta = MtProtofilamentTheta(MtSeamPhase(seed_, d.cx, d.cy, d.mtIndex), d.k);
+   const double ct = jsm::cos(theta), st = jsm::sin(theta);
+   const size_t seg = MtSegmentAt(fr, S);
+   const Pt3& ft = fr.T[seg]; const Pt3& fu = fr.U[seg]; const Pt3& fv = fr.V[seg];
+   const double f = S - fr.cum[seg];
+   const double R = MT_RADIUS_NM * 1e-3;
+   const Pt3 a = { ct * fu.x + st * fv.x, ct * fu.y + st * fv.y, ct * fu.z + st * fv.z };
+   site = { pts[seg].x + ft.x * f + a.x * R, pts[seg].y + ft.y * f + a.y * R, pts[seg].z + ft.z * f + a.z * R };
+   return true;
+}
+
+void World::DyeDetailsInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
+                               std::vector<DyeDetail>& out, const std::unordered_set<uint32_t>* only)
+{
+   PoolScope scope(pool_);
+   std::vector<WorldDye> dyes;
+   ForEachDye(x0, y0, x1, y1, zMin, zMax, [&](const DyeBlock& b, const PackedDye& d) {
+      if (!only || only->count(d.id)) dyes.push_back(DyeAt(b, d));
+   });
+   out.reserve(out.size() + dyes.size());
+   for (const WorldDye& d : dyes) {
+      DyeDetail r;
+      r.dye = d;
+      r.site = { d.x, d.y, d.z };
+      r.dir = { 0, 0, 0 };
+      r.hasSite = r.hasDir = false;
+      if (d.structure == STRUCTURE_ORIGAMI) {
+         r.hasSite = true;   // the docking strand is the site
+         out.push_back(r);
+         continue;
+      }
+      Cell c;
+      if (FindCell(d.cx, d.cy, c)) {
+         const double rot = c.packRot;
+         const bool rotated = !(rot == 0 || std::isnan(rot));
+         const double cr = rotated ? jsm::cos(rot) : 1, sr = rotated ? jsm::sin(rot) : 0;
+         Pt3 s, v;
+         if (DyeSiteOf(d, s)) {
+            r.site = { c.x + s.x * cr - s.y * sr, c.y + s.x * sr + s.y * cr, s.z };
+            r.hasSite = true;
+         }
+         if (DyeOrientationOf(d, v)) {
+            r.dir = { v.x * cr - v.y * sr, v.x * sr + v.y * cr, v.z };
+            r.hasDir = true;
+         }
+      }
+      out.push_back(r);
+   }
+}
+
 long World::DensityInWindow(double x0, double y0, double x1, double y1, double zMin, double zMax,
                             int nx, int ny, float* out)
 {

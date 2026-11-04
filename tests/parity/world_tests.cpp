@@ -39,6 +39,7 @@
 #include <string>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace isc;
@@ -2678,6 +2679,8 @@ void Npcs()
 // none within laminNpcExclNm / 2 of a pore centre, outward unit normals; the pores unchanged by the lamin* params; the
 // dyes structure 2 only, within the linkage's reach of their point, tiled, by density3d bit 2, on 8 threads = 1, and
 // the other targets' dyes unchanged; isc_cell_lamin = the points.
+void DyeDetails(uint32_t seed, const Params& p, const Cell& c0);
+
 void Lamin()
 {
    const uint32_t seed = 1249;
@@ -2867,6 +2870,90 @@ void Lamin()
       Check(isc_cell_lamin(cw, c0.cx, c0.cy, nullptr, 5) == -1, "C ABI: isc_cell_lamin -1 for a null buffer with a capacity");
       isc_world_free(cw);
    }
+   DyeDetails(seed, p, c0);
+}
+
+// ABI 19 (ground truth): each dye's binding site and dipole. With no linkage the dye sits on its site (the same
+// arithmetic, so equal); with one, within the linkage's reach of it. The dipole: a unit vector for Fixed and Random,
+// none for Free; the C ABI's rows are SitesInWindow's with the details after them.
+void DyeDetails(uint32_t seed, const Params& p, const Cell& c0)
+{
+   const double x0 = c0.x - 4, y0 = c0.y - 4, x1 = c0.x + 4, y1 = c0.y + 4;
+   const int structs[3] = { STRUCTURE_MT, STRUCTURE_NPC, STRUCTURE_LAMIN };
+   const char* names[3] = { "microtubules", "pores", "lamina" };
+   for (int linked = 0; linked < 2; linked++) {
+      World w = Fresh(seed, p);
+      for (int s : structs) {
+         Label l = MakeLabel(LabelMode::DnaPaint, 0.2);
+         l.linkage = linked ? Linkage{ 12, 5, 2, 5 } : Linkage{ 0, 0, 0, 0 };
+         l.hasLinkage = true;   // (else the structure's legacy linkage)
+         l.orientation.mode = s == STRUCTURE_MT ? OrientationMode::Fixed
+                              : s == STRUCTURE_NPC ? OrientationMode::Random : OrientationMode::Free;
+         w.SetLabel(s, l);
+      }
+      std::vector<World::DyeDetail> v;
+      w.DyeDetailsInWindow(x0, y0, x1, y1, -INF, INF, v);
+      std::vector<WorldDye> sites;
+      w.SitesInWindow(x0, y0, x1, y1, -INF, INF, sites);
+      Check(v.size() == sites.size() && !v.empty(), Fmt("dye details (%s): one per dye of SitesInWindow", linked ? "linked" : "no linkage"),
+            Fmt("%zu vs %zu", v.size(), sites.size()));
+      const double reach = (12 + 5 + 5) * 1e-3 + 1e-12;
+      for (int si = 0; si < 3; si++) {
+         std::string d;
+         long n = 0;
+         for (size_t i = 0; i < v.size() && i < sites.size(); i++) {
+            const World::DyeDetail& r = v[i];
+            if (r.dye.structure != structs[si]) continue;
+            n++;
+            if (!d.empty()) continue;
+            if (r.dye.id != sites[i].id || r.dye.x != sites[i].x) d = Fmt("dye %zu: not SitesInWindow's", i);
+            else if (!r.hasSite) d = Fmt("dye %zu: no site", i);
+            else {
+               const double dx = r.dye.x - r.site.x, dy = r.dye.y - r.site.y, dz = r.dye.z - r.site.z;
+               const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+               if (linked ? !(dist <= reach) : dist != 0) d = Fmt("dye %zu: %.6g nm from its site", i, dist * 1000);
+            }
+            const bool wantDir = structs[si] != STRUCTURE_LAMIN;
+            if (d.empty() && r.hasDir != wantDir) d = Fmt("dye %zu: dipole %s", i, r.hasDir ? "given for Free" : "missing");
+            const double dd = r.dir.x * r.dir.x + r.dir.y * r.dir.y + r.dir.z * r.dir.z;
+            if (d.empty() && wantDir && std::fabs(dd - 1) > 1e-9) d = Fmt("dye %zu: |dipole|^2 = %.12g", i, dd);
+         }
+         if (d.empty() && n == 0) d = "no dyes";
+         Same(d, Fmt("dye details, %s (%s, %ld dyes): site and dipole", names[si], linked ? "linked" : "no linkage", n));
+      }
+   }
+   // The C ABI on a fresh world (default labels): SitesInWindow's columns, then the details.
+   IscParams* ip = AbiParams({ { "npcDensity", p.npcDensity }, { "laminDensity", p.laminDensity }, { "laminNpcExclNm", p.laminNpcExclNm } });
+   IscWorld* cw = isc_world_new(seed, ip);
+   isc_params_free(ip);
+   const int32_t n = isc_dye_details_in_window(cw, x0, y0, x1, y1, -INF, INF, nullptr, 0, nullptr, 0);
+   const int32_t ns = isc_sites_in_window(cw, x0, y0, x1, y1, -INF, INF, nullptr, 0);
+   std::vector<double> rows((size_t)std::max(0, n) * ISC_DYE_DETAIL_STRIDE), srows((size_t)std::max(0, ns) * ISC_SITE_STRIDE);
+   const int32_t n2 = isc_dye_details_in_window(cw, x0, y0, x1, y1, -INF, INF, nullptr, 0, rows.data(), n);
+   isc_sites_in_window(cw, x0, y0, x1, y1, -INF, INF, srows.data(), ns);
+   std::string d = n > 0 && n2 == n && n == ns ? "" : Fmt("%d rows (%d filled) vs %d sites", n, n2, ns);
+   for (int32_t i = 0; d.empty() && i < n; i++)
+      for (int c = 0; c < ISC_SITE_STRIDE; c++)
+         if (rows[(size_t)i * ISC_DYE_DETAIL_STRIDE + c] != srows[(size_t)i * ISC_SITE_STRIDE + c]) d = Fmt("row %d column %d", i, c);
+   Same(d, "C ABI: isc_dye_details_in_window rows = isc_sites_in_window's, then the details");
+   // Only some ids: those dyes' rows, in the same order.
+   if (n > 10) {
+      std::vector<double> ids, want, got(rows.size());
+      for (int32_t i = 0; i < n; i += 7) ids.push_back(rows[(size_t)i * ISC_DYE_DETAIL_STRIDE + 3]);
+      std::unordered_set<uint32_t> set;
+      for (double v : ids) set.insert((uint32_t)v);
+      for (int32_t i = 0; i < n; i++)
+         if (set.count((uint32_t)rows[(size_t)i * ISC_DYE_DETAIL_STRIDE + 3]))
+            want.insert(want.end(), rows.begin() + (size_t)i * ISC_DYE_DETAIL_STRIDE, rows.begin() + (size_t)(i + 1) * ISC_DYE_DETAIL_STRIDE);
+      const int32_t k = isc_dye_details_in_window(cw, x0, y0, x1, y1, -INF, INF, ids.data(), (int32_t)ids.size(), got.data(), n);
+      got.resize((size_t)std::max(0, k) * ISC_DYE_DETAIL_STRIDE);
+      bool same = got.size() == want.size();
+      for (size_t i = 0; same && i < got.size(); i++) same = got[i] == want[i] || (std::isnan(got[i]) && std::isnan(want[i]));
+      Check(same, "C ABI: isc_dye_details_in_window with ids: those dyes' rows", Fmt("%d rows, want %zu", k, want.size() / ISC_DYE_DETAIL_STRIDE));
+   }
+   Check(isc_dye_details_in_window(cw, x0, y0, x1, y1, -INF, INF, nullptr, 0, nullptr, 5) == -1,
+         "C ABI: isc_dye_details_in_window -1 for a null buffer with a capacity");
+   isc_world_free(cw);
 }
 
 

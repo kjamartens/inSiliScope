@@ -113,6 +113,81 @@ void GroundTruth::GrowBox(double x0, double y0, double x1, double y1, double z0,
    boxX1 = std::max(boxX1, x1); boxY1 = std::max(boxY1, y1); boxZ1 = std::max(boxZ1, z1);
 }
 
+bool GroundTruth::NeedsDetails(size_t emitterFrom, double box[6], std::vector<double>& ids) const
+{
+   bool any = false;
+   std::unordered_map<uint32_t, char> seen;
+   const auto grow = [&](uint32_t id, double x, double y, double z) {
+      if (seen.emplace(id, 0).second)
+         ids.push_back(id);
+      if (!any)
+      {
+         box[0] = box[2] = x; box[1] = box[3] = y; box[4] = box[5] = z;
+         any = true;
+         return;
+      }
+      box[0] = std::min(box[0], x); box[2] = std::max(box[2], x);
+      box[1] = std::min(box[1], y); box[3] = std::max(box[3], y);
+      box[4] = std::min(box[4], z); box[5] = std::max(box[5], z);
+   };
+   for (size_t i = emitterFrom; i < emitters.size(); ++i)
+      if (emitters[i].kind != Fiducial && std::isnan(emitters[i].siteXUm))
+         grow(emitters[i].id, emitters[i].xUm, emitters[i].yUm, emitters[i].zUm);
+   for (const Dye& d : dyes_)
+      if (std::isnan(d.siteXUm))
+         grow(d.id, d.xUm, d.yUm, d.zUm);
+   if (any)
+   {
+      // (half-open windows; the rows' positions went through the host's frame and back)
+      const double pad = 1e-3;
+      box[0] -= pad; box[1] -= pad; box[4] -= pad;
+      box[2] += pad; box[3] += pad; box[5] += pad;
+   }
+   return any;
+}
+
+void GroundTruth::ApplyDetails(const double* rows, size_t n, int stride, size_t emitterFrom)
+{
+   std::unordered_map<uint64_t, std::vector<size_t>> at;
+   at.reserve(n);
+   for (size_t i = 0; i < n; ++i)
+   {
+      const double* r = rows + i * static_cast<size_t>(stride);
+      at[static_cast<uint64_t>(r[3]) | (static_cast<uint64_t>(r[4]) << 32)].push_back(i);
+   }
+   const auto fill = [&](uint32_t id, int structure, double x, double y, double z, double& sx, double& sy, double& sz,
+                         double& polar, double& azimuth) {
+      const auto it = at.find(static_cast<uint64_t>(id) | (static_cast<uint64_t>(structure & 0xFF) << 32));
+      if (it == at.end())
+         return;
+      for (size_t i : it->second)
+      {
+         const double* r = rows + i * static_cast<size_t>(stride);
+         if (!(std::fabs(r[0] - x) < 1e-6 && std::fabs(r[1] - y) < 1e-6 && std::fabs(r[2] - z) < 1e-6))
+            continue;
+         sx = r[5]; sy = r[6]; sz = r[7];
+         const double dx = r[8], dy = r[9], dz = r[10];
+         const double len = std::sqrt(dx * dx + dy * dy + dz * dz);
+         if (len > 0)
+         {
+            const double rad = 180.0 / 3.14159265358979323846;
+            polar = std::acos(std::max(-1.0, std::min(1.0, dz / len))) * rad;
+            azimuth = std::atan2(dy, dx) * rad;
+         }
+         return;
+      }
+   };
+   for (size_t i = emitterFrom; i < emitters.size(); ++i)
+   {
+      Emitter& e = emitters[i];
+      if (e.kind != Fiducial && std::isnan(e.siteXUm))
+         fill(e.id, e.structure, e.xUm, e.yUm, e.zUm, e.siteXUm, e.siteYUm, e.siteZUm, e.polarDeg, e.azimuthDeg);
+   }
+   for (Dye& d : dyes_)
+      if (std::isnan(d.siteXUm))
+         fill(d.id, d.structure, d.xUm, d.yUm, d.zUm, d.siteXUm, d.siteYUm, d.siteZUm, d.polarDeg, d.azimuthDeg);
+}
+
 bool GroundTruth::Blinking() const
 {
    for (const Label& l : labels)
@@ -231,8 +306,9 @@ std::string GroundTruth::FiducialsCsv() const
 
 std::string GroundTruth::DyesCsv() const
 {
-   std::string out = "id,target,dye,mode,state,x_world_um,y_world_um,z_world_um,t_on_s,t_off_s,photons_per_s,"
-                     "photons_detected_total,photons_emitted_total\n";
+   std::string out = "id,target,dye,mode,state,x_world_um,y_world_um,z_world_um,site_x_world_um,site_y_world_um,"
+                     "site_z_world_um,t_on_s,t_off_s,photons_per_s,photons_detected_total,photons_emitted_total,"
+                     "orient_polar_deg,orient_azimuth_deg\n";
    out.reserve(out.size() + dyes_.size() * 120);
    for (const Dye& d : dyes_)
    {
@@ -245,11 +321,16 @@ std::string GroundTruth::DyesCsv() const
       Num(out, d.xUm, "%.6f");
       Num(out, d.yUm, "%.6f");
       Num(out, d.zUm, "%.6f");
+      Num(out, d.siteXUm, "%.6f");
+      Num(out, d.siteYUm, "%.6f");
+      Num(out, d.siteZUm, "%.6f");
       Num(out, d.tOnSec, "%.6f");
       Num(out, d.tOffSec, "%.6f");
       Num(out, d.photonsPerSec, "%.6g");
       Num(out, d.detectedTotal, "%.6g");
       Num(out, d.emittedTotal, "%.6g");
+      Num(out, d.polarDeg, "%.4f");
+      Num(out, d.azimuthDeg, "%.4f");
       out += '\n';
    }
    return out;
