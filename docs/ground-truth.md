@@ -39,13 +39,15 @@ noisy count.
 | File | When | What |
 |---|---|---|
 | `movie.tif` | always | the frames, 16-bit, ImageJ (pixel size, frame interval, the engine spec in the header) |
-| `settings.isc.json` | Instrument settings | the settings as the Record began and the light before it ([settings files](try-viewer.md)) |
+| `settings.isc.json` | Settings file | the microscope, sample and acquisition as the Record began, with the light the sample had seen before ([settings files](try-viewer.md)) |
 | `gt/frames.csv` | Ground truth | one row per image |
 | `gt/localizations_min5.csv`, `_min300.csv` | a blinking label (dSTORM, PALM, DNA-PAINT) | every blink drawn (and every bead) with at least 5 or 300 photons on the camera, one row per frame |
 | `gt/fiducials.csv` | beads, no blinking label | every bead per frame |
-| `gt/dyes.csv` | no blinking label (WideField); optional | one row per dye |
+| `gt/dyes.csv` | Dye list (no blinking label, WideField) | one row per dye |
+| `gt/voxelize.html` | Dye list | a converter from `dyes.csv` to a stack at any voxel size (below) |
 | `gt/density_<target>[_<state>].tif` | continuous dyes | a density stack per target: emitted photons per voxel |
-| `gt/README.txt`, `gt/voxelize.html` | Ground truth | what is in this zip; a converter to other voxel sizes |
+| `gt/README.txt` | Ground truth | what is in `gt/` |
+| `README.txt` | any of the above | what is in the zip |
 
 ### frames.csv
 
@@ -113,9 +115,10 @@ The density stacks come with either.
 
 ### Other voxel sizes: voxelize.html
 
-`gt/voxelize.html` opens in any browser, offline, with nothing installed (it is also
-[published beside the viewer](https://kjamartens.github.io/inSiliScope/voxelize.html)). Drop `dyes.csv` or a
-localization table on it, then choose:
+The viewer's ☰ › Tools › **Voxelize ground truth** opens it
+([online](https://kjamartens.github.io/inSiliScope/voxelize.html)); a zip with the dye list carries a copy,
+`gt/voxelize.html`, which opens in any browser, offline, with nothing installed. Drop `dyes.csv` or a localization
+table on it, then choose:
 
 - the dyes' positions or their binding sites;
 - the value per voxel: emitted photons, detected photons, or a count;
@@ -124,10 +127,12 @@ localization table on it, then choose:
 - the bit depth: **8-bit** (the default), 16-bit, or 32-bit float. 8 and 16 bits scale each channel to its maximum;
   the photons per step are in the description (`insiliscope.scale`), and a single-channel stack carries them as its
   calibration, so Fiji measures photons;
-- compression (on by default; a mostly empty stack shrinks ~100 times). Fiji shows each slice's z in its status bar
-  either way, and as a slice label only in an uncompressed stack.
+- compression (on by default; a mostly empty stack shrinks ~100 times). Fiji shows a voxel's world z in µm in its
+  status bar either way. The slice's z in the window's title line is a slice label, and ImageJ (1.53, 1.54) reads
+  slice labels only from an uncompressed stack.
 
-It reads the table as it streams in, so a 600 MB `dyes.csv` works too.
+It reads the table as it streams in and makes the stack one z plane at a time, so a 600 MB `dyes.csv` at 10 nm voxels
+(1648 × 1636 × 371 voxels × 2 channels, 1.9 GB before compression) takes about half a minute and gives a 9 MB file.
 
 ## Caveats
 

@@ -776,21 +776,33 @@ async function openSave() {
   if (cut > 0 && kind === 'smlm') warn.push(`Quality: blinks with fewer than ${cut} photons were not drawn, so the tables leave them out too (Quality Exhaustive draws every one).`);
   if (PLAY.gpu) warn.push(`The frames' mean field came from the GPU (${PLAY.gpu}); the ground truth is the CPU's, the same model (the pixels differ in the last bits).`);
   if (!PLAY.settings) warn.push('This recording has no settings file, so no ground truth either.');
+  // What each box writes (GroundTruth::Files decides the ground truth's files alike: localizations with a blinking
+  // label, else the beads; density stacks for dyes that glow throughout; dyes.csv only without a blinking label)
   const box = D.dialog('<h3>Save the recording</h3>' +
     '<div class="row"><label for="svName">Name</label><input type="text" id="svName" maxlength="80"></div>' +
-    `<label class="part"><input type="checkbox" checked disabled> <b>Movie</b><span class="s">${PLAY.n} frames of ${PLAY.w} × ${PLAY.h} px, a 16-bit TIFF stack (ImageJ: pixel size, frame interval, the settings in its header)</span></label>` +
-    '<label class="part"><input type="checkbox" id="svSet"> <b>Instrument settings</b><span class="s">settings.isc.json, as the recording began, with the light before it: Load it here, or insiliscope_cli --settings renders the same frames</span></label>' +
-    '<label class="part"><input type="checkbox" id="svGt"> <b>Ground truth</b><span class="s">gt/: a row per frame; ' +
+    `<label class="part"><input type="checkbox" checked disabled> <b>Movie</b><span class="s">movie.tif: the ${PLAY.n} frames of ` +
+    `${PLAY.w} × ${PLAY.h} px as a 16-bit TIFF stack; Fiji / ImageJ read its pixel size and frame interval</span></label>` +
+    '<label class="part"><input type="checkbox" id="svSet"> <b>Settings file</b><span class="s">settings.isc.json: the microscope, ' +
+    'sample and acquisition as the recording began, with the light the sample had seen before. ☰ › Load here, or ' +
+    '<code>insiliscope_cli --settings</code>, renders the same frames</span></label>' +
+    '<label class="part"><input type="checkbox" id="svGt"> <b>Ground truth</b><span class="s">gt/, what made the frames: ' +
     (kind === 'smlm'
-      ? 'the localizations: every blink and bead drawn with at least <input type="number" id="svMin1" min="0" step="1"> and ' +
-        '<input type="number" id="svMin2" min="0" step="1"> photons landing on the camera (two tables); '
-      : kind === 'wf' ? 'the dyes as density stacks (emitted photons per voxel); ' : 'the beads per frame, if any; ') +
-    'README.txt and voxelize.html (other voxel sizes). Made now: the movie is rendered again from its settings</span></label>' +
+      ? 'two localization tables, every blink (and bead) drawn with at least <input type="number" id="svMin1" min="0" step="1"> and ' +
+        '<input type="number" id="svMin2" min="0" step="1"> photons on the camera in a frame (positions in the image and ' +
+        'the world, binding site, photons, background); a density stack of any dyes that glow throughout; '
+      : kind === 'wf' ? 'a density stack per target, its emitted photons per 50 × 50 × 25 nm voxel (32-bit; Fiji shows ' +
+        'each voxel\'s world x, y, z); '
+      : 'the beads per frame (fiducials.csv, if any); ') +
+    'frames.csv (each frame\'s time, stage, focus, drift); README.txt (the files and columns). Computed at Save: the ' +
+    'movie is rendered again, which takes a while</span></label>' +
     (kind === 'wf'
-      ? '<label class="part" id="svDyesRow"><input type="checkbox" id="svDyes"> <b>Dye list</b><span class="s">gt/dyes.csv: every dye with its position, site and photons (about 150 bytes a dye, ~100 MB for 128 px)</span></label>'
+      ? '<label class="part" id="svDyesRow"><input type="checkbox" id="svDyes"> <b>Dye list</b><span class="s">gt/dyes.csv: every ' +
+        'dye, its position, binding site and photons over the recording (~150 bytes a dye: 100-600 MB at 128 px); with ' +
+        'gt/voxelize.html, which turns it into a stack at any voxel size or a channel per target (opens in a browser, ' +
+        'offline; also in ☰ › Tools)</span></label>'
       : '') +
     warn.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
-    '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip.</div>' +
+    '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip with a README.txt.</div>' +
     '<progress id="svBar" max="1" hidden style="width:100%"></progress>' +
     '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>');
   const q = s => box.querySelector(s);
@@ -861,15 +873,22 @@ async function saveRecording(c, name, say = () => {}) {
         (f, stage, info) => { Object.assign(P, { f, stage: stage || 'frames', info }); show(); });
     } finally { clearInterval(tick); }
     for (const [n, b] of files) entries.push({ name: 'gt/' + n, data: b });
-    try { const r = await fetch('voxelize.html'); if (r.ok) entries.push({ name: 'gt/voxelize.html', data: await r.text() }); } catch (e) { /* offline: without it */ }
+    // the converter only beside the dye list it reads (the stacks need none; the page is also in ☰ › Tools)
+    if (files.some(([n]) => n === 'dyes.csv'))
+      try { const r = await fetch('voxelize.html'); if (r.ok) entries.push({ name: 'gt/voxelize.html', data: await r.text() }); } catch (e) { /* offline: without it */ }
     say(`The ground truth took ${((performance.now() - t0) / 1000).toFixed(1)} s; packing ` +
       `${Math.round(entries.reduce((s, e) => s + (e.data.length || 0), 0) / 1e6)} MB into the zip ...`, null);
   } else say('Packing ...');
+  const vox = entries.some(e => e.name === 'gt/voxelize.html');
   entries.push({ name: 'README.txt', data: `inSiliScope recording ${name}, saved ${new Date().toISOString()} (viewer ${self.ISC_VERSION || ''}).\n` +
-    `movie.tif: ${PLAY.n} frames of ${PLAY.w} x ${PLAY.h} px, 16-bit, ImageJ (pixel size ${PLAY.pxUm} um, frame interval ${PLAY.exp} s).\n` +
-    (c.settings ? 'settings.isc.json: the settings as the recording began and the light before it; Load in the viewer, or\n' +
-      '  insiliscope_cli --settings settings.isc.json --out movie.tif renders the same frames (--gt-out gt writes gt/).\n' : '') +
-    (c.gt ? 'gt/: the ground truth; gt/README.txt lists its files, https://kjamartens.github.io/inSiliScope/docs/ground-truth/ the columns.\n' : '') });
+    `movie.tif: the ${PLAY.n} frames of ${PLAY.w} x ${PLAY.h} px, 16-bit, ImageJ (pixel size ${PLAY.pxUm} um, frame interval ${PLAY.exp} s).\n` +
+    (c.settings ? 'settings.isc.json: the microscope, sample and acquisition as the recording began, with the light the sample\n' +
+      '  had seen before. Load it in the viewer, or insiliscope_cli --settings settings.isc.json --out movie.tif renders\n' +
+      '  the same frames (--gt-out gt writes gt/ too).\n' : '') +
+    (c.gt ? 'gt/: the ground truth, what made the frames; gt/README.txt lists its files,\n' +
+      '  https://kjamartens.github.io/inSiliScope/docs/ground-truth/ explains the columns.\n' : '') +
+    (vox ? 'gt/voxelize.html: open it in a browser (offline) and drop gt/dyes.csv on it for a density stack at any voxel size,\n' +
+      '  or a channel per target.\n' : '') });
   const blob = await self.iscZip.zip(entries);
   download(blob, name + '.zip');
   self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)

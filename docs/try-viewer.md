@@ -99,11 +99,12 @@ through it step by step.
   screen shows the frame current at each refresh), with play/pause, a frame slider and ✕ to close it (Live, Snap or a
   new recording close it too),
   and **Save** there opens a box: the movie alone is one 16-bit TIFF stack, `insiliscope_live_<w>x<h>x<N>.tif`; with
-  **instrument settings** (a settings file taken as the Record began, which reproduces the movie: `insiliscope_cli
+  the **settings file** (taken as the Record began, which reproduces the movie: `insiliscope_cli
   --settings`) and/or **ground truth** (localization tables above two thresholds of photons on the camera, 5 and 300 by
   default, for a blinking label; for WideField labels the dye list instead (optional, large); density stacks; a table
   per frame; see
-  [Ground truth](ground-truth.md)) it is one `.zip`. The ground truth is computed at Save, on a worker of its own (a
+  [Ground truth](ground-truth.md)) it is one `.zip`. ☰ › Tools › Voxelize ground truth turns a saved table into a
+  stack at any voxel size. The ground truth is computed at Save, on a worker of its own (a
   few times the recording's time; the stage, its % and a bar in the box); the box warns when the Quality leaves dim
   blinks out or the frames came from WebGPU. Nothing is saved by itself. A recording is a fresh sample: a movie starting at
   that time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size

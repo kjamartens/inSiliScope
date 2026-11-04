@@ -4,13 +4,15 @@
 //   - Save opens a box: the movie, its settings, its ground truth: for a blinking label two thresholds and no dye list,
 //     for WideField labels the dye list and no thresholds;
 //   - the movie alone is a .tif; with its settings and ground truth one .zip: movie.tif, settings.isc.json, README.txt,
-//     gt/frames.csv, gt/localizations_min<N>.csv, gt/README.txt, gt/voxelize.html;
+//     gt/frames.csv, gt/localizations_min<N>.csv, gt/README.txt (voxelize.html only beside a dye list); ☰ › Tools
+//     links voxelize.html;
 //   - with the cli (build/msvc/cli/Release/insiliscope_cli.exe, or ISC_CLI): insiliscope_cli --settings
 //     settings.isc.json renders movie.tif's frames bit for bit and --gt-out writes gt/'s tables byte for byte;
 //   - voxelize.html (served beside the viewer) turns a localization table into an ImageJ stack: 8-bit by default,
 //     deflated, its voxel size, its world origin (Fiji's status bar), the photons per step as its calibration; with
-//     "a channel each" a composite stack of the two targets.
-//   node tests/web/viewer_save.mjs [--swiftshader]   (~40 s)
+//     "a channel each" a composite stack of the two targets; 32-bit uncompressed, the voxels sum to the table's
+//     photons (the stack is made plane by plane).
+//   node tests/web/viewer_save.mjs [--swiftshader]   (~25 s)
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -107,8 +109,9 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     })]);
     const zipSec = (Date.now() - tz) / 1000;
     const z = unzip(fs.readFileSync(await dlZip.path())), names = Object.keys(z);
-    const want = ['movie.tif', 'settings.isc.json', 'README.txt', 'gt/frames.csv', 'gt/localizations_min5.csv', 'gt/localizations_min300.csv', 'gt/README.txt', 'gt/voxelize.html'];
-    check(dlZip.suggestedFilename() === 'insiliscope_live_64x64x8.zip' && want.every(n => names.includes(n)) && !names.includes('gt/dyes.csv'),
+    const want = ['movie.tif', 'settings.isc.json', 'README.txt', 'gt/frames.csv', 'gt/localizations_min5.csv', 'gt/localizations_min300.csv', 'gt/README.txt'];
+    check(dlZip.suggestedFilename() === 'insiliscope_live_64x64x8.zip' && want.every(n => names.includes(n)) && !names.includes('gt/dyes.csv') &&
+      !names.includes('gt/voxelize.html'),
       `with settings and ground truth: ${dlZip.suggestedFilename()} (${zipSec.toFixed(1)} s): ${names.join(', ')}`);
     check(same(z['movie.tif'], tif), 'its movie.tif = the .tif saved alone');
     const frames = new TextDecoder().decode(z['gt/frames.csv']).trim().split('\n');
@@ -134,6 +137,8 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
       check(!diff.length, `insiliscope_cli --gt-out: ${tables.length} files byte for byte${diff.length ? ' (differ: ' + diff.join(', ') + ')' : ''}`);
     }
 
+    const tool = await page.evaluate(() => { const a = document.getElementById('voxelizeLink'); return a && a.closest('#menu') ? a.getAttribute('href') : null; });
+    check(tool === 'voxelize.html', `☰ › Tools links the converter (${tool})`);
     // voxelize.html: the localization table to a stack with its voxel size
     const loc = path.join(dir, 'localizations_min5.csv');
     fs.writeFileSync(loc, z['gt/localizations_min5.csv']);
@@ -156,6 +161,19 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     const nc = +(/\nchannels=(\d+)\n/.exec(dc) || [])[1], nzc = +(/\nslices=(\d+)\n/.exec(dc) || [])[1];
     check(nT >= 2 && nc === nT && ch.length === nc * nzc && /hyperstack=true\nmode=composite/.test(dc),
       `voxelize.html, a channel each: ${dlCh.suggestedFilename()}, ${nc} channels × ${nzc} slices (${ch.length} planes), composite`);
+    // 32-bit, uncompressed: the voxels (made plane by plane) sum to the rows' photons (summed apart, the page's "in all")
+    await vp.evaluate(() => {
+      const s = document.getElementById('split'); s.value = 'sum';
+      document.getElementById('bits').value = '32'; document.getElementById('zip').checked = false;
+      s.dispatchEvent(new Event('input'));
+    });
+    const [dl32] = await Promise.all([vp.waitForEvent('download', { timeout: 20000 }), vp.click('#go')]);
+    const b32 = fs.readFileSync(await dl32.path()), p32 = readTiff(b32);
+    let vsum = 0;
+    for (const p of p32) { const f = new Float32Array(b32.buffer.slice(b32.byteOffset + p.data, b32.byteOffset + p.data + 4 * p.w * p.h)); for (const x of f) vsum += x; }
+    const inAll = +(/([\d.e+]+) in all/.exec(await vp.evaluate(() => document.getElementById('out').textContent)) || [])[1];
+    check(p32.length > 0 && p32[0].bits === 32 && p32[0].comp === 1 && Math.abs(vsum - inAll) <= 1e-5 * inAll,
+      `voxelize.html, 32-bit uncompressed: the voxels sum to ${vsum.toPrecision(7)}, the rows ${inAll}`);
 
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

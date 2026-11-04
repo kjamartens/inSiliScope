@@ -184,8 +184,10 @@ that finishes them.
   its own, `L.groundTruth`: spawned, terminated after; `Module.onGtFile` takes each file out of the heap; stages
   `setup`, `ground truth` per frame, `files`) and
   the cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both on `settings::RenderMovie`; `web/voxelize.html` (the
-  converter, copied beside the viewer by `build_site.sh`: the CSV streamed into typed columns; 8/16/32 bits, a channel
-  per target, deflate; checked in ImageJ 1.53, Micro-Manager's `ij.jar` run with `-batch`). Checks: ctest
+  converter, ☰ › Tools `#voxelizeLink`, copied beside the viewer by `build_site.sh`, in the zip only beside dyes.csv: the
+  CSV streamed into typed columns; the stack made one z plane at a time (rows counting-sorted by plane, two passes for
+  the 8/16-bit scale, each plane kept as its stored Blob: 1.9 GB of 10 nm voxels in 27 s); 8/16/32 bits, a channel per
+  target, deflate (ImageJ 1.53 and 1.54f read no slice labels from a compressed stack: z only in the status bar); checked in ImageJ 1.53, Micro-Manager's `ij.jar` run with `-batch`). Checks: ctest
   `ground_truth` (0.4 s), `tests/web/gt_unit.mjs` (the module's files = the cli's) and `zip_unit.mjs` (CI
   `viewer-js`), `viewer_save.mjs` (browser, ~25 s: the cli reproduces the zip's movie and tables byte for byte;
   voxelize's 8-bit and channel stacks).
