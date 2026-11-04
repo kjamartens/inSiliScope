@@ -204,6 +204,16 @@ int main()
       }
       Check(okR && got.size() == want.size() && got == want && want.size() == 7u * 32 * 32,
             "a Record's file (recordFrom 1, three recorded runs, the laser changed between two): the recorded frames, bit for bit");
+      // RenderMovie (the cli's --settings and the viewer's ground truth at Save): the same frames, in order.
+      std::vector<uint16_t> viaRender;
+      settings::MovieRun run;
+      const bool okM = settings::RenderMovie(lr, [&](long f, const std::vector<uint16_t>& page, unsigned w, unsigned h) {
+         if (f != static_cast<long>(viaRender.size() / (static_cast<size_t>(w) * h))) return false;
+         viaRender.insert(viaRender.end(), page.begin(), page.end());
+         return true;
+      }, run, err);
+      Check(okM && viaRender == want && run.frames == 7 && run.live && run.before == 1,
+            "RenderMovie of a Record's file: its recorded frames, bit for bit");
       settings::Loaded beyond;
       Check(!settings::ReadText(File("\"measurement\":{\"values\":{},\"history\":{\"recordFrom\":3,\"records\":[{\"n\":1,\"set\":{}}]}}"), {}, beyond, err),
             "refused: recordFrom beyond the history's records");

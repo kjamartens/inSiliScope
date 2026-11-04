@@ -9,6 +9,7 @@
 #include "LiveScope.h"
 #include "ScopeMovie.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -49,5 +50,24 @@ sim::ScopeSpec RunSpec(const Loaded& s, size_t i);
 // The sample's light history replayed on live (from a fresh sample): each record with the spec's sample keys put in;
 // only the first `count` records (a Record's file: the light before the Record).
 bool Replay(const Loaded& s, sim::LiveScope& live, std::string& err, size_t count = static_cast<size_t>(-1));
+
+// The movie a file describes, frame by frame (insiliscope_cli --settings, the viewer's ground truth at Save). With a
+// light history: the history replayed on a fresh live sample, then a Record's recorded runs (each one
+// LiveScope::Frames call with its own spec, as the viewer rendered them) or, without recordFrom, the spec's frames
+// as the live sample's next ones. Without one: RenderScopeMovie(s.spec). onFrame(f, adu, width, height) in order;
+// false stops (and fails). What it rendered goes in run.
+struct MovieRun
+{
+   unsigned width = 0, height = 0;
+   long frames = 0;
+   bool live = false;          // the live sample (a history)
+   size_t before = 0;          // the history's runs replayed before the frames
+   double tFirst = 0;          // the sample's time at the first frame (live)
+   double replaySec = 0;       // the replay's time
+   std::string description;    // the first page's (set before the first onFrame)
+   sim::ScopeMovieInfo info;   // RenderScopeMovie's (no history)
+};
+bool RenderMovie(const Loaded& s, const std::function<bool(long, const std::vector<uint16_t>&, unsigned, unsigned)>& onFrame,
+                 MovieRun& run, std::string& err);
 
 } // namespace settings

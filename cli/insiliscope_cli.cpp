@@ -318,43 +318,20 @@ int RunCli(int argc, char** argv)
       // then the movie's frames as the live session's next ones (= the viewer's Record "continue the live sample").
       // A Record's file (recordFrom): the light before the Record replayed, then its recorded runs rendered, each
       // one LiveScope::Frames call with its own spec, as the viewer rendered them.
-      sim::LiveScope live;
       std::string err;
       loaded.spec = spec;   // (the options after the files on top)
-      const bool recorded = loaded.recordFrom >= 0;
-      const size_t before = recorded ? static_cast<size_t>(loaded.recordFrom) : loaded.history.size();
       const auto t0 = std::chrono::steady_clock::now();
-      if (!settings::Replay(loaded, live, err, before)) { std::fprintf(stderr, "--settings history: %s\n", err.c_str()); return 1; }
-      const double replaySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-      std::vector<std::pair<sim::ScopeSpec, long>> runs;
-      if (recorded)
-         for (size_t i = before; i < loaded.history.size(); ++i) runs.emplace_back(settings::RunSpec(loaded, i), loaded.history[i].n);
-      else {
-         unsigned W, H;
-         long n;
-         sim::ScopeMovieDims(spec, W, H, n);
-         runs.emplace_back(spec, n);
-      }
-      long written = 0;
-      double tFirst = 0;
-      unsigned width = 0, height = 0;
-      for (const auto& run : runs) {
-         std::vector<uint16_t> adu;
-         sim::LiveFrameInfo li;
-         if (!live.Frames(run.first, run.second, true, adu, li, err)) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
-         if (!written) { tFirst = li.tSec; width = li.width; height = li.height; }
-         if (li.width != width || li.height != height) { std::fprintf(stderr, "the recorded runs change the image size\n"); return 1; }
-         const size_t px = static_cast<size_t>(li.width) * li.height;
-         char desc[240];
-         std::snprintf(desc, sizeof desc, "insiliscope live sample after its light history (%zu runs)%s, t0=%.6g s version=" ISC_VERSION,
-                       before, recorded ? ", its recorded runs" : "", li.tSec);
-         for (long f = 0; f < run.second; f++, written++) {
-            const std::vector<uint16_t> page(adu.begin() + static_cast<std::ptrdiff_t>(px * f), adu.begin() + static_cast<std::ptrdiff_t>(px * (f + 1)));
-            if (!tif.Page(page, li.width, li.height, written == 0 ? desc : "")) { std::fprintf(stderr, "write error\n"); return 1; }
-         }
+      settings::MovieRun run;
+      bool writeOk = true;
+      if (!settings::RenderMovie(loaded, [&](long f, const std::vector<uint16_t>& page, unsigned w, unsigned h) {
+             writeOk = tif.Page(page, w, h, f == 0 ? run.description + " version=" ISC_VERSION : std::string());
+             return writeOk;
+          }, run, err)) {
+         std::fprintf(stderr, "%s\n", writeOk ? err.c_str() : "write error");
+         return 1;
       }
       std::printf("%s: %ld frames %ux%u of the live sample at t = %.3f s after %zu runs of light (replay %.3f s), total %.3f s\n",
-                  out.c_str(), written, width, height, tFirst, before, replaySec,
+                  out.c_str(), run.frames, run.width, run.height, run.tFirst, run.before, run.replaySec,
                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
       return writeGt() ? 0 : 1;
    }

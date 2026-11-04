@@ -5,6 +5,8 @@
 #include "insiliscope/version.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
@@ -340,6 +342,86 @@ bool Replay(const Loaded& s, sim::LiveScope& live, std::string& err, size_t coun
    for (size_t i = 0; i < s.history.size() && i < count; ++i)
       if (!live.Advance(RunSpec(s, i), s.history[i].n, s.history[i].lit, err))
          return false;
+   return true;
+}
+
+bool RenderMovie(const Loaded& s, const std::function<bool(long, const std::vector<uint16_t>&, unsigned, unsigned)>& onFrame,
+                 MovieRun& run, std::string& err)
+{
+   run = MovieRun();
+   if (s.history.empty())
+   {
+      bool more = true;
+      const bool ok = sim::RenderScopeMovie(s.spec, [&](long f, const std::vector<uint16_t>& adu) {
+         if (f == 0)
+         {
+            run.width = run.info.width;
+            run.height = run.info.height;
+            run.description = run.info.description;
+         }
+         run.frames = f + 1;
+         more = onFrame(f, adu, run.info.width, run.info.height);
+         return more;
+      }, run.info, err);
+      if (ok && !more && err.empty())
+         err = "stopped";
+      return ok && more;
+   }
+   run.live = true;
+   sim::LiveScope live;
+   const bool recorded = s.recordFrom >= 0;
+   run.before = recorded ? static_cast<size_t>(s.recordFrom) : s.history.size();
+   const auto t0 = std::chrono::steady_clock::now();
+   if (!Replay(s, live, err, run.before))
+   {
+      err = "history: " + err;
+      return false;
+   }
+   run.replaySec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   std::vector<std::pair<sim::ScopeSpec, long>> runs;
+   if (recorded)
+      for (size_t i = run.before; i < s.history.size(); ++i)
+         runs.emplace_back(RunSpec(s, i), s.history[i].n);
+   else
+   {
+      unsigned W, H;
+      long n;
+      sim::ScopeMovieDims(s.spec, W, H, n);
+      runs.emplace_back(s.spec, n);
+   }
+   for (const auto& r : runs)
+   {
+      std::vector<uint16_t> adu;
+      sim::LiveFrameInfo li;
+      if (!live.Frames(r.first, r.second, true, adu, li, err))
+         return false;
+      if (!run.frames)
+      {
+         run.tFirst = li.tSec;
+         run.width = li.width;
+         run.height = li.height;
+         char desc[240];
+         std::snprintf(desc, sizeof desc, "insiliscope live sample after its light history (%zu runs)%s, t0=%.6g s", run.before,
+                       recorded ? ", its recorded runs" : "", li.tSec);
+         run.description = desc;
+      }
+      if (li.width != run.width || li.height != run.height)
+      {
+         err = "the recorded runs change the image size";
+         return false;
+      }
+      const size_t px = static_cast<size_t>(li.width) * li.height;
+      for (long f = 0; f < r.second; f++, run.frames++)
+      {
+         const std::vector<uint16_t> page(adu.begin() + static_cast<std::ptrdiff_t>(px * f),
+                                          adu.begin() + static_cast<std::ptrdiff_t>(px * (f + 1)));
+         if (!onFrame(run.frames, page, li.width, li.height))
+         {
+            err = "stopped";
+            return false;
+         }
+      }
+   }
    return true;
 }
 

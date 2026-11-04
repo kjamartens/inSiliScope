@@ -37,8 +37,9 @@ class GroundTruth
 public:
    // Emitter rows with fewer expected photons on the camera than this in their frame are left out.
    double minPhotons = 5;
-   // The continuous dyes' list (Dye rows).
+   // The continuous dyes' list (Dye rows; the volumes need it), and whether Files writes it as dyes.csv.
    bool dyeList = true;
+   bool writeDyeCsv = true;
 
    // A label as drawn: a structure's dye in its mode, the main state or the PALM pre state.
    struct Label

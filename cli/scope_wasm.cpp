@@ -1,6 +1,7 @@
 // WASM exports of the scope movie (sim::RenderScopeMovie) for the viewer:
 // the same render code as the inSiliScope camera and insiliscope_cli, in
 // the viewer's module next to the core's C ABI.
+#include "GroundTruth.h"
 #include "LiveScope.h"
 #include "MemoryReport.h"
 #include "ScopeMovie.h"
@@ -8,6 +9,7 @@
 #include "WidefieldRender.h"
 #include "scope_panels.h"
 #include "scope_setup.h"
+#include "settings_file.h"
 
 #include "insiliscope/insiliscope.h"
 
@@ -606,6 +608,68 @@ ISC_API int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight,
       g_liveProfile = sim::TimingProfileTake();
    return static_cast<int32_t>(g_liveImage.size());
 }
+// The ground truth of the movie a settings file describes (a Record's file, settings_file.h RenderMovie: the cli's
+// --settings f --gt-out), made by rendering it again with the sink on (GroundTruth.h; the frames are dropped). The
+// files packed into one buffer, isc_scope_gt_data(): per file its name, a newline, its size in bytes (decimal), a
+// newline, the bytes. Thresholds minA, minB (photons on the camera), the volumes' voxel (nm; 0: none), dyeCsv 0
+// leaves dyes.csv out (the volumes stay). Returns the buffer's size, or -1 with the error in isc_scope_gt_error().
+// Progress: Module.onMovieProgress("ground truth", fraction of the frames, "").
+static std::string g_gt, g_gtErr;
+ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, double volLateralNm, double volAxialNm,
+                            int32_t dyeCsv)
+{
+   g_gt.clear();
+   g_gtErr.clear();
+   try
+   {
+      settings::Loaded loaded;
+      if (!settings::ReadText(settingsJson ? settingsJson : "", {}, loaded, g_gtErr))
+         return -1;
+      long total = 0;
+      if (loaded.recordFrom >= 0)
+         for (size_t i = static_cast<size_t>(loaded.recordFrom); i < loaded.history.size(); ++i)
+            total += loaded.history[i].n;
+      else
+      {
+         unsigned w, h;
+         sim::ScopeMovieDims(loaded.spec, w, h, total);
+      }
+      sim::GroundTruth gt;
+      gt.minPhotons = std::min(minA, minB);
+      gt.writeDyeCsv = dyeCsv != 0;
+      settings::MovieRun run;
+      {
+         sim::GroundTruthScope scope(&gt);
+         Progress pr;
+         if (!settings::RenderMovie(loaded, [&](long f, const std::vector<uint16_t>&, unsigned, unsigned) {
+                pr.fn("ground truth", total > 0 ? static_cast<double>(f + 1) / total : 1.0, std::string());
+                return true;
+             }, run, g_gtErr))
+            return -1;
+      }
+      for (const auto& file : gt.Files({ minA, minB }, volLateralNm, volAxialNm))
+      {
+         g_gt += file.first;
+         g_gt += '\n';
+         g_gt += std::to_string(file.second.size());
+         g_gt += '\n';
+         g_gt += file.second;
+      }
+      return static_cast<double>(g_gt.size());
+   }
+   catch (const std::exception& e)
+   {
+      g_gtErr = e.what();
+      return -1;
+   }
+}
+ISC_API const char* isc_scope_gt_data() { return g_gt.data(); }
+ISC_API const char* isc_scope_gt_error() { return g_gtErr.c_str(); }
+ISC_API void isc_scope_gt_free()
+{
+   std::string().swap(g_gt);
+}
+
 ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* info, char* errOut, int32_t errCap)
 {
    return isc_live_frames(spec, 1, countLight, info, errOut, errCap);

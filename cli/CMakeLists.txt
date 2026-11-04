@@ -50,7 +50,7 @@ if(NOT EMSCRIPTEN AND CMAKE_SYSTEM_PROCESSOR MATCHES "(x86_64|AMD64|amd64)")
 endif()
 
 if(EMSCRIPTEN)
-  add_executable(insiliscope_scope_web scope_wasm.cpp scope_setup.cpp scope_panels.cpp ${ISC_SIM_SRC})
+  add_executable(insiliscope_scope_web scope_wasm.cpp scope_setup.cpp scope_panels.cpp settings_file.cpp ${ISC_SIM_SRC})
   target_include_directories(insiliscope_scope_web PRIVATE ${ISC_SIM})
   target_link_libraries(insiliscope_scope_web PRIVATE insiliscope_core)
   # WASM SIMD for the render code (FFT butterflies, multiply loops); the core
@@ -69,7 +69,7 @@ if(EMSCRIPTEN)
     -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=96MB -sMAXIMUM_MEMORY=4GB
     "--extern-post-js=${CMAKE_CURRENT_SOURCE_DIR}/module_unsigned_pointers.js"
     -sFILESYSTEM=0
-    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_setup,_isc_scope_panels,_isc_scope_panel,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_frames,_isc_live_image,_isc_live_paths,_isc_live_reset,_isc_live_advance,_isc_live_time,_isc_live_profile,_isc_live_profile_json,_isc_memory_json]"
+    "-sEXPORTED_FUNCTIONS=[${ISC_EXPORTS},_isc_timing,_isc_scope_options,_isc_scope_movie,_isc_scope_setup,_isc_scope_panels,_isc_scope_panel,_isc_wf_begin,_isc_wf_scenes,_isc_wf_select,_isc_wf_job,_isc_wf_kernel,_isc_wf_plane,_isc_wf_plane_values,_isc_wf_channel,_isc_wf_set_images,_isc_wf_cpu_images,_isc_wf_movie,_isc_wf_end,_isc_bf_begin,_isc_bf_begin_phase,_isc_bf_info,_isc_bf_phase,_isc_bf_atten,_isc_bf_source_image,_isc_bf_set_sources,_isc_bf_movie,_isc_bf_end,_isc_live_frame,_isc_live_frames,_isc_live_image,_isc_live_paths,_isc_live_reset,_isc_live_advance,_isc_live_time,_isc_live_profile,_isc_live_profile_json,_isc_memory_json,_isc_scope_gt,_isc_scope_gt_data,_isc_scope_gt_error,_isc_scope_gt_free]"
     "-sEXPORTED_RUNTIME_METHODS=[HEAPF64,HEAPF32,HEAP32,HEAPU32,HEAPU16,HEAPU8,stringToUTF8,lengthBytesUTF8,UTF8ToString]"
   )
   set_target_properties(insiliscope_scope_web PROPERTIES OUTPUT_NAME insiliscope_scope_single SUFFIX ".js"
