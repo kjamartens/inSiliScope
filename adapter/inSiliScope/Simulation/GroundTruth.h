@@ -201,6 +201,13 @@ struct EmitterFootprint
 EmitterFootprint FootprintOf(std::vector<float>& scratch, unsigned W, unsigned H, const PsfKernelCache* kernel,
                              int zIndex, double sigmaPx, double xPx, double yPx, const std::vector<float>& bg,
                              double coreHalfPx);
+// Its core part alone (FootprintOf's core; a host skips the rest when the photons in it fall short), and FootprintOf
+// with that core given.
+double FootprintCore(unsigned W, unsigned H, const PsfKernelCache* kernel, int zIndex, double sigmaPx, double xPx,
+                     double yPx, double coreHalfPx);
+EmitterFootprint FootprintWithCore(std::vector<float>& scratch, unsigned W, unsigned H, const PsfKernelCache* kernel,
+                                   int zIndex, double sigmaPx, double xPx, double yPx, const std::vector<float>& bg,
+                                   double core);
 // The same from an image of the emitter alone (one photon over the whole camera: a bead and its halo), kept for
 // the frames at the same focus and drift: its sum on the camera, the pixels holding at least cut of it (they
 // weigh the background; a bead's halo reaches past the FOV); its core part the host's (FiducialBeadCore).

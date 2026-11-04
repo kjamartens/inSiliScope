@@ -1412,8 +1412,8 @@ C++ only; docs/ground-truth.md has the files.
   code): `World::DyeDetailsInWindow` looks a run of dyes' cell, rotation and assets up once and shares a microtubule
   dye's frames / arc / segment / theta between site and dipole (`DyeSiteIn`, `DyeOrientationIn`; `world_checks.lamin`:
   = `DyeSiteOf` / `DyeOrientationOf` per dye, bit for bit), the id filter an open-addressing table; `EndMovie` keeps a
-  re-seen dye's site and asks the core once per chunk. Per frame: the blinks alone drawn in blinkFrame (a binned
-  frame's from its one convolution), footprints over the halo cut's spans only, bead footprints on threads. Files:
+  re-seen dye's site and asks the core once per chunk. Per frame: footprints over the halo cut's spans only (later:
+  the offset from the frame before its blinks, no blink drawn twice; a blink's core first, none short of it measured), bead footprints on threads. Files:
   numbers by `std::to_chars` (`Simulation/CsvNumber.cpp`; ctest `csv_numbers`, also in WASM), rows formatted on all
   cores, a stack's planes on all cores (`vox::Stack::PlaneInto`), `vox::Deflate` with 8-byte run scans, codes reversed
   once per block and zero-word Adler-32 (ground_truth_check: = `cli/deflate_reference.inc`, the old one). Measured

@@ -762,9 +762,24 @@ double KernelBoxPart(const PsfKernelCache& k, int zIndex, unsigned W, unsigned H
                        k.oversampling, W, H, xPx, yPx, half);
 }
 
+double FootprintCore(unsigned W, unsigned H, const PsfKernelCache* kernel, int zIndex, double sigmaPx, double xPx,
+                     double yPx, double coreHalfPx)
+{
+   return kernel && kernel->valid ? KernelBoxPart(*kernel, zIndex, W, H, xPx, yPx, coreHalfPx)
+                                  : GaussianBoxPart(sigmaPx, W, H, xPx, yPx, coreHalfPx);
+}
+
 EmitterFootprint FootprintOf(std::vector<float>& scratch, unsigned W, unsigned H, const PsfKernelCache* kernel,
                              int zIndex, double sigmaPx, double xPx, double yPx, const std::vector<float>& bg,
                              double coreHalfPx)
+{
+   return FootprintWithCore(scratch, W, H, kernel, zIndex, sigmaPx, xPx, yPx, bg,
+                            FootprintCore(W, H, kernel, zIndex, sigmaPx, xPx, yPx, coreHalfPx));
+}
+
+EmitterFootprint FootprintWithCore(std::vector<float>& scratch, unsigned W, unsigned H, const PsfKernelCache* kernel,
+                                   int zIndex, double sigmaPx, double xPx, double yPx, const std::vector<float>& bg,
+                                   double core)
 {
    EmitterFootprint fp;
    const size_t n = static_cast<size_t>(W) * H;
@@ -788,9 +803,7 @@ EmitterFootprint FootprintOf(std::vector<float>& scratch, unsigned W, unsigned H
       cy = static_cast<int>(std::lround(yPx));
       r = static_cast<int>(std::ceil(3.0 * sigmaPx));
    }
-   // the core, before the scan below clears the scratch
-   fp.core = kernel && kernel->valid ? KernelBoxPart(*kernel, zIndex, W, H, xPx, yPx, coreHalfPx)
-                                     : GaussianBoxPart(sigmaPx, W, H, xPx, yPx, coreHalfPx);
+   fp.core = core;
    const int x0 = std::max(0, cx - r), x1 = std::min(static_cast<int>(W) - 1, cx + r);
    const int y0 = std::max(0, cy - r), y1 = std::min(static_cast<int>(H) - 1, cy + r);
    // the halo cut's spans, as SplatRows takes them: the pixels outside them were not written (zero, skipped anyway)
