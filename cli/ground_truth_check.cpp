@@ -16,6 +16,7 @@
 #include "GroundTruth.h"
 #include "Voxelize.h"
 #include "ScopeMovie.h"
+#include "deflate_reference.inc"
 
 #include <algorithm>
 #include <chrono>
@@ -435,6 +436,86 @@ int main()
       std::printf("      deflate:%s\n", sizes.c_str());
       Check(all && z.size() * 500 < cases[1].size(), "vox::Deflate: the inflater reads back every case (empty, zeros, "
                                                   "sparse, random, several blocks); zeros to under 1/500");
+   }
+
+   // ---- vox::Deflate = its verbatim 2026-11-04 copy (deflate_reference.inc), byte for byte; Stack::PlaneInto = Fill +
+   //      Quantize ----
+   {
+      std::vector<std::string> cases;
+      cases.emplace_back();
+      cases.emplace_back(1, '\0');
+      cases.emplace_back(1000003, '\0');
+      cases.emplace_back(700001, '\xff');
+      uint32_t r = 777;
+      const auto next = [&r] { r = r * 1664525u + 1013904223u; return r >> 8; };
+      for (int kind = 0; kind < 6; ++kind)
+      {
+         std::string c;
+         const size_t n = kind == 5 ? 3 * (size_t(1) << 20) + 12345 : 200000 + static_cast<size_t>(kind) * 7777;
+         while (c.size() < n)
+         {
+            // runs of every length 1..300 (around the 8-byte steps and 258), of zeros or of a value, between literals
+            const size_t run = 1 + next() % (kind == 0 ? 12 : kind == 1 ? 40 : 300);
+            const char v = kind == 2 ? static_cast<char>(next() % 3) : (next() % 4 == 0 ? static_cast<char>(next()) : '\0');
+            c.append(std::min(run, n - c.size()), v);
+            if (kind == 3 && c.size() < n)
+               c.push_back(static_cast<char>(next()));
+         }
+         cases.push_back(c);
+      }
+      std::string bad;
+      for (size_t k = 0; k < cases.size(); ++k)
+      {
+         const std::string& c = cases[k];
+         // every start offset 0..8 (the 8-byte steps fall on other bytes)
+         for (size_t off = 0; off < 9 && off <= c.size(); ++off)
+         {
+            std::string a, b;
+            vox::Deflate(reinterpret_cast<const unsigned char*>(c.data()) + off, c.size() - off, a);
+            deflate_ref::Deflate(reinterpret_cast<const unsigned char*>(c.data()) + off, c.size() - off, b);
+            if (a != b && bad.empty())
+               bad = " (case " + std::to_string(k) + " from byte " + std::to_string(off) + " differs)";
+         }
+      }
+      Check(bad.empty(), "vox::Deflate = the verbatim old Deflate byte for byte, " + std::to_string(cases.size()) +
+                            " cases x 9 offsets" + bad);
+
+      // a stack of 3 channels, rows in random voxels (several per voxel), at 8, 16 and 32 bits
+      vox::Box box;
+      box.Add(0, 0, 0);
+      box.Add(2, 1.5, 0.8);
+      const vox::Grid g = vox::GridOf(box, 0.05, 0.1);
+      std::vector<double> x, y, z, w;
+      std::vector<uint8_t> ch;
+      for (int i = 0; i < 40000; ++i)
+      {
+         x.push_back(2.0 * (next() % 100000) / 100000);
+         y.push_back(1.5 * (next() % 100000) / 100000);
+         z.push_back(0.5 * (next() % 100000) / 100000);   // the upper planes empty
+         w.push_back(0.1 + (next() % 1000) / 7.0);
+         ch.push_back(static_cast<uint8_t>(next() % 3));
+      }
+      std::string diff;
+      for (int bits : { 8, 16, 32 })
+      {
+         vox::Stack st(g, 3, bits, x.data(), y.data(), z.data(), w.data(), ch.data(), x.size());
+         st.Maxima();
+         std::vector<unsigned char> qa(st.PlaneBytes()), qb(st.PlaneBytes());
+         std::vector<float> acc;
+         std::vector<uint32_t> touched;
+         for (uint32_t pz = 0; pz < g.nz; ++pz)
+         {
+            st.Fill(pz);
+            for (int c = 0; c < 3; ++c)
+            {
+               st.Quantize(c, qa.data());
+               st.PlaneInto(pz, c, acc, touched, qb.data());
+               if (qa != qb && diff.empty())
+                  diff = " (" + std::to_string(bits) + " bits, plane " + std::to_string(pz) + ", channel " + std::to_string(c) + ")";
+            }
+         }
+      }
+      Check(diff.empty(), "vox::Stack::PlaneInto = Fill + Quantize, every plane and channel, 8/16/32 bits" + diff);
    }
 
    std::string err;

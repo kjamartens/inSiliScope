@@ -66,8 +66,14 @@ public:
    // Channel ch of the filled plane as stored (little-endian, nx x ny samples of Bits()), into out (PlaneBytes());
    // scale 0 = the channel's (Maxima), else that value per step.
    void Quantize(int ch, unsigned char* out, double scale = 0) const;
+   // Fill + Quantize of one channel with the caller's scratch (planes on several threads at once): acc (nx x ny
+   // floats, zero on entry and on return) and touched; the same bytes.
+   void PlaneInto(uint32_t z, int ch, std::vector<float>& acc, std::vector<uint32_t>& touched, unsigned char* out,
+                  double scale = 0) const;
 
 private:
+   void QuantizeFrom(const std::vector<float>& a, const std::vector<uint32_t>& touched, int ch, unsigned char* out,
+                     double scale) const;
    Grid g_;
    int nc_, bits_;
    std::vector<uint32_t> start_;   // rows of plane z: [start_[z], start_[z + 1]) of the sorted rows

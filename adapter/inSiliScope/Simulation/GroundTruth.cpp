@@ -559,31 +559,57 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
       std::vector<std::string> planes(grid.nz);
       std::vector<uint64_t> sizes(grid.nz);
       std::vector<int64_t> sameAs(grid.nz, -1);
-      std::vector<unsigned char> q(st.PlaneBytes());
+      // the planes made: every plane with dyes and the first empty one (the later empty ones are stored as it)
+      std::vector<uint32_t> work;
       int64_t empty = -1;
-      double fillSec = 0, deflateSec = 0;
       for (uint32_t z = 0; z < grid.nz; ++z)
       {
          if (st.Empty(z) && empty >= 0)
          {
             sameAs[z] = empty;
-            sizes[z] = sizes[static_cast<size_t>(empty)];
             continue;
          }
-         const auto tp = TimingClock::now();
-         st.Fill(z);
-         st.Quantize(0, q.data());
-         const auto tq = TimingClock::now();
-         vox::Deflate(q.data(), q.size(), planes[z]);
-         fillSec += std::chrono::duration<double>(tq - tp).count();
-         deflateSec += TimingSince(tq);
-         sizes[z] = planes[z].size();
          if (st.Empty(z))
             empty = z;
+         work.push_back(z);
+      }
+#if defined(__EMSCRIPTEN__)
+      const unsigned threads = 1;
+#else
+      const unsigned threads = static_cast<unsigned>(std::min<size_t>(std::max(1u, HardwareThreads()), work.size()));
+#endif
+      // on all cores (native), each thread its own scratch and every threads-th plane
+      std::vector<double> fillSec(threads, 0.0), deflateSec(threads, 0.0);
+      const auto planesOf = [&](unsigned t) {
+         std::vector<float> acc;
+         std::vector<uint32_t> touched;
+         std::vector<unsigned char> q(st.PlaneBytes());
+         for (size_t k = t; k < work.size(); k += threads)
+         {
+            const uint32_t z = work[k];
+            const auto tp = TimingClock::now();
+            st.PlaneInto(z, 0, acc, touched, q.data());
+            const auto tq = TimingClock::now();
+            vox::Deflate(q.data(), q.size(), planes[z]);
+            fillSec[t] += std::chrono::duration<double>(tq - tp).count();
+            deflateSec[t] += TimingSince(tq);
+         }
+      };
+      if (threads > 1)
+         ParallelFor(threads, planesOf);
+      else if (threads == 1)
+         planesOf(0);
+      for (uint32_t z = 0; z < grid.nz; ++z)
+         sizes[z] = sameAs[z] >= 0 ? planes[static_cast<size_t>(sameAs[z])].size() : planes[z].size();
+      double fs = 0, ds = 0;
+      for (unsigned t = 0; t < threads; ++t)
+      {
+         fs += fillSec[t];
+         ds += deflateSec[t];
       }
       TimingLog("gt.volume-planes", TimingSince(tv), std::to_string(grid.nz).c_str());
-      TimingLog("gt.volume-fill-quantize", fillSec);
-      TimingLog("gt.volume-deflate", deflateSec);
+      TimingLog("gt.volume-fill-quantize", fs, "(thread seconds)");
+      TimingLog("gt.volume-deflate", ds, "(thread seconds)");
       tv = TimingClock::now();
       const vox::TiffLayout lay = vox::LayoutTiff(sizes, &sameAs, grid.nx, grid.ny, 8, 1.0 / grid.vx, desc,
                                                   vox::Labels(grid, chans), 8);

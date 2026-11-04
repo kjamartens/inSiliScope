@@ -187,12 +187,40 @@ void Stack::Maxima()
 
 void Stack::Quantize(int ch, unsigned char* out, double scale) const
 {
-   std::memset(out, 0, PlaneBytes());
    if (acc_.empty())
+   {
+      std::memset(out, 0, PlaneBytes());
       return;
-   const std::vector<float>& a = acc_[static_cast<size_t>(ch)];
+   }
+   QuantizeFrom(acc_[static_cast<size_t>(ch)], touched_, ch, out, scale);
+}
+
+void Stack::PlaneInto(uint32_t z, int ch, std::vector<float>& acc, std::vector<uint32_t>& touched, unsigned char* out,
+                      double scale) const
+{
+   const size_t plane = static_cast<size_t>(g_.nx) * g_.ny;
+   if (acc.size() != plane)
+      acc.assign(plane, 0.0f);
+   touched.clear();
+   // Fill's sums for this channel's rows, in the same order (the others' rows never reach its voxels)
+   for (uint32_t j = start_[z]; j < start_[z + 1]; ++j)
+      if (ch_[j] == ch)
+      {
+         float& a = acc[at_[j]];
+         a = static_cast<float>(static_cast<double>(a) + w_[j]);
+         touched.push_back(at_[j]);
+      }
+   QuantizeFrom(acc, touched, ch, out, scale);
+   for (uint32_t t : touched)
+      acc[t] = 0.0f;
+}
+
+void Stack::QuantizeFrom(const std::vector<float>& a, const std::vector<uint32_t>& touched, int ch, unsigned char* out,
+                         double scale) const
+{
+   std::memset(out, 0, PlaneBytes());
    const double s = scale > 0 ? scale : scale_[static_cast<size_t>(ch)], top = bits_ == 8 ? 255.0 : 65535.0;
-   for (uint32_t t : touched_)
+   for (uint32_t t : touched)
    {
       const float v = a[t];
       if (v == 0.0f)
@@ -390,15 +418,15 @@ void PackBits(const unsigned char* b, size_t n, std::string& out)
 
 namespace {
 
-// Bits out, least significant first (deflate's order); Huffman codes reversed into it.
+// Bits out, least significant first (deflate's order); Huffman codes go in reversed (Reversed).
 struct BitOut
 {
    std::string& s;
    uint64_t acc = 0;
    int n = 0;
-   void Put(uint32_t v, int bits)
+   void Put(uint64_t v, int bits)   // v < 2^bits, bits <= 56
    {
-      acc |= static_cast<uint64_t>(v) << n;
+      acc |= v << n;
       n += bits;
       while (n >= 8)
       {
@@ -406,13 +434,6 @@ struct BitOut
          acc >>= 8;
          n -= 8;
       }
-   }
-   void Code(uint32_t code, int len)
-   {
-      uint32_t r = 0;
-      for (int i = 0; i < len; ++i)
-         r |= ((code >> i) & 1u) << (len - 1 - i);
-      Put(r, len);
    }
    void Flush()
    {
@@ -514,6 +535,19 @@ std::vector<uint32_t> CanonicalCodes(const std::vector<int>& len)
    return c;
 }
 
+// The canonical codes bit-reversed (deflate sends a Huffman code most significant bit first into the LSB-first stream).
+std::vector<uint32_t> Reversed(std::vector<uint32_t> c, const std::vector<int>& len)
+{
+   for (size_t i = 0; i < c.size(); ++i)
+   {
+      uint32_t r = 0;
+      for (int k = 0; k < len[i]; ++k)
+         r |= ((c[i] >> k) & 1u) << (len[i] - 1 - k);
+      c[i] = r;
+   }
+   return c;
+}
+
 const int kLenBase[29] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115,
                            131, 163, 195, 227, 258 };
 const int kLenExtra[29] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
@@ -526,6 +560,18 @@ void Deflate(const unsigned char* b, size_t n, std::string& out)
    out.push_back(static_cast<char>(0x01));
    BitOut bo{ out };
    const size_t kBlock = size_t(1) << 20;
+   // a run of r (3..258) bytes: length code lenCode[r] (the last base at most r)
+   static const std::vector<unsigned char> lenCode = [] {
+      std::vector<unsigned char> t(259, 0);
+      for (int r = 3; r <= 258; ++r)
+      {
+         int c = 28;
+         while (kLenBase[c] > r)
+            --c;
+         t[static_cast<size_t>(r)] = static_cast<unsigned char>(c);
+      }
+      return t;
+   }();
    std::vector<uint32_t> tok;   // a literal (0..255), or 257.. a length code | extra bits << 9 (distance 1)
    size_t i = 0;
    do
@@ -535,15 +581,27 @@ void Deflate(const unsigned char* b, size_t n, std::string& out)
       std::vector<uint64_t> lit(286, 0), dist(30, 0);
       while (i < end)
       {
+         // the run of the previous byte from i, up to 258 (8 bytes at a time, then byte by byte)
          size_t r = 0;
          if (i > 0)
-            while (i + r < end && r < 258 && b[i + r] == b[i - 1])
+         {
+            const unsigned char c = b[i - 1];
+            const size_t lim = std::min<size_t>(end - i, 258);
+            const uint64_t pat = 0x0101010101010101ull * c;
+            while (r + 8 <= lim)
+            {
+               uint64_t w;
+               std::memcpy(&w, b + i + r, 8);
+               if (w != pat)
+                  break;
+               r += 8;
+            }
+            while (r < lim && b[i + r] == c)
                ++r;
+         }
          if (r >= 3)
          {
-            int c = 28;
-            while (kLenBase[c] > static_cast<int>(r))
-               --c;
+            const int c = lenCode[r];
             tok.push_back(static_cast<uint32_t>(257 + c) | (static_cast<uint32_t>(r - static_cast<size_t>(kLenBase[c])) << 9));
             lit[static_cast<size_t>(257 + c)]++;
             dist[0]++;
@@ -558,7 +616,7 @@ void Deflate(const unsigned char* b, size_t n, std::string& out)
       }
       lit[256] = 1;
       const std::vector<int> ll = HuffLengths(lit, 15), dl = HuffLengths(dist, 15);
-      const std::vector<uint32_t> lc = CanonicalCodes(ll), dc = CanonicalCodes(dl);
+      const std::vector<uint32_t> lc = Reversed(CanonicalCodes(ll), ll), dc = Reversed(CanonicalCodes(dl), dl);
       size_t hlit = 286, hdist = 30;
       while (hlit > 257 && !ll[hlit - 1])
          --hlit;
@@ -608,7 +666,7 @@ void Deflate(const unsigned char* b, size_t n, std::string& out)
       for (const auto& e : rle)
          cf[static_cast<size_t>(e.first)]++;
       const std::vector<int> cl = HuffLengths(cf, 7);
-      const std::vector<uint32_t> cc = CanonicalCodes(cl);
+      const std::vector<uint32_t> cc = Reversed(CanonicalCodes(cl), cl);
       static const int order[19] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
       int hclen = 19;
       while (hclen > 4 && !cl[static_cast<size_t>(order[hclen - 1])])
@@ -623,7 +681,7 @@ void Deflate(const unsigned char* b, size_t n, std::string& out)
       for (const auto& e : rle)
       {
          const size_t s = static_cast<size_t>(e.first);
-         bo.Code(cc[s], cl[s]);
+         bo.Put(cc[s], cl[s]);
          if (s == 16)
             bo.Put(static_cast<uint32_t>(e.second), 2);
          else if (s == 17)
@@ -631,24 +689,43 @@ void Deflate(const unsigned char* b, size_t n, std::string& out)
          else if (s == 18)
             bo.Put(static_cast<uint32_t>(e.second), 7);
       }
+      // a match: its length code, extra bits and the distance-1 code in one Put (at most 15 + 5 + 15 bits)
       for (uint32_t t : tok)
       {
          const size_t s = t & 511;
-         bo.Code(lc[s], ll[s]);
          if (s > 256)
          {
-            bo.Put(t >> 9, kLenExtra[s - 257]);
-            bo.Code(dc[0], dl[0]);   // distance 1
+            const int le = kLenExtra[s - 257], l0 = ll[s];
+            bo.Put(lc[s] | ((t >> 9) << l0) | (dc[0] << (l0 + le)), l0 + le + dl[0]);
          }
+         else
+            bo.Put(lc[s], ll[s]);
       }
-      bo.Code(lc[256], ll[256]);
+      bo.Put(lc[256], ll[256]);
    } while (i < n);
    bo.Flush();
+   // Adler-32 (a zero 8-byte word adds nothing to a and a eight times to s2)
    uint32_t a = 1, s2 = 0;
    for (size_t k = 0; k < n;)
    {
       const size_t m = std::min<size_t>(n - k, 5552);
-      for (size_t j = 0; j < m; ++j)
+      size_t j = 0;
+      for (; j + 8 <= m; j += 8)
+      {
+         uint64_t w;
+         std::memcpy(&w, b + k + j, 8);
+         if (!w)
+         {
+            s2 += 8 * a;
+            continue;
+         }
+         for (size_t q = 0; q < 8; ++q)
+         {
+            a += b[k + j + q];
+            s2 += a;
+         }
+      }
+      for (; j < m; ++j)
       {
          a += b[k + j];
          s2 += a;
