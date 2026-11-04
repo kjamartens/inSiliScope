@@ -154,9 +154,10 @@ table, then choose:
   it opens the stack whole. The .zip's TIFF and the uncompressed .tif stay under 4 GB (a classic TIFF's limit); the
   compressed .tif can describe a larger stack.
 
-It reads the table as it streams in and makes the stack one z plane at a time. A 600 MB `dyes.csv` at 10 nm voxels
-(1648 × 1636 × 371 voxels × 2 channels, 2.0 GB uncompressed) takes about half a minute and gives a 9 MB file, which
-ImageJ opens as a virtual stack in 0.7 s.
+It reads the table as it streams in and makes the stack one z plane at a time, the planes deflated on several
+threads. A 120 MB `dyes.csv` (776 000 dyes) at 10 nm voxels (1469 × 1297 × 364 voxels × 2 channels, 1.4 GB
+uncompressed) takes about 5 s in Chrome and gives a 3.4 MB file; a 2 GB stack opens in ImageJ as a virtual stack in
+0.7 s.
 
 ## Open it in napari
 

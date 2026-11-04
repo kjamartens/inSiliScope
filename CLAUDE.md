@@ -174,7 +174,13 @@ that finishes them.
   light, continuous dyes with their photons over the frames (the mean field's windows fetched for the list in 2 um
   strips along x, each let go); at Render's end `EndMovie` merges dyes a later movie saw again (sorted in place) and
   adds sites and dipoles by core queries over chunks of 2^18 rows along x (core ABI 19 `isc_dye_details_in_window`,
-  stride 11, by id; goldens unchanged; the dyes' only when dyes.csv is written). Memory (2026-11-04: 128 px WideField
+  stride 11, by id; goldens unchanged; the dyes' only when dyes.csv is written; a merged dye keeps its site; the core
+  looks a run of dyes' cell up once, `DyeSiteIn` / `DyeOrientationIn`, world_checks: = the per-dye functions bit for
+  bit). Speed (2026-11-04, every file byte for byte): the blinks alone drawn in blinkFrame beside the frame's own (a
+  binned frame's from its one convolution, `BinnedBlinkRenderer::Render`'s `alone`), footprints within the halo
+  cut's spans, bead footprints on threads, tables by `std::to_chars` (`Simulation/CsvNumber.cpp`, ctest
+  `csv_numbers` natively and in WASM) formatted on all cores, a stack's planes on all cores (`Stack::PlaneInto`),
+  `vox::Deflate` 8 bytes at a time (= a verbatim copy, `cli/deflate_reference.inc`). Memory (2026-11-04: 128 px WideField
   beside a nucleus, 4 M dyes, aborted the viewer at 4 GB): heap 1.9 GB without the dye list, 2.3 GB with. `GroundTruth::Files` writes
   frames.csv, localizations_min<N>.csv / fiducials.csv, dyes.csv (only without a blinking label: localizations or a dye list, never both, also in the Save box;
   optional: ~100 MB at 128 px WideField),
@@ -192,7 +198,8 @@ that finishes them.
   centre at stage + (i - W/2) px, no flip), density stacks, localizations per frame, axes frame/z/y/x in world um;
   also unpacked or on a voxelize .tif, lazily; copied beside the viewer by `build_site.sh`; checked with napari stood
   in for by `tests/web/napari_open_check.py`, ~1 s, which viewer_save runs on its zip); `web/voxelize.html` (the
-  page reads the CSV, chooses the rows and deflates the planes (CompressionStream); the grid, the stack plane by
+  page reads the CSV, chooses the rows and deflates the planes (CompressionStream, on up to 8 workers: the page's own
+  runs on its thread, `deflateWorkers`; a 120 MB dyes.csv's 10 nm 2-channel stack 10.6 -> 4.3 s); the grid, the stack plane by
   plane, the description, labels and TIFF layout are `Simulation/Voxelize.cpp` through `cli/voxelize_wasm.cpp`
   (target `insiliscope_voxelize`, in the `wasm-viewer` preset, ~180 KB, written into the page's `<script
   id="voxModule">` by `tools/embed_web_module.mjs`, whose `--check` covers it); the
@@ -204,8 +211,10 @@ that finishes them.
   0.7 s and 120 MB; opened whole, ImageJ reads no labels from a compressed TIFF), a .zip of one uncompressed TIFF
   (streamed through `zipStream`; opened whole, with the labels) or an uncompressed .tif; the compressed size
   estimated from 6 sample planes (`estimate`, within ~10 %); checked in ImageJ 1.53, Micro-Manager's `ij.jar` run with `-batch`). Checks: ctest
-  `ground_truth` (0.4 s), `tests/web/gt_unit.mjs` (the module's files = the cli's) and `zip_unit.mjs` (CI
-  `viewer-js`), `viewer_save.mjs` (browser, ~35 s: the cli reproduces the zip's movie and tables byte for byte;
+  `ground_truth` (0.9 s: Deflate = its old copy byte for byte, `PlaneInto` = Fill + Quantize), `csv_numbers` (1.2 s;
+  WASM 2.3 s),
+  `tests/web/gt_unit.mjs` (the module's files = the cli's) and `zip_unit.mjs` (CI
+  `viewer-js`; CRC-32 slice by 8 = the byte table), `viewer_save.mjs` (browser, ~25 s: the cli reproduces the zip's movie and tables byte for byte;
   voxelize's 8-bit and channel stacks).
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live

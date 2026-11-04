@@ -1403,3 +1403,14 @@ C++ only; docs/ground-truth.md has the files.
   `Render` fill when one is in scope (frames bit for bit the same): the frames, the drawn blinks and beads with their
   photons on the camera and the PSF-weighted light under them, the continuous dyes with their photons over the movie;
   at a movie's end one details query over the new rows' dyes (`fl.ground-truth-details`). cli `--gt-out`, `--gt-min`.
+- Speed (2026-11-04), every file byte for byte (cli scenarios hashed before and after; ctest checks against the old
+  code): `World::DyeDetailsInWindow` looks a run of dyes' cell, rotation and assets up once and shares a microtubule
+  dye's frames / arc / segment / theta between site and dipole (`DyeSiteIn`, `DyeOrientationIn`; `world_checks.lamin`:
+  = `DyeSiteOf` / `DyeOrientationOf` per dye, bit for bit), the id filter an open-addressing table; `EndMovie` keeps a
+  re-seen dye's site and asks the core once per chunk. Per frame: the blinks alone drawn in blinkFrame (a binned
+  frame's from its one convolution), footprints over the halo cut's spans only, bead footprints on threads. Files:
+  numbers by `std::to_chars` (`Simulation/CsvNumber.cpp`; ctest `csv_numbers`, also in WASM), rows formatted on all
+  cores, a stack's planes on all cores (`vox::Stack::PlaneInto`), `vox::Deflate` with 8-byte run scans, codes reversed
+  once per block and zero-word Adler-32 (ground_truth_check: = `cli/deflate_reference.inc`, the old one). Measured
+  (128 px, 12 threads): WideField MT + pores 20 f details 2.8 -> 0.8 s, dyes.csv 2.8 -> 0.2 s, stacks 1.4 -> 0.2 s;
+  binned blinks 100 f ground truth 5.3 -> 0.6 s; beads with drift 3.8 -> 2.0 s.
