@@ -5615,25 +5615,9 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       (void)um;
       if (gt->dyeList && !m.pops.empty())
       {
-         if (!haveWindows)
-         {
-            bool ok;
-            if (m.map)
-            {
-               ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(S.q, windows, &windowClock);
-               source.SetClockMap(nullptr);
-            }
-            else
-               ok = source.Continuous(S.q, windows);
-            if (!ok)
-            {
-               err = "cell-field window query failed";
-               return false;
-            }
-            haveWindows = true;
-         }
          const auto sec = [&](double fr) { return S.q.tSec + (fr - S.q.frameIndex) * S.expSec; };
          const double t0 = S.t0Sec, t1 = S.t0Sec + S.N * S.expSec;
+         const auto addDyes = [&](const std::vector<BlinkEvent>& windows, const std::vector<double>& windowClock) {
          for (const Population& p : m.pops)
          {
             if (p.state == ISC_STATE_BLINK)
@@ -5671,6 +5655,42 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                d.emittedTotal = d.detectedTotal * lab.emittedPerDetected;
                gt->AddDye(d);
             }
+         }
+         };
+         if (haveWindows)
+            addDyes(windows, windowClock);
+         else
+         {
+            // The mean-field populations fetch no windows: fetched here for the list only, in strips along x (the
+            // core keeps a dye when x0 <= x < x1: shared edges, each dye once), each strip's let go before the next
+            // (4 M dyes by a nucleus: the rows, the windows and their clocks at once took the viewer's heap past 4 GB).
+            const double stripUm = 2.0;
+            const long strips = std::max(1L, static_cast<long>(std::ceil((S.q.x1Um - S.q.x0Um) / stripUm)));
+            SampleQuery sq = S.q;
+            std::vector<BlinkEvent> part;
+            std::vector<double> partClock;
+            for (long k = 0; k < strips; ++k)
+            {
+               sq.x0Um = k == 0 ? S.q.x0Um : sq.x1Um;
+               sq.x1Um = k + 1 == strips ? S.q.x1Um : S.q.x0Um + (k + 1) * stripUm;
+               part.clear();
+               partClock.clear();
+               bool ok;
+               if (m.map)
+               {
+                  ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(sq, part, &partClock);
+                  source.SetClockMap(nullptr);
+               }
+               else
+                  ok = source.Continuous(sq, part);
+               if (!ok)
+               {
+                  err = "cell-field window query failed";
+                  return false;
+               }
+               addDyes(part, partClock);
+            }
+            source.ReleaseBuffers();
          }
       }
    }
@@ -6693,16 +6713,15 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       if (!more)
          break;
    }
-   // The ground truth's details: the new rows' sites and dipoles, one core query over their box.
-   double gtBox[6];
-   std::vector<double> gtIds;
-   if (gt && gt->NeedsDetails(gtEmFrom, gtBox, gtIds))
+   // The ground truth's movie end: the dyes seen again merged, the new rows' sites and dipoles (core queries over
+   // chunks of them along x).
+   if (gt)
    {
       const auto td = TimingClock::now();
-      std::vector<double> rows;
-      if (m.cache.source.DyeDetails(gtBox[0], gtBox[1], gtBox[2], gtBox[3], gtBox[4], gtBox[5], gtIds, rows))
-         gt->ApplyDetails(rows.data(), rows.size() / ISC_DYE_DETAIL_STRIDE, ISC_DYE_DETAIL_STRIDE, gtEmFrom);
-      TimingLog("fl.ground-truth-details", TimingSince(td), std::to_string(rows.size() / ISC_DYE_DETAIL_STRIDE).c_str());
+      const size_t asked = gt->EndMovie(gtEmFrom, [&](const double box[6], const std::vector<double>& ids, std::vector<double>& rows) {
+         return m.cache.source.DyeDetails(box[0], box[1], box[2], box[3], box[4], box[5], ids, rows);
+      }, ISC_DYE_DETAIL_STRIDE);
+      TimingLog("fl.ground-truth-details", TimingSince(td), std::to_string(asked).c_str());
    }
    info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
    tBlinks.Log("fl.frame.blinks (batches)");

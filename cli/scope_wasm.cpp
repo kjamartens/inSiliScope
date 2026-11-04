@@ -29,8 +29,18 @@
 EM_JS(void, isc_js_movie_progress, (const char* stage, double frac, const char* detail), {
    if (Module.onMovieProgress) Module.onMovieProgress(UTF8ToString(stage), frac, UTF8ToString(detail));
 });
+// A ground truth's file to the page as it is made (isc_scope_gt): Module.onGtFile(name, bytes) copies it out of the
+// heap (a 4 M-dye dyes.csv is ~600 MB: packing every file into one buffer here took the heap past 4 GB); 0 when the
+// page set none (then isc_scope_gt packs). Pointers above 2 GB are negative i32 in JS: >>> 0.
+EM_JS(int, isc_js_gt_file, (const char* name, const char* data, double size), {
+   if (!Module.onGtFile) return 0;
+   const p = data >>> 0;
+   Module.onGtFile(UTF8ToString(name >>> 0), HEAPU8.slice(p, p + size));
+   return 1;
+});
 #else
 static void isc_js_movie_progress(const char*, double, const char*) {}
+static int isc_js_gt_file(const char*, const char*, double) { return 0; }
 #endif
 
 namespace {
@@ -613,7 +623,10 @@ ISC_API int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight,
 // files packed into one buffer, isc_scope_gt_data(): per file its name, a newline, its size in bytes (decimal), a
 // newline, the bytes. Thresholds minA, minB (photons on the camera), the volumes' voxel (nm; 0: none), dyeCsv 0
 // leaves dyes.csv out (the volumes stay). Returns the buffer's size, or -1 with the error in isc_scope_gt_error().
-// Progress: Module.onMovieProgress("ground truth", fraction of the frames, "").
+// With Module.onGtFile set, each file goes there as it is made instead (nothing packed; returns their bytes in all).
+// Progress: Module.onMovieProgress(stage, fraction, detail): "setup" 0 (the sample, the PSF, the light history: no
+// fraction; most of a short movie's time), "ground truth" per frame (fraction of the frames, detail {"frame","frames"}),
+// "files" 1 (the dyes' sites, the tables and stacks).
 static std::string g_gt, g_gtErr;
 ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, double volLateralNm, double volAxialNm,
                             int32_t dyeCsv)
@@ -638,24 +651,37 @@ ISC_API double isc_scope_gt(const char* settingsJson, double minA, double minB, 
       gt.minPhotons = std::min(minA, minB);
       gt.writeDyeCsv = dyeCsv != 0;
       settings::MovieRun run;
+      isc_js_movie_progress("setup", 0, "");
       {
          sim::GroundTruthScope scope(&gt);
          Progress pr;
          if (!settings::RenderMovie(loaded, [&](long f, const std::vector<uint16_t>&, unsigned, unsigned) {
-                pr.fn("ground truth", total > 0 ? static_cast<double>(f + 1) / total : 1.0, std::string());
+                const double frac = total > 0 ? std::min(1.0, static_cast<double>(f + 1) / total) : 1.0;
+                if (frac < 1)
+                   pr.fn("ground truth", frac, "{\"frame\":" + std::to_string(f + 1) + ",\"frames\":" + std::to_string(total) + "}");
+                else   // the last frame: the dyes' sites (Render's end) and the files come next
+                   isc_js_movie_progress("files", 1, "");
                 return true;
              }, run, g_gtErr))
             return -1;
       }
-      for (const auto& file : gt.Files({ minA, minB }, volLateralNm, volAxialNm))
-      {
-         g_gt += file.first;
+      isc_js_movie_progress("files", 1, "");
+      double delivered = 0;
+      gt.Files([&](const std::string& name, std::string&& bytes) {
+         if (isc_js_gt_file(name.c_str(), bytes.data(), static_cast<double>(bytes.size())))
+         {
+            delivered += static_cast<double>(bytes.size());
+            std::string().swap(bytes);
+            return;
+         }
+         g_gt += name;
          g_gt += '\n';
-         g_gt += std::to_string(file.second.size());
+         g_gt += std::to_string(bytes.size());
          g_gt += '\n';
-         g_gt += file.second;
-      }
-      return static_cast<double>(g_gt.size());
+         g_gt += bytes;
+         std::string().swap(bytes);   // let it go before the next file is made
+      }, { minA, minB }, volLateralNm, volAxialNm);
+      return g_gt.empty() ? delivered : static_cast<double>(g_gt.size());
    }
    catch (const std::exception& e)
    {

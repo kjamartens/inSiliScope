@@ -16,8 +16,11 @@ insiliscope_cli --settings settings.isc.json --out movie.tif --gt-out gt
 ## How it is made
 
 The ground truth is computed when you save, not while recording. The viewer renders the recording again from its
-settings file with the ground truth switched on, which costs about two to three times the recording's own time.
-(Collecting it during the Record would add ~70 % to every recording, saved or not.)
+settings file with the ground truth switched on, on a worker of its own (a fresh WebAssembly heap, freed after; live
+pauses meanwhile). It takes a few times the recording's own time: a 128 px WideField recording beside a nucleus (4
+million dyes) about a minute, with the dye list. The Save box shows the stage (preparing the sample and the PSF,
+the frames with their %, writing the files), a bar and the seconds. (Collecting it during the Record would add ~70 %
+to every recording, saved or not.)
 
 The settings file is taken as the Record began. It reproduces the frames bit for bit:
 
@@ -96,13 +99,15 @@ The density stacks come with either.
 - `dyes.csv` (WideField only) lists each dye with its position and binding site, its window in the sample's time (`t_on_s`, `t_off_s`:
   when it bleaches or switches), its detected rate now (`photons_per_s`, 0 when no light reaches it) and its photons
   over the recorded frames (`photons_detected_total`, `photons_emitted_total`). A 128 px WideField recording lists
-  about 800 000 dyes (~100 MB), so the dye list is optional; the stacks stay.
+  0.8 to 4 million dyes (~120 to 600 MB), so the dye list is optional; the stacks stay.
 - `density_<target>.tif` sums `photons_emitted_total` per voxel (default 50 × 50 × 25 nm), over the box of that
   target's dyes. The stack is 32-bit, which is what a reconstruction is scored against: the light each place gave,
-  not just whether a dye was there.
+  not just whether a dye was there. Its planes are PackBits-compressed (mostly empty: ~25 times smaller).
   - Fiji/ImageJ and napari read the voxel size: X/YResolution in pixels per µm, `spacing` and `unit=micron` in the
     ImageJ description.
-  - The world position of voxel (0, 0, 0)'s corner is in the description (`insiliscope.origin-um`) and in
+  - Fiji also reads the world origin (`xorigin`, `yorigin`, `zorigin`): its status bar shows each voxel's world x,
+    y and z in µm (z at the slice's centre).
+  - The world position of voxel (0, 0, 0)'s corner is also in the description (`insiliscope.origin-um`) and in
     `gt/README.txt`. Voxel (i, j, k)'s centre is that origin plus ((i, j, k) + ½) × the voxel size.
   - Above 256 MB in all, the voxels grow by whole factors, and the README says so.
 
@@ -114,10 +119,15 @@ localization table on it, then choose:
 
 - the dyes' positions or their binding sites;
 - the value per voxel: emitted photons, detected photons, or a count;
-- a target;
-- the voxel size.
+- a target, or all of them as **one stack** (their sum) or **a channel each** (a composite stack for Fiji);
+- the voxel size;
+- the bit depth: **8-bit** (the default), 16-bit, or 32-bit float. 8 and 16 bits scale each channel to its maximum;
+  the photons per step are in the description (`insiliscope.scale`), and a single-channel stack carries them as its
+  calibration, so Fiji measures photons;
+- compression (on by default; a mostly empty stack shrinks ~100 times). Fiji shows each slice's z in its status bar
+  either way, and as a slice label only in an uncompressed stack.
 
-It writes the same kind of stack.
+It reads the table as it streams in, so a 600 MB `dyes.csv` works too.
 
 ## Caveats
 

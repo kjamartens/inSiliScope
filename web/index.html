@@ -4355,17 +4355,16 @@ function iscEngine(M) {
       }
       if (d.type === 'gt') {
         // A recording's ground truth (web/live/live.js Save; docs/ground-truth.md): its settings file's movie rendered
-        // again with the sink on (isc_scope_gt, = insiliscope_cli --settings --gt-out), the files packed: name \n size
-        // \n bytes, repeated. Progress as a movie's.
+        // again with the sink on (isc_scope_gt, = insiliscope_cli --settings --gt-out), the files [[name, bytes], ...]
+        // (Module.onGtFile: each copied out of the heap as it is made). Progress as a movie's.
         progressTo(d, post);
-        const n = M.lengthBytesUTF8(d.text) + 1, s = M._malloc(n);
+        const n = M.lengthBytesUTF8(d.text) + 1, s = M._malloc(n), files = [];
         M.stringToUTF8(d.text, s, n);
+        M.onGtFile = (name, bytes) => files.push([name, bytes]);   // each file out of the heap as it is made
         let size;
-        try { size = M._isc_scope_gt(s, d.min[0], d.min[1], d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; }
+        try { size = M._isc_scope_gt(s, d.min[0], d.min[1], d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; M.onGtFile = null; }
         if (size < 0) return [{ type: 'gt', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
-        const p = M._isc_scope_gt_data(), bytes = M.HEAPU8.slice(p, p + size);
-        M._isc_scope_gt_free();
-        return [{ type: 'gt', id: d.id, bytes }, [bytes.buffer]];
+        return [{ type: 'gt', id: d.id, files }, files.map(f => f[1].buffer)];
       }
       if (d.type === 'setup') {
         // A movie spec's resolved setup (isc_scope_setup: JSON of the light path, excitation, labels).

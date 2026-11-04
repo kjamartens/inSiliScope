@@ -186,6 +186,9 @@ public:
    // failure.
    double MaxCellHeight(double x0, double y0, double x1, double y1);
 
+   // Lets the query rows' buffer go (it keeps the largest query's size: the ground truth's dye list frees it).
+   void ReleaseBuffers() { std::vector<double>().swap(buf_); }
+
 private:
    IscWorld* world_ = nullptr;
    SampleSettings settings_;

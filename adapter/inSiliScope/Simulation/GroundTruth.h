@@ -22,6 +22,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -88,6 +89,7 @@ public:
       int label = -1;
       uint32_t id = 0;
       int structure = 0, state = 0;
+      uint32_t run = 0;                   // the movie of the recording that added it (EndMovie's merge)
       double xUm = 0, yUm = 0, zUm = 0;   // world um
       double tOnSec = 0, tOffSec = 0;     // its window in the sample's time (s; tOff: bleached / switched off)
       double photonsPerSec = 0;           // detected, at its excitation (0: no light reaches it)
@@ -112,19 +114,21 @@ public:
 
    // A label's index (added when new).
    int LabelOf(const Label& l);
-   // A continuous dye's row (the same dye seen again by a later movie: its row replaced, its totals summed).
+   // A continuous dye's row. The same dye seen again by a later movie of the recording is merged at that movie's
+   // end (EndMovie: the later row, the totals summed).
    void AddDye(const Dye& d);
    const std::vector<Dye>& Dyes() const { return dyes_; }
    void GrowBox(double x0, double y0, double x1, double y1, double z0, double z1);
    // Whether any label blinks (dSTORM, PALM, DNA-PAINT): the beads then go into the emitter tables.
    bool Blinking() const;
-   // The details pass (a movie's end): the world box (x0, y0, x1, y1, z0, z1; um, padded) of the dyes still without
-   // a site -- the emitter rows from emitterFrom on and every continuous dye; false if none. Then the core's rows
-   // (isc_dye_details_in_window, stride doubles each: x, y, z, id, structure, site xyz, dipole xyz) give each such
-   // row its site and orientation (matched by id, structure and position).
-   // ids: their dyes' ids (each once).
-   bool NeedsDetails(size_t emitterFrom, double box[6], std::vector<double>& ids) const;
-   void ApplyDetails(const double* rows, size_t n, int stride, size_t emitterFrom);
+   // A movie's end. Merges the dyes this movie saw again (sorted in place: a WideField field by a nucleus holds ~4 M
+   // dyes, and no index beside them), then gives the rows still without a site -- the emitter rows from emitterFrom
+   // on, and the continuous dyes when dyes.csv will be written (writeDyeCsv, no blinking label: the volumes need only
+   // positions) -- their site and orientation: per chunk of at most chunk rows along x, query(box: x0, y0, x1, y1, z0,
+   // z1 um padded; their ids, each once; rows) gives the core's rows (isc_dye_details_in_window, stride doubles each:
+   // x, y, z, id, structure, site xyz, dipole xyz), matched by id, structure and position. Returns the rows asked for.
+   using DetailQuery = std::function<bool(const double box[6], const std::vector<double>& ids, std::vector<double>& rows)>;
+   size_t EndMovie(size_t emitterFrom, const DetailQuery& query, int stride, size_t chunk = size_t(1) << 18);
 
    // The tables (CSV, a header line; docs/ground-truth.md). Emitters: rows with onCamera >= minOnCamera, by frame;
    // fiducials: whether the beads go in (else FiducialsCsv has them).
@@ -148,10 +152,16 @@ public:
    std::vector<std::pair<std::string, std::string>> Files(const std::vector<double>& thresholds,
                                                           double volumeLateralNm = 50, double volumeAxialNm = 25,
                                                           double volumeCapBytes = 256.0 * 1024 * 1024) const;
+   // The same files handed to sink one at a time as each is made (a WideField ground truth's dyes.csv is ~150 bytes
+   // a dye: the viewer packs each and lets it go, never holding every file and the packed copy at once).
+   using FileSink = std::function<void(const std::string& name, std::string&& bytes)>;
+   void Files(const FileSink& sink, const std::vector<double>& thresholds, double volumeLateralNm = 50,
+              double volumeAxialNm = 25, double volumeCapBytes = 256.0 * 1024 * 1024) const;
 
 private:
    std::vector<Dye> dyes_;
-   std::unordered_map<uint64_t, std::vector<size_t>> dyeIndex_;
+   size_t runFrom_ = 0;   // the dyes before this movie's
+   uint32_t run_ = 0;
 };
 
 // The ground truth the movies on this thread fill (nullptr: none).

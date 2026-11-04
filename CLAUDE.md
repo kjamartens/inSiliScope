@@ -171,16 +171,24 @@ that finishes them.
   deflate-raw, Zip64) with `settings.isc.json` (`recordFile`, reproduces the movie) and `gt/`. The engine fills a
   thread-local sink (`Simulation/GroundTruth.*`, `GroundTruthScope`; frames bit for bit with and without): frame rows,
   drawn blinks and beads with photons on the camera (the splat's 1-photon footprint) and the PSF-weighted non-blink
-  light, continuous dyes with their photons over the frames; at Render's end one core query adds sites and dipoles
-  (core ABI 19 `isc_dye_details_in_window`, stride 11, by id; goldens unchanged). `GroundTruth::Files` writes
+  light, continuous dyes with their photons over the frames (the mean field's windows fetched for the list in 2 um
+  strips along x, each let go); at Render's end `EndMovie` merges dyes a later movie saw again (sorted in place) and
+  adds sites and dipoles by core queries over chunks of 2^18 rows along x (core ABI 19 `isc_dye_details_in_window`,
+  stride 11, by id; goldens unchanged; the dyes' only when dyes.csv is written). Memory (2026-11-04: 128 px WideField
+  beside a nucleus, 4 M dyes, aborted the viewer at 4 GB): heap 1.9 GB without the dye list, 2.3 GB with. `GroundTruth::Files` writes
   frames.csv, localizations_min<N>.csv / fiducials.csv, dyes.csv (only without a blinking label: localizations or a dye list, never both, also in the Save box;
   optional: ~100 MB at 128 px WideField),
-  density_<target>[_<state>].tif (emitted photons per voxel, 50/50/25 nm, float32 ImageJ, capped 256 MB), README.txt.
-  Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` (a `gt` job on the live worker) and
+  density_<target>[_<state>].tif (emitted photons per voxel, 50/50/25 nm, float32 ImageJ, PackBits per plane, the
+  origin as xorigin/yorigin/zorigin (Fiji's status bar), capped 256 MB), README.txt; `Files(sink, ...)` hands each over
+  as made. Computed at Save (during a Record it added ~70 %): the module's `isc_scope_gt` (a `gt` job on a worker of
+  its own, `L.groundTruth`: spawned, terminated after; `Module.onGtFile` takes each file out of the heap; stages
+  `setup`, `ground truth` per frame, `files`) and
   the cli's `--gt-out` / `--gt-min a,b` / `--gt-volume xy,z`, both on `settings::RenderMovie`; `web/voxelize.html` (the
-  converter, copied beside the viewer by `build_site.sh`). Checks: ctest `ground_truth` (2.6 s), `tests/web/gt_unit.mjs`
-  (6 s: the module's files = the cli's) and `zip_unit.mjs` (CI `viewer-js`), `viewer_save.mjs` (browser, 12 s: the cli
-  reproduces the zip's movie and tables byte for byte).
+  converter, copied beside the viewer by `build_site.sh`: the CSV streamed into typed columns; 8/16/32 bits, a channel
+  per target, deflate; checked in ImageJ 1.53, Micro-Manager's `ij.jar` run with `-batch`). Checks: ctest
+  `ground_truth` (0.4 s), `tests/web/gt_unit.mjs` (the module's files = the cli's) and `zip_unit.mjs` (CI
+  `viewer-js`), `viewer_save.mjs` (browser, ~25 s: the cli reproduces the zip's movie and tables byte for byte;
+  voxelize's 8-bit and channel stacks).
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider

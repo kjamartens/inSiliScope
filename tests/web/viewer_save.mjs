@@ -7,7 +7,9 @@
 //     gt/frames.csv, gt/localizations_min<N>.csv, gt/README.txt, gt/voxelize.html;
 //   - with the cli (build/msvc/cli/Release/insiliscope_cli.exe, or ISC_CLI): insiliscope_cli --settings
 //     settings.isc.json renders movie.tif's frames bit for bit and --gt-out writes gt/'s tables byte for byte;
-//   - voxelize.html (served beside the viewer) turns a localization table into an ImageJ stack with its voxel size.
+//   - voxelize.html (served beside the viewer) turns a localization table into an ImageJ stack: 8-bit by default,
+//     deflated, its voxel size, its world origin (Fiji's status bar), the photons per step as its calibration; with
+//     "a channel each" a composite stack of the two targets.
 //   node tests/web/viewer_save.mjs [--swiftshader]   (~40 s)
 import fs from 'node:fs';
 import os from 'node:os';
@@ -46,7 +48,7 @@ function readTiff(buf) {
       t[tag] = type === 3 ? dv.getUint16(o + 8, true) : type === 5 ? (() => { const a = dv.getUint32(o + 8, true); return dv.getUint32(a, true) / dv.getUint32(a + 4, true); })()
         : type === 2 ? new TextDecoder().decode(buf.subarray(dv.getUint32(o + 8, true), dv.getUint32(o + 8, true) + cnt - 1)) : dv.getUint32(o + 8, true);
     }
-    pages.push({ w: t[256], h: t[257], bits: t[258], desc: t[270], xres: t[282], data: t[273] });
+    pages.push({ w: t[256], h: t[257], bits: t[258], comp: t[259], desc: t[270], xres: t[282], data: t[273] });
     ifd = dv.getUint32(ifd + 2 + 12 * n, true);
   }
   return pages;
@@ -141,9 +143,19 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     await vp.waitForFunction(() => !document.getElementById('opts').hidden && !document.getElementById('go').disabled, null, { timeout: 20000 });
     await vp.evaluate(() => { const v = document.getElementById('vxy'); v.value = 20; v.dispatchEvent(new Event('input')); });
     const [dlVox] = await Promise.all([vp.waitForEvent('download', { timeout: 20000 }), vp.click('#go')]);
-    const vox = fs.readFileSync(await dlVox.path()), vpages = readTiff(vox), d0 = vpages[0] || {};
-    check(vpages.length > 0 && vpages[0].bits === 32 && Math.abs(d0.xres - 50) < 1e-6 && /\nspacing=0\.025\n/.test(d0.desc || '') && /unit=micron/.test(d0.desc || ''),
-      `voxelize.html: ${dlVox.suggestedFilename()}, ${vpages.length} planes of ${d0.w}×${d0.h}, 32-bit, 50 px/µm, spacing 0.025 µm`);
+    const vox = fs.readFileSync(await dlVox.path()), vpages = readTiff(vox), d0 = vpages[0] || {}, desc = d0.desc || '';
+    check(vpages.length > 0 && d0.bits === 8 && d0.comp === 8 && Math.abs(d0.xres - 50) < 1e-6 && /\nspacing=0\.025\n/.test(desc) &&
+      /unit=micron/.test(desc) && /\nzorigin=-?[\d.]+\n/.test(desc) && /\nc1=[\d.e+-]+\nvunit=photons\n/.test(desc),
+      `voxelize.html: ${dlVox.suggestedFilename()}, ${vpages.length} planes of ${d0.w}×${d0.h}, 8-bit, deflated, 50 px/µm, spacing 0.025 µm, ` +
+      `its origin, photons per step as the calibration`);
+    // a channel per target: a composite stack, planes c-fastest
+    const nT = await vp.evaluate(() => document.getElementById('target').options.length - 1);
+    await vp.evaluate(() => { const s = document.getElementById('split'); s.value = 'channels'; s.dispatchEvent(new Event('input')); });
+    const [dlCh] = await Promise.all([vp.waitForEvent('download', { timeout: 20000 }), vp.click('#go')]);
+    const ch = readTiff(fs.readFileSync(await dlCh.path())), dc = (ch[0] || {}).desc || '';
+    const nc = +(/\nchannels=(\d+)\n/.exec(dc) || [])[1], nzc = +(/\nslices=(\d+)\n/.exec(dc) || [])[1];
+    check(nT >= 2 && nc === nT && ch.length === nc * nzc && /hyperstack=true\nmode=composite/.test(dc),
+      `voxelize.html, a channel each: ${dlCh.suggestedFilename()}, ${nc} channels × ${nzc} slices (${ch.length} planes), composite`);
 
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

@@ -5,7 +5,8 @@
 //     unpacks them (frames.csv, the localization tables, README.txt), a row per frame, beads as kind fiducial;
 //   - a Record's file with a light history (recordFrom): the replay, then the recorded runs;
 //   - a WideField file: dyes.csv and the density volume (an ImageJ float32 stack: its description's spacing and
-//     unit), dyes.csv left out on request (the volume stays);
+//     unit), dyes.csv left out on request (the volume stays); the viewer's way (Module.onGtFile: each file out of the
+//     heap as it is made) gives the same files, in order;
 //   - with the cli (build/msvc/cli/Release/insiliscope_cli.exe, or ISC_CLI): insiliscope_cli --settings f --gt-out d
 //     writes the same files, byte for byte (skipped without a cli).
 //   node tests/web/gt_unit.mjs
@@ -23,7 +24,8 @@ const check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAI
 const { M } = await loadWasmScope(fs.readFileSync(path.join(ROOT, 'web/insiliscope_module.js'), 'utf8'));
 const str = s => { const n = M.lengthBytesUTF8(s) + 1, p = M._malloc(n); M.stringToUTF8(s, p, n); return p; };
 
-// The viewer's unpacking (web/live/live.js gtFiles): name \n size \n bytes, repeated.
+// isc_scope_gt's packed files without Module.onGtFile (the viewer sets it: each file out of the heap as it is made):
+// name \n size \n bytes, repeated.
 function unpack(bytes) {
   const files = new Map();
   let i = 0;
@@ -101,6 +103,15 @@ check(dyes.length > 0 && vol && /spacing=0\.05\n/.test(desc) && /unit=micron/.te
   `WideField: dyes.csv (${dyes.length} dyes) and ${vol} (spacing 0.05 um, unit micron, the origin)`);
 const c2 = gt(wf, { vol: [100, 50], dyeCsv: 0 });
 check(!c2.has('dyes.csv') && c2.has(vol), 'dyes.csv left out on request, the volume kept');
+{
+  const got = [];
+  M.onGtFile = (name, bytes) => got.push([name, bytes]);
+  const s = str(wf), n = M._isc_scope_gt(s, 5, 300, 100, 50, 1);
+  M._free(s);
+  M.onGtFile = null;
+  const same = got.length === c.size && got.every(([k, b], i) => k === [...c.keys()][i] && b.length === c.get(k).length && b.every((x, j) => x === c.get(k)[j]));
+  check(n === got.reduce((t, f) => t + f[1].length, 0) && same, `Module.onGtFile (the viewer's): the same ${got.length} files, one at a time`);
+}
 
 // ---- the cli writes the same files ----
 const cli = process.env.ISC_CLI || path.join(ROOT, 'build/msvc/cli/Release/insiliscope_cli.exe');

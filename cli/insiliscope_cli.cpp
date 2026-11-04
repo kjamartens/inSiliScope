@@ -302,13 +302,16 @@ int RunCli(int argc, char** argv)
    const auto writeGt = [&]() {
       if (gtOut.empty()) return true;
       const auto tg = std::chrono::steady_clock::now();
-      for (const auto& file : gt.Files({ gtMin[0], gtMin[1] }, gtVol[0], gtVol[1])) {
-         const std::string path = gtOut + "/" + file.first;
+      bool ok = true;
+      gt.Files([&](const std::string& name, std::string&& bytes) {
+         if (!ok) return;
+         const std::string path = gtOut + "/" + name;
          FILE* f = std::fopen(path.c_str(), "wb");
-         const bool wrote = f && std::fwrite(file.second.data(), 1, file.second.size(), f) == file.second.size();
+         const bool wrote = f && std::fwrite(bytes.data(), 1, bytes.size(), f) == bytes.size();
          if (f) std::fclose(f);
-         if (!wrote) { std::fprintf(stderr, "cannot write %s (does the directory exist?)\n", path.c_str()); return false; }
-      }
+         if (!wrote) { std::fprintf(stderr, "cannot write %s (does the directory exist?)\n", path.c_str()); ok = false; }
+      }, { gtMin[0], gtMin[1] }, gtVol[0], gtVol[1]);
+      if (!ok) return false;
       std::printf("%s: ground truth, %zu frames, %zu emitter rows, %zu continuous dyes (%.3f s)\n", gtOut.c_str(), gt.frames.size(),
                   gt.emitters.size(), gt.Dyes().size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - tg).count());
       return true;

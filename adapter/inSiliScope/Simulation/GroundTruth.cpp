@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <tuple>
 
 namespace sim {
 
@@ -83,24 +84,8 @@ int GroundTruth::LabelOf(const Label& l)
 
 void GroundTruth::AddDye(const Dye& d)
 {
-   const uint64_t key = static_cast<uint64_t>(d.id) | (static_cast<uint64_t>(d.structure & 0xFF) << 32) |
-                        (static_cast<uint64_t>(d.state & 0xFF) << 40);
-   std::vector<size_t>& at = dyeIndex_[key];
-   for (size_t i : at)
-   {
-      Dye& o = dyes_[i];
-      if (o.xUm == d.xUm && o.yUm == d.yUm && o.zUm == d.zUm)
-      {
-         // seen again (a later run of a recording): its latest light, the photons of both runs
-         const double det = o.detectedTotal + d.detectedTotal, emi = o.emittedTotal + d.emittedTotal;
-         o = d;
-         o.detectedTotal = det;
-         o.emittedTotal = emi;
-         return;
-      }
-   }
-   at.push_back(dyes_.size());
    dyes_.push_back(d);
+   dyes_.back().run = run_;
 }
 
 void GroundTruth::GrowBox(double x0, double y0, double x1, double y1, double z0, double z1)
@@ -115,79 +100,132 @@ void GroundTruth::GrowBox(double x0, double y0, double x1, double y1, double z0,
    boxX1 = std::max(boxX1, x1); boxY1 = std::max(boxY1, y1); boxZ1 = std::max(boxZ1, z1);
 }
 
-bool GroundTruth::NeedsDetails(size_t emitterFrom, double box[6], std::vector<double>& ids) const
+size_t GroundTruth::EndMovie(size_t emitterFrom, const DetailQuery& query, int stride, size_t chunk)
 {
-   bool any = false;
-   std::unordered_map<uint32_t, char> seen;
-   const auto grow = [&](uint32_t id, double x, double y, double z) {
-      if (seen.emplace(id, 0).second)
-         ids.push_back(id);
-      if (!any)
+   // The dyes this movie saw again: sorted by (id, structure, state, position, movie), each run of one dye merged into
+   // its last row (its latest light) with the totals summed. Only when an earlier movie added dyes.
+   if (runFrom_ > 0 && dyes_.size() > runFrom_)
+   {
+      const auto key = [](const Dye& d) {
+         return std::make_tuple(d.id, d.structure, d.state, d.xUm, d.yUm, d.zUm, d.run);
+      };
+      std::sort(dyes_.begin(), dyes_.end(), [&](const Dye& a, const Dye& b) { return key(a) < key(b); });
+      size_t w = 0;
+      for (size_t i = 0; i < dyes_.size(); ++i)
       {
-         box[0] = box[2] = x; box[1] = box[3] = y; box[4] = box[5] = z;
-         any = true;
-         return;
+         const Dye& d = dyes_[i];
+         if (w > 0)
+         {
+            Dye& o = dyes_[w - 1];
+            if (o.id == d.id && o.structure == d.structure && o.state == d.state && o.xUm == d.xUm && o.yUm == d.yUm &&
+                o.zUm == d.zUm)
+            {
+               const double det = o.detectedTotal + d.detectedTotal, emi = o.emittedTotal + d.emittedTotal;
+               o = d;
+               o.detectedTotal = det;
+               o.emittedTotal = emi;
+               continue;
+            }
+         }
+         dyes_[w++] = d;
       }
-      box[0] = std::min(box[0], x); box[2] = std::max(box[2], x);
-      box[1] = std::min(box[1], y); box[3] = std::max(box[3], y);
-      box[4] = std::min(box[4], z); box[5] = std::max(box[5], z);
+      dyes_.resize(w);
+   }
+   runFrom_ = dyes_.size();
+   run_++;
+
+   // The rows still without a site, along x (16 bytes each), in chunks: each one core query over its box.
+   struct Pending
+   {
+      double x;
+      uint32_t i;
+      bool dye;
    };
+   std::vector<Pending> todo;
    for (size_t i = emitterFrom; i < emitters.size(); ++i)
       if (emitters[i].kind != Fiducial && std::isnan(emitters[i].siteXUm))
-         grow(emitters[i].id, emitters[i].xUm, emitters[i].yUm, emitters[i].zUm);
-   for (const Dye& d : dyes_)
-      if (std::isnan(d.siteXUm))
-         grow(d.id, d.xUm, d.yUm, d.zUm);
-   if (any)
+         todo.push_back({ emitters[i].xUm, static_cast<uint32_t>(i), false });
+   if (writeDyeCsv && !Blinking())
+      for (size_t i = 0; i < dyes_.size(); ++i)
+         if (std::isnan(dyes_[i].siteXUm))
+            todo.push_back({ dyes_[i].xUm, static_cast<uint32_t>(i), true });
+   std::sort(todo.begin(), todo.end(), [](const Pending& a, const Pending& b) { return a.x < b.x || (a.x == b.x && a.i < b.i); });
+   const auto rowKey = [](const double* r) { return static_cast<uint64_t>(r[3]) | (static_cast<uint64_t>(r[4]) << 32); };
+   std::vector<double> ids, rows;
+   std::vector<uint32_t> order;
+   for (size_t a = 0; a < todo.size(); a += chunk)
    {
+      const size_t b = std::min(todo.size(), a + chunk);
+      double box[6];
+      ids.clear();
+      for (size_t k = a; k < b; ++k)
+      {
+         const Pending& p = todo[k];
+         double x, y, z;
+         uint32_t id;
+         if (p.dye) { const Dye& d = dyes_[p.i]; x = d.xUm; y = d.yUm; z = d.zUm; id = d.id; }
+         else { const Emitter& e = emitters[p.i]; x = e.xUm; y = e.yUm; z = e.zUm; id = e.id; }
+         if (k == a) { box[0] = box[2] = x; box[1] = box[3] = y; box[4] = box[5] = z; }
+         box[0] = std::min(box[0], x); box[2] = std::max(box[2], x);
+         box[1] = std::min(box[1], y); box[3] = std::max(box[3], y);
+         box[4] = std::min(box[4], z); box[5] = std::max(box[5], z);
+         ids.push_back(id);
+      }
       // (half-open windows; the rows' positions went through the host's frame and back)
       const double pad = 1e-3;
       box[0] -= pad; box[1] -= pad; box[4] -= pad;
       box[2] += pad; box[3] += pad; box[5] += pad;
-   }
-   return any;
-}
-
-void GroundTruth::ApplyDetails(const double* rows, size_t n, int stride, size_t emitterFrom)
-{
-   std::unordered_map<uint64_t, std::vector<size_t>> at;
-   at.reserve(n);
-   for (size_t i = 0; i < n; ++i)
-   {
-      const double* r = rows + i * static_cast<size_t>(stride);
-      at[static_cast<uint64_t>(r[3]) | (static_cast<uint64_t>(r[4]) << 32)].push_back(i);
-   }
-   const auto fill = [&](uint32_t id, int structure, double x, double y, double z, double& sx, double& sy, double& sz,
-                         double& polar, double& azimuth) {
-      const auto it = at.find(static_cast<uint64_t>(id) | (static_cast<uint64_t>(structure & 0xFF) << 32));
-      if (it == at.end())
-         return;
-      for (size_t i : it->second)
-      {
-         const double* r = rows + i * static_cast<size_t>(stride);
-         if (!(std::fabs(r[0] - x) < 1e-6 && std::fabs(r[1] - y) < 1e-6 && std::fabs(r[2] - z) < 1e-6))
-            continue;
-         sx = r[5]; sy = r[6]; sz = r[7];
-         const double dx = r[8], dy = r[9], dz = r[10];
-         const double len = std::sqrt(dx * dx + dy * dy + dz * dz);
-         if (len > 0)
+      std::sort(ids.begin(), ids.end());
+      ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+      rows.clear();
+      if (!query(box, ids, rows))
+         continue;
+      const size_t n = rows.size() / static_cast<size_t>(stride);
+      order.resize(n);
+      for (size_t i = 0; i < n; ++i)
+         order[i] = static_cast<uint32_t>(i);
+      std::sort(order.begin(), order.end(), [&](uint32_t u, uint32_t v) {
+         return rowKey(&rows[u * static_cast<size_t>(stride)]) < rowKey(&rows[v * static_cast<size_t>(stride)]);
+      });
+      const auto fill = [&](uint32_t id, int structure, double x, double y, double z, double& sx, double& sy,
+                            double& sz, double& polar, double& azimuth) {
+         const uint64_t k = static_cast<uint64_t>(id) | (static_cast<uint64_t>(structure & 0xFF) << 32);
+         auto it = std::lower_bound(order.begin(), order.end(), k, [&](uint32_t u, uint64_t kk) {
+            return rowKey(&rows[u * static_cast<size_t>(stride)]) < kk;
+         });
+         for (; it != order.end() && rowKey(&rows[*it * static_cast<size_t>(stride)]) == k; ++it)
          {
-            const double rad = 180.0 / 3.14159265358979323846;
-            polar = std::acos(std::max(-1.0, std::min(1.0, dz / len))) * rad;
-            azimuth = std::atan2(dy, dx) * rad;
+            const double* r = &rows[*it * static_cast<size_t>(stride)];
+            if (!(std::fabs(r[0] - x) < 1e-6 && std::fabs(r[1] - y) < 1e-6 && std::fabs(r[2] - z) < 1e-6))
+               continue;
+            sx = r[5]; sy = r[6]; sz = r[7];
+            const double dx = r[8], dy = r[9], dz = r[10];
+            const double len = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (len > 0)
+            {
+               const double rad = 180.0 / 3.14159265358979323846;
+               polar = std::acos(std::max(-1.0, std::min(1.0, dz / len))) * rad;
+               azimuth = std::atan2(dy, dx) * rad;
+            }
+            return;
          }
-         return;
+      };
+      for (size_t k = a; k < b; ++k)
+      {
+         const Pending& p = todo[k];
+         if (p.dye)
+         {
+            Dye& d = dyes_[p.i];
+            fill(d.id, d.structure, d.xUm, d.yUm, d.zUm, d.siteXUm, d.siteYUm, d.siteZUm, d.polarDeg, d.azimuthDeg);
+         }
+         else
+         {
+            Emitter& e = emitters[p.i];
+            fill(e.id, e.structure, e.xUm, e.yUm, e.zUm, e.siteXUm, e.siteYUm, e.siteZUm, e.polarDeg, e.azimuthDeg);
+         }
       }
-   };
-   for (size_t i = emitterFrom; i < emitters.size(); ++i)
-   {
-      Emitter& e = emitters[i];
-      if (e.kind != Fiducial && std::isnan(e.siteXUm))
-         fill(e.id, e.structure, e.xUm, e.yUm, e.zUm, e.siteXUm, e.siteYUm, e.siteZUm, e.polarDeg, e.azimuthDeg);
    }
-   for (Dye& d : dyes_)
-      if (std::isnan(d.siteXUm))
-         fill(d.id, d.structure, d.xUm, d.yUm, d.zUm, d.siteXUm, d.siteYUm, d.siteZUm, d.polarDeg, d.azimuthDeg);
+   return todo.size();
 }
 
 bool GroundTruth::Blinking() const
@@ -311,7 +349,7 @@ std::string GroundTruth::DyesCsv() const
    std::string out = "id,target,dye,mode,state,x_world_um,y_world_um,z_world_um,site_x_world_um,site_y_world_um,"
                      "site_z_world_um,t_on_s,t_off_s,photons_per_s,photons_detected_total,photons_emitted_total,"
                      "orient_polar_deg,orient_azimuth_deg\n";
-   out.reserve(out.size() + dyes_.size() * 120);
+   out.reserve(out.size() + dyes_.size() * 170);   // (~155 bytes a row: one allocation)
    for (const Dye& d : dyes_)
    {
       const Label* L = d.label >= 0 && d.label < static_cast<int>(labels.size()) ? &labels[static_cast<size_t>(d.label)] : nullptr;
@@ -351,8 +389,35 @@ void Put32(std::string& s, uint32_t v)
    Put16(s, v >> 16);
 }
 
+// PackBits (TIFF compression 32773) of n bytes: runs of 2..128 equal bytes as (257 - length, byte), the rest as
+// literals (length - 1, bytes). A density stack is mostly zeros: ~1/64 of its size there.
+void PackBits(const unsigned char* b, size_t n, std::string& out)
+{
+   size_t i = 0;
+   while (i < n)
+   {
+      size_t j = i + 1;
+      while (j < n && j - i < 128 && b[j] == b[i])
+         ++j;
+      if (j - i >= 2)
+      {
+         out.push_back(static_cast<char>(257 - (j - i)));
+         out.push_back(static_cast<char>(b[i]));
+         i = j;
+         continue;
+      }
+      j = i + 1;
+      while (j < n && j - i < 128 && !(j + 1 < n && b[j] == b[j + 1]))
+         ++j;
+      out.push_back(static_cast<char>(j - i - 1));
+      out.append(reinterpret_cast<const char*>(b + i), j - i);
+      i = j;
+   }
+}
+
 // A float32 ImageJ stack (classic little-endian TIFF): the description, one rational (pixels per micron, X and Y),
-// the planes back to back, then an IFD per plane (the description in the first).
+// the planes each PackBits-compressed, then an IFD per plane (the description in the first). Fiji/ImageJ (1.53
+// checked) and tifffile read it.
 std::string FloatTiff(const std::vector<float>& v, uint32_t nx, uint32_t ny, uint32_t nz, double pixelsPerUm,
                       const std::string& description)
 {
@@ -368,21 +433,26 @@ std::string FloatTiff(const std::vector<float>& v, uint32_t nx, uint32_t ny, uin
    const double den = 1000.0;
    Put32(s, static_cast<uint32_t>(std::lround(pixelsPerUm * den)));
    Put32(s, static_cast<uint32_t>(den));
-   const uint32_t dataAt = static_cast<uint32_t>(s.size());
-   const uint32_t plane = nx * ny * 4u;
-   const size_t start = s.size();
-   s.resize(start + v.size() * 4);
-   for (size_t i = 0; i < v.size(); ++i)
+   const size_t plane = static_cast<size_t>(nx) * ny;
+   std::vector<unsigned char> raw(plane * 4);
+   std::vector<uint32_t> offsets(nz), counts(nz);
+   for (uint32_t k = 0; k < nz; ++k)
    {
-      uint32_t u;
-      std::memcpy(&u, &v[i], 4);
-      s[start + 4 * i] = static_cast<char>(u & 255);
-      s[start + 4 * i + 1] = static_cast<char>((u >> 8) & 255);
-      s[start + 4 * i + 2] = static_cast<char>((u >> 16) & 255);
-      s[start + 4 * i + 3] = static_cast<char>(u >> 24);
+      for (size_t i = 0; i < plane; ++i)
+      {
+         uint32_t u;
+         std::memcpy(&u, &v[k * plane + i], 4);
+         raw[4 * i] = static_cast<unsigned char>(u & 255);
+         raw[4 * i + 1] = static_cast<unsigned char>((u >> 8) & 255);
+         raw[4 * i + 2] = static_cast<unsigned char>((u >> 16) & 255);
+         raw[4 * i + 3] = static_cast<unsigned char>(u >> 24);
+      }
+      offsets[k] = static_cast<uint32_t>(s.size());
+      PackBits(raw.data(), raw.size(), s);
+      counts[k] = static_cast<uint32_t>(s.size() - offsets[k]);
+      if (s.size() & 1)
+         s.push_back('\0');
    }
-   if (s.size() & 1)
-      s.push_back('\0');
    const uint32_t first = static_cast<uint32_t>(s.size());
    s[4] = static_cast<char>(first & 255);
    s[5] = static_cast<char>((first >> 8) & 255);
@@ -404,14 +474,14 @@ std::string FloatTiff(const std::vector<float>& v, uint32_t nx, uint32_t ny, uin
       entry(256, 4, 1, nx);
       entry(257, 4, 1, ny);
       entry(258, 3, 1, 32);
-      entry(259, 3, 1, 1);
+      entry(259, 3, 1, 32773);
       entry(262, 3, 1, 1);
       if (desc)
          entry(270, 2, descLen, descAt);
-      entry(273, 4, 1, dataAt + k * plane);
+      entry(273, 4, 1, offsets[k]);
       entry(277, 3, 1, 1);
       entry(278, 4, 1, ny);
-      entry(279, 4, 1, plane);
+      entry(279, 4, 1, counts[k]);
       entry(282, 5, 1, ratAt);
       entry(283, 5, 1, ratAt);
       entry(296, 3, 1, 1);
@@ -524,13 +594,17 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
       if (g.state != 3)
          name += std::string("_") + StateName(g.state);
       name += ".tif";
-      char d[600];
+      char d[1000];
       std::snprintf(d, sizeof d,
-                    "ImageJ=1.11a\nimages=%u\nslices=%u\nunit=micron\nspacing=%.9g\nloop=false\nmin=0\nmax=%.9g\n"
+                    "ImageJ=1.11a\nimages=%u\nslices=%u\nunit=micron\nspacing=%.9g\nloop=false\n"
+                    "xorigin=%.6f\nyorigin=%.6f\nzorigin=%.6f\nmin=0\nmax=%.9g\n"
                     "insiliscope.value=emitted photons per voxel over the recorded frames\n"
                     "insiliscope.target=%s\ninsiliscope.dye=%s\ninsiliscope.state=%s\n"
                     "insiliscope.origin-um=%.6f,%.6f,%.6f\ninsiliscope.voxel-um=%.9g,%.9g,%.9g\n",
-                    n[2], n[2], q, static_cast<double>(mx), L ? L->target.c_str() : "", L ? L->dye.c_str() : "",
+                    // ImageJ's origin in voxels: x, y at the voxel corner (its pixel coordinates), z at a slice's
+                    // centre, so Fiji's status bar reads world um
+                    n[2], n[2], q, -ox / p, -oy / p, -oz / q - 0.5, static_cast<double>(mx), L ? L->target.c_str() : "",
+                    L ? L->dye.c_str() : "",
                     StateName(g.state), ox, oy, oz, p, p, q);
       Volume vol;
       vol.name = name;
@@ -539,8 +613,8 @@ std::vector<GroundTruth::Volume> GroundTruth::Volumes(double lateralNm, double a
       std::snprintf(line, sizeof line,
                     "%s: %s (%s, %s), %u x %u x %u voxels of %g x %g x %g nm; the emitted photons of its dyes over the "
                     "recorded frames per voxel (%.6g in all, %zu dyes). Voxel (0, 0, 0)'s corner is at world (%.4f, "
-                    "%.4f, %.4f) um, so voxel (i, j, k)'s centre at origin + ((i, j, k) + 0.5) x voxel; Fiji and "
-                    "napari read the voxel size, not the origin.",
+                    "%.4f, %.4f) um, so voxel (i, j, k)'s centre at origin + ((i, j, k) + 0.5) x voxel; Fiji reads the "
+                    "voxel size and the origin (its status bar shows world x, y, z), napari the voxel size.",
                     name.c_str(), L ? L->target.c_str() : "?", L ? L->dye.c_str() : "?", StateName(g.state), n[0], n[1],
                     n[2], p * 1000, p * 1000, q * 1000, sum, g.dyes.size(), ox, oy, oz);
       vol.line = line;
@@ -554,11 +628,19 @@ std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::v
                                                                     double volumeCapBytes) const
 {
    std::vector<std::pair<std::string, std::string>> out;
+   Files([&](const std::string& name, std::string&& bytes) { out.emplace_back(name, std::move(bytes)); }, thresholds,
+         volumeLateralNm, volumeAxialNm, volumeCapBytes);
+   return out;
+}
+
+void GroundTruth::Files(const FileSink& sink, const std::vector<double>& thresholds, double volumeLateralNm,
+                        double volumeAxialNm, double volumeCapBytes) const
+{
    std::string readme =
       "inSiliScope ground truth. The columns, units and caveats: https://kjamartens.github.io/inSiliScope/docs/ground-truth/\n"
       "Photons are expected values (before shot noise); world coordinates are um, z above the coverslip; camera x, y\n"
       "are nm from the image's top-left corner, drift included; z [nm] is the height above the focal plane.\n\n";
-   out.emplace_back("frames.csv", FramesCsv());
+   sink("frames.csv", FramesCsv());
    readme += "frames.csv: one row per image: its time, stage position, focus, drift (and pattern state under SIM).\n";
    bool beads = false;
    for (const Emitter& e : emitters)
@@ -569,7 +651,7 @@ std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::v
       {
          char name[64];
          std::snprintf(name, sizeof name, "localizations_min%g.csv", t);
-         out.emplace_back(name, EmittersCsv(t, true));
+         sink(name, EmittersCsv(t, true));
          readme += std::string(name) + ": every blink drawn" + (beads ? " and every bead (kind fiducial)" : "") +
                    " with at least " + std::to_string(static_cast<long>(t)) +
                    " expected photons landing on the camera in a frame, one row per frame. A blink the Quality's\n"
@@ -577,14 +659,14 @@ std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::v
       }
    else if (beads)
    {
-      out.emplace_back("fiducials.csv", FiducialsCsv());
+      sink("fiducials.csv", FiducialsCsv());
       readme += "fiducials.csv: every bead per frame (no blinking label in this movie).\n";
    }
    if (!dyes_.empty())
    {
       if (writeDyeCsv && !blinking)   // a movie's ground truth is its localizations or its dye list, never both
       {
-         out.emplace_back("dyes.csv", DyesCsv());
+         sink("dyes.csv", DyesCsv());
          readme += "dyes.csv: every dye in the queried box: its window, its detected rate now and its photons over the\n"
                    "  recorded frames.\n";
       }
@@ -592,15 +674,14 @@ std::vector<std::pair<std::string, std::string>> GroundTruth::Files(const std::v
       for (Volume& v : Volumes(volumeLateralNm, volumeAxialNm, volumeCapBytes, &note))
       {
          readme += v.line + "\n";
-         out.emplace_back(v.name, std::move(v.bytes));
+         sink(v.name, std::move(v.bytes));
       }
       if (!note.empty())
          readme += note + "\n";
    }
    readme += "\nThe orientation columns give each dye's mean emission dipole (polar angle from z, azimuth from x);\n"
              "the image does not use it yet (the PSF is isotropic). Empty: a freely rotating dye.\n";
-   out.emplace_back("README.txt", readme);
-   return out;
+   sink("README.txt", std::move(readme));
 }
 
 GroundTruth* ActiveGroundTruth() { return g_active; }

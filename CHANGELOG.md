@@ -11,8 +11,10 @@ Versions follow semver; while 0.x, any release may change the output for a given
   focus, drift, pattern state); localization tables at two thresholds of photons on the camera (5 and 300), with the
   dye's position, its binding site, photons detected / on the camera / emitted, the PSF-weighted background, the beads
   as `fiducial` rows; for a recording without a blinking label (WideField) a dye list instead; for continuous dyes
-  photon-weighted density stacks (float32, voxel size for Fiji and napari) with `voxelize.html`, a converter that
-  needs no installation. The cli writes the same files: `--gt-out`, `--gt-min`, `--gt-volume`. Core ABI 19
+  photon-weighted density stacks (float32, compressed, voxel size and world origin for Fiji, voxel size for napari)
+  with `voxelize.html`, a converter that needs no installation (8, 16 or 32 bits, one stack or a channel per target,
+  compressed). The ground truth is made at Save on a worker of its own, with its progress shown; a 128 px WideField
+  recording beside a nucleus (4 million dyes) fits in the viewer's memory. The cli writes the same files: `--gt-out`, `--gt-min`, `--gt-volume`. Core ABI 19
   (`isc_dye_details_in_window`); every output unchanged.
 
 ## v0.1.0-rc17 (changes since v0.1.0-rc16)

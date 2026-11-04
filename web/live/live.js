@@ -146,10 +146,9 @@ function request(n) {
 function onResult(d) {
   const job = L.pending;
   if (!job || d.id !== job.id) return;
-  if (d.type === 'movie-progress') { if (job.fresh) onRecProgress(d); else if (job.type === 'gt' && job.progress) job.progress(d.frac || 0); return; }
+  if (d.type === 'movie-progress') { if (job.fresh) onRecProgress(d); return; }
   L.pending = null;
   if (job.type === 'live-replay') { onReplay(d, job); return; }
-  if (job.type === 'gt') { if (d.error) job.reject(new Error(d.error)); else job.resolve(d.bytes); if (job.wasOn) setLive(true); return; }
   if (d.error) { L.err = d.error; L.on = false; if (REC.on) finishRec(); syncButtons(); showInfo(); return; }
   if (job.fresh) { onRecMovie(d, job); return; }
   logFrames(job.spec, job.n || 1);
@@ -211,20 +210,26 @@ function onReplay(d, job) {
   }
   if (job.wasOn) setLive(true);
 }
-// A recording's ground truth (a gt job on this worker: its settings file rendered again with the sink on; Save).
-// opt = {text, min: [a, b], vol: [xy, z], dyeCsv}; progress(fraction). Live pauses while it runs. Resolves with the packed
-// files (name \n size \n bytes, repeated).
+// A recording's ground truth (a gt job: its settings file rendered again with the sink on; Save) on a worker of its
+// own, closed when done: a fresh heap (on the live worker, beside the live sample's caches, a WideField ground truth
+// took the heap past its 4 GB: an abort, and the box waited on), all of it freed after. Live pauses while it runs.
+// opt = {text, min: [a, b], vol: [xy, z], dyeCsv}; progress(fraction, stage, info): isc_scope_gt's stages. Resolves
+// with the files, [[name, bytes], ...]; a failure (out of memory too) rejects.
 L.groundTruth = (opt, progress) => new Promise((resolve, reject) => {
+  if (!genWorkers.ok) { reject(new Error('the workers are not up yet')); return; }
   const wasOn = L.on;
   if (L.on) { L.on = false; syncButtons(); }
-  const go = () => {
-    const w = worker();
-    if (!w) { reject(new Error('the workers are not up yet')); return; }
-    if (L.pending) { setTimeout(go, 20); return; }
-    L.pending = { type: 'gt', id: ++L.id, resolve, reject, wasOn, progress };
-    w.postMessage({ type: 'gt', id: L.id, ...opt });
+  const w = spawnGenWorker();
+  const end = () => { w.terminate(); if (wasOn) setLive(true); };
+  w.onmessage = e => {
+    const d = e.data;
+    if (d.type === 'movie-progress') { if (progress) progress(d.frac || 0, d.stage, d.info); return; }
+    if (d.type !== 'gt') return;
+    end();
+    if (d.error) reject(new Error(workerErrorText(d.error))); else resolve(d.files);
   };
-  go();
+  w.onerror = e => { e.preventDefault(); end(); reject(new Error(workerErrorText(e.message || 'the ground truth\'s worker failed'))); };
+  w.postMessage({ type: 'gt', id: 1, ...opt });
 });
 // A fresh sample at the next frame (a measurement without history).
 L.freshSample = () => { L.worldKey = null; L.t = 0; L.log = []; };
@@ -749,18 +754,6 @@ function download(blob, name) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
-// The packed files of a gt job: [[name, bytes], ...].
-function gtFiles(bytes) {
-  const out = [], dec = new TextDecoder();
-  let i = 0;
-  const line = () => { const j = bytes.indexOf(10, i); const s = dec.decode(bytes.subarray(i, j)); i = j + 1; return s; };
-  while (i < bytes.length) {
-    const name = line(), size = +line();
-    out.push([name, bytes.subarray(i, i + size)]);
-    i += size;
-  }
-  return out;
-}
 const SAVE_DEF = { settings: true, gt: false, min1: 5, min2: 300, dyes: true };
 function saveOpts() { try { return Object.assign({}, SAVE_DEF, JSON.parse(store.get('saveOpts', '{}'))); } catch (e) { return { ...SAVE_DEF }; } }
 // What the recording's ground truth is: 'smlm' (a blinking label: localization tables), 'wf' (continuous dyes only:
@@ -798,6 +791,7 @@ async function openSave() {
       : '') +
     warn.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
     '<div class="msg" id="svMsg">The movie alone saves a .tif; with anything else, one .zip.</div>' +
+    '<progress id="svBar" max="1" hidden style="width:100%"></progress>' +
     '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>');
   const q = s => box.querySelector(s);
   q('#svName').value = `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`;
@@ -820,9 +814,16 @@ async function openSave() {
     const name = (q('#svName').value.trim() || `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`).replace(/[\\/:*?"<>|]+/g, '_');
     q('#svGo').disabled = true;
     try {
-      await saveRecording(c, name, t => { q('#svMsg').textContent = t; });
+      // say(text, fraction): a bar under the text; fraction null = no fraction yet (a moving bar), undefined = none
+      await saveRecording(c, name, (t, f) => {
+        q('#svMsg').textContent = t;
+        const bar = q('#svBar');
+        bar.hidden = f === undefined;
+        if (f === null) bar.removeAttribute('value'); else if (f !== undefined) bar.value = f;
+      });
       D.closeDialog();
     } catch (e) {
+      q('#svBar').hidden = true;
       q('#svMsg').innerHTML = `<span class="warn">${esc(e.message || e)}</span>`;
       q('#svGo').disabled = false;
     }
@@ -842,13 +843,27 @@ async function saveRecording(c, name, say = () => {}) {
   const entries = [{ name: 'movie.tif', data: new Uint8Array(await tif.arrayBuffer()) }];
   if (c.settings) entries.push({ name: 'settings.isc.json', data: settingsText });
   if (c.gt) {
-    const t0 = performance.now();
-    say('The ground truth: rendering the movie again from its settings ...');
-    const bytes = await L.groundTruth({ text: settingsText, min: [c.min1, c.min2], vol: [50, 25], dyeCsv: !!c.dyes },
-      f => say(`The ground truth: rendering the movie again from its settings, ${Math.round(100 * f)} % ...`));
-    for (const [n, b] of gtFiles(bytes)) entries.push({ name: 'gt/' + n, data: b });
+    // The stages of isc_scope_gt: setup (the sample, the PSF: no fraction, often most of the time), the frames (a
+    // fraction), the files; the seconds tick on here (the worker is busy in one call).
+    const t0 = performance.now(), P = { stage: 'setup', f: 0, info: null };
+    const show = () => {
+      const s = `${Math.round((performance.now() - t0) / 1000)} s`;
+      if (P.stage === 'setup') say(`The ground truth: rendering the movie again from its settings; preparing the sample and the PSF ... (${s})`, null);
+      else if (P.stage === 'files') say(`The ground truth: the movie rendered; collecting the dyes' sites, writing the tables and stacks ... (${s})`, null);
+      else say(`The ground truth: rendering the movie again from its settings, frame ${P.info && P.info.frame || Math.round(P.f * PLAY.n)} of ` +
+        `${P.info && P.info.frames || PLAY.n}: ${Math.round(100 * P.f)} % (${s})`, P.f);
+    };
+    show();
+    const tick = setInterval(show, 500);
+    let files;
+    try {
+      files = await L.groundTruth({ text: settingsText, min: [c.min1, c.min2], vol: [50, 25], dyeCsv: !!c.dyes },
+        (f, stage, info) => { Object.assign(P, { f, stage: stage || 'frames', info }); show(); });
+    } finally { clearInterval(tick); }
+    for (const [n, b] of files) entries.push({ name: 'gt/' + n, data: b });
     try { const r = await fetch('voxelize.html'); if (r.ok) entries.push({ name: 'gt/voxelize.html', data: await r.text() }); } catch (e) { /* offline: without it */ }
-    say(`The ground truth took ${((performance.now() - t0) / 1000).toFixed(1)} s; packing ...`);
+    say(`The ground truth took ${((performance.now() - t0) / 1000).toFixed(1)} s; packing ` +
+      `${Math.round(entries.reduce((s, e) => s + (e.data.length || 0), 0) / 1e6)} MB into the zip ...`, null);
   } else say('Packing ...');
   entries.push({ name: 'README.txt', data: `inSiliScope recording ${name}, saved ${new Date().toISOString()} (viewer ${self.ISC_VERSION || ''}).\n` +
     `movie.tif: ${PLAY.n} frames of ${PLAY.w} x ${PLAY.h} px, 16-bit, ImageJ (pixel size ${PLAY.pxUm} um, frame interval ${PLAY.exp} s).\n` +

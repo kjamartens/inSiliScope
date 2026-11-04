@@ -23,11 +23,12 @@
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
   .grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 12px; align-items: center; }
   label { color: var(--muted); }
+  .grid label.chk { color: var(--text); grid-column: 1 / -1; }
   input, select, button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; max-width: 100%; }
   input[type=number] { width: 7em; }
   button.go { background: var(--accent); color: #fff; border-color: var(--accent); padding: 6px 14px; cursor: pointer; }
   button:disabled { opacity: .5; cursor: default; }
-  #info, #out { white-space: pre-wrap; font-size: 13px; color: var(--muted); }
+  #info, #out, #load { white-space: pre-wrap; font-size: 13px; color: var(--muted); }
   .warn { color: var(--warn); }
   code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
 </style>
@@ -36,18 +37,30 @@
 <main>
   <h1>Voxelize ground truth</h1>
   <p>Turns a ground-truth table of inSiliScope (<code>dyes.csv</code> or a <code>localizations_min*.csv</code>) into a
-    32-bit density stack at the voxel size you choose: the sum of a column (emitted photons, by default) per voxel, or a
-    count. The stack opens in Fiji/ImageJ and napari with its voxel size; its world origin is in the image description
-    (<code>insiliscope.origin-um</code>). Everything runs in this page: nothing is uploaded.</p>
+    density stack at the voxel size you choose: the sum of a column (emitted photons, by default) per voxel, or a
+    count; one stack, or one channel per target. Fiji/ImageJ and napari read its voxel size; Fiji also its world
+    origin, so the status bar shows each voxel's world x, y and z (µm). 8 and 16 bits scale each channel to its
+    maximum: the photons per step are in the description (<code>insiliscope.scale</code>), and a single-channel
+    stack carries them as its calibration. Everything runs in this page: nothing is uploaded.</p>
   <div id="drop" tabindex="0">Drop a CSV here, or click to choose one<input type="file" id="file" accept=".csv,text/csv" hidden></div>
+  <div id="load"></div>
   <div class="panel" id="opts" hidden>
     <div class="grid">
       <label for="pos">Positions</label><select id="pos"></select>
       <label for="weight">Value per voxel</label><select id="weight"></select>
       <label for="target">Target</label><select id="target"></select>
+      <label for="split">Targets as</label><select id="split">
+        <option value="sum">one stack (their sum)</option>
+        <option value="channels">a channel each (a multi-channel stack)</option></select>
       <label for="kind">Rows</label><select id="kind"></select>
       <label for="vxy">Voxel x, y (nm)</label><input type="number" id="vxy" min="1" step="1" value="50">
       <label for="vz">Voxel z (nm)</label><input type="number" id="vz" min="1" step="1" value="25">
+      <label for="bits">Bit depth</label><select id="bits">
+        <option value="8">8-bit (each channel scaled to its maximum)</option>
+        <option value="16">16-bit (each channel scaled to its maximum)</option>
+        <option value="32">32-bit float (the values themselves)</option></select>
+      <label class="chk"><input type="checkbox" id="zip" checked> Compress (mostly empty stacks shrink a lot; Fiji then
+        shows z in the status bar, not as slice labels)</label>
     </div>
     <div id="info"></div>
     <p><button class="go" id="go">Make the stack</button></p>
@@ -57,7 +70,13 @@
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
-let table = null;   // { name, head: [...], cols: {name: index}, rows: [[...]] }
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+// The table, by column (a 4 M-dye dyes.csv is ~600 MB of text: read as a stream into typed arrays, never whole):
+// { name, n, num: {column: Float64Array}, cat: {column: {codes: Uint16Array, names: [...]}} }
+let table = null;
+const POS = ['x_world_um', 'y_world_um', 'z_world_um', 'site_x_world_um', 'site_y_world_um', 'site_z_world_um'];
+const WEIGHTS = ['photons_emitted_total', 'photons_detected_total', 'photons_emitted', 'intensity [photon]', 'photons_detected'];
+const CATS = ['target', 'kind'];
 
 // ---- reading the CSV (fields as written by inSiliScope: quoted when they hold a comma) ----
 function splitLine(s) {
@@ -76,124 +95,244 @@ function splitLine(s) {
 }
 async function load(file) {
   $('out').textContent = '';
-  const text = await file.text();
-  const lines = text.split(/\r?\n/).filter(l => l.length);
-  const head = splitLine(lines[0]);
-  const cols = Object.fromEntries(head.map((h, i) => [h, i]));
-  if (!('x_world_um' in cols)) { $('info').innerHTML = '<span class="warn">Not an inSiliScope ground-truth table (no x_world_um column).</span>'; $('opts').hidden = false; $('go').disabled = true; return; }
-  table = { name: file.name.replace(/\.csv$/i, ''), head, cols, rows: lines.slice(1).map(splitLine) };
+  $('opts').hidden = true;
+  table = null;
+  const reader = file.stream().pipeThrough(new TextDecoderStream()).getReader();
+  let rest = '', head = null, idx = null, n = 0, cap = 1 << 16, read = 0, lastShown = 0;
+  const num = {}, cat = {}, catMap = {};
+  const grow = () => {
+    cap *= 2;
+    for (const k in num) { const a = new Float64Array(cap); a.set(num[k]); num[k] = a; }
+    for (const k in cat) { const a = new Uint16Array(cap); a.set(cat[k].codes); cat[k].codes = a; }
+  };
+  const line = s => {
+    if (!s) return;
+    const f = splitLine(s);
+    if (!head) {
+      head = f;
+      const at = Object.fromEntries(head.map((h, i) => [h, i]));
+      idx = { num: POS.concat(WEIGHTS).filter(c => c in at).map(c => [c, at[c]]), cat: CATS.filter(c => c in at).map(c => [c, at[c]]) };
+      for (const [c] of idx.num) num[c] = new Float64Array(cap);
+      for (const [c] of idx.cat) { cat[c] = { codes: new Uint16Array(cap), names: [] }; catMap[c] = new Map(); }
+      return;
+    }
+    if (n === cap) grow();
+    for (const [c, i] of idx.num) num[c][n] = f[i] === '' || f[i] === undefined ? NaN : +f[i];
+    for (const [c, i] of idx.cat) {
+      const v = f[i] || '', m = catMap[c];
+      let code = m.get(v);
+      if (code === undefined) { code = cat[c].names.length; m.set(v, code); cat[c].names.push(v); }
+      cat[c].codes[n] = code;
+    }
+    n++;
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    read += value.length;
+    const lines = (rest + value).split(/\r?\n/);
+    rest = lines.pop();
+    for (const s of lines) line(s);
+    if (head && !('x_world_um' in num)) break;
+    if (performance.now() - lastShown > 200) {
+      lastShown = performance.now();
+      $('load').textContent = `Reading ${file.name}: ${n.toLocaleString()} rows (~${Math.min(100, Math.round(100 * read / Math.max(1, file.size)))} %) ...`;
+      await new Promise(r => setTimeout(r));
+    }
+  }
+  line(rest);
+  if (!head || !('x_world_um' in num)) {
+    $('load').innerHTML = '<span class="warn">Not an inSiliScope ground-truth table (no x_world_um column).</span>';
+    return;
+  }
+  for (const k in num) num[k] = num[k].subarray(0, n);
+  for (const k in cat) cat[k].codes = cat[k].codes.subarray(0, n);
+  table = { name: file.name.replace(/\.csv$/i, ''), n, num, cat };
+  $('load').textContent = `${file.name}: ${n.toLocaleString()} rows.`;
   const pos = [['world', 'the dyes (x/y/z_world_um)']];
-  if ('site_x_world_um' in cols) pos.push(['site', 'their binding sites (site_*_world_um)']);
+  if ('site_x_world_um' in num) pos.push(['site', 'their binding sites (site_*_world_um)']);
   $('pos').innerHTML = pos.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
-  const weights = ['photons_emitted_total', 'photons_detected_total', 'photons_emitted', 'intensity [photon]', 'photons_detected']
-    .filter(c => c in cols).map(c => [c, c]);
+  const weights = WEIGHTS.filter(c => c in num).map(c => [c, c]);
   weights.push(['', 'the number of rows (a count)']);
-  $('weight').innerHTML = weights.map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
-  const targets = 'target' in cols ? [...new Set(table.rows.map(r => r[cols.target]))] : [];
-  $('target').innerHTML = '<option value="">all</option>' + targets.map(t => `<option>${t.replace(/</g, '&lt;')}</option>`).join('');
-  const kinds = 'kind' in cols ? [...new Set(table.rows.map(r => r[cols.kind]))] : [];
-  $('kind').innerHTML = '<option value="">all</option>' + kinds.map(k => `<option>${k}</option>`).join('');
+  $('weight').innerHTML = weights.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join('');
+  const targets = cat.target ? cat.target.names : [];
+  $('target').innerHTML = '<option value="">all</option>' + targets.map((t, i) => `<option value="${i}">${esc(t)}</option>`).join('');
+  const kinds = cat.kind ? cat.kind.names : [];
+  $('kind').innerHTML = '<option value="">all</option>' + kinds.map((k, i) => `<option value="${i}">${esc(k)}</option>`).join('');
   $('kind').disabled = !kinds.length;
   $('opts').hidden = false;
-  $('go').disabled = false;
   describe();
 }
 
-// ---- the points and their box ----
-function points() {
-  const c = table.cols, site = $('pos').value === 'site';
-  const ix = c[site ? 'site_x_world_um' : 'x_world_um'], iy = c[site ? 'site_y_world_um' : 'y_world_um'], iz = c[site ? 'site_z_world_um' : 'z_world_um'];
-  const w = $('weight').value, iw = w ? c[w] : -1, tgt = $('target').value, knd = $('kind').value;
-  const out = [];
-  for (const r of table.rows) {
-    if (tgt && r[c.target] !== tgt) continue;
-    if (knd && r[c.kind] !== knd) continue;
-    const x = +r[ix], y = +r[iy], z = +r[iz], v = iw >= 0 ? +r[iw] : 1;
-    if (r[ix] === '' || !isFinite(x) || !isFinite(y) || !isFinite(z) || !isFinite(v) || v === 0) continue;
-    out.push(x, y, z, v);
+// ---- the rows chosen, their channels and the grid ----
+// { rows: Uint32Array, chan: Uint8Array (or null), channels: [names] }
+function chosen() {
+  const t = table, tgt = $('target').value, knd = $('kind').value, site = $('pos').value === 'site';
+  const X = t.num[site ? 'site_x_world_um' : 'x_world_um'], Y = t.num[site ? 'site_y_world_um' : 'y_world_um'], Z = t.num[site ? 'site_z_world_um' : 'z_world_um'];
+  const W = $('weight').value ? t.num[$('weight').value] : null;
+  const T = t.cat.target, K = t.cat.kind;
+  const split = $('split').value === 'channels' && tgt === '' && T && T.names.length > 1;
+  const rows = [];
+  for (let i = 0; i < t.n; i++) {
+    if (tgt !== '' && T.codes[i] !== +tgt) continue;
+    if (knd !== '' && K.codes[i] !== +knd) continue;
+    if (!isFinite(X[i]) || !isFinite(Y[i]) || !isFinite(Z[i])) continue;
+    if (W && !(isFinite(W[i]) && W[i] !== 0)) continue;
+    rows.push(i);
   }
-  return out;
+  const used = split ? [...new Set(rows.map(i => T.codes[i]))].sort((a, b) => a - b) : [];
+  const chOf = new Map(used.map((c, k) => [c, k]));
+  return { X, Y, Z, W, rows, chan: split ? Uint8Array.from(rows, i => chOf.get(T.codes[i])) : null,
+    channels: split ? used.map(c => T.names[c]) : [tgt !== '' && T ? T.names[+tgt] : 'all'] };
 }
-function grid(p) {
+function grid(c) {
   const vx = Math.max(1, +$('vxy').value || 50) / 1000, vz = Math.max(1, +$('vz').value || 25) / 1000;
   let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
-  for (let i = 0; i < p.length; i += 4) {
-    x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); y0 = Math.min(y0, p[i + 1]); y1 = Math.max(y1, p[i + 1]);
-    z0 = Math.min(z0, p[i + 2]); z1 = Math.max(z1, p[i + 2]);
+  for (const i of c.rows) {
+    x0 = Math.min(x0, c.X[i]); x1 = Math.max(x1, c.X[i]); y0 = Math.min(y0, c.Y[i]); y1 = Math.max(y1, c.Y[i]);
+    z0 = Math.min(z0, c.Z[i]); z1 = Math.max(z1, c.Z[i]);
   }
   const fx0 = Math.floor(x0 / vx), fy0 = Math.floor(y0 / vx), fz0 = Math.floor(z0 / vz);
   const nx = Math.floor(x1 / vx) - fx0 + 1, ny = Math.floor(y1 / vx) - fy0 + 1, nz = Math.floor(z1 / vz) - fz0 + 1;
   return { vx, vz, fx0, fy0, fz0, nx, ny, nz, ox: fx0 * vx, oy: fy0 * vx, oz: fz0 * vz };
 }
+const MAX_MB = 2000;
 function describe() {
   if (!table) return;
-  const p = points();
-  if (!p.length) { $('info').textContent = 'No rows with this choice.'; $('go').disabled = true; return; }
-  const g = grid(p), mb = g.nx * g.ny * g.nz * 4 / 1048576;
-  $('go').disabled = mb > 2000;
-  $('info').innerHTML = `${p.length / 4} rows → ${g.nx} × ${g.ny} × ${g.nz} voxels (${mb.toFixed(1)} MB)` +
-    (mb > 2000 ? ' <span class="warn">— too large: take bigger voxels</span>' : mb > 500 ? ' <span class="warn">— large</span>' : '');
+  const c = chosen();
+  if (!c.rows.length) { $('info').textContent = 'No rows with this choice.'; $('go').disabled = true; return; }
+  const g = grid(c), nc = c.channels.length, bytes = +$('bits').value / 8;
+  const work = g.nx * g.ny * g.nz * nc * 4 / 1048576, file = work * bytes / 4;
+  $('go').disabled = work > MAX_MB;
+  $('info').innerHTML = `${c.rows.length.toLocaleString()} rows → ${g.nx} × ${g.ny} × ${g.nz} voxels` +
+    (nc > 1 ? ` × ${nc} channels (${c.channels.map(esc).join(', ')})` : '') +
+    ` (${file.toFixed(1)} MB${$('zip').checked ? ' before compression' : ''})` +
+    (work > MAX_MB ? ' <span class="warn">— too large: take bigger voxels</span>' : work > 500 ? ' <span class="warn">— large</span>' : '');
 }
 
-// ---- the stack: a float32 ImageJ TIFF, as the C++ writes it (GroundTruth.cpp FloatTiff) ----
-function floatTiff(v, nx, ny, nz, pxPerUm, desc) {
-  const descB = new TextEncoder().encode(desc + '\0');
-  const descLen = descB.length, pad = (4 - descLen % 4) % 4;   // (the planes start on 4 bytes: a Float32Array view)
-  const descAt = 8, ratAt = descAt + descLen + pad, dataAt = ratAt + 8, plane = nx * ny * 4;
-  const dataEnd = dataAt + v.length * 4, first = dataEnd + (dataEnd & 1);
-  const ifd0 = 2 + 15 * 12 + 4, ifdN = 2 + 14 * 12 + 4;
-  const total = first + ifd0 + (nz - 1) * ifdN;
-  const buf = new ArrayBuffer(total), dv = new DataView(buf), u8 = new Uint8Array(buf);
+// ---- the stack: an ImageJ TIFF (classic, little-endian), an IFD per plane; planes c-fastest (ImageJ's order) ----
+// planes: Uint8Array / Uint16Array / Float32Array each; labels: one per plane (ImageJ's IJMetadata; Fiji reads them
+// from uncompressed stacks); zip: each plane deflated (TIFF compression 8, zlib).
+async function deflate(bytes) {
+  const s = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate'));
+  return new Uint8Array(await new Response(s).arrayBuffer());
+}
+async function writeTiff(planes, nx, ny, bits, pxPerUm, desc, labels, zip) {
+  const raw = planes.map(p => new Uint8Array(p.buffer, p.byteOffset, p.byteLength));
+  const data = zip ? await Promise.all(raw.map(deflate)) : raw;
+  const enc = new TextEncoder(), descB = enc.encode(desc + '\0');
+  const utf16 = s => { const b = new Uint8Array(2 * s.length); for (let i = 0; i < s.length; i++) { b[2 * i] = s.charCodeAt(i) & 255; b[2 * i + 1] = s.charCodeAt(i) >> 8; } return b; };
+  const labB = labels.map(utf16), hdr = 4 + 8;
+  const metaLen = labels.length ? hdr + labB.reduce((s, b) => s + b.length, 0) : 0;
+  const parts = [], even = n => n + (n & 1);
+  let at = 8;
+  const put = b => { const o = at; parts.push([o, b]); at = even(at + b.length); return o; };
+  const descAt = put(descB);
+  const rat = new Uint8Array(8); new DataView(rat.buffer).setUint32(0, Math.round(pxPerUm * 1000), true); new DataView(rat.buffer).setUint32(4, 1000, true);
+  const ratAt = put(rat);
+  let metaAt = 0, cntAt = 0;
+  if (labels.length) {
+    const meta = new Uint8Array(metaLen), dv = new DataView(meta.buffer);
+    meta.set([0x4a, 0x49, 0x4a, 0x49, 0x6c, 0x62, 0x61, 0x6c]);   // "JIJI" "lbal": little-endian IJIJ / labl
+    dv.setUint32(8, labels.length, true);
+    let o = hdr;
+    for (const b of labB) { meta.set(b, o); o += b.length; }
+    metaAt = put(meta);
+    const cnt = new Uint8Array(4 * (1 + labels.length)), cv = new DataView(cnt.buffer);
+    cv.setUint32(0, hdr, true);
+    labB.forEach((b, i) => cv.setUint32(4 * (i + 1), b.length, true));
+    cntAt = put(cnt);
+  }
+  const offs = data.map(put);
+  const first = at, nTags = k => 14 + (k === 0 ? 1 + (labels.length ? 2 : 0) : 0);
+  let ifdBytes = 0;
+  for (let k = 0; k < data.length; k++) ifdBytes += 2 + 12 * nTags(k) + 4;
+  const buf = new ArrayBuffer(first + ifdBytes), dv = new DataView(buf), u8 = new Uint8Array(buf);
   u8[0] = 0x49; u8[1] = 0x49; dv.setUint16(2, 42, true); dv.setUint32(4, first, true);
-  u8.set(descB, descAt);
-  dv.setUint32(ratAt, Math.round(pxPerUm * 1000), true); dv.setUint32(ratAt + 4, 1000, true);
-  new Float32Array(buf, dataAt, v.length).set(v);   // (little-endian, as every host this page runs on)
-  let at = first;
-  for (let k = 0; k < nz; k++) {
-    const n = k === 0 ? 15 : 14;
-    dv.setUint16(at, n, true);
-    let e = at + 2;
+  for (const [o, b] of parts) u8.set(b, o);
+  let e = first;
+  for (let k = 0; k < data.length; k++) {
+    dv.setUint16(e, nTags(k), true);
+    e += 2;
     const entry = (tag, type, count, value) => {
       dv.setUint16(e, tag, true); dv.setUint16(e + 2, type, true); dv.setUint32(e + 4, count, true);
       if (type === 3 && count === 1) { dv.setUint16(e + 8, value, true); dv.setUint16(e + 10, 0, true); } else dv.setUint32(e + 8, value, true);
       e += 12;
     };
-    entry(254, 4, 1, 0); entry(256, 4, 1, nx); entry(257, 4, 1, ny); entry(258, 3, 1, 32); entry(259, 3, 1, 1); entry(262, 3, 1, 1);
-    if (k === 0) entry(270, 2, descLen, descAt);
-    entry(273, 4, 1, dataAt + k * plane); entry(277, 3, 1, 1); entry(278, 4, 1, ny); entry(279, 4, 1, plane);
-    entry(282, 5, 1, ratAt); entry(283, 5, 1, ratAt); entry(296, 3, 1, 1); entry(339, 3, 1, 3);
-    const next = k + 1 < nz ? e + 4 : 0;
-    dv.setUint32(e, next, true);
-    at = e + 4;
+    entry(254, 4, 1, 0); entry(256, 4, 1, nx); entry(257, 4, 1, ny); entry(258, 3, 1, bits); entry(259, 3, 1, zip ? 8 : 1); entry(262, 3, 1, 1);
+    if (k === 0) entry(270, 2, descB.length, descAt);
+    entry(273, 4, 1, offs[k]); entry(277, 3, 1, 1); entry(278, 4, 1, ny); entry(279, 4, 1, data[k].length);
+    entry(282, 5, 1, ratAt); entry(283, 5, 1, ratAt); entry(296, 3, 1, 1); entry(339, 3, 1, bits === 32 ? 3 : 1);
+    if (k === 0 && labels.length) { entry(50838, 4, 1 + labels.length, cntAt); entry(50839, 1, metaLen, metaAt); }
+    dv.setUint32(e, k + 1 < data.length ? e + 4 : 0, true);
+    e += 4;
   }
   return new Blob([buf], { type: 'image/tiff' });
 }
-function make() {
-  const p = points();
-  if (!p.length) return;
-  const g = grid(p), v = new Float32Array(g.nx * g.ny * g.nz);
-  let sum = 0;
-  for (let i = 0; i < p.length; i += 4) {
-    const ix = Math.min(g.nx - 1, Math.max(0, Math.floor(p[i] / g.vx) - g.fx0));
-    const iy = Math.min(g.ny - 1, Math.max(0, Math.floor(p[i + 1] / g.vx) - g.fy0));
-    const iz = Math.min(g.nz - 1, Math.max(0, Math.floor(p[i + 2] / g.vz) - g.fz0));
-    v[(iz * g.ny + iy) * g.nx + ix] += p[i + 3];
-    sum += p[i + 3];
+
+async function make() {
+  if (!table) return;
+  const c = chosen();
+  if (!c.rows.length) return;
+  $('go').disabled = true;
+  $('out').textContent = 'Making the stack ...';
+  await new Promise(r => setTimeout(r));
+  try {
+    const g = grid(c), nc = c.channels.length, bits = +$('bits').value, zip = $('zip').checked && typeof CompressionStream === 'function';
+    const plane = g.nx * g.ny, vol = Array.from({ length: nc }, () => new Float32Array(plane * g.nz)), sums = new Float64Array(nc);
+    c.rows.forEach((i, k) => {
+      const ch = c.chan ? c.chan[k] : 0, w = c.W ? c.W[i] : 1;
+      const ix = Math.min(g.nx - 1, Math.max(0, Math.floor(c.X[i] / g.vx) - g.fx0));
+      const iy = Math.min(g.ny - 1, Math.max(0, Math.floor(c.Y[i] / g.vx) - g.fy0));
+      const iz = Math.min(g.nz - 1, Math.max(0, Math.floor(c.Z[i] / g.vz) - g.fz0));
+      vol[ch][(iz * g.ny + iy) * g.nx + ix] += w;
+      sums[ch] += w;
+    });
+    // 8 / 16 bits: each channel to its maximum (photons per step = scale)
+    const top = bits === 8 ? 255 : 65535, scales = [], maxes = [];
+    const out = vol.map(v => {
+      let max = 0;
+      for (const x of v) if (x > max) max = x;
+      maxes.push(max);
+      if (bits === 32) { scales.push(1); return v; }
+      const s = max > 0 ? max / top : 1, q = bits === 8 ? new Uint8Array(v.length) : new Uint16Array(v.length);
+      for (let j = 0; j < v.length; j++) q[j] = Math.round(v[j] / s);
+      scales.push(s);
+      return q;
+    });
+    const planes = [], labels = [];
+    for (let z = 0; z < g.nz; z++)
+      for (let ch = 0; ch < nc; ch++) {
+        planes.push(out[ch].subarray(z * plane, (z + 1) * plane));
+        labels.push((nc > 1 ? c.channels[ch] + ', ' : '') + `z = ${(g.oz + (z + 0.5) * g.vz).toFixed(4)} µm`);
+      }
+    const w = $('weight').value || 'rows (a count)';
+    const unit = $('weight').value ? 'photons' : 'rows';
+    // ImageJ's origin is in voxels: x and y at the voxel corner (ImageJ's pixel coordinates), z at a slice's centre
+    let desc = `ImageJ=1.11a\nimages=${g.nz * nc}\n` + (nc > 1 ? `channels=${nc}\n` : '') + `slices=${g.nz}\n` +
+      (nc > 1 ? 'hyperstack=true\nmode=composite\n' : '') + `unit=micron\nspacing=${g.vz}\nloop=false\n` +
+      `xorigin=${(-g.ox / g.vx).toFixed(6)}\nyorigin=${(-g.oy / g.vx).toFixed(6)}\nzorigin=${(-g.oz / g.vz - 0.5).toFixed(6)}\n`;
+    if (nc === 1 && bits !== 32) desc += `cf=0\nc0=0\nc1=${scales[0]}\nvunit=${unit}\n`;
+    desc += `min=0\nmax=${bits === 32 ? Math.max(...maxes) : top}\n` +
+      `insiliscope.value=${w} per voxel (${$('pos').value === 'site' ? 'binding sites' : 'dye positions'})\n` +
+      `insiliscope.source=${table.name}.csv\ninsiliscope.channels=${c.channels.join(';')}\n` +
+      (bits === 32 ? '' : `insiliscope.scale=${scales.join(';')} ${unit} per step\n`) +
+      `insiliscope.origin-um=${g.ox.toFixed(6)},${g.oy.toFixed(6)},${g.oz.toFixed(6)}\ninsiliscope.voxel-um=${g.vx},${g.vx},${g.vz}\n`;
+    const blob = await writeTiff(planes, g.nx, g.ny, bits, 1 / g.vx, desc, labels, zip);
+    const name = `${table.name}${nc > 1 ? '_channels' : $('target').value !== '' ? '_' + c.channels[0].replace(/[^\w.-]+/g, '_') : ''}` +
+      `_${Math.round(g.vx * 1000)}x${Math.round(g.vz * 1000)}nm_${bits}bit.tif`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    $('out').textContent = `Saved ${name} (${(blob.size / 1e6).toFixed(2)} MB): ${g.nx} × ${g.ny} × ${g.nz} voxels of ` +
+      `${g.vx * 1000} × ${g.vx * 1000} × ${g.vz * 1000} nm` + (nc > 1 ? `, ${nc} channels` : '') + '; ' +
+      c.channels.map((n, k) => `${nc > 1 ? n + ': ' : ''}${sums[k].toPrecision(6)} in all` + (bits === 32 ? '' : `, ${scales[k].toPrecision(4)} ${unit} per step`)).join('; ') +
+      `. Voxel (0, 0, 0)'s corner is at world (${g.ox.toFixed(4)}, ${g.oy.toFixed(4)}, ${g.oz.toFixed(4)}) µm.`;
+  } catch (err) {
+    $('out').innerHTML = `<span class="warn">${esc(err.message || err)}</span>`;
+  } finally {
+    $('go').disabled = false;
   }
-  let max = 0;
-  for (const x of v) if (x > max) max = x;
-  const w = $('weight').value || 'rows (a count)';
-  const desc = `ImageJ=1.11a\nimages=${g.nz}\nslices=${g.nz}\nunit=micron\nspacing=${g.vz}\nloop=false\nmin=0\nmax=${max}\n` +
-    `insiliscope.value=${w} per voxel (${$('pos').value === 'site' ? 'binding sites' : 'dye positions'})\n` +
-    `insiliscope.source=${table.name}.csv\ninsiliscope.target=${$('target').value || 'all'}\n` +
-    `insiliscope.origin-um=${g.ox.toFixed(6)},${g.oy.toFixed(6)},${g.oz.toFixed(6)}\ninsiliscope.voxel-um=${g.vx},${g.vx},${g.vz}\n`;
-  const blob = floatTiff(v, g.nx, g.ny, g.nz, 1 / g.vx, desc);
-  const name = `${table.name}_${Math.round(g.vx * 1000)}x${Math.round(g.vz * 1000)}nm.tif`;
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = name; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-  $('out').textContent = `Saved ${name}: ${g.nx} × ${g.ny} × ${g.nz} voxels of ${g.vx * 1000} × ${g.vx * 1000} × ${g.vz * 1000} nm, ` +
-    `${sum.toPrecision(6)} in all. Voxel (0, 0, 0)'s corner is at world (${g.ox.toFixed(4)}, ${g.oy.toFixed(4)}, ${g.oz.toFixed(4)}) µm.`;
 }
 
 $('drop').addEventListener('click', () => $('file').click());
@@ -202,9 +341,9 @@ $('file').addEventListener('change', () => { if ($('file').files[0]) load($('fil
 $('drop').addEventListener('dragover', e => { e.preventDefault(); $('drop').classList.add('over'); });
 $('drop').addEventListener('dragleave', () => $('drop').classList.remove('over'));
 $('drop').addEventListener('drop', e => { e.preventDefault(); $('drop').classList.remove('over'); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); });
-for (const id of ['pos', 'weight', 'target', 'kind', 'vxy', 'vz']) $(id).addEventListener('input', describe);
+for (const id of ['pos', 'weight', 'target', 'split', 'kind', 'vxy', 'vz', 'bits', 'zip']) $(id).addEventListener('input', describe);
 $('go').addEventListener('click', make);
-self.iscVoxelize = { load, make, floatTiff };   // (the browser test drives it)
+self.iscVoxelize = { load, make, writeTiff };   // (the browser test drives it)
 </script>
 </body>
 </html>

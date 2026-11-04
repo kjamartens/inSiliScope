@@ -59,37 +59,63 @@ std::string Join(const std::vector<std::pair<std::string, std::string>>& files)
    return s;
 }
 
-// The float32 planes of a TIFF GroundTruth::Volumes wrote (its first IFD's strip offset; the planes back to back).
+// The sum of the float32 planes of a TIFF GroundTruth::Volumes wrote: an IFD per plane, each strip PackBits
+// (compression 32773) or raw; imagej: an ImageJ description with its unit, the IFD count = images=, and the origin.
 double TiffSum(const std::string& b, bool& imagej)
 {
    uint32_t ifd;
    std::memcpy(&ifd, b.data() + 4, 4);
-   uint16_t n;
-   std::memcpy(&n, b.data() + ifd, 2);
-   uint32_t w = 0, h = 0, off = 0, desc = 0, nz = 0;
-   for (uint16_t i = 0; i < n; ++i)
-   {
-      const char* e = b.data() + ifd + 2 + 12 * i;
-      uint16_t tag;
-      uint32_t v;
-      std::memcpy(&tag, e, 2);
-      std::memcpy(&v, e + 8, 4);
-      if (tag == 256) w = v;
-      if (tag == 257) h = v;
-      if (tag == 273) off = v;
-      if (tag == 270) desc = v;
-   }
-   const std::string d = desc ? std::string(b.data() + desc) : std::string();
-   imagej = d.compare(0, 12, "ImageJ=1.11a") == 0 && d.find("unit=micron") != std::string::npos;
-   const size_t at = d.find("images=");
-   nz = at == std::string::npos ? 1 : static_cast<uint32_t>(std::atol(d.c_str() + at + 7));
    double sum = 0;
-   for (size_t i = 0; i < static_cast<size_t>(w) * h * nz; ++i)
+   std::string d;
+   long planes = 0;
+   bool sizes = true;
+   while (ifd)
    {
-      float f;
-      std::memcpy(&f, b.data() + off + 4 * i, 4);
-      sum += f;
+      uint16_t n;
+      std::memcpy(&n, b.data() + ifd, 2);
+      uint32_t w = 0, h = 0, off = 0, count = 0, desc = 0, comp = 1;
+      for (uint16_t i = 0; i < n; ++i)
+      {
+         const char* e = b.data() + ifd + 2 + 12 * i;
+         uint16_t tag, type;
+         uint32_t v;
+         std::memcpy(&tag, e, 2);
+         std::memcpy(&type, e + 2, 2);
+         std::memcpy(&v, e + 8, 4);
+         if (type == 3)
+            v &= 0xFFFF;
+         if (tag == 256) w = v;
+         if (tag == 257) h = v;
+         if (tag == 259) comp = v;
+         if (tag == 273) off = v;
+         if (tag == 279) count = v;
+         if (tag == 270) desc = v;
+      }
+      if (desc && d.empty())
+         d = std::string(b.data() + desc);
+      std::string raw;
+      if (comp == 32773)
+         for (size_t i = 0; i < count;)
+         {
+            const int c = static_cast<signed char>(b[off + i++]);
+            if (c >= 0) { raw.append(b, off + i, static_cast<size_t>(c) + 1); i += static_cast<size_t>(c) + 1; }
+            else if (c != -128) { raw.append(static_cast<size_t>(1 - c), b[off + i]); ++i; }
+         }
+      else
+         raw = b.substr(off, count);
+      sizes = sizes && raw.size() == static_cast<size_t>(w) * h * 4;
+      for (size_t i = 0; i + 4 <= raw.size(); i += 4)
+      {
+         float f;
+         std::memcpy(&f, raw.data() + i, 4);
+         sum += f;
+      }
+      planes++;
+      std::memcpy(&ifd, b.data() + ifd + 2 + 12 * n, 4);
    }
+   const size_t at = d.find("images=");
+   imagej = sizes && d.compare(0, 12, "ImageJ=1.11a") == 0 && d.find("unit=micron") != std::string::npos &&
+            d.find("zorigin=") != std::string::npos && at != std::string::npos && std::atol(d.c_str() + at + 7) == planes;
    return sum;
 }
 
@@ -184,8 +210,8 @@ int main()
          imagej = imagej && ij;
          vols++;
       }
-   std::snprintf(b, sizeof b, "WideField: %d density volume(s), ImageJ float32 stacks holding the dyes' emitted photons "
-                 "(%.6g vs %.6g)", vols, volSum, emitted);
+   std::snprintf(b, sizeof b, "WideField: %d density volume(s), ImageJ float32 stacks (PackBits, an IFD per plane, the "
+                 "origin) holding the dyes' emitted photons (%.6g vs %.6g)", vols, volSum, emitted);
    Check(vols == 1 && imagej && emitted > 0 && std::fabs(volSum / emitted - 1) < 1e-5, b);
 
    std::printf("ground_truth: %d failure(s), %.1f s\n", g_failures,
