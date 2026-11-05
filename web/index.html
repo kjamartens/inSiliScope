@@ -103,6 +103,8 @@
   #liveBar{container-type:inline-size}
   /* a narrow panel: the settings-file icons go (☰ has Save / Load) so the speed keeps its room */
   @container (max-width:600px){#setIcons{display:none!important} #liveBar #levelSeg button{padding:3px 5px}}
+  /* the narrowest (the settings folded beside a small image): the buttons' sides tighter */
+  @container (max-width:320px){#liveBar>button,#lv_recWrap>button{padding-left:5px;padding-right:5px}}
   #lv_rec{min-width:66px;font-variant-numeric:tabular-nums}
   /* Live: clearly a button to press (red outline, red play triangle); red when on; the same size as Stop */
   #lv_live{width:74px;border:1px solid var(--color-status-live)!important;font-weight:600}
@@ -121,15 +123,18 @@
   #setColHead{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) var(--space-2) var(--space-2) var(--space-5);
     border-bottom:1px solid var(--color-border);font-weight:600;color:var(--color-text)}
   #setFold{height:22px;width:26px;padding:0;line-height:1}
-  #setTab{display:none;flex:1;width:28px;padding:var(--space-3) 0;border:0;border-left:2px solid var(--color-accent);border-radius:0;
-    background:var(--color-surface-raised);color:var(--color-text);flex-direction:column;align-items:center;justify-content:flex-start;
-    gap:var(--space-3);cursor:pointer}
+  #setStrip{display:none;flex:1;width:28px;flex-direction:column;align-items:center;padding:var(--space-2) 0;box-sizing:border-box;
+    border-left:2px solid var(--color-accent);background:var(--color-surface)}
+  #setTab{display:flex;flex-direction:column;align-items:center;gap:var(--space-3);width:22px;padding:var(--space-3) 0;
+    border:1px solid var(--color-border-strong);border-radius:var(--radius-md);background:var(--color-surface-raised);color:var(--color-text);cursor:pointer}
   #setTab .chev{color:var(--color-accent);font-size:var(--font-size-title);line-height:1;font-weight:600}
   #setTab span:not(.chev){writing-mode:vertical-rl;letter-spacing:.04em;font-weight:600}
-  #setTab:hover,#setTab:focus-visible{background:var(--color-accent);color:var(--color-accent-on)}
+  #setTab:hover,#setTab:focus-visible{background:var(--color-accent);border-color:var(--color-accent);color:var(--color-accent-on)}
   #setTab:hover .chev,#setTab:focus-visible .chev{color:var(--color-accent-on)}
-  body:not(.mobile) #wrap.setShut #setCol>:not(#setTab){display:none}
-  body:not(.mobile) #wrap.setShut #setTab{display:flex}
+  body:not(.mobile) #wrap.setShut #setCol>:not(#setStrip){display:none}
+  body:not(.mobile) #wrap.setShut #setStrip{display:flex}
+  /* folded, the settings level goes with the settings (the bar then fits beside the tab at any width) */
+  body:not(.mobile) #wrap.setShut #levelSeg{display:none}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--color-border)}
   #sideMain>#liveCtl{flex:1}
   #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:var(--color-bg-canvas);overflow:hidden}
@@ -483,7 +488,7 @@
   body.mobile #menu{max-width:calc(100vw - 16px);box-sizing:border-box}
   body.mobile #sideBody{display:flex;flex-direction:column}
   body.mobile #sideMain,body.mobile #setCol{display:contents}
-  body.mobile :is(#setColHead,#setTab){display:none!important}
+  body.mobile :is(#setColHead,#setStrip){display:none!important}
   body.mobile #liveCtl{order:1;overflow:visible;min-height:auto;--lab-w:112px;--lab-w-base:112px;--val-w:60px}
   body.mobile #sideTop{order:2;border-top:1px solid var(--color-border)}
   body.mobile :is(#panel,#animPanel){order:3;overflow:visible;min-height:auto}
@@ -650,7 +655,7 @@
     <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
       <div id="panel"></div>
       <div id="animPanel" hidden></div>
-          <button id="setTab" type="button" title="Show the settings" aria-label="Show the settings" aria-expanded="false"><span class="chev" aria-hidden="true">«</span><span>Show settings</span></button>
+          <div id="setStrip"><button id="setTab" type="button" title="Show the settings" aria-label="Show the settings" aria-expanded="false"><span class="chev" aria-hidden="true">«</span><span>Show settings</span></button></div>
     </div>
     </div>
   </div>

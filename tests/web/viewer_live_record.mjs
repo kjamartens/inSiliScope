@@ -79,7 +79,8 @@ try {
   // the image with the Acquire controls under it at its width, the settings (search on top) a column at the right edge
   const layout = () => page.evaluate(() => { const R = id => document.getElementById(id).getBoundingClientRect();
     const v = R('liveView'), c = R('liveCtl'), s = R('setCol'), vb = R('viewBar'), lb = R('liveBar');
-    return { w: v.width, h: v.height, liveLeft: v.left, cw: c.width, ctlBottom: c.bottom, setRight: s.right, setBottom: s.bottom, setW: s.width, W: innerWidth,
+    const bar = document.getElementById('liveBar');
+    return { w: v.width, h: v.height, liveLeft: v.left, barOver: bar.scrollWidth - bar.clientWidth, cw: c.width, ctlBottom: c.bottom, setRight: s.right, setBottom: s.bottom, setW: s.width, W: innerWidth,
       H: innerHeight, vbH: vb.height, lbH: lb.height, illum: !!document.querySelector('#liveCtl details[data-group=illum]'),
       search: document.getElementById('sideTop').parentElement.id }; });
   const sq = await layout();
@@ -94,8 +95,8 @@ try {
   await page.waitForTimeout(300);
   const open = await layout();
   check(shut.setW < 40 && Math.abs(shut.setRight - shut.W) < 2 && Math.abs(shut.w - sq.w) < 1 && Math.abs(shut.w - shut.h) < 1
-    && shut.liveLeft > sq.liveLeft + 250 && Math.abs(open.w - sq.w) < 1 && Math.abs(open.liveLeft - sq.liveLeft) < 1,
-    `the settings fold to a ${shut.setW.toFixed(0)} px tab (the image stays ${shut.w.toFixed(0)} px, moved ${(shut.liveLeft - sq.liveLeft).toFixed(0)} px right) and open again`);
+    && shut.liveLeft > sq.liveLeft + 250 && shut.barOver <= 0 && Math.abs(open.w - sq.w) < 1 && Math.abs(open.liveLeft - sq.liveLeft) < 1,
+    `the settings fold to a ${shut.setW.toFixed(0)} px tab (the image stays ${shut.w.toFixed(0)} px, moved ${(shut.liveLeft - sq.liveLeft).toFixed(0)} px right, the bar fits: overflow ${shut.barOver} px) and open again`);
   // the BFP readout, from the movie spec's C++ setup (the setup job), names a regime (the spectra: viewer_scope_view.mjs)
   const ro = await page.waitForFunction(() => {
     const b = document.getElementById('bfpReadout');
