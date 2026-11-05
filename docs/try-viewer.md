@@ -219,8 +219,12 @@ through it step by step.
   None): pick a dye to show random lamina points on the nuclear envelope; **Nuclear lamina** (Advanced) sets their
   density (default 2000 per µm², 100 to 10 000) and the lamina-free disc around each pore (40 nm). A mode or dye pick loads the dye's fields, the mode's labelling and the light
   preset of every labelled target combined (**Illumination**: the preset and lasers; **Light path**: dichroic and
-  filter; the **BFP position** slider, 0 = epi, 1 = the critical angle, between HILO and above TIRF, with the regime and
-  how deep the light reaches shown under it; the DNA-PAINT presets set HILO, the nanorulers TIRF; in Advanced the beam
+  filter; not the BFP position). The **BFP position** slider: 0 = epi, 1 = the critical angle, between HILO and above
+  TIRF, with the regime and how deep the light reaches shown under it. Only the slider, the Illumination **Preset** (the
+  DNA-PAINT presets HILO, on the nanorulers TIRF), Acquisition's **Illumination** (Epi / HILO / TIRF), the **Pattern**,
+  a reset or a settings file move it; a dye, a mode, the Imaging mode or the specimen do not. With a pattern on, the BFP
+  position below 0.05 (the beams at the centre: no fringes) sets the Pattern Off, and back at 0.05 or above the pattern
+  returns (in Advanced the beam
   profile, its width and the DNA-PAINT chamber height; [Dyes and light path](physics/dyes-and-light-path.md)). The
   **Pattern** select makes the light several coherent beams in the back focal plane whose fringes step with the frame
   (structured illumination: SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D or Custom; a pick sets the BFP position to the

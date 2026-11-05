@@ -567,7 +567,9 @@ targets keeps the position they agree on. The kinetics follow the local light th
 the focus on a 10 nm grid and the mean-field scenes stay at an anchor within 1 um, their images phase-ramp shifted
 (`FluorescenceMovie::AnchorMeanField`; dSTORM HILO 1.5 -> 12 fps). Shipped configs: groups `Illumination` (Epi / HILO / TIRF) and
 `BfpPosition`, not in Startup. A mount keeps the lasers and the BFP as set. Viewer: the **BFP position** slider with a
-regime / depth readout (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
+regime / depth readout (2026-11-05, the user's choice: only the slider, Illumination's Preset, Epi / HILO / TIRF, the Pattern, a
+reset or a settings file move it -- not a dye or mode pick (`lightNoBfp`), the Imaging mode (`mm_config_ui.js` `LEAVE`) or the specimen;
+MM's Auto preset still does; a Pattern on with the BFP below `SIM_EPI_BELOW` 0.05 goes Off and comes back above) (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
 the schema's consts are not in its scope); cli `--setup-json` `excitation` (section and axis of the factor), figures
 `light-geometry`, `light-geometry-images`.
 

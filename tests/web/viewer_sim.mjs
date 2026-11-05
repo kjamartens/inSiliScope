@@ -112,4 +112,32 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   await page.waitForFunction(() => /one beam/.test(document.getElementById('patternReadout').textContent), null, { timeout: 90000 });
   const off = await page.evaluate(() => ({ spec: movieSpec(), rows: document.getElementById('simBeams').value.split(';').length }));
   check(/ sim-type=0( |$)/.test(off.spec) && off.rows === 1, 'Off: one beam row, sim-type=0');
+
+  // The beams at the BFP's centre (below 0.05) with a pattern on: the pattern Off (epi); back above, the pattern again,
+  // at the position set (not the type's radius)
+  await set('mv_sim-type', '1');
+  await set('mv_illum-bfp', '0.02');
+  const centre = await page.evaluate(() => [document.getElementById('mv_sim-type').value, +document.getElementById('mv_illum-bfp').value]);
+  await set('mv_illum-bfp', '0.4');
+  const back = await page.evaluate(() => [document.getElementById('mv_sim-type').value, +document.getElementById('mv_illum-bfp').value]);
+  check(centre[0] === '0' && centre[1] === 0.02 && back[0] === '1' && back[1] === 0.4,
+    `SIM2D with the BFP position at 0.02: Pattern ${centre[0]} (Off); at 0.4: Pattern ${back[0]} again, BFP ${back[1]}`);
+  await set('mv_sim-type', '0');
+  // What moves the BFP position (2026-11-05): not a label's mode or dye, the Imaging mode, the specimen; the
+  // Illumination's Epi / HILO / TIRF does
+  await set('mv_illum-bfp', '0.4');
+  const bfpNow = () => page.evaluate(() => +document.getElementById('mv_illum-bfp').value);
+  await set('mv_mt-mode', '0');   // dSTORM
+  const afterMode = await bfpNow();
+  const mode = await page.evaluate(() => { const s = document.querySelector('select[data-pick="mode"]'), o = [...s.options].find(o => /dSTORM/.test(o.value));
+    s.value = o.value; s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; });
+  await page.waitForTimeout(300);
+  const afterPreset = await bfpNow(), shown = await page.evaluate(() => document.querySelector('select[data-pick="mode"]').value);
+  await set('mv_specimen', '1');
+  const afterSpecimen = await bfpNow();
+  await set('mv_specimen', '0');
+  await page.evaluate(() => { const s = document.querySelector('select[data-pick="illumination"]'); s.value = 'TIRF'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+  const afterTirf = await bfpNow();
+  check(afterMode === 0.4 && afterPreset === 0.4 && shown === mode && afterSpecimen === 0.4 && afterTirf === 1.03,
+    `the BFP position stays 0.4 through a mode change (${afterMode}), the Imaging mode "${mode}" (${afterPreset}; still shown: ${shown === mode}), the nanorulers (${afterSpecimen}); TIRF sets ${afterTirf}`);
 });

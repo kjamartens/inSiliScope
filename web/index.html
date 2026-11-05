@@ -1037,7 +1037,10 @@ const basicLaserShown = nm => {
 };
 // A dye pick or a mode change loads the auto light preset (the targets' presets combined).
 // In BrightField (its Preset) the lasers stay off: the dye's preset is loaded when a fluorescence preset is picked.
-const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightPresetValues(autoLightPreset(vals)));
+// (not the BFP position: it moves only by its slider, Illumination's Preset, Epi / HILO / TIRF, the Pattern, a reset or
+// a settings file -- the user's choice, 2026-11-05)
+const lightNoBfp = q => { const o = lightPresetValues(q); delete o['mv_illum-bfp']; return o; };
+const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightNoBfp(autoLightPreset(vals)));
 // The panel's first light: the cell field's default labels' presets combined (as the engine's auto; a target with
 // no default label adds none).
 const DEFAULT_LIGHT = lightPresetValues(combineLightPresets(DD.specimens[SPECIMEN_DEFAULT].targets.filter(t => t.defaultDye !== 'None').map(t =>
@@ -1438,7 +1441,7 @@ const UI_GROUPS = [
     num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none; not in Micro-Manager).', 0, 1000, 1, 0, { adv, show: FL, kids: [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample.', 0, 10, 'any', 0, { adv, show: FL }),
     ] }),
-    range('mv_illum-bfp', 'BFP position', '', 'Where the laser spot sits in the objective\'s back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet through the focus), above: TIRF (an evanescent layer) up to the pupil edge NA / n<sub>medium</sub> (beyond it no light reaches the sample). The DNA-PAINT presets set HILO (0.95), the nanorulers TIRF (1.03). Below: the regime and how deep the light reaches. <code>Lasers.BfpPosition</code>', 0, 1.2, 0.01, DEFAULT_LIGHT['mv_illum-bfp'], { show: FL }),
+    range('mv_illum-bfp', 'BFP position', '', 'Where the laser spot sits in the objective\'s back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet through the focus), above: TIRF (an evanescent layer) up to the pupil edge NA / n<sub>medium</sub> (beyond it no light reaches the sample). The DNA-PAINT light presets set HILO (0.95; on the nanorulers TIRF, 1.03), and so do Epi / HILO / TIRF and a Pattern pick; a dye, mode, Imaging mode or specimen pick leaves it. With a Pattern on, below 0.05 the Pattern goes Off (the beams at the centre make no fringes) and comes back above. Below: the regime and how deep the light reaches. <code>Lasers.BfpPosition</code>', 0, 1.2, 0.01, DEFAULT_LIGHT['mv_illum-bfp'], { show: FL }),
     { kind: 'html', html: '<div class="sub" id="bfpReadout"></div>', show: FL },
     // Structured illumination (spec/ALGORITHM.md "Structured illumination"): the light as coherent beams in the BFP at
     // the BFP position's radius, the pattern stepping with the frame. A type pick sets the radius and the polarization.
@@ -1595,7 +1598,7 @@ const UI_GROUPS = [
 
 // The structure's dye and mode as the panel has them, for the data layers (dataModeOv in the main script).
 const dyeNameOf = P => isNone(choiceOf(P)) ? 'None' : USER_DYES.isUser(choiceOf(P)) ? USER_DYES.name(USER_DYES.slot(choiceOf(P))) : choiceDye(choiceOf(P)).name;
-const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, autoLightPreset, brightField: BF, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
+const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, lightNoBfp, autoLightPreset, brightField: BF, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
   structure: () => curTarget().structure, specimen: () => mounted().id, beads: BEADS, slide: SLIDE, isNone, noneValue: DYE_NONE_V, dyeNameOf,
   dyeName: () => dyeNameOf(curPrefix()), refreshUserDyes };
 return { UI_GROUPS, USER_DYES, cameraModeGain, DYE_UI };
@@ -7341,6 +7344,29 @@ beamsEl.addEventListener('input', () => {   // (typing arrives settled, settle.j
 beamsEl.addEventListener('blur', showBeams);
 for (const k of ['mv_sim-type', 'mv_sim-polarization', 'mv_sim-centre-amp', 'mv_illum-bfp', 'mv_sim-angles', 'mv_sim-angle0-deg'])
   document.getElementById(k).addEventListener('input', () => { if (!BEAMS.user) showBeams(); });
+// A pattern's beams at the BFP's centre make no fringes: the BFP position below SIM_EPI_BELOW with a pattern on sets the
+// pattern Off (plain epi) and keeps it aside; back at or above it, the pattern set aside comes back (the user's choice,
+// 2026-11-05). A pattern picked by hand, a reset or a settings file forgets it. Set quietly (ISC_QUIET): the Pattern's
+// own pick would move the BFP position.
+const SIM_EPI_BELOW = 0.05;
+{
+  const bfp = document.getElementById('mv_illum-bfp'), sim = document.getElementById('mv_sim-type');
+  let parked = null, setting = false;
+  const setSim = v => {
+    const q = self.ISC_QUIET;
+    setting = true; self.ISC_QUIET = true;
+    try { sim.value = v; sim.dispatchEvent(new Event('input', { bubbles: true })); sim.dispatchEvent(new Event('change', { bubbles: true })); }
+    finally { self.ISC_QUIET = q; setting = false; }
+  };
+  bfp.addEventListener('input', () => {
+    if (self.ISC_QUIET) return;
+    const u = +bfp.value;
+    if (u < SIM_EPI_BELOW && sim.value !== '0') { parked = sim.value; setSim('0'); }
+    else if (u >= SIM_EPI_BELOW && parked !== null) { const p = parked; parked = null; if (sim.value === '0') setSim(p); }
+  });
+  sim.addEventListener('input', () => { if (!setting) parked = null; });
+  window.addEventListener('isc-reset', () => { parked = null; });
+}
 document.getElementById('mv_sim-type').addEventListener('change', () => { BEAMS.user = null; forgetBeams(); showBeams(); });
 window.addEventListener('isc-reset', () => BEAMS.clear());
 setTimeout(showBeams, 0);
@@ -7564,7 +7590,7 @@ document.getElementById('mv_fid-type').addEventListener('input', () => {
 // A slide dye pick loads its channel (the auto light preset; a settings file brings its own).
 document.getElementById('mv_slide-dye').addEventListener('input', () => {
   if (!DYE_UI.slide() || DYE_UI.brightField() || self.ISC_QUIET) return;
-  for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
+  for (const [k, v] of Object.entries(DYE_UI.lightNoBfp(DYE_UI.autoLightPreset()))) setById(k, v);
 });
 els.mv_specimen.addEventListener('input', () => {
   const nr = DYE_UI.nanorulers();
@@ -7577,11 +7603,11 @@ els.mv_specimen.addEventListener('input', () => {
   }
   if (DYE_UI.beads() && !quiet) {
     if (document.getElementById('mv_fid-height').value === '1') setById('mv_fid-height', 0);
-    if (!DYE_UI.brightField()) for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
+    if (!DYE_UI.brightField()) for (const [k, v] of Object.entries(DYE_UI.lightNoBfp(DYE_UI.autoLightPreset()))) setById(k, v);
   }
   // The fluorescent slide: its light (its dye's channel at 0.02 kW/cm^2), its group open.
   if (DYE_UI.slide() && !quiet && !DYE_UI.brightField())
-    for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
+    for (const [k, v] of Object.entries(DYE_UI.lightNoBfp(DYE_UI.autoLightPreset()))) setById(k, v);
   if (DYE_UI.slide()) {
     const g = document.querySelector('details.grp[data-group="slide"]');
     if (g && !g.open) g.open = true;
@@ -7591,11 +7617,7 @@ els.mv_specimen.addEventListener('input', () => {
     const g = document.querySelector('details.grp[data-group="fiducials"]');
     if (g && !g.open) g.open = true;
   }
-  if (!DYE_UI.brightField() && !self.ISC_QUIET) {   // (a settings file brings its own)
-    const b = document.getElementById('mv_illum-bfp');
-    b.value = DYE_UI.lightPresetValues(DYE_UI.autoLightPreset())['mv_illum-bfp'];
-    b.dispatchEvent(new Event('input', { bubbles: true }));
-  }
+  // (the BFP position stays as it is: Illumination's Epi / HILO / TIRF moves it)
   // the nanorulers close up, the slide at its camera field (~60 % of the view; its layer fills the view, nothing
   // else to see), cells out
   const fieldUm = (+document.getElementById('mv_size').value || 128) * ((+document.getElementById('mv_pixel-nm').value || 100) / 1000);
