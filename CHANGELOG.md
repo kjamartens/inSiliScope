@@ -3,7 +3,36 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
-## Unreleased
+## v0.1.0-rc19 (changes since v0.1.0-rc18)
+
+Viewer redesign ([design doc](docs/dev/DESIGN.md)):
+
+- **Themes and design tokens:** Dark, Light or Follow system, plus a density setting (Comfortable / Compact), all in ☰. Colours and sizes come from one set of design tokens (`web/design/tokens/`).
+- **New layout:**
+  - **Acquire** sits under the live image: Live / Snap / Record, a stage joystick and focus wheel, the Info box, the display and Acquisition.
+  - **The instrument** (light path, objective & PSF, camera) sits in a second column. A handle spreads it over the image.
+  - **The settings** are in a column at the right edge that folds to a tab. It has one search and a "Changed only" filter.
+  - Each setting appears once, with a reset per row and per group.
+- **The display** is an upright level bar beside the stage, with a grey scale, a histogram and a handle per level. On a phone it lies down.
+- **The Info box** contains:
+  - laser on/off buttons;
+  - the setup in four rows: labels, light, optics, camera;
+  - warnings when something is off, each with what to do. It warns about no light, nothing labelled, a label no line excites or the filters block, saturation, the focus off the sample or above the TIRF light, no cell in view, and slow frames.
+- **The browser tab** is titled inSiliScope.
+
+Behaviour:
+
+- **The BFP position** (viewer and Micro-Manager) moves only by:
+  - its slider;
+  - the light preset (`Lasers.Preset`);
+  - Epi / HILO / TIRF;
+  - a pattern pick;
+  - a reset or a settings file.
+
+  A dye, mode (channel) or slide-dye pick, the imaging mode and a specimen switch now leave it as set. They used to apply the preset's position.
+- **Viewer, SIM at the BFP's centre:** with a SIM pattern on, a BFP position below 0.05 switches the pattern off (epi). Raising it to 0.05 or above brings the pattern back.
+
+Benchmarks and site:
 
 - Benchmarks: each Micro-Manager live case's rate is the median of three 1.5 s windows (one window let a single stall set the rate: rc18's mEGFP WideField dip at 10 and 50 ms was one, not a slowdown).
 - Site: a release's Benchmarks entry shows up again: the push that merges a release no longer deploys the site before the release does (rc18's entry was missing).
