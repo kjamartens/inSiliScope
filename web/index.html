@@ -73,11 +73,16 @@
   #side{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--color-surface);box-sizing:border-box;font-size:var(--font-size-body)}
   #sideTop{position:relative;padding:6px 12px;border-bottom:1px solid var(--color-border)}
   #sideTop .bar{display:flex;align-items:center;gap:8px}
+  #sideTop .chgOnly{display:flex;align-items:center;gap:var(--space-1);white-space:nowrap;color:var(--color-text-muted);cursor:pointer}
+  /* a changed setting's own reset (shown on the row's hover or focus; a double-click on its name does the same) */
+  .lab .rowReset{flex:none;visibility:hidden;width:16px;height:16px;padding:0;border:0;background:none;color:var(--color-accent);font-size:var(--font-size-caption);line-height:1}
+  .opt.changed:is(:hover,:focus-within) .lab .rowReset,.lab .rowReset:focus-visible{visibility:visible}
+  .opt:not(.changed) .lab .rowReset{display:none}
   #sideTop input[type=search]{flex:1;min-width:0;background:var(--color-input-bg);border:1px solid var(--color-input-border);color:var(--color-text);border-radius:var(--radius-sm);padding:3px 6px;font-size:var(--font-size-body);font-family:inherit}
   .grp .opt.nomatch,.grp .kids.nomatch,.grp .subhead.nomatch{display:none!important}
   /* a setting that differs from its default: a thin accent bar at the row's left and a faint tint */
-  #liveCtl .cfg .lab.changed{position:relative}
-  #liveCtl .cfg .lab.changed::before{content:'';position:absolute;left:-5px;top:3px;bottom:3px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--color-accent) 75%,transparent)}
+  .cfg .lab.changed{position:relative}
+  .cfg .lab.changed::before{content:'';position:absolute;left:-5px;top:3px;bottom:3px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--color-accent) 75%,transparent)}
   .opt.changed{position:relative;background:color-mix(in srgb,var(--color-accent) 6%,transparent);border-radius:var(--radius-sm)}
   .opt.changed::before{content:'';position:absolute;left:-5px;top:2px;bottom:2px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--color-accent) 75%,transparent)}
   /* a row the search matches: the whole line highlighted */
@@ -268,15 +273,16 @@
   #liveCtl .zrow label{margin-left:4px}
   #liveCtl .crow input[type=number]{width:50px}
   #liveCtl .crow label,#liveCtl .zrow label{color:var(--color-text-muted);white-space:nowrap}
-  #liveCtl .cfg{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr);gap:3px 6px;align-items:center}
-  #liveCtl .cfg select{width:100%}
-  #liveCtl .cfg input[type=range]{width:100%}
+  .cfg{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr);gap:var(--density-row-gap) 6px;align-items:center}
+  #panel .cfg:not(:empty){margin:var(--density-row-gap) 0}
+  .cfg select{width:100%}
+  .cfg input[type=range]{width:100%}
   /* every Configuration row the same height, so the Exposure row (moved into the grid by mm_config_ui.js) lines up */
-  #liveCtl .cfg .expv{display:flex;align-items:center;gap:4px}
+  .cfg .expv{display:flex;align-items:center;gap:4px}
   #lv_exp{width:62px}
-  #liveCtl .cfg .lab{display:flex;min-width:0}
-  #liveCtl .cfg .lab label{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.2;color:var(--color-text-muted)}
-  #liveCtl .cfg .lab label[data-tip]:hover{color:var(--color-accent)}
+  .cfg .lab{display:flex;min-width:0}
+  .cfg .lab label{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.2;color:var(--color-text-muted)}
+  .cfg .lab label[data-tip]:hover{color:var(--color-accent)}
   #liveCtl .note{font-size:var(--font-size-caption);color:var(--color-text-muted)}
   #lv_hist{display:block;width:100%;height:56px;margin-top:4px;cursor:ew-resize;touch-action:none}
   #panel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
@@ -585,6 +591,13 @@
       <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
       <div id="menu" class="popover" role="menu"></div>
     </div>
+    <div id="sideTop">
+      <div class="bar">
+        <input type="search" id="setSearch" placeholder="Search all settings" aria-label="Search all settings">
+        <label class="chgOnly" title="Show only the settings that differ from their defaults (at this level)"><input type="checkbox" id="setChanged"> Changed only</label>
+      </div>
+      <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
+    </div>
     <div id="sideBody">
     <div id="sideMain">
       <div id="liveView" class="isc-dark">
@@ -594,12 +607,6 @@
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
         <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the movie, optionally with its settings and ground truth">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
-    <div id="sideTop">
-      <div class="bar">
-        <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
-      </div>
-      <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
-    </div>
     <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
     <div id="panel"></div>
     <div id="animPanel" hidden></div>
@@ -609,12 +616,10 @@
           <div class="zrow"><input type="number" id="lv_z" step="0.1" title="The focal plane's height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span>
             <label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
         </div>
-        <div class="lc"><h5>Configuration</h5><div class="cfg" id="cfgPanel"></div>
+        <div class="lc"><h5>Acquisition</h5><div class="cfg" id="cfgPanel"></div>
           <div class="cfg" id="lv_expRow"><span class="lab"><label for="lv_exp" data-tip="The camera's exposure time per frame; live frames come at most once per exposure. <code>Camera.Exposure</code>">Exposure</label></span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
         </div>
         <div class="lc" id="lv_illumHost"></div>
-        <div class="lc" id="lv_objHost"></div>
-        <div class="lc" id="lv_camHost"></div>
         <div class="lc"><h5>Display</h5>
           <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
           <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
@@ -1226,7 +1231,7 @@ const UI_GROUPS = [
     num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>CellField.AbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
   ] },
 
-  { id: 'illum', host: 'lv_illumHost', title: 'Illumination & light path', open: true, items: [
+  { id: 'illum', host: 'lv_illumHost', title: 'Illumination', open: true, items: [
     select('mv_modality', 'Modality', 'Fluorescence: every label in its mode (dSTORM, PALM, DNA-PAINT blinks; WideField dyes; pre states) through the light path. BrightField: transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Micro-Manager: the <code>Lasers</code> and <code>TransmittedLamp</code> shutters',
       [['0', 'Fluorescence'], ['1', 'BrightField']], '0', { show: () => false }),   // set by the Preset below (BrightField or a fluorescence preset)
     preset('lightPreset', 'Preset', 'The imaging modality and the light path. BrightField (lasers off): transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Every other preset is fluorescence (every label in its mode through the light path): laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). In fluorescence, picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Lasers.Preset</code> (BrightField: the <code>TransmittedLamp</code> shutter)',
@@ -1238,11 +1243,7 @@ const UI_GROUPS = [
     num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none; not in Micro-Manager).', 0, 1000, 1, 0, { adv, show: FL, kids: [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample.', 0, 10, 'any', 0, { adv, show: FL }),
     ] }),
-    range('mv_illum-bfp', 'BFP position', '', 'Where the laser spot sits in the objective\'s back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet through the focus), above: TIRF (an evanescent layer) up to the pupil edge NA / n<sub>medium</sub> (beyond it no light reaches the sample). The DNA-PAINT presets set HILO (0.95), the nanorulers TIRF (1.03). Below: the regime and how deep the light reaches. <code>Lasers.BfpPosition</code>', 0, 1.2, 0.01, DEFAULT_LIGHT['mv_illum-bfp'], { show: FL, kids: [
-      select('mv_illum-profile', 'Beam profile', 'The beam\'s cross-section at the sample: Flat (laterally infinite), Gaussian or FlatTop (a soft-edged disc). Off the axis a beam lights less: photons, bleaching and the free-imager background follow it. <code>Lasers.IlluminationProfile</code>', [['0', 'Flat'], ['1', 'Gaussian'], ['2', 'FlatTop']], '1', { adv, show: FL }),
-      num('mv_illum-fwhm', 'Beam FWHM', '% FOV', 'The beam\'s full width at half maximum (Gaussian, FlatTop), % of the field of view\'s width. <code>Lasers.IlluminationFwhmPct</code>', 10, 300, 5, 100, { adv, show: FL }),
-      num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of the imager solution over the coverslip (a tape/flow chamber, estimate): the free DNA-PAINT imager in it adds a background, collected defocused from the heights the beam lights (epi: about the beam\'s radius; HILO: the sheet; TIRF: the evanescent layer). <code>Lasers.ChamberHeightUm</code>', 0, null, 1, 100, { adv, show: FL }),
-    ] }),
+    range('mv_illum-bfp', 'BFP position', '', 'Where the laser spot sits in the objective\'s back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet through the focus), above: TIRF (an evanescent layer) up to the pupil edge NA / n<sub>medium</sub> (beyond it no light reaches the sample). The DNA-PAINT presets set HILO (0.95), the nanorulers TIRF (1.03). Below: the regime and how deep the light reaches. <code>Lasers.BfpPosition</code>', 0, 1.2, 0.01, DEFAULT_LIGHT['mv_illum-bfp'], { show: FL }),
     { kind: 'html', html: '<div class="sub" id="bfpReadout"></div>', show: FL },
     // Structured illumination (spec/ALGORITHM.md "Structured illumination"): the light as coherent beams in the BFP at
     // the BFP position's radius, the pattern stepping with the frame. A type pick sets the radius and the polarization.
@@ -1266,6 +1267,12 @@ const UI_GROUPS = [
           num('mv_tube-length-mm', 'Tube length', 'mm', 'The tube lens\' focal length: the objective\'s focal length is it over the magnification (100), the pupil\'s radius that × NA; a beam\'s spot size and tilt map to the sample through it. <code>Objective.TubeLengthMm</code>', 50, 500, 1, 200, { adv, show: FL }),
         ] }),
     { kind: 'html', html: '<div class="sub" id="patternReadout"></div>', show: FL },
+  ] },
+  // the light path's hardware (Instrument): the beam's shape, the filters and the dichroic, the BrightField lamp
+  { sect: 'Instrument', id: 'lightpath', title: 'Light path', open: true, items: [
+    select('mv_illum-profile', 'Beam profile', 'The beam\'s cross-section at the sample: Flat (laterally infinite), Gaussian or FlatTop (a soft-edged disc). Off the axis a beam lights less: photons, bleaching and the free-imager background follow it. <code>Lasers.IlluminationProfile</code>', [['0', 'Flat'], ['1', 'Gaussian'], ['2', 'FlatTop']], '1', { adv, show: FL }),
+    num('mv_illum-fwhm', 'Beam FWHM', '% FOV', 'The beam\'s full width at half maximum (Gaussian, FlatTop), % of the field of view\'s width. <code>Lasers.IlluminationFwhmPct</code>', 10, 300, 5, 100, { adv, show: FL }),
+    num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of the imager solution over the coverslip (a tape/flow chamber, estimate): the free DNA-PAINT imager in it adds a background, collected defocused from the heights the beam lights (epi: about the beam\'s radius; HILO: the sheet; TIRF: the evanescent layer). <code>Lasers.ChamberHeightUm</code>', 0, null, 1, 100, { adv, show: FL }),
     select('mv_ex-filter', 'Excitation filter', 'Laser clean-up filter in front of the dichroic: each laser line is scaled by its transmission (a 640 nm clean-up blocks the 561 nm line). None, ideal ±5 nm bands or real curves (FPbase). <code>ExcitationFilter</code>',
       DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_ex-filter']), { adv, show: FL, kids: [
         num('mv_ex-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>ExcitationFilter-CustomLoNm</code>', 300, 900, 0.5, 635, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
@@ -1284,8 +1291,10 @@ const UI_GROUPS = [
     num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>TransmittedLamp.IntensityPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>TransmittedLamp.CondenserNA</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
+  
   ] },
-  { id: 'objective', host: 'lv_objHost', title: 'Objective & PSF', open: true, items: [
+  { id: 'objective', title: 'Objective & PSF', open: true, items: [
+    { kind: 'html', html: '<div class="cfg" id="cfgObjectiveHost"></div>' },   // the Objective preset (web/live/mm_config_ui.js)
     num('mv_na', 'NA', 'NA', 'Numerical aperture of the objective (the Objective preset sets it; a value typed here makes the preset Custom). <code>Objective.NA</code>', 0.1, 1.7, 0.01, 1.4, { adv: true }),
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3'),
@@ -1293,7 +1302,7 @@ const UI_GROUPS = [
     text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. <code>Objective.ZernikeCoefficients</code>', undefined, { maxlength: 400 }),
   ] },
   // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
-  { id: 'camera', host: 'lv_camHost', title: 'Camera', open: true, items: [
+  { id: 'camera', title: 'Camera', open: true, items: [
     select('mv_camera-preset', 'Camera', 'Camera preset: sets the QE curve, the magnification and the noise values (Advanced; edit them after). Kinetix22 = the defaults; iXon Ultra 897 = an EMCCD. <code>Camera.CameraPreset</code>',
       DD.cameras.map((c, i) => [String(i), c.name]), String(DD.cameras.findIndex(c => c.id === DD.cameraDefault)), {
         apply: v => { const c = DD.cameras[+v], K = { 'mv_qe': 'quantumEfficiency', 'mv_dark-per-sec': 'darkCurrentElectronsPerSec', 'mv_gain': 'gainElectronsPerAdu', 'mv_offset': 'offsetAdu', 'mv_offset-std': 'offsetStdAdu', 'mv_read-noise': 'readNoiseElectrons', 'mv_gain-std-pct': 'gainStdPct', 'mv_read-noise-std-pct': 'readNoiseStdPct', 'mv_cic': 'cicElectrons', 'mv_bit-depth': 'bitDepth' }, o = {};
@@ -1320,7 +1329,7 @@ const UI_GROUPS = [
     { kind: 'html', html: '<div class="sub" id="magReadout"></div>' },
     num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × magnification). Typing a size sets the Magnification that gives it (the camera and objective stay). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { derived: true, changedWith: 'emissionMag' }),
   ] },
-  { sect: 'Microscope', id: 'formation', title: 'Image formation', items: [
+  { id: 'formation', title: 'Image formation', items: [
     num('mv_wf-upscale', 'Mean-field upscaling', '× per px', 'Mean-field (FFT) grid cells per camera pixel, per axis: WideField dyes, pre states and the dSTORM initial ON while they are dense. <code>Renderer.WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: FL }),
     num('mv_wf-plane-nm', 'Mean-field z plane', 'nm', 'Thickness of the mean-field dye planes. <code>Renderer.WideFieldZPlaneNm</code>', 5, 500, 5, 25, { adv, show: FL }),
     num('mv_mean-field-density-per-um2', 'Mean-field above', '/µm²', 'A continuous population renders mean-field (fast, its mean image) while more than this many of its dyes emit per µm² within the focal slab, per dye (exact windows) below. <code>Renderer.MeanFieldDensityPerUm2</code>', 0, null, 1, 20, { adv, show: FL }),
@@ -1663,7 +1672,18 @@ function sync() {
     if (r.kind === 'preset') $(r.id).value = presetMatch(r);
     if (r.row && (r.kind !== 'html' || r.show)) r.row.style.display = isShown(r) ? '' : 'none';
     if (r.kidsEl) r.kidsEl.style.display = isShown(r) ? '' : 'none';
-    if (r.row && resettable(r)) r.row.classList.toggle('changed', !isDefault(r));
+    if (r.row && resettable(r)) {
+      const ch = !isDefault(r);
+      r.row.classList.toggle('changed', ch);
+      if (ch && !r.resetBtn) {   // made once, on the first change; hidden by CSS while the row is at its default
+        const lab = r.row.querySelector(':scope > .lab');
+        if (lab) {
+          r.resetBtn = h('button', { type: 'button', class: 'rowReset', title: 'Back to the default (or double-click the name)', 'aria-label': 'Reset ' + r.label }, '↺');
+          r.resetBtn.addEventListener('click', ev => { ev.preventDefault(); resetDefaults(x => x === r); });
+          lab.append(r.resetBtn);
+        }
+      }
+    }
     else if (r.row && r.changedWith) {   // a derived row is marked with the row it follows (the pixel size: the Magnification)
       const o = entries.find(e => e.id === r.changedWith);
       r.row.classList.toggle('changed', !!o && resettable(o) && !isDefault(o));
@@ -1836,35 +1856,45 @@ document.addEventListener('pointerdown', ev => { if (ev.pointerType === 'touch' 
 panel.addEventListener('scroll', hideTip);
 $('viewPanel').addEventListener('scroll', hideTip);
 
-// ---- search: show only the rows whose label or help text has every typed word (their group opened) ----
-const search = $('setSearch');
+// a double-click on a changed setting's name: back to its default
+document.addEventListener('dblclick', ev => {
+  const lab = ev.target instanceof Element && ev.target.closest('.opt.changed > .lab');
+  const r = lab && entries.find(e => e.row === lab.parentElement);
+  if (r && resettable(r)) { ev.preventDefault(); resetDefaults(x => x === r); }
+});
+
+// ---- search: show only the rows whose label or help text has every typed word (their group opened); "Changed
+// only": only the rows that differ from their defaults ----
+const search = $('setSearch'), chgOnly = $('setChanged');
 const rowText = r => ((r.label || '') + ' ' + (r.tip || '') + ' ' + (r.id || '') + ' ' + (r.group ? r.group.title : '')).replace(/<[^>]+>/g, ' ').toLowerCase();
 // The matching rows are highlighted (in the settings and in the controls column, whose groups are not hidden).
 function applySearch() {
-  const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
-  searching = words.length > 0;
+  const words = search.value.toLowerCase().split(/\s+/).filter(Boolean), onlyChanged = chgOnly.checked;
+  const active = words.length > 0 || onlyChanged;
+  searching = active;
   // only rows the current level shows (and that apply: show()) count
   const lv = document.body.dataset.level, offLevel = el => el.classList.contains('t-expert') ? lv !== 'expert' : el.classList.contains('t-advanced') && lv === 'basic';
-  const hit = r => !offLevel(r.row) && isShown(r) && words.every(w => rowText(r).includes(w));
+  const hit = r => !offLevel(r.row) && isShown(r) && words.every(w => rowText(r).includes(w)) && (!onlyChanged || r.row.classList.contains('changed'));
   const keep = new Set();
-  if (words.length) for (const r of entries) if (r.row && hit(r)) for (let p = r; p; p = p.parent) keep.add(p);
-  for (const r of entries) if (r.row) r.row.classList.toggle('hit', !!words.length && hit(r));
+  if (active) for (const r of entries) if (r.row && hit(r)) for (let p = r; p; p = p.parent) keep.add(p);
+  for (const r of entries) if (r.row) r.row.classList.toggle('hit', words.length > 0 && hit(r));
   for (const r of entries) {
     if (!r.row || (r.group && r.group.host)) continue;
-    const off = words.length && !keep.has(r) && !(r.parent && keep.has(r.parent) && hit(r.parent));
+    const off = active && !keep.has(r) && !(r.parent && keep.has(r.parent) && hit(r.parent));
     r.row.classList.toggle('nomatch', !!off);
     if (r.kidsEl) r.kidsEl.classList.toggle('nomatch', !!off && !(r.kidEntries || []).some(k => keep.has(k)));
   }
   for (const G of groups) {
-    const any = !words.length || G.entries.length && entries.some(r => r.group === G.g && keep.has(r));
-    if (G.g.host) { if (words.length && any) G.det.open = true; continue; }
+    const any = !active || G.entries.length && entries.some(r => r.group === G.g && keep.has(r));
+    if (G.g.host) { if (active && any) G.det.open = true; continue; }
     G.det.classList.toggle('nomatch-grp', !any);
-    if (words.length && any) G.det.open = true;
+    if (active && any) G.det.open = true;
   }
-  if (!words.length) applyOpen();
+  if (!active) applyOpen();
   else { const first = document.querySelector('#panel .opt.hit'); if (first) first.scrollIntoView({ block: 'nearest' }); }
 }
 search.addEventListener('input', applySearch);
+chgOnly.addEventListener('change', applySearch);
 new MutationObserver(() => { if (search.value.trim()) applySearch(); }).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
 
 // (stored 'default' / 'advanced' before the three tiers: 'default' is Basic now)

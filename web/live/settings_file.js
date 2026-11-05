@@ -290,7 +290,7 @@ css.textContent = `
   #lv_setupRows .p{color:var(--color-text-muted)} #lv_setupRows .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   #lv_setupRows .i{font-family:var(--font-family-mono);color:var(--color-text-muted)} #lv_setupRows .i.ed::after{content:' edited';color:var(--color-accent)}
   #lv_setupRows .s{grid-column:1/-1;color:var(--color-text-muted);font-size:var(--font-size-caption);margin:-1px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #setDlg{position:fixed;inset:0;z-index:var(--z-tooltip);background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+  #setDlg{position:fixed;inset:0;z-index:var(--z-dialog);background:var(--color-overlay-scrim);display:flex;align-items:center;justify-content:center}
   #setDlg[hidden]{display:none}
   #setDlg .box{background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:12px 14px;width:min(560px,calc(100vw - 32px));
     max-height:calc(100vh - 48px);overflow:auto;box-shadow:var(--shadow-dialog);font-size:var(--font-size-body)}

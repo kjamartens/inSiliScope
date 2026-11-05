@@ -63,15 +63,14 @@ for (const num of document.querySelectorAll('#lv_illumHost input[type=number][id
   num.addEventListener('change', back);
 }
 
-// A settings group in the column (Illumination & light path, Objective & PSF, Camera) shows only when one of its rows
-// does at the current level (Objective & PSF has no Basic row).
+// A settings group in the column (Illumination) shows only when one of its rows does at the current level.
 function syncHostBoxes() {
-  for (const id of ['lv_illumHost', 'lv_objHost', 'lv_camHost']) {
+  for (const id of ['lv_illumHost']) {
     const box = $(id);
     if (box) box.hidden = ![...box.querySelectorAll('.opt')].some(e => getComputedStyle(e).display !== 'none');
   }
 }
-// A click on a box's title folds it (Focus, Configuration, Display, Performance; the settings groups fold as details).
+// A click on a box's title folds it (Focus, Acquisition, Display, Performance; the settings groups fold as details).
 for (const t of document.querySelectorAll('#liveCtl .lc > h5')) t.addEventListener('click', () => t.parentElement.classList.toggle('shut'));
 let hostTimer = 0;
 const syncHostsSoon = () => { clearTimeout(hostTimer); hostTimer = setTimeout(syncHostBoxes, 30); };

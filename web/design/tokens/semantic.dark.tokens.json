@@ -49,7 +49,8 @@
       "mark": { "$value": "#ffffff", "$description": "Marks drawn on an image: the scale bar, the zoomed part." },
       "shadow": { "$value": "#000000", "$description": "The text shadow that keeps overlay text readable on an image." },
       "control-bg": { "$value": "#1a1e24" },
-      "control-border": { "$value": "#333942" }
+      "control-border": { "$value": "#333942" },
+      "scrim": { "$value": "rgba(0,0,0,.45)", "$description": "Behind a dialog." }
     },
     "panel": {
       "$description": "The Microscope view's drawings (web/live/scope_panels.js).",

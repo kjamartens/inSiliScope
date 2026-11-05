@@ -106,6 +106,7 @@
   --color-overlay-shadow: #000000;
   --color-overlay-control-bg: #1a1e24;
   --color-overlay-control-border: #333942;
+  --color-overlay-scrim: rgba(0,0,0,.45);
   --color-panel-ink: #9aa3b0;
   --color-panel-fill: #1e232b;
   --color-panel-text: var(--color-neutral-100);
@@ -251,6 +252,7 @@
   --color-overlay-shadow: #000000;
   --color-overlay-control-bg: #1a1e24;
   --color-overlay-control-border: #333942;
+  --color-overlay-scrim: rgba(0,0,0,.45);
   --color-panel-ink: #9aa3b0;
   --color-panel-fill: #1e232b;
   --color-panel-text: var(--color-neutral-100);

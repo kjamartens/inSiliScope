@@ -25,10 +25,10 @@ A first tour, about five minutes:
    image; **Display** sets the contrast over a live histogram. On a phone, the live image comes first with the sample as
    an inset (tap it to swap them); two fingers up or down on the live image focus, a pinch zooms, and the **Focus** box
    has a ruler to swipe ([the viewer reference](try-viewer.md) has every gesture).
-4. **Switch the microscope.** In **Configuration**, **Mode** changes the experiment: dSTORM, DNA-PAINT, PALM,
+4. **Switch the microscope.** In **Acquisition** (beside the live image), **Imaging mode** changes the experiment: dSTORM, DNA-PAINT, PALM,
    WideField or BrightField, each with its typical dye, lasers and filters. Try **WideField**, then **BrightField**:
    the same cells, three very different pictures. **Drift** makes the sample wander, **Camera** swaps the sCMOS for an
-   EMCCD. Under **Illumination & light path** each laser is a slider. **Microscope** in the title bar swaps the sample
+   EMCCD. Under **Illumination** each laser is a slider. **Microscope** in the title bar swaps the sample
    on the left for the microscope: the light path drawn from the lasers to the camera, the illumination profile, the
    PSF, the back focal plane and the spectra (click any of them for a larger view; **Sample** goes back).
 5. **Change the sample.** The settings under the image hold the sample and its labels: the microtubules and the
