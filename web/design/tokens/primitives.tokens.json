@@ -97,6 +97,7 @@
   },
   "duration": {
     "$type": "duration",
-    "fast": { "$value": "120ms" }
+    "fast": { "$value": "120ms" },
+    "fold": { "$value": "100ms", "$description": "a panel that slides open or shut (the controls spread over the live image)" }
   }
 }

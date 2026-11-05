@@ -261,8 +261,8 @@ that finishes them.
   = **Acquire** (2026-11-05, docs/dev/DESIGN.md "Regions": focus, Acquisition (the MM
   presets, exposure), the settings group Illumination via `host: 'lv_illumHost'`, a box hidden when none of its rows
   shows at the level, display) in `#lv_colAcq` and beside it the instrument's groups Light path, Objective & PSF, Camera
-  (`host: 'lv_instrHost'`; two columns `#lv_cols` from 520 px; the handle `#ctlUp` spreads them over the image's lower
-  75 %, `#sideMain.ctlUp`, folded back 0.1 s after the pointer leaves), and at the right edge the settings column `#setCol` (2026-11-05: `#panel` under the
+  (`host: 'lv_instrHost'`; two columns `#lv_cols` from 520 px; the handle `#ctlUp` (a click or 0.3 s of hover) spreads them over the image's lower
+  75 %, `#sideMain.ctlUp`, folded back 0.1 s after the pointer leaves; a 0.1 s slide each way, token `duration.fold`), and at the right edge the settings column `#setCol` (2026-11-05: `#panel` under the
   search `#sideTop` with "Changed only" `#setChanged`; its » `#setFold` folds it to a vertical tab `#setTab`, kept in
   `isc.ui.setShut`, `foldSettings`, class `setShut` on `#wrap`; the live image keeps its width, `--live-w` less `--set-w`, and the
   world view takes the room; a search unfolds it; on a phone both are plain boxes again); the search highlights matching rows (`.opt.hit`, the column's too) and opens every group with a match; render paths/time/drift and the performance in the settings' section Simulation

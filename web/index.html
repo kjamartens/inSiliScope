@@ -148,10 +148,17 @@
   #ctlUp{position:absolute;z-index:calc(var(--z-overlay) + 2);left:50%;top:calc(100cqw - 9px);transform:translateX(-50%);width:36px;height:16px;padding:0;
     font-size:var(--font-size-caption);line-height:1;border-radius:var(--radius-md);background:var(--color-surface-raised);border:1px solid var(--color-border-strong);color:var(--color-text-muted)}
   #ctlUp:hover,#ctlUp:focus-visible{background:var(--color-accent);border-color:var(--color-accent);color:var(--color-accent-on)}
+  #ctlUp{transition:top var(--duration-fold) ease-out}
   #sideMain.ctlUp #ctlUp{top:calc(25cqw - 9px)}
   #sideMain.ctlUp #ctlUp span{display:inline-block;transform:rotate(180deg)}
   #sideMain.ctlUp>#liveCtl{position:absolute;left:0;right:0;bottom:0;top:25cqw;z-index:calc(var(--z-overlay) + 1);background:var(--color-surface);
-    box-shadow:var(--shadow-raised);border-top:1px solid var(--color-border-strong)}
+    box-shadow:var(--shadow-raised);border-top:1px solid var(--color-border-strong);animation:ctlRise var(--duration-fold) ease-out}
+  /* folding back: still spread for the slide down, then in its place (the script drops both classes after it) */
+  #sideMain.ctlUp.ctlFall>#liveCtl{animation:ctlFall var(--duration-fold) ease-in forwards}
+  #sideMain.ctlFall #ctlUp{top:calc(100cqw - 9px)}
+  @keyframes ctlRise{from{top:100cqw}to{top:25cqw}}
+  @keyframes ctlFall{from{top:25cqw}to{top:100cqw}}
+  @media (prefers-reduced-motion:reduce){#sideMain #liveCtl,#sideMain.ctlUp>#liveCtl{animation:none!important} #ctlUp{transition:none}}
   #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:var(--color-bg-canvas);overflow:hidden}
   #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:var(--color-bg-canvas)}
   #lv_scale,#lv_idle{position:absolute;color:var(--color-overlay-text);font-size:var(--font-size-caption);pointer-events:none;text-shadow:0 0 3px var(--color-overlay-shadow)}
@@ -640,7 +647,7 @@
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
         <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the movie, optionally with its settings and ground truth">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
-    <button id="ctlUp" type="button" title="Spread these controls over the image (they fold back when the pointer leaves them)" aria-label="Spread the controls over the image" aria-expanded="false"><span aria-hidden="true">▲</span></button>
+    <button id="ctlUp" type="button" title="Spread these controls over the image (a click, or rest the pointer here; they fold back when the pointer leaves them)" aria-label="Spread the controls over the image" aria-expanded="false"><span aria-hidden="true">▲</span></button>
     <div id="liveCtl"><div id="lv_cols">
       <div class="lvCol" id="lv_colAcq">
         <div class="lc"><h5>Focus (Z stage)</h5>
@@ -1816,22 +1823,36 @@ $('setTab').addEventListener('click', () => foldSettings(false));
 for (const [id, ev] of [['setSearch', 'input'], ['setChanged', 'change']])
   $(id).addEventListener(ev, () => { if ($('wrap').classList.contains('setShut')) foldSettings(false); });
 foldSettings(store.get('setShut', '0') === '1');
-// The handle on the image's lower edge spreads the controls under it over the image (75 % of it); they fold back when
+// The handle on the image's lower edge spreads the controls under it over the image (75 % of it), on a click or when the
+// pointer rests on it for 0.3 s; they fold back when
 // the pointer has left them (and the handle) for 0.1 s, on a second click or on Esc. Not while a select of theirs is
 // open (its list lies outside them).
 {
   const main = $('sideMain'), ctl = $('liveCtl'), btn = $('ctlUp');
   let timer = 0;
-  const spread = on => { clearTimeout(timer); main.classList.toggle('ctlUp', on); btn.setAttribute('aria-expanded', on);
-    btn.title = on ? 'Fold the controls back under the image' : 'Spread these controls over the image (they fold back when the pointer leaves them)'; };
-  const later = () => { clearTimeout(timer); if (main.classList.contains('ctlUp')) timer = setTimeout(() => {
+  // folding back slides them down first (--duration-fold, 0.1 s), then they take their place under the image again
+  const foldMs = () => matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : parseFloat(iscTheme.tok('--duration-fold')) || 0;
+  let fall = 0;
+  const isUp = () => main.classList.contains('ctlUp') && !main.classList.contains('ctlFall');
+  const spread = on => {
+    clearTimeout(timer); clearTimeout(fall); main.classList.remove('ctlFall');
+    if (!on && isUp() && foldMs()) {
+      main.classList.add('ctlFall');
+      fall = setTimeout(() => main.classList.remove('ctlUp', 'ctlFall'), foldMs());
+    } else main.classList.toggle('ctlUp', on);
+    btn.setAttribute('aria-expanded', on);
+    btn.title = on ? 'Fold the controls back under the image' : 'Spread these controls over the image (a click, or rest the pointer here; they fold back when the pointer leaves them)'; };
+  const later = () => { clearTimeout(timer); if (isUp()) timer = setTimeout(() => {
     const a = document.activeElement;
     if (a && a.tagName === 'SELECT' && ctl.contains(a)) { a.addEventListener('blur', later, { once: true }); return; }
     if (!ctl.matches(':hover') && !btn.matches(':hover')) spread(false);
   }, 100); };
-  btn.addEventListener('click', () => spread(!main.classList.contains('ctlUp')));
+  btn.addEventListener('click', () => { clearTimeout(hover); spread(!isUp()); });
+  let hover = 0;
+  btn.addEventListener('pointerenter', () => { clearTimeout(hover); if (!isUp()) hover = setTimeout(() => spread(true), 300); });
+  btn.addEventListener('pointerleave', () => clearTimeout(hover));
   for (const el of [ctl, btn]) { el.addEventListener('pointerleave', later); el.addEventListener('pointerenter', () => clearTimeout(timer)); }
-  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && main.classList.contains('ctlUp')) spread(false); });
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && isUp()) spread(false); });
 }
 function setLevel(v) {
   if (!LEVELS.includes(v)) v = 'basic';

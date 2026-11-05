@@ -104,6 +104,7 @@ try {
     && where.perf === 'panel' && where.formation === 'panel', `the groups' places ${JSON.stringify(where)}`);
   // the handle spreads the controls over the image's lower 75 %; they fold back 0.1 s after the pointer leaves them
   await page.click('#ctlUp');
+  await page.waitForTimeout(200);   // (the 0.1 s slide)
   const up = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect(), c = document.getElementById('liveCtl').getBoundingClientRect();
     return { top: (c.top - v.top) / v.height, bottom: c.bottom, H: innerHeight, w: c.width - v.width }; });
   await page.mouse.move(5, 300);
@@ -113,6 +114,17 @@ try {
     Math.abs(document.getElementById('liveCtl').getBoundingClientRect().top - document.getElementById('liveView').getBoundingClientRect().bottom) < 2);
   check(Math.abs(up.top - 0.25) < 0.01 && Math.abs(up.bottom - up.H) < 2 && Math.abs(up.w) < 2 && still && back,
     `the handle spreads the controls from ${(100 * up.top).toFixed(0)} % of the image to the bottom; still spread as the pointer leaves, folded back by 0.4 s`);
+  // resting the pointer on the handle spreads them too: not at 0.15 s, by 0.45 s
+  const hb = await (await page.$('#ctlUp')).boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.waitForTimeout(150);
+  const early = await page.evaluate(() => document.getElementById('sideMain').classList.contains('ctlUp'));
+  await page.waitForTimeout(300);
+  const rest = await page.evaluate(() => document.getElementById('sideMain').classList.contains('ctlUp'));
+  await page.mouse.move(5, 300);
+  await page.waitForTimeout(400);
+  const gone = await page.evaluate(() => !document.getElementById('sideMain').classList.contains('ctlUp'));
+  check(!early && rest && gone, `the pointer resting on the handle spreads them (0.15 s: ${early}, 0.45 s: ${rest}), leaving folds them back (${gone})`);
   // the BFP readout, from the movie spec's C++ setup (the setup job), names a regime (the spectra: viewer_scope_view.mjs)
   const ro = await page.waitForFunction(() => {
     const b = document.getElementById('bfpReadout');

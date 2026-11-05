@@ -72,6 +72,7 @@
   --z-dialog: 45;
   --z-tooltip: 50;
   --duration-fast: 120ms;
+  --duration-fold: 100ms;
   --accent-dark: var(--color-blue-400);
   --accent-light: var(--color-blue-600);
   --color-bg-app: var(--color-neutral-950);

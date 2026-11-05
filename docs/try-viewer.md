@@ -20,7 +20,7 @@ through it step by step.
   microscope: the controls you use while imaging (the focus, the acquisition (imaging mode, illumination, drift,
   quality, exposure), the lasers and the BFP position, the display range) and beside them, in a second column when
   there is room, the instrument (**Light path**, **Objective & PSF**, **Camera**). The small ▲ on the image's lower
-  edge spreads these controls over the lower three quarters of the image; they fold back a tenth of a second after the
+  edge (a click, or the pointer resting on it) spreads these controls over the lower three quarters of the image; they fold back a tenth of a second after the
   pointer leaves them (or on ▼ or Esc). At the right edge, down to the bottom of the window, the **Settings** column:
   the sample, its preparation and, from the Advanced level, the **Simulation** (performance, image formation), with
   a search box on top. Its
