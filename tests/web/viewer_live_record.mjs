@@ -152,7 +152,7 @@ try {
     && ran > 0.3 && near(p3[1], p2[1]) && near(p5[0], p4[0]) && knobBack && near(p6[1] - p5[1], 10) && near(p7[0] - p6[0], -10),
     `the joystick: a click at the right edge +${(p1[0] - st.x0).toFixed(2)} µm in x, at the lower left (${(p2[0] - p1[0]).toFixed(2)}, +${(p2[1] - p1[1]).toFixed(2)}) µm; `
     + `the knob held right moved ${ran.toFixed(2)} µm in 0.5 s and stopped when let go (knob back: ${knobBack}); Shift+↓ +${(p6[1] - p5[1]).toFixed(2)} µm, Shift+click at the left ${(p7[0] - p6[0]).toFixed(2)} µm`);
-  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Stage,Display,Setup,Acquisition',
+  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Setup,Stage,Display,Acquisition',
     `the focus wheel: click above +${(zb - za).toFixed(2)}, 36 px drag up +${(zc - zb).toFixed(2)}, a scroll notch down ${(zd - zc).toFixed(2)} µm, shown under it as "${zShown}", ▲ +${(ze - zd).toFixed(2)}; `
     + `right-click opens the step box (${JSON.stringify(pop)}), a click elsewhere shuts it; the boxes ${st.order}`);
   // the display's level bar beside the stage: a drag near the top moves the white level up (auto off), the handles'
@@ -213,9 +213,9 @@ try {
     const $ = id => document.getElementById(id), R = e => e.getBoundingClientRect(), wait = ms => new Promise(r => setTimeout(r, ms));
     const ids = () => ISC_STATUS.warnings().map(w => w.id);
     const until = async f => { for (let i = 0; i < 40 && !f(); i++) await wait(100); return f(); };
-    // (beside the display, or under the stage and the display when the strip is narrow)
+    // (left of the stage, or under the stage and the display when the strip is narrow)
     const sb = R($('lv_statBox')), db = R($('lv_dispBox')), st = R($('lv_stageBox'));
-    const r = { beside: (Math.abs(sb.top - db.top) < 2 && sb.left > db.right) || (sb.top >= Math.max(db.bottom, st.bottom) - 1 && Math.abs(sb.left - st.left) < 2) };
+    const r = { beside: (Math.abs(sb.top - st.top) < 2 && sb.right < st.left) || (sb.top >= Math.max(db.bottom, st.bottom) - 1 && Math.abs(sb.left - st.left) < 2) };
     const chip = nm => document.querySelector(`#lv_laserChips .chip[data-nm="${nm}"]`);
     const p640 = $('mv_laser-640').value;
     chip(640).click(); r.off = $('mv_laser-640').value === '0' && chip(640).getAttribute('aria-pressed') === 'false';
@@ -238,7 +238,7 @@ try {
     return r;
   });
   check(!!facts && stat.beside && stat.off && stat.back && stat.dark && stat.list && stat.closed && stat.lit && stat.below && stat.after,
-    `the Setup box beside the display or under it (${(facts || 'no facts').replace(/\n/g, ' ')}); a laser button turns 640 nm off and back on; all off: "nolight" first, its list on a click, Esc closes; the focus at -1 µm: "below" (warnings before: ${stat.before.join(', ') || 'none'}) ${JSON.stringify(stat)}`);
+    `the Setup box left of the stage or under it (${(facts || 'no facts').replace(/\n/g, ' ')}); a laser button turns 640 nm off and back on; all off: "nolight" first, its list on a click, Esc closes; the focus at -1 µm: "below" (warnings before: ${stat.before.join(', ') || 'none'}) ${JSON.stringify(stat)}`);
   if (process.env.ISC_SHOT) await page.screenshot({ path: process.env.ISC_SHOT, clip: await (await page.$('#liveCtl')).boundingBox() });
   await page.evaluate(() => document.getElementById('lv_live').click());
   const names = seen.map(s => s.split('#')[0]), vals = seen.map(s => s.split('#')[1].split('|'));

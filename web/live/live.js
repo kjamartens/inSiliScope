@@ -523,8 +523,9 @@ function draw(d) {
 // The axes move slowly: the value axis spans the darkest to the brightest pixel of the frames of the last 10 s (dark at
 // the bottom), the count axis the tallest bar of those frames, so a blink or a dim frame does not rescale it. Beside
 // it the grey scale the range gives (#lv_lut) and a handle per level with its number (#lv_loTag, #lv_hiTag), kept
-// apart when the levels are close.
-const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128, HIST_KEEP_MS = 10000, TAG_H = 12;
+// apart when the levels are close. On a phone the bar lies down (dark at the left, the handles under it).
+const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128, HIST_KEEP_MS = 10000, TAG_H = 12, TAG_W = 44;
+const lying = () => document.body.classList.contains('mobile');
 let hist = null, hMin = 0, hMax = 1, hTop = 0;
 const hRecent = [];   // {t, mn, mx, top} per frame shown
 window.addEventListener('isc-theme', () => { if (L.frame) drawHist(); });   // the theme's colours (web/design/theme.js)
@@ -552,6 +553,28 @@ function drawHist(newFrame) {
   const top = hTop;
   const accent = iscTheme.tok('--color-accent'), muted = iscTheme.tok('--color-text-muted');
   const frac = v => (v - hMin) / (hMax - hMin), yOf = v => H - frac(v) * H;
+  const pl = (100 * frac(L.lo)).toFixed(2), ph = (100 * frac(L.hi)).toFixed(2);
+  const set = (id, pos, v) => {
+    const t = $(id);
+    t.style.top = lying() ? '' : pos.toFixed(1) + 'px'; t.style.left = lying() ? pos.toFixed(1) + 'px' : '';
+    t.lastChild.textContent = String(Math.round(v));
+  };
+  if (lying()) {   // the same, lying down: values along x, the bars up from the bottom, the handles under the bar
+    const xl = frac(L.lo) * W, xh = frac(L.hi) * W, bw = W / NB;
+    hg.fillStyle = muted; hg.globalAlpha = 0.12; hg.fillRect(Math.max(0, xl), 0, Math.max(1, Math.min(W, xh) - Math.max(0, xl)), H);
+    hg.globalAlpha = 1;
+    for (let b = 0; b < NB; b++) { const hh = top ? (hist[b] / top) * (H - 2) : 0; hg.fillRect(b * bw, H - hh, Math.max(1, bw - 0.5), hh); }
+    hg.fillStyle = accent;
+    const lw = Math.max(1, Math.round(devicePixelRatio));
+    for (const x of [xl, xh]) if (x >= -1 && x <= W + 1) hg.fillRect(Math.round(x - lw / 2), 0, lw, H);
+    $('lv_lut').style.background = `linear-gradient(to right, #000 ${pl}%, #fff ${ph}%)`;   // design:allow (the image's own grey scale)
+    const Wc = hc.clientWidth, cl = v => Math.min(Wc, Math.max(0, Wc * frac(v)));
+    let al = cl(L.lo), ah = cl(L.hi);
+    if (ah - al < TAG_W) { const m = (al + ah) / 2; al = m - TAG_W / 2; ah = m + TAG_W / 2; }
+    al = Math.max(TAG_W / 2, Math.min(Wc - 1.5 * TAG_W, al)); ah = Math.min(Wc - TAG_W / 2, Math.max(al + TAG_W, ah));
+    set('lv_loTag', al, L.lo); set('lv_hiTag', ah, L.hi);
+    return;
+  }
   // the display range (black .. white) as a shaded band, then the bars (from the left) and the two markers
   const yl = yOf(L.lo), yh = yOf(L.hi);
   hg.fillStyle = muted; hg.globalAlpha = 0.12; hg.fillRect(0, Math.max(0, yh), W, Math.max(1, Math.min(H, yl) - Math.max(0, yh)));
@@ -565,14 +588,12 @@ function drawHist(newFrame) {
   const lw = Math.max(1, Math.round(devicePixelRatio));
   for (const y of [yl, yh]) if (y >= -1 && y <= H + 1) hg.fillRect(0, Math.round(y - lw / 2), W, lw);
   // the grey scale shown: black below the black level, white above the white level
-  const pl = (100 * frac(L.lo)).toFixed(2), ph = (100 * frac(L.hi)).toFixed(2);
   $('lv_lut').style.background = `linear-gradient(to top, #000 ${pl}%, #fff ${ph}%)`;   // design:allow (the image's own grey scale)
   // the handles: centred on their levels, inside the bar, at least a handle's height apart
   const Hc = hc.clientHeight, cl = v => Math.min(Hc, Math.max(0, Hc * (1 - frac(v))));
   let tl = cl(L.lo) - TAG_H / 2, th = cl(L.hi) - TAG_H / 2;
   if (tl - th < TAG_H) { const m = (tl + th) / 2; th = m - TAG_H / 2; tl = m + TAG_H / 2; }
   th = Math.max(0, Math.min(Hc - 2 * TAG_H, th)); tl = Math.max(th + TAG_H, Math.min(Hc - TAG_H, tl));
-  const set = (id, top, v) => { const t = $(id); t.style.top = top.toFixed(1) + 'px'; t.lastChild.textContent = String(Math.round(v)); };
   set('lv_loTag', tl, L.lo); set('lv_hiTag', th, L.hi);
 }
 // Dragging on the bar moves the nearer level, on a handle that handle's (the display range by hand: auto off).
@@ -581,7 +602,7 @@ $('lv_lvl').addEventListener('pointerdown', ev => {
   ev.preventDefault();
   const lvl = $('lv_lvl');
   lvl.setPointerCapture(ev.pointerId);
-  const r = hc.getBoundingClientRect(), valAt = e => Math.round(hMin + (1 - (e.clientY - r.top) / r.height) * (hMax - hMin));
+  const r = hc.getBoundingClientRect(), valAt = e => Math.round(hMin + (lying() ? (e.clientX - r.left) / r.width : 1 - (e.clientY - r.top) / r.height) * (hMax - hMin));
   const tag = ev.target.closest('.tag');
   const which = tag ? (tag.id === 'lv_loTag' ? 'lo' : 'hi') : Math.abs(valAt(ev) - L.lo) <= Math.abs(valAt(ev) - L.hi) ? 'lo' : 'hi';
   const at = tag ? valAt(ev) - L[which] : 0;   // (a handle keeps its offset from the pointer)
