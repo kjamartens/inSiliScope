@@ -15,10 +15,10 @@ through it step by step.
   options (layers, look, tilt and rotation, z clip) are under **View ▾** in the info box at its top left, which lists
   one item per line where the view is (seed, centre, scale, tilt) and what is still loading; View ▾ opens the options
   in the same box. One bar runs across the top of the window: the name and the Sample | Microscope switch at the left,
-  and at the right end one short line with the frame rate and the time per frame (its tooltip adds the image size,
-  the pixel size and a recording's message), Basic / Advanced / Expert and ☰. The microscope is on the right: the
-  live camera image, always square, and below it at the same width the controls you use while imaging: ▶ Live /
-  Snap / ● Record / ↺, the **Stage** (a joystick: drag its knob and the field of view moves that way, faster the
+  and Basic / Advanced / Expert and ☰ at the right end. The microscope is on the right: the live camera image, always
+  square, and below it at the same width the controls you use while imaging: a row with ▶ Live / Snap / ● Record / ↺
+  and at its right end one short line with the frame rate and the time per frame (its tooltip adds the image size,
+  the pixel size and a recording's message), then the **Stage** (a joystick: drag its knob and the field of view moves that way, faster the
   further you pull, and stops when you let go; a click near its edge moves one step, the arrow keys on it too; with
   Shift 10 steps, a drag 10 times as fast; beside it the focus wheel: ▲ ▼ at its ends, drag it or scroll over it (up =
   focus up), or click above or below its line; the focus height (µm) under it; a right-click on the joystick or the

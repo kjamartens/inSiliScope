@@ -25,15 +25,16 @@ swap.title = 'Swap the live image and the world view';
 stage.append(swap);
 top.append(stage);
 
-// (Live / Snap / Record sit under the image on a wide window, in the sticky bar here)
-const moved = ['canvasHost', 'liveView', 'liveBar', 'lv_acts'].map(id => ({ el: $(id), parent: null, next: null }));
+// (Live / Snap / Record and the info line sit under the image on a wide window, in the sticky bar here)
+const moved = ['canvasHost', 'liveView', 'liveBar', 'lv_acts', 'lv_busy', 'lv_info'].map(id => ({ el: $(id), parent: null, next: null }));
 const stageTitle = $('lv_stageBox').querySelector(':scope > h5');
 let on = false;
 function enter() {
   for (const m of moved) { m.parent = m.el.parentNode; m.next = m.el.nextSibling; }
-  const [host, live, bar, acts] = moved.map(m => m.el);
+  const [host, live, bar, acts, busy, info] = moved.map(m => m.el);
   stage.prepend(live, host);
   bar.prepend(acts);
+  $('levelSeg').before(busy, info);   // (the info line: on the bar's second row here)
   top.append(bar);
   stageTitle.textContent = 'Focus (Z stage)';   // (no XY pad on a phone: a drag moves the stage)
   $('side').prepend(top);

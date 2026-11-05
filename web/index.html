@@ -101,9 +101,13 @@
      controls column (focus, configuration, illumination, display, performance), which scrolls, down to the bottom. */
   #liveBar{position:relative;display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--color-surface);border-bottom:1px solid var(--color-border);font-size:var(--font-size-body);min-width:0}
   #liveBar>button,#lv_acts>button,#lv_recWrap>button{padding:3px 8px;white-space:nowrap}
-  /* Live, Snap, Record, fresh: a row of their own in the strip under the image (in the bar on a phone) */
+  /* Live, Snap, Record, fresh: a row across the strip under the image, the info line (and the busy marker) at its right
+     end, giving way first (in the bar on a phone) */
   #lv_acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:var(--density-pad)}
   #lv_acts>*{flex:none}
+  #lv_acts>#lv_busy{margin-left:auto}
+  #lv_acts>#lv_info{flex:1 1 0;text-align:right}
+  #lv_acts>#lv_busy:not([hidden])+#lv_info{flex:0 1 auto}
   #liveBar>#lv_acts{margin:0;flex-wrap:nowrap}
   /* the strip is at the window's foot: the Record box opens upwards there */
   #lv_cols #lv_recPop{top:auto;bottom:calc(100% + 4px)}
@@ -143,8 +147,8 @@
   /* under the image: the acquisition controls | the instrument, two columns when there is room for them */
   #liveCtl{container-type:inline-size}
   /* the boxes by the strip's width: one column (Live / Snap / Record first, then the stage and the display side by
-     side); from 520 px the stage and the display at the left, the buttons over the acquisition at the right; the
-     illumination and the instrument below */
+     side); from 520 px the buttons (with the info line at the right) across the strip, then the stage and the display
+     at the left, the acquisition at the right; the illumination and the instrument below */
   #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "sd" "acq" "illum" "instr";
     gap:var(--space-3) var(--space-5);align-items:start}
   #lv_acts{grid-area:acts} #lv_sd{grid-area:sd} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
@@ -154,7 +158,7 @@
   /* tight at the top: under the largest image the strip is ~170 px high */
   #lv_cols>.lc,#lv_sd>.lc,#lv_cols>#lv_acts{padding-top:var(--space-2)}
   #sideMain>#liveCtl{padding-top:var(--space-1)}
-  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(320px) minmax(0,1fr);grid-template-areas:"sd acts" "sd acq" "illum instr"}}
+  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(320px) minmax(0,1fr);grid-template-areas:"acts acts" "sd acq" "illum instr"}}
   .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
   /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
      pointer leaves them for 0.1 s) */
@@ -672,8 +676,6 @@
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>
     <div id="liveBar">
-      <span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span>
-      <div id="lv_info"></div>
       <div id="levelSeg" class="seg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
       <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
       <div id="menu" class="popover" role="menu"></div>
@@ -720,7 +722,7 @@
           <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
           <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
           <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
-        </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button></div>
+        </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button><span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span><div id="lv_info"></div></div>
       <!-- the stage and the display side by side -->
       <div id="lv_sd">
       <div class="lc" id="lv_stageBox"><h5>Stage</h5>

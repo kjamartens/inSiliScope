@@ -254,7 +254,8 @@ that finishes them.
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
   layout (2026-10-14; 2026-11-05: `#liveBar` sits at the right end of `#topBar`, one bar across the window with the title
-  bar `#viewBar`; Live / Snap / Record / fresh moved under the image, `#lv_acts`): the one-line info: fps
+  bar `#viewBar`; Live / Snap / Record / fresh moved under the image, `#lv_acts`, a row across the strip with the info line
+  `#lv_info` / `#lv_busy` at its right end (on a phone mobile.js puts both back in the bar)): the one-line info: fps
   and ms/frame only, the sizes, pattern state and recording message in its tooltip (2026-11-03; only it gives way,
   `flex:none` on the rest); at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
   reach the column's boxes; View ▾ sits in the world view's info box `#hud`, one item per line, the View options opening in
