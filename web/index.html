@@ -152,13 +152,14 @@
   #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "sd" "acq" "illum" "instr";
     gap:var(--space-3) var(--space-5);align-items:start}
   #lv_acts{grid-area:acts} #lv_sd{grid-area:sd} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
-  #lv_sd{display:flex;gap:var(--space-5);align-items:flex-start}
+  #lv_sd{display:flex;flex-wrap:wrap;gap:var(--space-3) var(--space-5);align-items:flex-start}
   #lv_sd>.lc{flex:none}
+  #lv_sd>#lv_statBox{flex:1 1 0;min-width:120px}
   #lv_cols>.lc,#lv_sd>.lc{border-top:0}
   /* tight at the top: under the largest image the strip is ~170 px high */
   #lv_cols>.lc,#lv_sd>.lc,#lv_cols>#lv_acts{padding-top:var(--space-2)}
   #sideMain>#liveCtl{padding-top:var(--space-1)}
-  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(320px) minmax(0,1fr);grid-template-areas:"acts acts" "sd acq" "illum instr"}}
+  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(440px) minmax(0,1fr);grid-template-areas:"acts acts" "sd acq" "illum instr"}}
   .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
   /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
      pointer leaves them for 0.1 s) */
@@ -383,6 +384,34 @@
      with its number; the handles touch the bar, the numbers are right-aligned in a column 5 digits wide (16-bit ADU),
      so digits line up by place, nothing moves as a number grows or shrinks, and "auto" ends where they end */
   #liveCtl #lv_dispBox>h5{padding-right:0}
+  /* the Setup box: the lasers as buttons (on: the line's colour), four short rows, and a line only when something is
+     off (its colour the severity's; a click lists each with what to do) */
+  #lv_statBox .chips{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-bottom:var(--space-2)}
+  #lv_statBox .chip{min-width:0;padding:0 var(--space-2);height:20px;border-radius:var(--radius-sm);font-size:var(--font-size-caption);
+    font-variant-numeric:tabular-nums;background:transparent;color:var(--color-text-muted);border:1px solid var(--color-border-strong);cursor:pointer}
+  #lv_statBox .chip:hover{background:var(--color-surface-hover)}
+  #lv_statBox .chip.on{background:var(--chip-c,var(--color-accent));border-color:var(--chip-c,var(--color-accent));color:var(--color-bg-canvas);font-weight:600}
+  #lv_statBox .chip:disabled{opacity:.45;cursor:default}
+  #lv_statBox .facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px var(--space-2);font-size:var(--font-size-caption);line-height:1.35}
+  #lv_statBox .facts .f{display:contents}
+  #lv_statBox .facts .k{color:var(--color-text-muted)}
+  #lv_statBox .facts .v{overflow-wrap:anywhere}
+  #lv_statBox .facts .v>span{white-space:nowrap}
+  #lv_warn{display:flex;align-items:flex-start;gap:var(--space-1);width:100%;margin-top:var(--space-2);padding:var(--space-1) var(--space-2);
+    text-align:left;font-size:var(--font-size-caption);line-height:1.35;border-radius:var(--radius-sm);cursor:pointer;
+    background:var(--color-surface);border:1px solid var(--sev-c);color:var(--color-text)}
+  #lv_warn[hidden]{display:none}
+  #lv_warn[data-sev=error]{--sev-c:var(--color-status-error)} #lv_warn[data-sev=warn]{--sev-c:var(--color-status-warn)}
+  #lv_warn[data-sev=info]{--sev-c:var(--color-border-strong)}
+  #lv_warn .i,#lv_warnPop .i{flex:none;color:var(--sev-c)}
+  #lv_warn .t{flex:1 1 auto}
+  #lv_warn .n{flex:none;color:var(--color-text-muted)}
+  #lv_warnPop{position:fixed;z-index:var(--z-popover);width:min(320px,calc(100vw - 16px));padding:var(--space-2) var(--space-3);font-size:var(--font-size-caption)}
+  #lv_warnPop .w+.w{border-top:1px solid var(--color-border);margin-top:var(--space-2);padding-top:var(--space-2)}
+  #lv_warnPop .w[data-sev=error]{--sev-c:var(--color-status-error)} #lv_warnPop .w[data-sev=warn]{--sev-c:var(--color-status-warn)}
+  #lv_warnPop .w[data-sev=info]{--sev-c:var(--color-text-muted)}
+  #lv_warnPop b{display:flex;gap:var(--space-1);font-weight:600}
+  #lv_warnPop p{margin:var(--space-1) 0 0;color:var(--color-text-muted);line-height:1.4}
   #lv_dispBox>h5 .autoChip{margin-left:auto;display:inline-flex;align-items:center;padding:0 var(--space-2);border-radius:var(--radius-sm);
     font-size:var(--font-size-caption);font-weight:normal;line-height:1.5;color:var(--color-text-muted);border:1px solid var(--color-border);cursor:pointer}
   #lv_dispBox>h5 .autoChip:has(:checked){background:var(--color-accent);color:var(--color-accent-on);border-color:var(--color-accent)}
@@ -567,8 +596,8 @@
   body.mobile #lv_stageBox #lv_zPop .zpos{display:none}
   /* on a phone the acquisition comes before the display */
   body.mobile #lv_sd{display:contents}
-  body.mobile #lv_stageBox{grid-area:stage} body.mobile #lv_dispBox{grid-area:disp}
-  body.mobile #lv_cols{grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "acq" "disp" "illum" "instr"}
+  body.mobile #lv_stageBox{grid-area:stage} body.mobile #lv_dispBox{grid-area:disp} body.mobile #lv_statBox{grid-area:stat}
+  body.mobile #lv_cols{grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "acq" "disp" "stat" "illum" "instr"}
   body.mobile #lv_stageBox .joy{display:none}
   body.mobile #lv_stageBox .stage{flex-direction:column;align-items:stretch;gap:var(--space-1)}
   body.mobile #liveCtl .zrow{justify-content:flex-end}
@@ -747,6 +776,12 @@
           <div class="srow"><label for="lv_hi">White</label><input type="number" id="lv_hi" title="White level (ADU)"><span class="u">ADU</span></div>
           <div class="srow"><label for="lv_lo">Black</label><input type="number" id="lv_lo" title="Black level (ADU)"><span class="u">ADU</span></div>
         </div>
+      </div>
+      <div class="lc" id="lv_statBox"><h5>Setup</h5>
+        <div class="chips" id="lv_laserChips" role="group" aria-label="Lasers: a click turns a line on or off"></div>
+        <div class="facts" id="lv_facts"></div>
+        <button type="button" id="lv_warn" hidden aria-haspopup="dialog" aria-expanded="false"></button>
+        <div id="lv_warnPop" class="popover" hidden role="dialog" aria-label="What to check"></div>
       </div>
       </div>
       <div class="lc" id="lv_acqBox"><h5>Acquisition</h5><div class="cfg" id="cfgPanel"></div>
@@ -7645,6 +7680,7 @@ resizeCanvas();
 </script>
 <script src="live/zip.js"></script>
 <script src="live/live.js"></script>
+<script src="live/status.js"></script>
 <script src="live/mm_config_ui.js"></script>
 <script src="live/settings_core.js"></script>
 <script src="live/settings_file.js"></script>

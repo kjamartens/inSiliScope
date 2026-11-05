@@ -264,9 +264,12 @@ that finishes them.
   replaced by a joystick `#lv_joy` (2026-11-05: the knob's offset d sets the speed `JOY_STEPS` d^2 steps/s of `lv_xyStep`, springs back; a
   click near an edge one step; arrow keys; Shift 10 steps / 10x the speed) moving `view.cx/cy`; the focus wheel `#mFocus` (live.js: ▲, a
   thumbwheel (drag / scroll / click), ▼, the height `#mZ` as a number; on a phone the ruler with − / +, mobile.js no longer owns it); a right-click opens
-  `#lv_xyPop` / `#lv_zPop` with x/y/z and the steps; a phone shows Acquisition before Display), Display, focus, Acquisition (the MM
+  `#lv_xyPop` / `#lv_zPop` with x/y/z and the steps; a phone shows Acquisition before Display), Display, the Setup box `#lv_statBox` (2026-11-05, `web/live/status.js`: laser on/off buttons, four fact rows from the setup job,
+  a warning line only when a check fails -- no light, nothing labelled, a label no line excites or the filters block,
+  saturation, the focus off the sample or above the TIRF light, no cell in view, slow frames; drift left out, the user's
+  choice -- its list with what to do on a click; `self.ISC_STATUS.warnings()`), focus, Acquisition (the MM
   presets, exposure), the settings group Illumination via `host: 'lv_illumHost'`, a box hidden when none of its rows
-  shows at the level, display) in a grid `#lv_cols` by the strip's width (from 780 px Stage | buttons over Display | Acquisition in one row) and
+  shows at the level, display) in a grid `#lv_cols` by the strip's width (from 520 px the buttons across, Stage | Display | Setup (`#lv_sd`) beside Acquisition) and
   the instrument's groups Light path, Objective & PSF, Camera
   (`host: 'lv_instrHost'`; two columns `#lv_cols` from 520 px; the handle `#ctlUp` (a click or 0.3 s of hover) spreads them over the image's lower
   75 %, `#sideMain.ctlUp`, folded back 0.1 s after the pointer leaves; a 0.1 s slide each way, token `duration.fold`), and at the right edge the settings column `#setCol` (2026-11-05: `#panel` under the

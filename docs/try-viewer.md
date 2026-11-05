@@ -93,7 +93,15 @@ through it step by step.
   the image is shown in, the frame's histogram (log counts, dark at the bottom; its axes span the darkest to the
   brightest pixel and the tallest bar of the last 10 s of frames, so they move slowly) and a ◀ handle per level with
   its number (ADU). Drag a handle, or anywhere on the bar to move the nearer level; a right-click types them. **auto**
-  in its title (on by default) sets the range from each frame (0.1-99.9 % of the pixels); a drag turns it off. Live pauses while the page is hidden. The world view always outlines the camera's field (dashed white, "camera"), and the x-z
+  in its title (on by default) sets the range from each frame (0.1-99.9 % of the pixels); a drag turns it off. **Setup**
+  (beside the Display): a button per laser line (lit in the line's colour when on; a click turns it off, or on again at
+  its last power; at the Basic level the lines the labels use, and any line that is on), the setup in four rows
+  (the labels' modes, the light's regime and depth, the NA and pixel size, the camera and exposure; each row's tooltip
+  has the details), and a line that shows only when something looks off, the most serious first; a click on it lists
+  each with what to do. It checks: live failed; all lasers off, or none reaching the sample; nothing labelled; a label
+  no laser excites, or only weakly; a label whose light the filters block; saturated pixels; the focus below the
+  coverslip, above the cells, off the nanorulers or the beads, or above the TIRF light; no cell in view; a laser line
+  that excites no label; frames slower than the exposure. Live pauses while the page is hidden. The world view always outlines the camera's field (dashed white, "camera"), and the x-z
   view draws the **focal plane** across it, at the focus height in the sample's frame (a live drift moves both).
 - **Performance** (Settings › Simulation, at the Expert level): how each label was drawn (SMLM splat: every
   blink placed with the PSF; binned SMLM: the same blinks on a finer grid, one FFT convolution, many blinks at once;

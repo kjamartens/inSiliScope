@@ -107,7 +107,7 @@ try {
   // in the middle); Shift + ↓ on it 10 steps; the readout shows the position; the focus wheel steps Z (a click above
   // its line one up, a 36 px drag up three up, a scroll notch down one down); a right-click opens the step box
   const st = await page.evaluate(() => ({ x0: view.cx, y0: view.cy, z0: +document.getElementById('mv_z').value,
-    order: [...document.querySelectorAll('#lv_cols .lc>h5')].map(h => h.firstChild.textContent.trim()).slice(0, 3).join(',') }));
+    order: [...document.querySelectorAll('#lv_cols .lc>h5')].map(h => h.firstChild.textContent.trim()).slice(0, 4).join(',') }));
   const jb = await (await page.$('#lv_joy')).boundingBox(), jc = [jb.x + jb.width / 2, jb.y + jb.height / 2], R = jb.width / 2;
   const pos = () => page.evaluate(() => [view.cx, view.cy]);
   await page.mouse.click(jc[0] + 0.8 * R, jc[1]);
@@ -152,7 +152,7 @@ try {
     && ran > 0.3 && near(p3[1], p2[1]) && near(p5[0], p4[0]) && knobBack && near(p6[1] - p5[1], 10) && near(p7[0] - p6[0], -10),
     `the joystick: a click at the right edge +${(p1[0] - st.x0).toFixed(2)} µm in x, at the lower left (${(p2[0] - p1[0]).toFixed(2)}, +${(p2[1] - p1[1]).toFixed(2)}) µm; `
     + `the knob held right moved ${ran.toFixed(2)} µm in 0.5 s and stopped when let go (knob back: ${knobBack}); Shift+↓ +${(p6[1] - p5[1]).toFixed(2)} µm, Shift+click at the left ${(p7[0] - p6[0]).toFixed(2)} µm`);
-  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Stage,Display,Acquisition',
+  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Stage,Display,Setup,Acquisition',
     `the focus wheel: click above +${(zb - za).toFixed(2)}, 36 px drag up +${(zc - zb).toFixed(2)}, a scroll notch down ${(zd - zc).toFixed(2)} µm, shown under it as "${zShown}", ▲ +${(ze - zd).toFixed(2)}; `
     + `right-click opens the step box (${JSON.stringify(pop)}), a click elsewhere shuts it; the boxes ${st.order}`);
   // the display's level bar beside the stage: a drag near the top moves the white level up (auto off), the handles'
@@ -204,6 +204,40 @@ try {
     return b && /^(Epi|HILO|TIRF|Clipped)\b/.test(b.textContent) && b.textContent;
   }, null, { timeout: 30000 }).then(h => h.jsonValue(), () => null);
   check(!!ro, `the BFP readout from the setup job: ${ro ? `"${ro}"` : 'nothing in 30 s'}`);
+  // the Setup box beside the display (web/live/status.js): the facts from the setup job, a laser button turns its line
+  // off and on again at its power, a warning only when something is off (all lasers off; the focus under the glass),
+  // its list on a click
+  const facts = await page.waitForFunction(() => /^Labels\nDNA-PAINT ×2\nLight\nHILO/.test(document.getElementById('lv_facts').innerText) && document.getElementById('lv_facts').innerText,
+    null, { timeout: 15000 }).then(h => h.jsonValue(), () => null);
+  const stat = await page.evaluate(async () => {
+    const $ = id => document.getElementById(id), R = e => e.getBoundingClientRect(), wait = ms => new Promise(r => setTimeout(r, ms));
+    const ids = () => ISC_STATUS.warnings().map(w => w.id);
+    const until = async f => { for (let i = 0; i < 40 && !f(); i++) await wait(100); return f(); };
+    const r = { beside: Math.abs(R($('lv_statBox')).top - R($('lv_dispBox')).top) < 2 && R($('lv_statBox')).left > R($('lv_dispBox')).right };
+    const chip = nm => document.querySelector(`#lv_laserChips .chip[data-nm="${nm}"]`);
+    const p640 = $('mv_laser-640').value;
+    chip(640).click(); r.off = $('mv_laser-640').value === '0' && chip(640).getAttribute('aria-pressed') === 'false';
+    chip(640).click(); r.back = $('mv_laser-640').value === p640 && chip(640).classList.contains('on');
+    const on = [...document.querySelectorAll('#lv_laserChips .chip.on')].map(c => c.dataset.nm);
+    r.before = ids();
+    for (const nm of on) chip(nm).click();
+    r.dark = await until(() => ids()[0] === 'nolight' && !$('lv_warn').hidden && $('lv_warn').dataset.sev === 'error');
+    $('lv_warn').click();
+    r.list = !$('lv_warnPop').hidden && /Click a laser above/.test($('lv_warnPop').textContent);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    r.closed = $('lv_warnPop').hidden;
+    for (const nm of on) chip(nm).click();
+    r.lit = await until(() => !ids().includes('nolight'));
+    const z = $('mv_z'), z0 = z.value;
+    z.value = -1; z.dispatchEvent(new Event('change', { bubbles: true }));
+    r.below = await until(() => ids().includes('below') && /below the coverslip/.test($('lv_warn').textContent));
+    z.value = z0; z.dispatchEvent(new Event('change', { bubbles: true }));
+    r.after = await until(() => !ids().includes('below'));
+    return r;
+  });
+  check(!!facts && stat.beside && stat.off && stat.back && stat.dark && stat.list && stat.closed && stat.lit && stat.below && stat.after,
+    `the Setup box beside the display (${(facts || 'no facts').replace(/\n/g, ' ')}); a laser button turns 640 nm off and back on; all off: "nolight" first, its list on a click, Esc closes; the focus at -1 µm: "below" (warnings before: ${stat.before.join(', ') || 'none'}) ${JSON.stringify(stat)}`);
+  if (process.env.ISC_SHOT) await page.screenshot({ path: process.env.ISC_SHOT, clip: await (await page.$('#liveCtl')).boundingBox() });
   await page.evaluate(() => document.getElementById('lv_live').click());
   const names = seen.map(s => s.split('#')[0]), vals = seen.map(s => s.split('#')[1].split('|'));
   check(names.every(n => n === names[0]) && /blink events \(core\)/.test(names[0]) && /BrightField image/.test(names[0]),
