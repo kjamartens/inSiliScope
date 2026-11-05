@@ -20,7 +20,7 @@ through it step by step.
   below it at the same width: the focus, the acquisition (imaging mode, illumination, drift, quality, exposure), the
   lasers and the BFP position, the display range and, at the Expert level, the performance. At the right edge, down to
   the bottom of the window, the **Settings** column: every sample and instrument setting, with a search box on top. Its
-  » folds it to a narrow **Settings** tab at the right edge (the image keeps its size and moves right; the Sample or
+  » folds it to a narrow **« Show settings** tab at the right edge (the image keeps its size and moves right; the Sample or
   Microscope view gets the room; remembered in your browser), and a click
   on the tab, or typing a search, opens it again. The search box highlights every line that matches (at the current
   level), opens their groups and hides the rest of the settings. The divider between the

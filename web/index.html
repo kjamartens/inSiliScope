@@ -121,10 +121,13 @@
   #setColHead{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) var(--space-2) var(--space-2) var(--space-5);
     border-bottom:1px solid var(--color-border);font-weight:600;color:var(--color-text)}
   #setFold{height:22px;width:26px;padding:0;line-height:1}
-  #setTab{display:none;flex:1;width:28px;padding:var(--space-4) 0;border:0;border-radius:0;background:var(--color-surface);color:var(--color-text-muted);
-    align-items:flex-start;justify-content:center;cursor:pointer}
-  #setTab span{writing-mode:vertical-rl;letter-spacing:.04em;font-weight:600}
-  #setTab:hover{background:var(--color-surface-hover);color:var(--color-text)}
+  #setTab{display:none;flex:1;width:28px;padding:var(--space-3) 0;border:0;border-left:2px solid var(--color-accent);border-radius:0;
+    background:var(--color-surface-raised);color:var(--color-text);flex-direction:column;align-items:center;justify-content:flex-start;
+    gap:var(--space-3);cursor:pointer}
+  #setTab .chev{color:var(--color-accent);font-size:var(--font-size-title);line-height:1;font-weight:600}
+  #setTab span:not(.chev){writing-mode:vertical-rl;letter-spacing:.04em;font-weight:600}
+  #setTab:hover,#setTab:focus-visible{background:var(--color-accent);color:var(--color-accent-on)}
+  #setTab:hover .chev,#setTab:focus-visible .chev{color:var(--color-accent-on)}
   body:not(.mobile) #wrap.setShut #setCol>:not(#setTab){display:none}
   body:not(.mobile) #wrap.setShut #setTab{display:flex}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--color-border)}
@@ -636,7 +639,7 @@
     </div>
     <!-- The settings (Sample, Sample preparation, Instrument) in a column at the right that folds to a tab at the edge -->
     <div id="setCol">
-      <div id="setColHead"><span>Settings</span><button id="setFold" type="button" title="Fold the settings to a tab at the right edge (the image grows)" aria-label="Fold the settings" aria-expanded="true">»</button></div>
+      <div id="setColHead"><span>Settings</span><button id="setFold" type="button" title="Fold the settings to a tab at the right edge (the live image moves right, the view on the left gets the room)" aria-label="Fold the settings" aria-expanded="true">»</button></div>
       <div id="sideTop">
         <div class="bar">
           <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
@@ -647,7 +650,7 @@
     <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
       <div id="panel"></div>
       <div id="animPanel" hidden></div>
-          <button id="setTab" type="button" title="Show the settings" aria-label="Show the settings" aria-expanded="false"><span>Settings</span></button>
+          <button id="setTab" type="button" title="Show the settings" aria-label="Show the settings" aria-expanded="false"><span class="chev" aria-hidden="true">«</span><span>Show settings</span></button>
     </div>
     </div>
   </div>
