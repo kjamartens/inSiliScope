@@ -102,18 +102,17 @@ try {
     .map(g => [g, document.querySelector(`details[data-group=${g}]`).closest('#lv_colAcq,#lv_instrHost,#panel').id])));
   check(where.illum === 'lv_colAcq' && where.lightpath === 'lv_instrHost' && where.objective === 'lv_instrHost' && where.camera === 'lv_instrHost'
     && where.perf === 'panel' && where.formation === 'panel', `the groups' places ${JSON.stringify(where)}`);
-  // the handle spreads the controls over the image's lower 75 %; they fold back 0.5 s after the pointer leaves them
+  // the handle spreads the controls over the image's lower 75 %; they fold back 0.1 s after the pointer leaves them
   await page.click('#ctlUp');
   const up = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect(), c = document.getElementById('liveCtl').getBoundingClientRect();
     return { top: (c.top - v.top) / v.height, bottom: c.bottom, H: innerHeight, w: c.width - v.width }; });
   await page.mouse.move(5, 300);
-  await page.waitForTimeout(250);
   const still = await page.evaluate(() => document.getElementById('sideMain').classList.contains('ctlUp'));
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(400);
   const back = await page.evaluate(() => !document.getElementById('sideMain').classList.contains('ctlUp') &&
     Math.abs(document.getElementById('liveCtl').getBoundingClientRect().top - document.getElementById('liveView').getBoundingClientRect().bottom) < 2);
   check(Math.abs(up.top - 0.25) < 0.01 && Math.abs(up.bottom - up.H) < 2 && Math.abs(up.w) < 2 && still && back,
-    `the handle spreads the controls from ${(100 * up.top).toFixed(0)} % of the image to the bottom; still spread 0.25 s after the pointer left, folded back by 0.85 s`);
+    `the handle spreads the controls from ${(100 * up.top).toFixed(0)} % of the image to the bottom; still spread as the pointer leaves, folded back by 0.4 s`);
   // the BFP readout, from the movie spec's C++ setup (the setup job), names a regime (the spectra: viewer_scope_view.mjs)
   const ro = await page.waitForFunction(() => {
     const b = document.getElementById('bfpReadout');

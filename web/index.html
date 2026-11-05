@@ -143,7 +143,7 @@
   @container (min-width:520px){#lv_cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
   .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
   /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
-     pointer leaves them for 0.5 s) */
+     pointer leaves them for 0.1 s) */
   #sideMain{position:relative;container-type:inline-size}
   #ctlUp{position:absolute;z-index:calc(var(--z-overlay) + 2);left:50%;top:calc(100cqw - 9px);transform:translateX(-50%);width:36px;height:16px;padding:0;
     font-size:var(--font-size-caption);line-height:1;border-radius:var(--radius-md);background:var(--color-surface-raised);border:1px solid var(--color-border-strong);color:var(--color-text-muted)}
@@ -1817,7 +1817,7 @@ for (const [id, ev] of [['setSearch', 'input'], ['setChanged', 'change']])
   $(id).addEventListener(ev, () => { if ($('wrap').classList.contains('setShut')) foldSettings(false); });
 foldSettings(store.get('setShut', '0') === '1');
 // The handle on the image's lower edge spreads the controls under it over the image (75 % of it); they fold back when
-// the pointer has left them (and the handle) for 0.5 s, on a second click or on Esc. Not while a select of theirs is
+// the pointer has left them (and the handle) for 0.1 s, on a second click or on Esc. Not while a select of theirs is
 // open (its list lies outside them).
 {
   const main = $('sideMain'), ctl = $('liveCtl'), btn = $('ctlUp');
@@ -1828,7 +1828,7 @@ foldSettings(store.get('setShut', '0') === '1');
     const a = document.activeElement;
     if (a && a.tagName === 'SELECT' && ctl.contains(a)) { a.addEventListener('blur', later, { once: true }); return; }
     if (!ctl.matches(':hover') && !btn.matches(':hover')) spread(false);
-  }, 500); };
+  }, 100); };
   btn.addEventListener('click', () => spread(!main.classList.contains('ctlUp')));
   for (const el of [ctl, btn]) { el.addEventListener('pointerleave', later); el.addEventListener('pointerenter', () => clearTimeout(timer)); }
   document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && main.classList.contains('ctlUp')) spread(false); });
