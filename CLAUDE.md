@@ -490,7 +490,7 @@ assets) by `tools/gen_mm_configs.py`, checked by `tools/test_mm_configs.py`; `do
 (precomputed, GPU off: bit-identical). Live z stacks wait for each frame to be taken (no position lost).
 Live pacing (2026-10-07, docs/dev/PERF_PASS.md): `LiveClock.h` `PreciseWaiter` (never `Sleep()`/`SleepMs` for frame
 timing: Windows rounds it up to 15.6 ms), an absolute frame schedule, a condition variable from producer to consumer;
-`tools/bench_live.py` measures fps per channel x exposure and action latencies (Test rows `Test_LiveRenderMs`,
+`tools/bench_live.py` measures fps per channel x exposure (the median of 3 windows of 1.5 s, 2026-11-05) and action latencies (Test rows `Test_LiveRenderMs`,
 `Test_LivePrefetchMs`). Profiling (2026-10-07): every `TimingLog` phase (`Simulation/Timing.h`; live frames: `live.*`,
 movie setup `fl.*`, GPU `gpu.*`, the camera side `mm.*`, `init.*`) is also collected in memory (`TimingCollect`, on
 with `ISC_PROFILE=1` from process start or Camera `Test_ProfileCollect`), and Camera `Test_ProfileWriteTo <file>` writes

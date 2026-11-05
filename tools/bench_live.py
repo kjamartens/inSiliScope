@@ -6,7 +6,9 @@ latency of everyday actions (snap, Channel switch, Objective switch, stage move:
 The rate is the steady one: each case warms up for 0.5 s after its first frame (a new acquisition's first frame may
 rebuild scenes), and a Channel preset with a dSTORM label first runs --settle-sec (30) s of acquisition, past the
 initial-ON dyes' switching off, whose mean field rebuilds its bleach basis every few seconds (2026-10-29: measured
-in the first 1.5 s of each case, AF647 dSTORM showed 0 fps since rc9; it runs at ~56 fps at 10 ms after it).
+in the first 1.5 s of each case, AF647 dSTORM showed 0 fps since rc9; it runs at ~56 fps at 10 ms after it). The rate
+is the median of --repeats (3) windows of --seconds (1.5) one after another in the same acquisition, so one stall in
+one window (a bleach basis made at once) does not set the case's rate.
 
 --profile also records where the time goes: the adapter's phase profile (Simulation/Timing.h, collected in memory with
 ISC_PROFILE=1 and written by the Camera's Test_ProfileWriteTo) for the configuration's load and first image, every
@@ -14,9 +16,9 @@ live case and every action. --history adds the result to a benchmarks.json entry
 the project site's Benchmarks page by tools/benchmarks_page.py).
 
   ADAPTER_DIR=<dll dir> python tools/bench_live.py [--config Basic] [--fov 256] [--exposures 5,10,20,50]
-                                                   [--seconds 1.5] [--settle-sec 30] [--profile] [--json out.json]
-                                                   [--history benchmarks.json --version v0.2.0]
-(about 3-4 min with the defaults; only the inSiliScope DLL is needed for the Basic configuration)
+                                                   [--seconds 1.5] [--repeats 3] [--settle-sec 30] [--profile]
+                                                   [--json out.json] [--history benchmarks.json --version v0.2.0]
+(about 4-5 min with the defaults; only the inSiliScope DLL is needed for the Basic configuration)
 """
 
 import argparse
@@ -50,9 +52,11 @@ class Profiler:
         return json.loads(self.path.read_text(encoding="utf-8"))
 
 
-def fps_run(core, seconds, prof, warm_cap=60.0):
+def fps_run(core, seconds, prof, repeats=3, warm_cap=60.0):
     """Frames per second of a continuous acquisition, after a warm-up of 0.5 s from its first frame (at most warm_cap
-    s); the render time at its end and the phase profile of the measured part."""
+    s): `repeats` windows of `seconds` one after another, the median window's rate, frame count, longest gap and phase
+    profile (2026-11-05: one window of 1.5 s took one bleach-basis rebuild of ~0.4 s as a 25 % lower rate, rc18's
+    mEGFP WideField at 10 and 50 ms); every window's rate in fpsWindows; the render time at the end."""
     core.startContinuousSequenceAcquisition(0)
     t0 = time.perf_counter()
     t_end_warm = t0 + warm_cap
@@ -65,22 +69,30 @@ def fps_run(core, seconds, prof, warm_cap=60.0):
                 t_end_warm = min(t_end_warm, time.perf_counter() + 0.5)
         time.sleep(0.0005)
     prof.take()
-    stamps = []
-    t_end = time.perf_counter() + seconds
-    while time.perf_counter() < t_end:
-        while core.getRemainingImageCount():
-            core.popNextImage()
-            stamps.append(time.perf_counter())
-        time.sleep(0.0005)
-    profile = prof.take()
+    windows = []
+    for _ in range(max(1, repeats)):
+        stamps = []
+        t_end = time.perf_counter() + seconds
+        while time.perf_counter() < t_end:
+            while core.getRemainingImageCount():
+                core.popNextImage()
+                stamps.append(time.perf_counter())
+            time.sleep(0.0005)
+        profile = prof.take()
+        gaps = sorted(b - a for a, b in zip(stamps, stamps[1:]))
+        windows.append({
+            "fps": (len(stamps) - 1) / (stamps[-1] - stamps[0]) if len(stamps) >= 2 else 0.0,
+            "frames": len(stamps),
+            "worstGapMs": gaps[-1] * 1000 if gaps else 0.0,
+            "profile": profile,
+        })
     core.stopSequenceAcquisition()
     render = float(core.getProperty("Camera", "Test_LiveRenderMs"))
     prefetch = core.getProperty("Camera", "Test_LivePrefetchMs")
-    gaps = sorted(b - a for a, b in zip(stamps, stamps[1:]))
-    worst = gaps[-1] * 1000 if gaps else 0.0
-    fps = (len(stamps) - 1) / (stamps[-1] - stamps[0]) if len(stamps) >= 2 else 0.0
-    return {"fps": fps, "renderMs": render, "frames": len(stamps), "prefetchMs": prefetch, "worstGapMs": worst,
-            "profile": profile}
+    mid = sorted(windows, key=lambda w: w["fps"])[len(windows) // 2]
+    return {"fps": mid["fps"], "renderMs": render, "frames": mid["frames"], "prefetchMs": prefetch,
+            "worstGapMs": mid["worstGapMs"], "fpsWindows": [round(w["fps"], 2) for w in windows],
+            "profile": mid["profile"]}
 
 
 def has_dstorm(core):
@@ -126,7 +138,8 @@ def main():
     ap.add_argument("--config", default="Basic")
     ap.add_argument("--fov", default="256")
     ap.add_argument("--exposures", default="5,10,20,50")
-    ap.add_argument("--seconds", type=float, default=1.5)
+    ap.add_argument("--seconds", type=float, default=1.5, help="one measuring window (s)")
+    ap.add_argument("--repeats", type=int, default=3, help="windows per case; the case's rate is their median")
     ap.add_argument("--channels", default="", help="comma-separated Channel presets (default: all)")
     ap.add_argument("--settle-sec", type=float, default=30.0,
                     help="acquisition before measuring a Channel preset with a dSTORM label (its initial-ON dyes)")
@@ -171,10 +184,11 @@ def main():
         cells = []
         for e in exposures:
             core.setExposure(e)
-            r = fps_run(core, a.seconds, prof)
+            r = fps_run(core, a.seconds, prof, a.repeats)
             rows.append({"channel": ch, "exposureMs": e, "maxFps": 1000.0 / e, "switchMs": switch, **r})
             cells.append(f"{r['fps']:6.1f}/{1000 / e:<5.0f} {r['renderMs']:6.1f}" +
-                         (f" [gap {r['worstGapMs']:.0f}, pf {r['prefetchMs']}]" if a.verbose else ""))
+                         (f" [windows {'/'.join(f'{w:.1f}' for w in r['fpsWindows'])}, gap {r['worstGapMs']:.0f}, "
+                          f"pf {r['prefetchMs']}]" if a.verbose else ""))
         print(f"{ch:34s} " + "  ".join(cells) + f"   (switch + snap {switch:.0f} ms)")
 
     core.setExposure(20.0)
