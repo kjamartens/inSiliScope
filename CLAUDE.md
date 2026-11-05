@@ -261,8 +261,8 @@ that finishes them.
   it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the controls `#liveCtl` under it at its width to the bottom (`#sideMain`)
   = **Acquire** (2026-11-05, docs/dev/DESIGN.md "Regions": Live / Snap / Record `#lv_acts` (in the bar on a phone), the Stage `#lv_stageBox` (an XY pad, since
   replaced by a joystick `#lv_joy` (2026-11-05: the knob's offset d sets the speed `JOY_STEPS` d^2 steps/s of `lv_xyStep`, springs back; a
-  click near an edge one step; arrow keys, Shift 10) moving `view.cx/cy`; the focus wheel `#mFocus` (live.js: a thumbwheel, drag / scroll /
-  click; on a phone the ruler with − / +, mobile.js no longer owns it); x/y/z read-only in `#lv_xyOut`; a right-click opens
+  click near an edge one step; arrow keys; Shift 10 steps / 10x the speed) moving `view.cx/cy`; the focus wheel `#mFocus` (live.js: ▲, a
+  thumbwheel (drag / scroll / click), ▼, the height `#mZ` as a number; on a phone the ruler with − / +, mobile.js no longer owns it); a right-click opens
   `#lv_xyPop` / `#lv_zPop` with x/y/z and the steps; a phone shows Acquisition before Display), Display, focus, Acquisition (the MM
   presets, exposure), the settings group Illumination via `host: 'lv_illumHost'`, a box hidden when none of its rows
   shows at the level, display) in a grid `#lv_cols` by the strip's width (from 780 px Stage | buttons over Display | Acquisition in one row) and

@@ -123,10 +123,10 @@ try {
   const p4 = await pos(), knobBack = await page.$eval('#lv_joy .jk', e => e.style.transform === '');
   await page.waitForTimeout(200);
   const p5 = await pos();
-  await page.focus('#lv_joy'); await page.keyboard.down('Shift'); await page.keyboard.press('ArrowDown'); await page.keyboard.up('Shift');
+  await page.keyboard.down('Shift'); await page.keyboard.press('ArrowDown'); await page.keyboard.up('Shift');   // (the joystick has the focus from its clicks)
   const p6 = await pos();
-  await page.waitForTimeout(300);   // (the readout follows every 0.2 s)
-  const out = await page.$eval('#lv_xyOut', (e, p) => e.innerText.includes(`x ${p[0].toFixed(2)} µm`) && e.innerText.includes(`y ${p[1].toFixed(2)} µm`), p6);
+  await page.keyboard.down('Shift'); await page.mouse.click(jc[0] - 0.8 * R, jc[1]); await page.keyboard.up('Shift');
+  const p7 = await pos();
   const kb = await (await page.$('#mKnob')).boundingBox(), kz = () => page.$eval('#mv_z', e => +e.value);
   const za = await kz();
   await page.mouse.click(kb.x + kb.width / 2, kb.y + kb.height * 0.25);
@@ -137,6 +137,9 @@ try {
   const zc = await kz();
   await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height / 2); await page.mouse.wheel(0, 100); await page.waitForTimeout(50);
   const zd = await kz();
+  const zShown = await page.$eval('#mZ', e => e.innerText.trim());
+  await page.click('#mFocus button[data-dir="1"]');
+  const ze = await kz();
   await page.click('#lv_joy', { button: 'right' });
   const pop = await page.evaluate(() => ({ open: !document.getElementById('lv_xyPop').hidden, focus: document.activeElement.id }));
   await page.mouse.click(5, 300);
@@ -146,11 +149,11 @@ try {
   const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
   const ran = p3[0] - p2[0];
   check(near(p1[0] - st.x0, 1) && near(p1[1], st.y0) && near(p2[0] - p1[0], -1) && near(p2[1] - p1[1], 1)
-    && ran > 0.3 && near(p3[1], p2[1]) && near(p5[0], p4[0]) && knobBack && near(p6[1] - p5[1], 10) && out,
+    && ran > 0.3 && near(p3[1], p2[1]) && near(p5[0], p4[0]) && knobBack && near(p6[1] - p5[1], 10) && near(p7[0] - p6[0], -10),
     `the joystick: a click at the right edge +${(p1[0] - st.x0).toFixed(2)} µm in x, at the lower left (${(p2[0] - p1[0]).toFixed(2)}, +${(p2[1] - p1[1]).toFixed(2)}) µm; `
-    + `the knob held right moved ${ran.toFixed(2)} µm in 0.5 s and stopped when let go (knob back: ${knobBack}); Shift+↓ +${(p6[1] - p5[1]).toFixed(2)} µm; the readout ${out}`);
-  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Stage,Display,Acquisition',
-    `the focus wheel: click above +${(zb - za).toFixed(2)}, 36 px drag up +${(zc - zb).toFixed(2)}, a scroll notch down ${(zd - zc).toFixed(2)} µm; `
+    + `the knob held right moved ${ran.toFixed(2)} µm in 0.5 s and stopped when let go (knob back: ${knobBack}); Shift+↓ +${(p6[1] - p5[1]).toFixed(2)} µm, Shift+click at the left ${(p7[0] - p6[0]).toFixed(2)} µm`);
+  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Stage,Display,Acquisition',
+    `the focus wheel: click above +${(zb - za).toFixed(2)}, 36 px drag up +${(zc - zb).toFixed(2)}, a scroll notch down ${(zd - zc).toFixed(2)} µm, shown under it as "${zShown}", ▲ +${(ze - zd).toFixed(2)}; `
     + `right-click opens the step box (${JSON.stringify(pop)}), a click elsewhere shuts it; the boxes ${st.order}`);
   // the handle spreads the controls over the image's lower 75 %; they fold back 0.1 s after the pointer leaves them
   await page.click('#ctlUp');

@@ -102,7 +102,7 @@ $('lv_zStep').value = store.get('zStep', '0.1');
 syncZStep();
 $('lv_zStep').addEventListener('input', () => { store.set('zStep', $('lv_zStep').value); syncZStep(); });
 // The stage box: the joystick moves the field of view (the world view's centre), the focus wheel beside it steps Z,
-// the positions as text beside them. A right-click on either opens a box with a typed position and the step.
+// its height under it. A right-click on either opens a box with a typed position and the step.
 const xyStep = () => Math.max(0.001, +$('lv_xyStep').value || 1);
 const moveXY = (dx, dy) => { view.cx += dx * xyStep(); view.cy += dy * xyStep(); noteInteraction(); requestDraw(); };
 $('lv_xyStep').value = store.get('xyStep', '1');
@@ -123,10 +123,11 @@ function holdRepeat(btn, act) {
 // ---- the joystick: the knob dragged from the middle moves the stage at a speed growing with the square of its
 // distance (full: JOY_STEPS steps per second), in its direction (right = the field of view to the right, as ▶); let
 // go, it springs back and the stage stops. A click near an edge (no drag) moves one step that way (the diagonals
-// too); the arrow keys on it one step, with Shift 10.
+// too); the arrow keys on it one step. Shift: 10 steps a click or a key, 10x the speed of a drag.
 {
   const JOY_STEPS = 12, joy = $('lv_joy'), knob = joy.querySelector('.jk');
-  let hold = null, raf = 0;
+  let hold = null, raf = 0, shift = false;
+  for (const e of ['keydown', 'keyup']) window.addEventListener(e, ev => { shift = ev.shiftKey; });
   const vec = ev => {
     const r = joy.getBoundingClientRect(), R = r.width / 2;
     let x = (ev.clientX - r.left - R) / R, y = (ev.clientY - r.top - R) / R;
@@ -138,13 +139,15 @@ function holdRepeat(btn, act) {
     if (!hold) return;
     const dt = Math.min(0.1, (t - hold.t) / 1000), d = Math.hypot(hold.x, hold.y);
     hold.t = t;
-    if (d > 0.12) { const v = JOY_STEPS * d; moveXY(hold.x * v * dt, hold.y * v * dt); }   // speed JOY_STEPS d^2 (a dead zone in the middle)
+    if (d > 0.12) { const v = JOY_STEPS * d * (shift ? 10 : 1); moveXY(hold.x * v * dt, hold.y * v * dt); }   // speed JOY_STEPS d^2 (a dead zone in the middle)
     raf = requestAnimationFrame(tick);
   };
   joy.addEventListener('pointerdown', ev => {
     if (ev.button > 0) return;
     ev.preventDefault();
+    joy.focus({ preventScroll: true });   // (then the arrow keys work on it)
     joy.setPointerCapture(ev.pointerId);
+    shift = ev.shiftKey;
     const v = vec(ev);
     hold = { x0: ev.clientX, y0: ev.clientY, x: 0, y: 0, moved: 0, click: v, t: performance.now() };
     joy.classList.add('held');
@@ -152,6 +155,7 @@ function holdRepeat(btn, act) {
   });
   joy.addEventListener('pointermove', ev => {
     if (!hold) return;
+    shift = ev.shiftKey;
     hold.moved = Math.max(hold.moved, Math.hypot(ev.clientX - hold.x0, ev.clientY - hold.y0));
     if (hold.moved < 3) return;
     // the knob follows the drag from where it was pressed
@@ -166,7 +170,8 @@ function holdRepeat(btn, act) {
     if (!hold) return;
     if (hold.moved < 3) {
       const { x, y } = hold.click;
-      if (Math.hypot(x, y) > 0.4) moveXY(Math.abs(x) > 0.38 ? Math.sign(x) : 0, Math.abs(y) > 0.38 ? Math.sign(y) : 0);
+      const k = shift ? 10 : 1;
+      if (Math.hypot(x, y) > 0.4) moveXY(k * (Math.abs(x) > 0.38 ? Math.sign(x) : 0), k * (Math.abs(y) > 0.38 ? Math.sign(y) : 0));
     }
     hold = null; cancelAnimationFrame(raf);
     joy.classList.remove('held'); knob.style.transform = '';
@@ -182,13 +187,9 @@ function holdRepeat(btn, act) {
 }
 {
   const fx = $('lv_x'), fy = $('lv_y'), fmt = v => String(+v.toFixed(2));
-  const [ox, oy] = $('lv_xyOut').children;
   const show = () => {
     if (document.activeElement !== fx && fx.value !== fmt(view.cx)) fx.value = fmt(view.cx);
     if (document.activeElement !== fy && fy.value !== fmt(view.cy)) fy.value = fmt(view.cy);
-    const tx = `x ${view.cx.toFixed(2)} µm`, ty = `y ${view.cy.toFixed(2)} µm`;
-    if (ox.textContent !== tx) ox.textContent = tx;
-    if (oy.textContent !== ty) oy.textContent = ty;
   };
   for (const [f, k] of [[fx, 'cx'], [fy, 'cy']]) f.addEventListener('change', () => {
     if (f.value === '' || !isFinite(+f.value)) { show(); return; }
@@ -197,7 +198,7 @@ function holdRepeat(btn, act) {
   show();
   setInterval(() => { if (!document.hidden) show(); }, 200);
 }
-// ---- the focus wheel #mFocus (beside the XY pad; on a phone, web/live/mobile.js, alone in the Focus box): one step of
+// ---- the focus wheel #mFocus (beside the joystick; on a phone, web/live/mobile.js, alone in the Focus box): one step of
 // the step size per KNOB_PX dragged, a fast drag several; a scroll notch one step; ▲ / ▼ (− / + on a phone) step once
 // and repeat while held. On a wide window a thumbwheel seen edge-on: its ticks move with the pointer (drag up = focus
 // up), a click above or below its line steps once. On a phone a ruler (values grow to the right: swipe left to focus
@@ -239,8 +240,7 @@ function holdRepeat(btn, act) {
       g.fillStyle = iscTheme.tok('--color-accent');
       g.fillRect(cx - dpr, 0, 2 * dpr, H);
     }
-    $('mZ').textContent = z.toFixed(st < 0.01 ? 3 : 2) + ' µm';
-    $('lv_zOut').textContent = 'z ' + $('mZ').textContent;
+    $('mZ').firstChild.textContent = z.toFixed(st < 0.01 ? 3 : 2);   // (the unit: a span shown on a phone)
   };
   let drag = null;
   kcv.addEventListener('pointerdown', ev => {
