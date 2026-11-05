@@ -102,8 +102,8 @@ $('lv_zStep').value = store.get('zStep', '0.1');
 syncZStep();
 $('lv_zStep').addEventListener('input', () => { store.set('zStep', $('lv_zStep').value); syncZStep(); });
 // The stage box (as Micro-Manager's stage control): the XY pad moves the field of view (the world view's centre) one
-// step or 10 steps each way, the focus arrows step Z the same; a button held down repeats. x and y show the stage
-// position (µm) and take a typed one.
+// step or 10 steps each way, a button held down repeats; its middle shows the position. The focus wheel beside it
+// steps Z. A right-click on either opens a box with a typed position and the step.
 const xyStep = () => Math.max(0.001, +$('lv_xyStep').value || 1);
 const moveXY = (dx, dy) => { view.cx += dx * xyStep(); view.cy += dy * xyStep(); noteInteraction(); requestDraw(); };
 $('lv_xyStep').value = store.get('xyStep', '1');
@@ -112,7 +112,8 @@ function holdRepeat(btn, act) {
   let t = 0;
   const stop = () => clearTimeout(t);
   btn.addEventListener('pointerdown', ev => {
-    if (ev.button !== 0) return;
+    if (ev.button > 0) return;   // (not the right button: that opens the step box)
+    if (ev.pointerType === 'touch') ev.preventDefault();
     act();
     const again = ms => { t = setTimeout(() => { act(); again(90); }, ms); };
     again(400);
@@ -124,12 +125,15 @@ for (const b of document.querySelectorAll('#lv_stageBox button[data-dx]')) {
   const k = b.dataset.big === '1' ? 10 : 1;
   holdRepeat(b, () => moveXY(k * +b.dataset.dx, k * +b.dataset.dy));
 }
-for (const b of document.querySelectorAll('#lv_stageBox button[data-dz]')) holdRepeat(b, () => stepZ(+b.dataset.dz));
 {
   const fx = $('lv_x'), fy = $('lv_y'), fmt = v => String(+v.toFixed(2));
+  const [ox, oy] = $('lv_xyOut').children;
   const show = () => {
     if (document.activeElement !== fx && fx.value !== fmt(view.cx)) fx.value = fmt(view.cx);
     if (document.activeElement !== fy && fy.value !== fmt(view.cy)) fy.value = fmt(view.cy);
+    const tx = `x ${view.cx.toFixed(2)} µm`, ty = `y ${view.cy.toFixed(2)} µm`;
+    if (ox.textContent !== tx) ox.textContent = tx;
+    if (oy.textContent !== ty) oy.textContent = ty;
   };
   for (const [f, k] of [[fx, 'cx'], [fy, 'cy']]) f.addEventListener('change', () => {
     if (f.value === '' || !isFinite(+f.value)) { show(); return; }
@@ -137,6 +141,104 @@ for (const b of document.querySelectorAll('#lv_stageBox button[data-dz]')) holdR
   });
   show();
   setInterval(() => { if (!document.hidden) show(); }, 200);
+}
+// ---- the focus wheel #mFocus (beside the XY pad; on a phone, web/live/mobile.js, alone in the Focus box): one step of
+// the step size per KNOB_PX dragged, a fast drag several; a scroll notch one step; ▲ / ▼ (− / + on a phone) step once
+// and repeat while held. On a wide window a thumbwheel seen edge-on: its ticks move with the pointer (drag up = focus
+// up), a click above or below its line steps once. On a phone a ruler (values grow to the right: swipe left to focus
+// up), as before. Two fingers up or down on the live image move the focus too (below).
+{
+  const KNOB_PX = 12, knob = $('mFocus'), kcv = $('mKnob');
+  const phone = () => document.body.classList.contains('mobile');
+  const zStep = () => Math.max(0.001, +$('lv_zStep').value || 0.1);
+  const draw = () => {
+    const dpr = devicePixelRatio, W = Math.round(kcv.clientWidth * dpr), H = Math.round(kcv.clientHeight * dpr);
+    if (!W || !H) return;
+    if (kcv.width !== W || kcv.height !== H) { kcv.width = W; kcv.height = H; }
+    const g = kcv.getContext('2d');
+    const z = +$('mv_z').value || 0, st = zStep(), at = z / st, sp = KNOB_PX * dpr;
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = iscTheme.tok('--color-text-muted');
+    if (!phone()) {
+      // the wheel's ticks on a cylinder (radius = half the height): spaced KNOB_PX at the line, closer and fainter
+      // towards its edges; no numbers (the height is under it)
+      const cy = H / 2, r = H / 2, da = sp / r;
+      for (let k = Math.floor(at - Math.PI / 2 / da) - 1; k <= Math.ceil(at + Math.PI / 2 / da) + 1; k++) {
+        const a = (k - at) * da;
+        if (Math.abs(a) >= Math.PI / 2) continue;
+        const len = (k % 10 === 0 ? 0.8 : k % 5 === 0 ? 0.55 : 0.35) * W;
+        g.globalAlpha = 0.2 + 0.8 * Math.cos(a);
+        g.fillRect(Math.round((W - len) / 2), Math.round(cy + r * Math.sin(a)), Math.round(len), dpr);
+      }
+      g.globalAlpha = 1;
+      g.fillStyle = iscTheme.tok('--color-accent');
+      g.fillRect(0, Math.round(cy - dpr), W, 2 * dpr);
+    } else {
+      g.font = `${10 * dpr}px system-ui,sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
+      const cx = W / 2;
+      for (let k = Math.floor(at - cx / sp) - 1; k <= Math.ceil(at + cx / sp) + 1; k++) {
+        const x = Math.round(cx + (k - at) * sp) + 0.5, major = k % 10 === 0, mid = k % 5 === 0;
+        g.fillRect(x - 0.5 * dpr, H - (major ? 16 : mid ? 11 : 7) * dpr, dpr, (major ? 16 : mid ? 11 : 7) * dpr);
+        if (major) g.fillText(+(k * st).toFixed(3) + '', x, 2 * dpr);
+      }
+      g.fillStyle = iscTheme.tok('--color-accent');
+      g.fillRect(cx - dpr, 0, 2 * dpr, H);
+    }
+    $('mZ').textContent = z.toFixed(st < 0.01 ? 3 : 2) + ' µm';
+  };
+  let drag = null;
+  kcv.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0) return;
+    drag = { x: ev.clientX, y: ev.clientY, t: ev.timeStamp, acc: 0, moved: 0 };
+    kcv.setPointerCapture(ev.pointerId);
+  });
+  kcv.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    const d = phone() ? ev.clientX - drag.x : ev.clientY - drag.y, dt = Math.max(1, ev.timeStamp - drag.t), v = Math.abs(d) / dt;   // px per ms
+    const gain = v > 0.6 ? Math.min(8, 1 + (v - 0.6) * 6) : 1;   // a fast drag moves further
+    drag.x = ev.clientX; drag.y = ev.clientY; drag.t = ev.timeStamp;
+    drag.acc -= d * gain; drag.moved += Math.abs(d);
+    while (Math.abs(drag.acc) >= KNOB_PX) { const s = Math.sign(drag.acc); stepZ(s); drag.acc -= s * KNOB_PX; }
+  });
+  kcv.addEventListener('pointerup', ev => {
+    // a click (no drag) on the wheel: one step towards that side of its line
+    if (drag && drag.moved < 3 && !phone()) { const r = kcv.getBoundingClientRect(); stepZ(ev.clientY < r.top + r.height / 2 ? 1 : -1); }
+    drag = null;
+  });
+  kcv.addEventListener('pointercancel', () => { drag = null; });
+  kcv.addEventListener('wheel', ev => { ev.preventDefault(); stepZ(ev.deltaY < 0 ? 1 : -1); }, { passive: false });
+  for (const b of knob.querySelectorAll('button')) holdRepeat(b, () => stepZ(+b.dataset.dir));
+  knob.addEventListener('contextmenu', ev => { if (phone()) ev.preventDefault(); });   // (a long press would open it)
+  for (const e of ['input', 'change']) document.addEventListener(e, ev => { if (/^(mv_z|lv_z|lv_zStep)$/.test(ev.target.id || '')) draw(); }, true);
+  window.addEventListener('isc-theme', draw);
+  new ResizeObserver(draw).observe(kcv);
+  draw();
+}
+// ---- the right-click boxes: on the pad x, y and the XY step; on the focus wheel z and the Z step (a phone shows the Z
+// step under its ruler and opens none: a long press there is the wheel's)
+{
+  const pops = [$('lv_xyPop'), $('lv_zPop')];
+  const close = () => { for (const p of pops) p.hidden = true; };
+  const open = (pop, ev) => {
+    ev.preventDefault();
+    if (document.body.classList.contains('mobile')) return;
+    close();
+    pop.hidden = false;
+    // at the pointer (from the keyboard: at the control), kept in the window
+    let x = ev.clientX, y = ev.clientY;
+    if (!x && !y) { const r = ev.target.getBoundingClientRect(); x = r.left; y = r.bottom; }
+    // (fixed, but measured: an ancestor may hold fixed boxes)
+    pop.style.left = pop.style.top = '0px';
+    const o = pop.getBoundingClientRect(), w = o.width, h = o.height;
+    pop.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) - o.left + 'px';
+    pop.style.top = (y + 4 + h <= innerHeight - 4 ? y + 4 : Math.max(4, y - h - 4)) - o.top + 'px';
+    const f = pop.querySelector('[id$=Step]');
+    f.focus({ preventScroll: true }); f.select();
+  };
+  document.querySelector('#lv_stageBox .pad').addEventListener('contextmenu', ev => open(pops[0], ev));
+  $('mFocus').addEventListener('contextmenu', ev => open(pops[1], ev));
+  document.addEventListener('pointerdown', ev => { if (!pops.some(p => !p.hidden && p.contains(ev.target))) close(); }, true);
+  for (const p of pops) p.addEventListener('keydown', ev => { if (ev.key === 'Escape' || ev.key === 'Enter') { ev.preventDefault(); ev.target.dispatchEvent(new Event('change', { bubbles: true })); close(); } });
 }
 // Up/Down arrows over the live image (or PageUp/PageDown anywhere outside an input) step the focus.
 document.addEventListener('keydown', ev => {
@@ -151,7 +253,7 @@ $('liveView').addEventListener('wheel', ev => { ev.preventDefault(); stepZ(ev.de
 // events or a movie; spawned on the first Live or Snap.
 const L = self.liveState = { on: false, worker: null, pending: null, id: 0, frames: 0, t: 0, history: null,
   lastShown: 0, fps: 0, ms: 0, w: 0, h: 0, frame: null, lo: 0, hi: 1, spec: '', snap: false, err: '' };
-L.stepZ = stepZ;   // (the phone's focus knob, web/live/mobile.js)
+L.stepZ = stepZ;
 function worker() {
   if (L.worker) return L.worker;
   if (!genWorkers.ok) return null;

@@ -244,7 +244,7 @@ that finishes them.
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider
-  window; the focus knob `#mFocus` in the Focus box in place of `#lv_z`; touch: two fingers on the world view pinch /
+  window; the focus wheel `#mFocus` drawn as a ruler, the Z step under it; touch: two fingers on the world view pinch /
   twist / tilt, on the live image focus (up together) or zoom (`zoomAt`); long press = a setting's help; at most 2 cell
   workers on a coarse pointer. Test: `tests/web/viewer_mobile.mjs` (touch through CDP).
 - `web/live/` -- the viewer's **live microscope** (2026-10-13, layout A2: world view + View bar left, a draggable live
@@ -260,7 +260,9 @@ that finishes them.
   reach the column's boxes; View ▾ sits in the world view's info box `#hud`, one item per line, the View options opening in
   it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the controls `#liveCtl` under it at its width to the bottom (`#sideMain`)
   = **Acquire** (2026-11-05, docs/dev/DESIGN.md "Regions": Live / Snap / Record `#lv_acts` (in the bar on a phone), the Stage `#lv_stageBox` (an XY pad
-  moving `view.cx/cy` by `lv_xyStep`, ×10 on the double arrows, held = repeat; the focus's arrows; x/y fields), Display, focus, Acquisition (the MM
+  moving `view.cx/cy` by `lv_xyStep`, ×10 on the double arrows, held = repeat, the position read-only in its middle `#lv_xyOut`; the focus wheel
+  `#mFocus` (live.js: a thumbwheel, drag / scroll / click; on a phone the ruler, mobile.js no longer owns it); a right-click opens
+  `#lv_xyPop` / `#lv_zPop` with x/y/z and the steps; a phone shows Acquisition before Display), Display, focus, Acquisition (the MM
   presets, exposure), the settings group Illumination via `host: 'lv_illumHost'`, a box hidden when none of its rows
   shows at the level, display) in a grid `#lv_cols` by the strip's width (from 780 px Stage | buttons over Display | Acquisition in one row) and
   the instrument's groups Light path, Objective & PSF, Camera

@@ -142,9 +142,9 @@
   #sideMain>#liveCtl{flex:1}
   /* under the image: the acquisition controls | the instrument, two columns when there is room for them */
   #liveCtl{container-type:inline-size}
-  /* the boxes by the strip's width: one column (Live / Snap / Record first); from 520 px the buttons and the stage on
-     rows of their own, the display and the acquisition beside each other; from 780 px stage | buttons over display |
-     acquisition side by side (all in view under the largest image), the illumination and the instrument below */
+  /* the boxes by the strip's width: one column (Live / Snap / Record first); from 520 px the stage with the display under
+     it at the left, the buttons and the acquisition at the right; from 780 px stage | buttons over display |
+     acquisition side by side (all in view under the largest image); the illumination and the instrument below */
   #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "disp" "acq" "illum" "instr";
     gap:var(--space-3) var(--space-5);align-items:start}
   #lv_acts{grid-area:acts} #lv_stageBox{grid-area:stage} #lv_dispBox{grid-area:disp} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
@@ -152,7 +152,7 @@
   /* tight at the top: under the largest image the strip is ~170 px high */
   #lv_cols>.lc,#lv_cols>#lv_acts{padding-top:var(--space-2)}
   #sideMain>#liveCtl{padding-top:var(--space-1)}
-  @container (min-width:520px){#lv_cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"acts acts" "stage stage" "disp acq" "illum instr"}}
+  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(300px) minmax(0,1fr);grid-template-areas:"stage acts" "stage acq" "disp acq" "illum instr"}}
   @container (min-width:780px){#lv_cols{grid-template-columns:auto minmax(232px,.8fr) minmax(240px,1.2fr);grid-template-areas:"stage acts acq" "stage disp acq" "illum illum instr"}}
   .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
   /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
@@ -329,18 +329,30 @@
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
   /* the stage: an XY pad (one step / 10 steps each way, as Micro-Manager's stage control) beside the focus (Z) */
   #lv_stageBox{--pad-b:24px}
-  #lv_stageBox .stage{display:flex;gap:var(--space-4);align-items:flex-start;flex-wrap:wrap}
-  #lv_stageBox .pad{display:grid;grid-template-columns:repeat(5,var(--pad-b));grid-template-rows:repeat(5,var(--pad-b));gap:2px}
-  #lv_stageBox button[data-dx],#lv_stageBox button[data-dz]{padding:0;width:var(--pad-b);height:var(--pad-b);font-size:var(--font-size-caption);line-height:1}
-  #lv_stageBox button.big,#lv_stageBox button[data-dz="10"],#lv_stageBox button[data-dz="-10"]{letter-spacing:-3px}
-  #lv_stageBox .zc{display:flex;flex-direction:column;align-items:center;gap:2px}
-  #lv_stageBox .zc .zrow{margin:0}
-  #lv_stageBox .zc #lv_z{width:64px}
+  #lv_stageBox .stage{display:flex;gap:var(--space-3);align-items:stretch}
+  /* the XY pad: the position (read only) in its middle */
+  #lv_stageBox .pad{display:grid;grid-template-columns:var(--pad-b) var(--pad-b) minmax(68px,auto) var(--pad-b) var(--pad-b);
+    grid-template-rows:var(--pad-b) var(--pad-b) minmax(var(--pad-b),auto) var(--pad-b) var(--pad-b);gap:2px;justify-items:center;align-items:center}
+  #lv_stageBox .xyOut{display:flex;flex-direction:column;font-size:var(--font-size-caption);line-height:1.25;color:var(--color-text-muted);
+    font-variant-numeric:tabular-nums;white-space:nowrap;cursor:default}
+  /* the focus wheel beside it: ▲, a thumbwheel (drag, scroll, click), ▼, the height */
+  #mFocus{display:flex;flex-direction:column;gap:2px;width:calc(2 * var(--pad-b))}
+  #mFocus>button{padding:0;height:var(--pad-b);font-size:var(--font-size-caption);line-height:1}
+  #mFocus .gM{display:none}
+  #mKnob{flex:1 1 0;min-height:36px;width:100%;cursor:ns-resize;touch-action:none;border-radius:var(--radius-sm);
+    background:var(--color-input-bg);border:1px solid var(--color-input-border)}
+  #mZ{font-size:var(--font-size-caption);color:var(--color-text);font-variant-numeric:tabular-nums;text-align:center;white-space:nowrap}
+  /* the right-click box */
+  #lv_stageBox .sf.popover{position:fixed;z-index:var(--z-popover);padding:var(--space-2) var(--space-3)}
+  #lv_stageBox .sf.popover[hidden]{display:none}
+  #lv_stageBox button[data-dx]{padding:0;width:var(--pad-b);height:var(--pad-b);font-size:var(--font-size-caption);line-height:1}
+  #lv_stageBox button.big{letter-spacing:-3px}
   /* x, y and the two steps: a small table */
   #lv_stageBox .sf{display:grid;grid-template-columns:auto 58px auto;gap:2px 4px;align-items:center}
   #lv_stageBox .sf>div{display:contents}
   #lv_stageBox .sf label{color:var(--color-text-muted);text-align:right;white-space:nowrap}
   #lv_stageBox .sf input[type=number]{width:58px}
+  #lv_stageBox .sf .zrow{margin:0}
   #liveCtl .zrow input[type=number]{width:46px}
   #liveCtl .zrow #lv_z{width:70px}
   #liveCtl .zrow label{margin-left:4px}
@@ -519,17 +531,21 @@
   #mSwap{position:absolute;z-index:6;padding:0;background:none;border-color:transparent}
   #mStage:not(.worldBig)>#canvasHost :is(#hud,#legend,#animBar,#movie,#xzSplit,#loading),
   #mStage.worldBig>#liveView :is(#lv_idle,#lv_scale,#lv_zoomNav,#lv_play){display:none!important}
-  #mFocus{display:none}
-  body.mobile #mFocus{display:flex;align-items:center;gap:6px;margin:2px 0 4px;font-size:var(--font-size-body)}
-  body.mobile #lv_z,body.mobile #lv_z+.u,body.mobile #lv_stageBox :is(.pad,.xyf,.zc>button){display:none}
+  body.mobile #mFocus{flex-direction:row;align-items:center;gap:6px;width:auto;margin:2px 0 4px;font-size:var(--font-size-body)}
+  body.mobile #mFocus>[data-dir="-1"]{order:-1}
+  body.mobile #mFocus>[data-dir="1"]{order:5}
+  body.mobile #mFocus .gM{display:inline} body.mobile #mFocus .gD{display:none}
+  body.mobile #lv_stageBox #lv_xyPop{display:none!important}
+  body.mobile #lv_stageBox #lv_zPop{display:flex!important;position:static;justify-content:flex-end;padding:0;border:0;background:none;box-shadow:none}
+  body.mobile #lv_stageBox #lv_zPop .zpos{display:none}
+  /* on a phone the acquisition comes before the display */
+  body.mobile #lv_cols{grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "acq" "disp" "illum" "instr"}
+  body.mobile #lv_stageBox .pad{display:none}
   body.mobile #lv_stageBox .stage{flex-direction:column;align-items:stretch;gap:var(--space-1)}
-  body.mobile #lv_stageBox .zc{align-items:stretch}
-  body.mobile #lv_stageBox .sf{display:block}
-  body.mobile #lv_stageBox .sf>.zstep{display:flex;justify-content:flex-end}   /* the knob instead (its readout shows the height) */
   body.mobile #liveCtl .zrow{justify-content:flex-end}
   body.mobile #mFocus button{flex:none;width:40px;height:36px;padding:0;font-size:var(--font-size-icon);line-height:1;touch-action:manipulation}
-  #mKnob{flex:1 1 0;min-width:0;height:34px;cursor:ew-resize;touch-action:none}
-  #mZ{flex:none;min-width:58px;text-align:right;color:var(--color-text);font-variant-numeric:tabular-nums}
+  body.mobile #mKnob{min-width:0;height:34px;min-height:0;cursor:ew-resize;background:none;border:0}
+  body.mobile #mZ{flex:none;min-width:58px;text-align:right;font-size:inherit}
   body.mobile #liveBar{flex-wrap:wrap;row-gap:4px;border-top:1px solid var(--color-border)}
   body.mobile #liveBar>button,body.mobile #lv_acts>button,body.mobile #lv_recWrap>button{padding:6px 10px}
   body.mobile #lv_live{width:84px}
@@ -682,13 +698,17 @@
         </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button></div>
       <div class="lc" id="lv_stageBox"><h5>Stage</h5>
         <div class="stage">
-          <div class="pad" role="group" aria-label="Move the stage in x and y"><button type="button" class="big" style="grid-area:1/3" data-dx="0" data-dy="-1" data-big="1" title="Move the field of view up by 10 steps (hold to repeat)" aria-label="up, 10 steps">▲▲</button><button type="button" class="" style="grid-area:2/3" data-dx="0" data-dy="-1" data-big="0" title="Move the field of view up by one step (hold to repeat)" aria-label="up, one step">▲</button><button type="button" class="big" style="grid-area:3/1" data-dx="-1" data-dy="0" data-big="1" title="Move the field of view left by 10 steps (hold to repeat)" aria-label="left, 10 steps">◀◀</button><button type="button" class="" style="grid-area:3/2" data-dx="-1" data-dy="0" data-big="0" title="Move the field of view left by one step (hold to repeat)" aria-label="left, one step">◀</button><button type="button" class="" style="grid-area:3/4" data-dx="1" data-dy="0" data-big="0" title="Move the field of view right by one step (hold to repeat)" aria-label="right, one step">▶</button><button type="button" class="big" style="grid-area:3/5" data-dx="1" data-dy="0" data-big="1" title="Move the field of view right by 10 steps (hold to repeat)" aria-label="right, 10 steps">▶▶</button><button type="button" class="" style="grid-area:4/3" data-dx="0" data-dy="1" data-big="0" title="Move the field of view down by one step (hold to repeat)" aria-label="down, one step">▼</button><button type="button" class="big" style="grid-area:5/3" data-dx="0" data-dy="1" data-big="1" title="Move the field of view down by 10 steps (hold to repeat)" aria-label="down, 10 steps">▼▼</button></div>
-          <div class="zc"><button type="button" data-dz="10" title="Focus up by 10 steps (hold to repeat)" aria-label="Focus up, 10 steps">▲▲</button><button type="button" data-dz="1" title="Focus up by one step (hold to repeat)" aria-label="Focus up, one step">▲</button><div class="zrow"><input type="number" id="lv_z" step="0.1" title="The focal plane&#39;s height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span></div><button type="button" data-dz="-1" title="Focus down by one step (hold to repeat)" aria-label="Focus down, one step">▼</button><button type="button" data-dz="-10" title="Focus down by 10 steps (hold to repeat)" aria-label="Focus down, 10 steps">▼▼</button></div>
-          <div class="sf">
+          <div class="pad" role="group" aria-label="Move the stage in x and y"><button type="button" class="big" style="grid-area:1/3" data-dx="0" data-dy="-1" data-big="1" title="Move the field of view up by 10 steps (hold to repeat; right-click: the step)" aria-label="up, 10 steps">▲▲</button><button type="button" class="" style="grid-area:2/3" data-dx="0" data-dy="-1" data-big="0" title="Move the field of view up by one step (hold to repeat; right-click: the step)" aria-label="up, one step">▲</button><button type="button" class="big" style="grid-area:3/1" data-dx="-1" data-dy="0" data-big="1" title="Move the field of view left by 10 steps (hold to repeat; right-click: the step)" aria-label="left, 10 steps">◀◀</button><button type="button" class="" style="grid-area:3/2" data-dx="-1" data-dy="0" data-big="0" title="Move the field of view left by one step (hold to repeat; right-click: the step)" aria-label="left, one step">◀</button><button type="button" class="" style="grid-area:3/4" data-dx="1" data-dy="0" data-big="0" title="Move the field of view right by one step (hold to repeat; right-click: the step)" aria-label="right, one step">▶</button><button type="button" class="big" style="grid-area:3/5" data-dx="1" data-dy="0" data-big="1" title="Move the field of view right by 10 steps (hold to repeat; right-click: the step)" aria-label="right, 10 steps">▶▶</button><button type="button" class="" style="grid-area:4/3" data-dx="0" data-dy="1" data-big="0" title="Move the field of view down by one step (hold to repeat; right-click: the step)" aria-label="down, one step">▼</button><button type="button" class="big" style="grid-area:5/3" data-dx="0" data-dy="1" data-big="1" title="Move the field of view down by 10 steps (hold to repeat; right-click: the step)" aria-label="down, 10 steps">▼▼</button><div id="lv_xyOut" class="xyOut" style="grid-area:3/3" title="The stage position (the field of view&#39;s centre). Right-click the arrows to type a position or change the step."><span></span><span></span></div></div>
+          <div id="mFocus" role="group" aria-label="Focus" title="Focus: drag or scroll the wheel (up = up), click above or below its line for one step; right-click: the step and a typed height"><button type="button" data-dir="1" aria-label="Focus up" title="Focus up one step (hold to repeat; right-click: the step)"><span class="gD">▲</span><span class="gM">+</span></button><canvas id="mKnob" aria-label="Focus wheel"></canvas><button type="button" data-dir="-1" aria-label="Focus down" title="Focus down one step (hold to repeat; right-click: the step)"><span class="gD">▼</span><span class="gM">−</span></button><span id="mZ"></span></div>
+          <!-- right-click on the pad / the focus wheel: a typed position and the step (on a phone the Z step shows under the wheel) -->
+          <div id="lv_xyPop" class="popover sf" hidden role="dialog" aria-label="Stage position and step">
             <div class="srow xyf"><label for="lv_x">x</label><input type="number" id="lv_x" step="any" title="The stage position (the field of view&#39;s centre), x"><span class="u">µm</span></div>
             <div class="srow xyf"><label for="lv_y">y</label><input type="number" id="lv_y" step="any" title="The stage position (the field of view&#39;s centre), y"><span class="u">µm</span></div>
-            <div class="srow xyf"><label for="lv_xyStep">XY step</label><input type="number" id="lv_xyStep" min="0.01" step="0.5" value="1"><span class="u">µm</span></div>
-            <div class="zrow zstep"><label for="lv_zStep">Z step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
+            <div class="srow"><label for="lv_xyStep">XY step</label><input type="number" id="lv_xyStep" min="0.01" step="0.5" value="1"><span class="u">µm</span></div>
+          </div>
+          <div id="lv_zPop" class="popover sf" hidden role="dialog" aria-label="Focus and step">
+            <div class="srow zrow zpos"><label for="lv_z">z</label><input type="number" id="lv_z" step="0.1" title="The focal plane&#39;s height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span></div>
+            <div class="srow zrow zstep"><label for="lv_zStep">Z step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
           </div>
         </div>
       </div>

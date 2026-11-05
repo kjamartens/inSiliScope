@@ -71,6 +71,8 @@ try {
   check(true, 'Live starts by itself, a tap on Stop stops it');
 
   // the focus knob (in the Focus box): a slow swipe 60 px to the left = 5 steps up; then − once
+  const order = await page.evaluate(() => ['lv_stageBox', 'lv_acqBox', 'lv_dispBox'].map(id => document.getElementById(id).getBoundingClientRect().top));
+  check(order[0] < order[1] && order[1] < order[2], `the boxes under the stage: Stage, Acquisition, Display (tops ${order.map(Math.round)})`);
   const k = await rect('#mKnob'), z0 = await z();
   await touch([[k.x + k.w * 0.7, k.y + k.h / 2, k.x + k.w * 0.7 - 60, k.y + k.h / 2]], 12, 60);
   const z1 = await z();

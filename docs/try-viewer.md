@@ -19,9 +19,11 @@ through it step by step.
   the pixel size and a recording's message), Basic / Advanced / Expert and ☰. The microscope is on the right: the
   live camera image, always square, and below it at the same width the controls you use while imaging: ▶ Live /
   Snap / ● Record / ↺, the **Stage** (an XY pad as in Micro-Manager's stage control: ▲ ◀ ▶ ▼ move the field of
-  view by one step, the double arrows by 10; the focus's ▲ ▼ beside it alike; holding a button repeats; x, y and the
-  two steps as numbers), the **Display** and the **Acquisition** (imaging mode, illumination, drift, quality,
-  exposure). Under a large image they sit side by side, so all of them stay in view; below them the lasers and the
+  view by one step, the double arrows by 10, holding a button repeats; the position shows in its middle; beside it
+  the focus wheel: ▲ ▼ step, drag the wheel or scroll over it (up = focus up), or click above or below its line; a
+  right-click on the pad or the wheel opens a small box for the step and a typed position), the **Display** and the
+  **Acquisition** (imaging mode, illumination, drift, quality, exposure). Under a large image they sit side by side,
+  so all of them stay in view; below them the lasers and the
   BFP position, and the instrument (**Light path**, **Objective & PSF**, **Camera**). The small ▲ on the image's lower
   edge (a click, or the pointer resting on it) spreads these controls over the lower three quarters of the image; they fold back a tenth of a second after the
   pointer leaves them (or on ▼ or Esc). At the right edge, down to the bottom of the window, the **Settings** column:
@@ -72,7 +74,7 @@ through it step by step.
   the inset swaps the two (remembered in your browser). ▶ Live / Snap / ● Record sit under the image and stay on screen
   while the controls and settings below scroll with the page. One finger on the live image moves the stage; two fingers
   moving up or down together move the focus (up = focus up), spread or pinched they zoom into the image. In the
-  **Focus** box a ruler replaces the focus field: swipe it like a focus knob (left = up, one step per notch, a fast
+  **Focus** box (above the Acquisition, then the Display) the focus wheel is a ruler: swipe it like a focus knob (left = up, one step per notch, a fast
   swipe goes further) or press − / + (held, they repeat). On the world view one finger pans; two fingers pinch to zoom,
   twist to turn the view, and moved up or down together they tilt it. A long press on a setting's name shows its help.
   The page starts at most two cell workers on a touch screen, to stay within a phone's memory.
@@ -85,7 +87,7 @@ through it step by step.
   convert and bleach and widefield labels fade where you look, at the beam's own shape and depth, while a place you have
   not lit yet is fresh; moving away and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
-  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below). **Focus**: the Stage's ▲ ▼ (one step, ▲▲ ▼▼ 10 steps), the arrows of the Z field (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
+  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below). **Focus**: the Stage's focus wheel (▲ ▼, a drag, a scroll, a click), the arrows of the Z field in its right-click box (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
   mouse wheel over the image step it by the step size (beside it on the same line). **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
   range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display

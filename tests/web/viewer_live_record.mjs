@@ -102,18 +102,38 @@ try {
     .map(g => [g, document.querySelector(`details[data-group=${g}]`).closest('#lv_colIllum,#lv_instrHost,#panel').id])));
   check(where.illum === 'lv_colIllum' && where.lightpath === 'lv_instrHost' && where.objective === 'lv_instrHost' && where.camera === 'lv_instrHost'
     && where.perf === 'panel' && where.formation === 'panel', `the groups' places ${JSON.stringify(where)}`);
-  // the stage box: the XY pad moves the field of view by the step (10 steps on a double arrow), the focus arrows step Z
+  // the stage box: the XY pad moves the field of view by the step (10 steps on a double arrow), its middle shows the
+  // position; the focus wheel steps Z (▼ one step, a click above its line one up, a 36 px drag up three up, a scroll notch
+  // down one down); a right-click opens the step box
   const st = await page.evaluate(() => {
     const press = sel => { const b = document.querySelector(sel); b.dispatchEvent(new PointerEvent('pointerdown', { button: 0 })); b.dispatchEvent(new PointerEvent('pointerup', { button: 0 })); };
     const x0 = view.cx, y0 = view.cy, z0 = +document.getElementById('mv_z').value;
-    press('#lv_stageBox button[data-dx="1"][data-big="0"]'); press('#lv_stageBox button[data-dy="1"][data-big="1"]'); press('#lv_stageBox button[data-dz="-10"]');
-    const r = { dx: +(view.cx - x0).toFixed(6), dy: +(view.cy - y0).toFixed(6), dz: +(+document.getElementById('mv_z').value - z0).toFixed(6),
-      order: [...document.querySelectorAll('#lv_cols .lc>h5')].map(h => h.textContent).slice(0, 3).join(',') };
-    view.cx = x0; view.cy = y0; requestDraw();
-    const z = document.getElementById('mv_z'); z.value = z0; z.dispatchEvent(new Event('input', { bubbles: true })); z.dispatchEvent(new Event('change', { bubbles: true }));
-    return r; });
-  check(st.dx === 1 && st.dy === 10 && st.dz === -1 && st.order === 'Stage,Display,Acquisition',
-    `the stage pad: right +${st.dx} µm, down ×10 +${st.dy} µm, focus ▼▼ ${st.dz} µm (steps 1 µm / 0.1 µm); the boxes ${st.order}`);
+    press('#lv_stageBox button[data-dx="1"][data-big="0"]'); press('#lv_stageBox button[data-dy="1"][data-big="1"]'); press('#mFocus button[data-dir="-1"]');
+    return { x0, y0, z0, dx: +(view.cx - x0).toFixed(6), dy: +(view.cy - y0).toFixed(6), dz: +(+document.getElementById('mv_z').value - z0).toFixed(6),
+      order: [...document.querySelectorAll('#lv_cols .lc>h5')].map(h => h.textContent).slice(0, 3).join(',') }; });
+  await page.waitForTimeout(300);   // (the readout follows every 0.2 s)
+  const out = await page.$eval('#lv_xyOut', (e, s) => e.innerText.includes(`x ${(s.x0 + 1).toFixed(2)} µm`) && e.innerText.includes(`y ${(s.y0 + 10).toFixed(2)} µm`), st);
+  const kb = await (await page.$('#mKnob')).boundingBox(), kz = () => page.$eval('#mv_z', e => +e.value);
+  const za = await kz();
+  await page.mouse.click(kb.x + kb.width / 2, kb.y + kb.height * 0.25);
+  const zb = await kz();
+  await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height * 0.8); await page.mouse.down();
+  for (let i = 1; i <= 12; i++) { await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height * 0.8 - 3 * i); await page.waitForTimeout(16); }
+  await page.mouse.up();
+  const zc = await kz();
+  await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height / 2); await page.mouse.wheel(0, 100); await page.waitForTimeout(50);
+  const zd = await kz();
+  await page.click('#lv_stageBox .pad button[data-big="0"]', { button: 'right' });
+  const pop = await page.evaluate(() => ({ open: !document.getElementById('lv_xyPop').hidden, focus: document.activeElement.id }));
+  await page.mouse.click(5, 300);
+  const popShut = await page.evaluate(() => document.getElementById('lv_xyPop').hidden);
+  await page.evaluate(s => { view.cx = s.x0; view.cy = s.y0; requestDraw();
+    const z = document.getElementById('mv_z'); z.value = s.z0; z.dispatchEvent(new Event('input', { bubbles: true })); z.dispatchEvent(new Event('change', { bubbles: true })); }, st);
+  const near = (a, b) => Math.abs(a - b) < 1e-6;
+  check(st.dx === 1 && st.dy === 10 && st.dz === -0.1 && out && near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1)
+    && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Stage,Display,Acquisition',
+    `the stage: right +${st.dx} µm, down ×10 +${st.dy} µm (shown in the pad: ${out}), focus ▼ ${st.dz} µm; the wheel: click above +${(zb - za).toFixed(2)}, `
+    + `36 px drag up +${(zc - zb).toFixed(2)}, a scroll notch down ${(zd - zc).toFixed(2)} µm; right-click opens the step box (${JSON.stringify(pop)}), a click elsewhere shuts it; the boxes ${st.order}`);
   // the handle spreads the controls over the image's lower 75 %; they fold back 0.1 s after the pointer leaves them
   await page.click('#ctlUp');
   await page.waitForTimeout(200);   // (the 0.1 s slide)
