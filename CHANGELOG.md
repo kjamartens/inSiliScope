@@ -3,6 +3,11 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## Unreleased
+
+- Benchmarks: each Micro-Manager live case's rate is the median of three 1.5 s windows (one window let a single stall set the rate: rc18's mEGFP WideField dip at 10 and 50 ms was one, not a slowdown).
+- Site: a release's Benchmarks entry shows up again: the push that merges a release no longer deploys the site before the release does (rc18's entry was missing).
+
 ## v0.1.0-rc18 (changes since v0.1.0-rc17)
 
 - **Ground truth** ([docs](docs/ground-truth.md)): a recording's **Save** can add its settings file (reproduces the

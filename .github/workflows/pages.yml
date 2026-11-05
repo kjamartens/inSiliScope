@@ -3,7 +3,8 @@ name: Pages
 # Project site on GitHub Pages: the viewer at the root (the landing page), docs (mkdocs-material) at /docs/, and, when a release
 # exists, its gallery and benchmark history (downloaded from the latest release's assets).
 # The physics pages' figures are rendered here by the cli (tools/build_physics_figures.py), so they follow the code.
-# Runs on every push to main (docs/viewer/render-code changes) and is called by release.yml after a release.
+# Runs on every push to main (docs/viewer/render-code changes) and is called by release.yml after a release; a push
+# whose commit a release tag points at builds but does not deploy (the release does).
 # One-time setup: repository Settings -> Pages -> Source: GitHub Actions.
 on:
   push:
@@ -68,9 +69,24 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+      # A push to main whose commit a release tag points at is deployed by that release (with its gallery and
+      # benchmarks), not here. 2026-11-04: rc18's merge was deployed by its push (built before the release existed:
+      # rc17's benchmarks) and again by the release; the site kept the push's build, so the Benchmarks page lacked
+      # rc18. Checked after the build: the tag is pushed after the merge (rc18: 18 s after this run started).
+      - name: A release tag at this commit deploys it
+        id: gate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          if git ls-remote --tags origin 'refs/tags/v*' | grep -q "^${{ github.sha }}"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "A release tag points at ${{ github.sha }}: the release deploys the site."
+          fi
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
 
   deploy:
     needs: build
+    if: needs.build.outputs.skip != 'true'
     runs-on: ubuntu-latest
     permissions:
       pages: write
