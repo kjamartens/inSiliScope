@@ -257,12 +257,13 @@ that finishes them.
   and ms/frame only, the sizes, pattern state and recording message in its tooltip (2026-11-03; only it gives way,
   `flex:none` on the rest, a narrow bar drops `#setIcons`); at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
   reach the column's boxes; View ▾ sits in the world view's info box `#hud`, one item per line, the View options opening in
-  it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the settings under it at its width (`#sideMain`) and the controls
-  column `#liveCtl` to the bottom = **Acquire** (2026-11-05, docs/dev/DESIGN.md "Regions": focus, Acquisition (the MM
+  it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the controls `#liveCtl` under it at its width to the bottom (`#sideMain`)
+  = **Acquire** (2026-11-05, docs/dev/DESIGN.md "Regions": focus, Acquisition (the MM
   presets, exposure), the settings group Illumination via `host: 'lv_illumHost'`, a box hidden when none of its rows
-  shows at the level, display, performance; the instrument's groups Light path, Objective & PSF, Camera are under the
-  image, section Instrument); the settings search `#sideTop` (above `#sideBody`, over both, with "Changed only"
-  `#setChanged`) highlights matching rows (`.opt.hit`, the column's too) and opens every group with a match; render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
+  shows at the level, display, performance; the instrument's groups Light path, Objective & PSF, Camera are in the
+  settings, section Instrument), and at the right edge the settings column `#setCol` (2026-11-05: `#panel` under the
+  search `#sideTop` with "Changed only" `#setChanged`; its » `#setFold` folds it to a vertical tab `#setTab`, kept in
+  `isc.ui.setShut`, `foldSettings`; a search unfolds it; on a phone both are plain boxes again); the search highlights matching rows (`.opt.hit`, the column's too) and opens every group with a match; render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
   **● Record** (2026-10-14): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
   `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames from the box's
   `lv_recT` start time, default 0 s (2026-11-03; not `mv_start-sec`, which live keeps), on the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by

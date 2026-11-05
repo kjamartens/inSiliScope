@@ -76,11 +76,25 @@ try {
     return { a, z, over };
   });
   check(bar.a === bar.z && bar.over <= 0, `the bar's buttons stay put under a long info and the busy marker (overflow ${bar.over} px)`);
-  const sq = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect(), c = document.getElementById('liveCtl').getBoundingClientRect(),
-    p = document.getElementById('panel').getBoundingClientRect(), vb = document.getElementById('viewBar').getBoundingClientRect(), lb = document.getElementById('liveBar').getBoundingClientRect();
-    return { w: v.width, h: v.height, pw: p.width, ctlBottom: c.bottom, H: innerHeight, vbH: vb.height, lbH: lb.height, illum: !!document.querySelector('#liveCtl details[data-group=illum]') }; });
-  check(Math.abs(sq.w - sq.h) < 1 && Math.abs(sq.pw - sq.w) < 2 && Math.abs(sq.ctlBottom - sq.H) < 2 && Math.abs(sq.vbH - sq.lbH) < 1 && sq.illum,
-    `layout: the image square (${sq.w.toFixed(0)} px), the settings as wide (${sq.pw.toFixed(0)} px), the controls column to the bottom, the bars level (${sq.vbH.toFixed(0)}/${sq.lbH.toFixed(0)} px), illumination in the column ${JSON.stringify(sq)}`);
+  // the image with the Acquire controls under it at its width, the settings (search on top) a column at the right edge
+  const layout = () => page.evaluate(() => { const R = id => document.getElementById(id).getBoundingClientRect();
+    const v = R('liveView'), c = R('liveCtl'), s = R('setCol'), vb = R('viewBar'), lb = R('liveBar');
+    return { w: v.width, h: v.height, cw: c.width, ctlBottom: c.bottom, setRight: s.right, setBottom: s.bottom, setW: s.width, W: innerWidth,
+      H: innerHeight, vbH: vb.height, lbH: lb.height, illum: !!document.querySelector('#liveCtl details[data-group=illum]'),
+      search: document.getElementById('sideTop').parentElement.id }; });
+  const sq = await layout();
+  check(Math.abs(sq.w - sq.h) < 1 && Math.abs(sq.cw - sq.w) < 2 && Math.abs(sq.ctlBottom - sq.H) < 2 && Math.abs(sq.setRight - sq.W) < 2
+    && Math.abs(sq.setBottom - sq.H) < 2 && Math.abs(sq.vbH - sq.lbH) < 1 && sq.illum && sq.search === 'setCol',
+    `layout: the image square (${sq.w.toFixed(0)} px), the controls as wide and to the bottom, the settings column at the right edge with the search, the bars level (${sq.vbH.toFixed(0)}/${sq.lbH.toFixed(0)} px), illumination in the controls ${JSON.stringify(sq)}`);
+  // the settings column folds to a tab at the right edge (the image grows) and opens again
+  await page.click('#setFold');
+  await page.waitForTimeout(300);
+  const shut = await layout();
+  await page.click('#setTab');
+  await page.waitForTimeout(300);
+  const open = await layout();
+  check(shut.setW < 40 && Math.abs(shut.setRight - shut.W) < 2 && shut.w > sq.w + 100 && Math.abs(shut.w - shut.h) < 1 && Math.abs(open.w - sq.w) < 2,
+    `the settings fold to a ${shut.setW.toFixed(0)} px tab (the image ${sq.w.toFixed(0)} -> ${shut.w.toFixed(0)} px) and open again (${open.w.toFixed(0)} px)`);
   // the BFP readout, from the movie spec's C++ setup (the setup job), names a regime (the spectra: viewer_scope_view.mjs)
   const ro = await page.waitForFunction(() => {
     const b = document.getElementById('bfpReadout');

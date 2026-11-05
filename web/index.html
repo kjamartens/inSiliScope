@@ -111,8 +111,21 @@
   #lv_busy[hidden]{display:none}
   #lv_busy+#lv_info{margin-left:2px}
   #lv_info{flex:1 1 0;min-width:0;margin-left:4px;font-size:var(--font-size-caption);line-height:1.4;height:1.4em;color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--ctl-w,274px)}
+  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--set-w,340px)}
+  #sideBody.setShut{grid-template-columns:minmax(0,1fr) 28px}
+  /* the settings column (right): a head with the fold button; folded, only a vertical tab at the edge */
+  #setCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+  #setColHead{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) var(--space-2) var(--space-2) var(--space-5);
+    border-bottom:1px solid var(--color-border);font-weight:600;color:var(--color-text)}
+  #setFold{height:22px;width:26px;padding:0;line-height:1}
+  #setTab{display:none;flex:1;width:28px;padding:var(--space-4) 0;border:0;border-radius:0;background:var(--color-surface);color:var(--color-text-muted);
+    align-items:flex-start;justify-content:center;cursor:pointer}
+  #setTab span{writing-mode:vertical-rl;letter-spacing:.04em;font-weight:600}
+  #setTab:hover{background:var(--color-surface-hover);color:var(--color-text)}
+  #sideBody.setShut #setCol>:not(#setTab){display:none}
+  #sideBody.setShut #setTab{display:flex}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--color-border)}
+  #sideMain>#liveCtl{flex:1}
   #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:var(--color-bg-canvas);overflow:hidden}
   #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:var(--color-bg-canvas)}
   #lv_scale,#lv_idle{position:absolute;color:var(--color-overlay-text);font-size:var(--font-size-caption);pointer-events:none;text-shadow:0 0 3px var(--color-overlay-shadow)}
@@ -463,7 +476,8 @@
   body.mobile #levelSeg button{padding:5px 9px;font-size:var(--font-size-body)}
   body.mobile #menu{max-width:calc(100vw - 16px);box-sizing:border-box}
   body.mobile #sideBody{display:flex;flex-direction:column}
-  body.mobile #sideMain{display:contents}
+  body.mobile #sideMain,body.mobile #setCol{display:contents}
+  body.mobile :is(#setColHead,#setTab){display:none!important}
   body.mobile #liveCtl{order:1;overflow:visible;min-height:auto;--lab-w:112px;--lab-w-base:112px;--val-w:60px}
   body.mobile #sideTop{order:2;border-top:1px solid var(--color-border)}
   body.mobile :is(#panel,#animPanel){order:3;overflow:visible;min-height:auto}
@@ -591,13 +605,6 @@
       <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
       <div id="menu" class="popover" role="menu"></div>
     </div>
-    <div id="sideTop">
-      <div class="bar">
-        <input type="search" id="setSearch" placeholder="Search all settings" aria-label="Search all settings">
-        <label class="chgOnly" title="Show only the settings that differ from their defaults (at this level)"><input type="checkbox" id="setChanged"> Changed only</label>
-      </div>
-      <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
-    </div>
     <div id="sideBody">
     <div id="sideMain">
       <div id="liveView" class="isc-dark">
@@ -607,10 +614,6 @@
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
         <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the movie, optionally with its settings and ground truth">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
-    <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
-    <div id="panel"></div>
-    <div id="animPanel" hidden></div>
-    </div>
     <div id="liveCtl">
         <div class="lc"><h5>Focus (Z stage)</h5>
           <div class="zrow"><input type="number" id="lv_z" step="0.1" title="The focal plane's height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span>
@@ -626,6 +629,22 @@
         </div>
         <div class="lc t-expert" id="lv_perfBox" title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display (shown at the Expert level)"><h5>Performance</h5>
           <div id="lv_perfNote"></div><div id="lv_perfOut"></div><div id="lv_memOut"></div></div>
+    </div>
+    </div>
+    <!-- The settings (Sample, Sample preparation, Instrument) in a column at the right that folds to a tab at the edge -->
+    <div id="setCol">
+      <div id="setColHead"><span>Settings</span><button id="setFold" type="button" title="Fold the settings to a tab at the right edge (the image grows)" aria-label="Fold the settings" aria-expanded="true">»</button></div>
+      <div id="sideTop">
+        <div class="bar">
+          <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
+          <label class="chgOnly" title="Show only the settings that differ from their defaults (at this level)"><input type="checkbox" id="setChanged"> Changed only</label>
+        </div>
+        <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
+      </div>
+    <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
+      <div id="panel"></div>
+      <div id="animPanel" hidden></div>
+          <button id="setTab" type="button" title="Show the settings" aria-label="Show the settings" aria-expanded="false"><span>Settings</span></button>
     </div>
     </div>
   </div>
@@ -1751,6 +1770,18 @@ menu.innerHTML = '<h4>Appearance</h4>' +
   '<h4>About</h4>' +
   (self.ISC_VERSION ? `<div class="note">inSiliScope ${self.ISC_VERSION}</div>` : '') +
   '<div class="note"><a id="privacyLink" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/privacy/">Privacy</a>: anonymous usage counts, no cookies</div>';
+// the settings column folds to a tab at the right edge (remembered); a search or "Changed only" unfolds it
+function foldSettings(shut) {
+  $('sideBody').classList.toggle('setShut', shut);
+  $('setFold').setAttribute('aria-expanded', !shut); $('setTab').setAttribute('aria-expanded', !shut);
+  store.set('setShut', shut ? '1' : '0');
+  window.dispatchEvent(new Event('resize'));   // the live image's square follows the width
+}
+$('setFold').addEventListener('click', () => foldSettings(true));
+$('setTab').addEventListener('click', () => foldSettings(false));
+for (const [id, ev] of [['setSearch', 'input'], ['setChanged', 'change']])
+  $(id).addEventListener(ev, () => { if ($('sideBody').classList.contains('setShut')) foldSettings(false); });
+foldSettings(store.get('setShut', '0') === '1');
 function setLevel(v) {
   if (!LEVELS.includes(v)) v = 'basic';
   document.body.dataset.level = v;

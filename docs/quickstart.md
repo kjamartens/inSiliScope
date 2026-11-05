@@ -31,7 +31,7 @@ A first tour, about five minutes:
    EMCCD. Under **Illumination** each laser is a slider. **Microscope** in the title bar swaps the sample
    on the left for the microscope: the light path drawn from the lasers to the camera, the illumination profile, the
    PSF, the back focal plane and the spectra (click any of them for a larger view; **Sample** goes back).
-5. **Change the sample.** The settings under the image hold the sample and its labels: the microtubules and the
+5. **Change the sample.** The Settings column at the right edge holds the sample and its labels: the microtubules and the
    nuclear pores each have a mode and a dye (**None** switches a target off). **Specimen** mounts DNA-origami
    **Nanorulers** instead of cells (set the focus to about 0.02 µm, their dyes lie on the glass), a **Bead sample**:
    fiducial beads alone on the glass (focus about 0.05 µm), or a **Fluorescent Slide**: a uniform dye layer that shows

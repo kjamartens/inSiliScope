@@ -16,11 +16,12 @@ through it step by step.
   one item per line where the view is (seed, centre, scale, tilt) and what is still loading; View ▾ opens the options
   in the same box. The microscope is on the right: its bar (level with the title bar) holds ▶ Live / Snap / ● Record /
   ↺ and one short line with the frame rate and the time per frame (its tooltip adds the image size, the pixel size
-  and a recording's message); under it the live camera image, always square, with every
-  sample and microscope setting below it at the same width (a search box filters the rows); beside them, down to the
-  bottom of the window, a column of the microscope's controls that scrolls: the focus, the configuration, the
-  illumination and light path, the objective and PSF (from the Advanced level: it has no Basic setting), the display
-  range and, at the Expert level, the performance. The search box highlights every line that matches (at the current
+  and a recording's message); under it the live camera image, always square, with the controls you use while imaging
+  below it at the same width: the focus, the acquisition (imaging mode, illumination, drift, quality, exposure), the
+  lasers and the BFP position, the display range and, at the Expert level, the performance. At the right edge, down to
+  the bottom of the window, the **Settings** column: every sample and instrument setting, with a search box on top. Its
+  » folds it to a narrow **Settings** tab at the right edge (the image grows; remembered in your browser), and a click
+  on the tab, or typing a search, opens it again. The search box highlights every line that matches (at the current
   level), opens their groups and hides the rest of the settings. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
   browser).
@@ -114,7 +115,7 @@ through it step by step.
   slider with its power (kW/cm², three decimals; at the Basic level only the lines the labelled dyes use in their
   modes, with 405, 488 and 561 nm for PALM, and any line that is on), the BFP position and the pattern. The beam's
   shape, the filters, the dichroic, the background and the BrightField lamp are the instrument's: **Instrument › Light
-  path** under the image (the spectra: the Microscope view's
+  path** in the Settings column (the spectra: the Microscope view's
   **Spectral info** panel, where each laser line has the colour of its wavelength and each dye's excitation (dashed) and
   emission (solid) the colour of its weighted emission wavelength, with what reaches the camera per label: detected
   fraction and wavelength, photons per second, activation, free-imager background;
@@ -129,7 +130,7 @@ through it step by step.
   the lasers' sliders in Illumination. A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
   the adapter itself, so the two stay the same). The select shows the preset the settings are at, or "—" once a
   setting differs.
-- **Camera** (under the image, Instrument): the camera, the field of view (px) and the
+- **Camera** (Settings column, Instrument): the camera, the field of view (px) and the
   **Magnification** between the objective and the camera (`EmissionPath.EmissionMagnification`; a camera preset sets its
   own: 0.667 with the Kinetix22, 1.6 with the iXon), with the total magnification under it. The pixel size follows as in
   Micro-Manager, sensor pixel / (objective x magnification), 97.45 nm at 100x with the Kinetix22; typing a pixel size
@@ -143,7 +144,7 @@ through it step by step.
   name, or the keyboard focus is on it (a dotted underline marks a name with help). A setting that differs from its
   default carries a thin bar at its left and a ↺ that puts it back (a double-click on its name does the same); a
   group's title counts its changed settings and has a ↺ for them all. The search at the top looks through every
-  setting, here and in the column; **Changed only** beside it shows just the settings that differ from their defaults.
+  setting in the Settings column; **Changed only** beside it shows just the settings that differ from their defaults.
 - **Basic / Advanced / Expert** at the right end of the top bar (with the ☰ menu) choose which settings show, the same tiers as the Micro-Manager
   adapter's properties (each setting at the tier of the property that sets it, taken from the adapter when the
   configurations are made; a setting Micro-Manager does not have keeps the viewer's own level; Basic at first). A note says how many

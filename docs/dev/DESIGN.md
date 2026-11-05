@@ -121,10 +121,9 @@ Components use **semantic tokens only**. A primitive used in a component is a bu
 | Title bar | `#viewBar` | the name, the left view's switch (`#leftSeg`: Sample \| Microscope), links |
 | Left view | `#canvasHost` / `#scopeHost` | the world view with its HUD (View ▾) and legend; or the Microscope view's panels (`cli/scope_panels.*` describes them, `web/live/scope_panels.js` draws them) |
 | Live bar | `#liveBar` | Live, Snap, Record, fresh sample, the one-line status (`#lv_info`, full text in its tooltip), the settings level (`#levelSeg`), the settings-file icons, ☰ |
-| Search | `#sideTop` | one search over every setting, and "Changed only" |
 | Live image | `#liveView` | the camera image; the zoom inset; the recording's player |
-| **Acquire** column | `#liveCtl` | Focus, **Acquisition** (Micro-Manager presets: imaging mode, illumination, drift, quality; exposure), **Illumination** (light preset, laser powers, BFP position, pattern), Display, Performance (Expert) |
-| Settings | `#panel` | **Sample** (specimen first, then its structures), **Sample preparation** (labels, beads, custom dyes), **Instrument** (light path, objective and PSF, camera, image formation), About |
+| **Acquire** | `#liveCtl` (under the image, at its width) | Focus, **Acquisition** (Micro-Manager presets: imaging mode, illumination, drift, quality; exposure), **Illumination** (light preset, laser powers, BFP position, pattern), Display, Performance (Expert) |
+| **Settings** column | `#setCol` at the right edge: `#setColHead` (» folds it to the tab `#setTab`, `isc.ui.setShut`), the search `#sideTop` (one search over every setting, and "Changed only"; typing unfolds the column), `#panel` | **Sample** (specimen first, then its structures), **Sample preparation** (labels, beads, custom dyes), **Instrument** (light path, objective and PSF, camera, image formation), About |
 | Menu | `#menu` | the settings file (save and load), Appearance (theme, density, the animation pane), Settings (expand or collapse all, reset all, the hidden-changes note), Tools, About |
 
 A new setting goes in the region its job belongs to (rule 2), at the level its Micro-Manager property has (`tierOf`).
