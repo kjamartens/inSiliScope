@@ -329,24 +329,29 @@
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
   /* the stage: an XY pad (one step / 10 steps each way, as Micro-Manager's stage control) beside the focus (Z) */
   #lv_stageBox{--pad-b:24px}
-  #lv_stageBox .stage{display:flex;gap:var(--space-3);align-items:stretch}
-  /* the XY pad: the position (read only) in its middle */
-  #lv_stageBox .pad{display:grid;grid-template-columns:var(--pad-b) var(--pad-b) minmax(68px,auto) var(--pad-b) var(--pad-b);
-    grid-template-rows:var(--pad-b) var(--pad-b) minmax(var(--pad-b),auto) var(--pad-b) var(--pad-b);gap:2px;justify-items:center;align-items:center}
-  #lv_stageBox .xyOut{display:flex;flex-direction:column;font-size:var(--font-size-caption);line-height:1.25;color:var(--color-text-muted);
-    font-variant-numeric:tabular-nums;white-space:nowrap;cursor:default}
-  /* the focus wheel beside it: ▲, a thumbwheel (drag, scroll, click), ▼, the height */
-  #mFocus{display:flex;flex-direction:column;gap:2px;width:calc(2 * var(--pad-b))}
-  #mFocus>button{padding:0;height:var(--pad-b);font-size:var(--font-size-caption);line-height:1}
+  #lv_stageBox .stage{display:flex;gap:var(--space-3);align-items:center}
+  /* the joystick: a knob dragged from the middle sets the stage's speed and direction; it springs back */
+  #lv_stageBox .joy{--joy-d:60px;position:relative;flex:none;width:var(--joy-d);height:var(--joy-d);border-radius:50%;
+    background:var(--color-input-bg);border:1px solid var(--color-input-border);touch-action:none;cursor:grab}
+  #lv_stageBox .joy:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}
+  #lv_stageBox .joy.held{cursor:grabbing}
+  #lv_stageBox .ja{position:absolute;font-size:var(--font-size-caption);line-height:1;color:var(--color-text-muted);pointer-events:none}
+  #lv_stageBox .ja.n{top:3px;left:50%;transform:translateX(-50%)} #lv_stageBox .ja.s{bottom:3px;left:50%;transform:translateX(-50%)}
+  #lv_stageBox .ja.w{left:4px;top:50%;transform:translateY(-50%)} #lv_stageBox .ja.e{right:4px;top:50%;transform:translateY(-50%)}
+  #lv_stageBox .jk{position:absolute;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;
+    background:var(--color-border-strong);pointer-events:none;transition:transform var(--duration-fold) ease-out}
+  #lv_stageBox .joy.held .jk{transition:none;background:var(--color-accent)}
+  /* the focus wheel beside it (drag, scroll, click), as tall as the joystick; the positions as text */
+  #mFocus{display:flex;flex-direction:column;gap:2px;width:18px;height:60px}
+  #mFocus>button,#mFocus>#mZ{display:none}
   #mFocus .gM{display:none}
   #mKnob{flex:1 1 0;min-height:36px;width:100%;cursor:ns-resize;touch-action:none;border-radius:var(--radius-sm);
     background:var(--color-input-bg);border:1px solid var(--color-input-border)}
-  #mZ{font-size:var(--font-size-caption);color:var(--color-text);font-variant-numeric:tabular-nums;text-align:center;white-space:nowrap}
+  #lv_stageBox .xyOut{display:flex;flex-direction:column;font-size:var(--font-size-caption);line-height:1.35;color:var(--color-text-muted);
+    font-variant-numeric:tabular-nums;white-space:nowrap;cursor:default}
   /* the right-click box */
   #lv_stageBox .sf.popover{position:fixed;z-index:var(--z-popover);padding:var(--space-2) var(--space-3)}
   #lv_stageBox .sf.popover[hidden]{display:none}
-  #lv_stageBox button[data-dx]{padding:0;width:var(--pad-b);height:var(--pad-b);font-size:var(--font-size-caption);line-height:1}
-  #lv_stageBox button.big{letter-spacing:-3px}
   /* x, y and the two steps: a small table */
   #lv_stageBox .sf{display:grid;grid-template-columns:auto 58px auto;gap:2px 4px;align-items:center}
   #lv_stageBox .sf>div{display:contents}
@@ -531,7 +536,8 @@
   #mSwap{position:absolute;z-index:6;padding:0;background:none;border-color:transparent}
   #mStage:not(.worldBig)>#canvasHost :is(#hud,#legend,#animBar,#movie,#xzSplit,#loading),
   #mStage.worldBig>#liveView :is(#lv_idle,#lv_scale,#lv_zoomNav,#lv_play){display:none!important}
-  body.mobile #mFocus{flex-direction:row;align-items:center;gap:6px;width:auto;margin:2px 0 4px;font-size:var(--font-size-body)}
+  body.mobile #mFocus>button,body.mobile #mFocus>#mZ{display:revert}
+  body.mobile #mFocus{flex-direction:row;align-items:center;gap:6px;width:auto;height:auto;margin:2px 0 4px;font-size:var(--font-size-body)}
   body.mobile #mFocus>[data-dir="-1"]{order:-1}
   body.mobile #mFocus>[data-dir="1"]{order:5}
   body.mobile #mFocus .gM{display:inline} body.mobile #mFocus .gD{display:none}
@@ -540,7 +546,7 @@
   body.mobile #lv_stageBox #lv_zPop .zpos{display:none}
   /* on a phone the acquisition comes before the display */
   body.mobile #lv_cols{grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "acq" "disp" "illum" "instr"}
-  body.mobile #lv_stageBox .pad{display:none}
+  body.mobile #lv_stageBox :is(.joy,.xyOut){display:none}
   body.mobile #lv_stageBox .stage{flex-direction:column;align-items:stretch;gap:var(--space-1)}
   body.mobile #liveCtl .zrow{justify-content:flex-end}
   body.mobile #mFocus button{flex:none;width:40px;height:36px;padding:0;font-size:var(--font-size-icon);line-height:1;touch-action:manipulation}
@@ -698,8 +704,9 @@
         </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button></div>
       <div class="lc" id="lv_stageBox"><h5>Stage</h5>
         <div class="stage">
-          <div class="pad" role="group" aria-label="Move the stage in x and y"><button type="button" class="big" style="grid-area:1/3" data-dx="0" data-dy="-1" data-big="1" title="Move the field of view up by 10 steps (hold to repeat; right-click: the step)" aria-label="up, 10 steps">▲▲</button><button type="button" class="" style="grid-area:2/3" data-dx="0" data-dy="-1" data-big="0" title="Move the field of view up by one step (hold to repeat; right-click: the step)" aria-label="up, one step">▲</button><button type="button" class="big" style="grid-area:3/1" data-dx="-1" data-dy="0" data-big="1" title="Move the field of view left by 10 steps (hold to repeat; right-click: the step)" aria-label="left, 10 steps">◀◀</button><button type="button" class="" style="grid-area:3/2" data-dx="-1" data-dy="0" data-big="0" title="Move the field of view left by one step (hold to repeat; right-click: the step)" aria-label="left, one step">◀</button><button type="button" class="" style="grid-area:3/4" data-dx="1" data-dy="0" data-big="0" title="Move the field of view right by one step (hold to repeat; right-click: the step)" aria-label="right, one step">▶</button><button type="button" class="big" style="grid-area:3/5" data-dx="1" data-dy="0" data-big="1" title="Move the field of view right by 10 steps (hold to repeat; right-click: the step)" aria-label="right, 10 steps">▶▶</button><button type="button" class="" style="grid-area:4/3" data-dx="0" data-dy="1" data-big="0" title="Move the field of view down by one step (hold to repeat; right-click: the step)" aria-label="down, one step">▼</button><button type="button" class="big" style="grid-area:5/3" data-dx="0" data-dy="1" data-big="1" title="Move the field of view down by 10 steps (hold to repeat; right-click: the step)" aria-label="down, 10 steps">▼▼</button><div id="lv_xyOut" class="xyOut" style="grid-area:3/3" title="The stage position (the field of view&#39;s centre). Right-click the arrows to type a position or change the step."><span></span><span></span></div></div>
+          <div class="joy" id="lv_joy" tabindex="0" role="application" aria-label="Move the stage in x and y: drag the knob, or the arrow keys (Shift: 10 steps)" title="Drag the knob: the further from the middle, the faster the stage moves; a click near an edge moves one step; arrow keys too (Shift: 10 steps); right-click: the step and a typed position"><span class="ja n">▲</span><span class="ja s">▼</span><span class="ja w">◀</span><span class="ja e">▶</span><span class="jk"></span></div>
           <div id="mFocus" role="group" aria-label="Focus" title="Focus: drag or scroll the wheel (up = up), click above or below its line for one step; right-click: the step and a typed height"><button type="button" data-dir="1" aria-label="Focus up" title="Focus up one step (hold to repeat; right-click: the step)"><span class="gD">▲</span><span class="gM">+</span></button><canvas id="mKnob" aria-label="Focus wheel"></canvas><button type="button" data-dir="-1" aria-label="Focus down" title="Focus down one step (hold to repeat; right-click: the step)"><span class="gD">▼</span><span class="gM">−</span></button><span id="mZ"></span></div>
+          <div id="lv_xyOut" class="xyOut" title="The stage position (the field of view&#39;s centre) and the focus; right-click the joystick or the wheel to type one"><span></span><span></span><span id="lv_zOut"></span></div>
           <!-- right-click on the pad / the focus wheel: a typed position and the step (on a phone the Z step shows under the wheel) -->
           <div id="lv_xyPop" class="popover sf" hidden role="dialog" aria-label="Stage position and step">
             <div class="srow xyf"><label for="lv_x">x</label><input type="number" id="lv_x" step="any" title="The stage position (the field of view&#39;s centre), x"><span class="u">µm</span></div>

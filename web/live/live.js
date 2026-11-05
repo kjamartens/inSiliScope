@@ -101,9 +101,8 @@ const stepZ = dir => {
 $('lv_zStep').value = store.get('zStep', '0.1');
 syncZStep();
 $('lv_zStep').addEventListener('input', () => { store.set('zStep', $('lv_zStep').value); syncZStep(); });
-// The stage box (as Micro-Manager's stage control): the XY pad moves the field of view (the world view's centre) one
-// step or 10 steps each way, a button held down repeats; its middle shows the position. The focus wheel beside it
-// steps Z. A right-click on either opens a box with a typed position and the step.
+// The stage box: the joystick moves the field of view (the world view's centre), the focus wheel beside it steps Z,
+// the positions as text beside them. A right-click on either opens a box with a typed position and the step.
 const xyStep = () => Math.max(0.001, +$('lv_xyStep').value || 1);
 const moveXY = (dx, dy) => { view.cx += dx * xyStep(); view.cy += dy * xyStep(); noteInteraction(); requestDraw(); };
 $('lv_xyStep').value = store.get('xyStep', '1');
@@ -121,9 +120,65 @@ function holdRepeat(btn, act) {
   for (const e of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(e, stop);
   btn.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); act(); } });
 }
-for (const b of document.querySelectorAll('#lv_stageBox button[data-dx]')) {
-  const k = b.dataset.big === '1' ? 10 : 1;
-  holdRepeat(b, () => moveXY(k * +b.dataset.dx, k * +b.dataset.dy));
+// ---- the joystick: the knob dragged from the middle moves the stage at a speed growing with the square of its
+// distance (full: JOY_STEPS steps per second), in its direction (right = the field of view to the right, as ▶); let
+// go, it springs back and the stage stops. A click near an edge (no drag) moves one step that way (the diagonals
+// too); the arrow keys on it one step, with Shift 10.
+{
+  const JOY_STEPS = 12, joy = $('lv_joy'), knob = joy.querySelector('.jk');
+  let hold = null, raf = 0;
+  const vec = ev => {
+    const r = joy.getBoundingClientRect(), R = r.width / 2;
+    let x = (ev.clientX - r.left - R) / R, y = (ev.clientY - r.top - R) / R;
+    const d = Math.hypot(x, y);
+    if (d > 1) { x /= d; y /= d; }
+    return { x, y, R };
+  };
+  const tick = t => {
+    if (!hold) return;
+    const dt = Math.min(0.1, (t - hold.t) / 1000), d = Math.hypot(hold.x, hold.y);
+    hold.t = t;
+    if (d > 0.12) { const v = JOY_STEPS * d; moveXY(hold.x * v * dt, hold.y * v * dt); }   // speed JOY_STEPS d^2 (a dead zone in the middle)
+    raf = requestAnimationFrame(tick);
+  };
+  joy.addEventListener('pointerdown', ev => {
+    if (ev.button > 0) return;
+    ev.preventDefault();
+    joy.setPointerCapture(ev.pointerId);
+    const v = vec(ev);
+    hold = { x0: ev.clientX, y0: ev.clientY, x: 0, y: 0, moved: 0, click: v, t: performance.now() };
+    joy.classList.add('held');
+    raf = requestAnimationFrame(tick);
+  });
+  joy.addEventListener('pointermove', ev => {
+    if (!hold) return;
+    hold.moved = Math.max(hold.moved, Math.hypot(ev.clientX - hold.x0, ev.clientY - hold.y0));
+    if (hold.moved < 3) return;
+    // the knob follows the drag from where it was pressed
+    const r = joy.getBoundingClientRect(), R = r.width / 2;
+    let x = (ev.clientX - hold.x0) / R, y = (ev.clientY - hold.y0) / R;
+    const d = Math.hypot(x, y);
+    if (d > 1) { x /= d; y /= d; }
+    hold.x = x; hold.y = y;
+    knob.style.transform = `translate(${x * (R - 10)}px,${y * (R - 10)}px)`;
+  });
+  const end = () => {
+    if (!hold) return;
+    if (hold.moved < 3) {
+      const { x, y } = hold.click;
+      if (Math.hypot(x, y) > 0.4) moveXY(Math.abs(x) > 0.38 ? Math.sign(x) : 0, Math.abs(y) > 0.38 ? Math.sign(y) : 0);
+    }
+    hold = null; cancelAnimationFrame(raf);
+    joy.classList.remove('held'); knob.style.transform = '';
+  };
+  joy.addEventListener('pointerup', end); joy.addEventListener('pointercancel', end);
+  joy.addEventListener('keydown', ev => {
+    const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
+    if (!d) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const k = ev.shiftKey ? 10 : 1;
+    moveXY(k * d[0], k * d[1]);
+  });
 }
 {
   const fx = $('lv_x'), fy = $('lv_y'), fmt = v => String(+v.toFixed(2));
@@ -185,6 +240,7 @@ for (const b of document.querySelectorAll('#lv_stageBox button[data-dx]')) {
       g.fillRect(cx - dpr, 0, 2 * dpr, H);
     }
     $('mZ').textContent = z.toFixed(st < 0.01 ? 3 : 2) + ' µm';
+    $('lv_zOut').textContent = 'z ' + $('mZ').textContent;
   };
   let drag = null;
   kcv.addEventListener('pointerdown', ev => {
@@ -235,7 +291,7 @@ for (const b of document.querySelectorAll('#lv_stageBox button[data-dx]')) {
     const f = pop.querySelector('[id$=Step]');
     f.focus({ preventScroll: true }); f.select();
   };
-  document.querySelector('#lv_stageBox .pad').addEventListener('contextmenu', ev => open(pops[0], ev));
+  $('lv_joy').addEventListener('contextmenu', ev => open(pops[0], ev));
   $('mFocus').addEventListener('contextmenu', ev => open(pops[1], ev));
   document.addEventListener('pointerdown', ev => { if (!pops.some(p => !p.hidden && p.contains(ev.target))) close(); }, true);
   for (const p of pops) p.addEventListener('keydown', ev => { if (ev.key === 'Escape' || ev.key === 'Enter') { ev.preventDefault(); ev.target.dispatchEvent(new Event('change', { bubbles: true })); close(); } });

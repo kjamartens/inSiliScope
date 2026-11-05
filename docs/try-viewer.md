@@ -18,10 +18,11 @@ through it step by step.
   and at the right end one short line with the frame rate and the time per frame (its tooltip adds the image size,
   the pixel size and a recording's message), Basic / Advanced / Expert and ☰. The microscope is on the right: the
   live camera image, always square, and below it at the same width the controls you use while imaging: ▶ Live /
-  Snap / ● Record / ↺, the **Stage** (an XY pad as in Micro-Manager's stage control: ▲ ◀ ▶ ▼ move the field of
-  view by one step, the double arrows by 10, holding a button repeats; the position shows in its middle; beside it
-  the focus wheel: ▲ ▼ step, drag the wheel or scroll over it (up = focus up), or click above or below its line; a
-  right-click on the pad or the wheel opens a small box for the step and a typed position), the **Display** and the
+  Snap / ● Record / ↺, the **Stage** (a joystick: drag its knob and the field of view moves that way, faster the
+  further you pull, and stops when you let go; a click near its edge moves one step, the arrow keys on it too (Shift:
+  10 steps); beside it the focus wheel: drag it or scroll over it (up = focus up), or click above or below its line;
+  then x, y and z as text; a right-click on the joystick or the wheel opens a small box for the step and a typed
+  position), the **Display** and the
   **Acquisition** (imaging mode, illumination, drift, quality, exposure). Under a large image they sit side by side,
   so all of them stay in view; below them the lasers and the
   BFP position, and the instrument (**Light path**, **Objective & PSF**, **Camera**). The small ▲ on the image's lower
@@ -87,7 +88,7 @@ through it step by step.
   convert and bleach and widefield labels fade where you look, at the beam's own shape and depth, while a place you have
   not lit yet is fresh; moving away and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
-  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below). **Focus**: the Stage's focus wheel (▲ ▼, a drag, a scroll, a click), the arrows of the Z field in its right-click box (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
+  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below). **Focus**: the Stage's focus wheel (a drag, a scroll, a click), the arrows of the Z field in its right-click box (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
   mouse wheel over the image step it by the step size (beside it on the same line). **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
   range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
