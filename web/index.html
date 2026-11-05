@@ -32,10 +32,14 @@
      its controls under it, then the settings column). --live-w: the right panel's width with the settings open (33-72 %
      of the window, dragged; 50 % by default); the live image takes it less the column (--set-w, at least 200 px) at
      every fold, so folding the column (--set-cur) moves the image and gives the world view the room. */
-  #wrap{--set-w:340px;--set-cur:var(--set-w);display:grid;height:100vh;
+  #wrap{--set-w:340px;--set-cur:var(--set-w);display:grid;height:100vh;grid-template-rows:auto minmax(0,1fr);
     grid-template-columns:minmax(0,1fr) 6px calc(max(var(--live-w,50vw) - var(--set-w),200px) + var(--set-cur))}
   body:not(.mobile) #wrap.setShut{--set-cur:28px}
   #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+  /* the top strip: the title bar takes the room, the status bar (info, level, file icons, menu) sits at the right end */
+  #topBar{grid-column:1/-1;display:flex;align-items:stretch;min-width:0;background:var(--color-surface);border-bottom:1px solid var(--color-border)}
+  #topBar>#viewBar{flex:1 1 0;min-width:0;border-bottom:0}
+  #topBar>#liveBar{flex:0 1 auto;border-bottom:0}
   #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--color-surface);border-bottom:1px solid var(--color-border);font-size:var(--font-size-body);flex-wrap:wrap}
   #viewBar h1{font-size:var(--font-size-title);margin:0 6px 0 0;white-space:nowrap}
   #viewBar a.back{font-size:var(--font-size-caption);color:var(--color-link);text-decoration:none;white-space:nowrap}
@@ -96,15 +100,16 @@
      it the camera image (square) with the settings below it at the same width, and beside both the microscope's
      controls column (focus, configuration, illumination, display, performance), which scrolls, down to the bottom. */
   #liveBar{position:relative;display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--color-surface);border-bottom:1px solid var(--color-border);font-size:var(--font-size-body);min-width:0}
-  #liveBar>button,#lv_recWrap>button{padding:3px 8px;white-space:nowrap}
+  #liveBar>button,#lv_acts>button,#lv_recWrap>button{padding:3px 8px;white-space:nowrap}
+  /* Live, Snap, Record, fresh: a row of their own in the strip under the image (in the bar on a phone) */
+  #lv_acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:var(--density-pad)}
+  #lv_acts>*{flex:none}
+  #liveBar>#lv_acts{margin:0;flex-wrap:nowrap}
+  /* the strip is at the window's foot: the Record box opens upwards there */
+  #lv_cols #lv_recPop{top:auto;bottom:calc(100% + 4px)}
   /* only the info line gives way (it takes the room left, from a zero basis): a long text or a busy marker never
      squeezes or moves the buttons; Record keeps one width as its text turns into the frame count */
   #liveBar>:not(#lv_info,#lv_busy){flex:none}
-  #liveBar{container-type:inline-size}
-  /* a narrow panel: the settings-file icons go (☰ has Save / Load) so the speed keeps its room */
-  @container (max-width:600px){#setIcons{display:none!important} #liveBar #levelSeg button{padding:3px 5px}}
-  /* the narrowest (the settings folded beside a small image): the buttons' sides tighter */
-  @container (max-width:320px){#liveBar>button,#lv_recWrap>button{padding-left:5px;padding-right:5px}}
   #lv_rec{min-width:66px;font-variant-numeric:tabular-nums}
   /* Live: clearly a button to press (red outline, red play triangle); red when on; the same size as Stop */
   #lv_live{width:74px;border:1px solid var(--color-status-live)!important;font-weight:600}
@@ -133,14 +138,22 @@
   #setTab:hover .chev,#setTab:focus-visible .chev{color:var(--color-accent-on)}
   body:not(.mobile) #wrap.setShut #setCol>:not(#setStrip){display:none}
   body:not(.mobile) #wrap.setShut #setStrip{display:flex}
-  /* folded, the settings level goes with the settings (the bar then fits beside the tab at any width) */
-  body:not(.mobile) #wrap.setShut #levelSeg{display:none}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--color-border)}
   #sideMain>#liveCtl{flex:1}
   /* under the image: the acquisition controls | the instrument, two columns when there is room for them */
   #liveCtl{container-type:inline-size}
-  #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-2) var(--space-5);align-items:start}
-  @container (min-width:520px){#lv_cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+  /* the boxes by the strip's width: one column (Live / Snap / Record first); from 520 px the buttons and the stage on
+     rows of their own, the display and the acquisition beside each other; from 780 px stage | buttons over display |
+     acquisition side by side (all in view under the largest image), the illumination and the instrument below */
+  #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "disp" "acq" "illum" "instr";
+    gap:var(--space-3) var(--space-5);align-items:start}
+  #lv_acts{grid-area:acts} #lv_stageBox{grid-area:stage} #lv_dispBox{grid-area:disp} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
+  #lv_cols>.lc{border-top:0}
+  /* tight at the top: under the largest image the strip is ~170 px high */
+  #lv_cols>.lc,#lv_cols>#lv_acts{padding-top:var(--space-2)}
+  #sideMain>#liveCtl{padding-top:var(--space-1)}
+  @container (min-width:520px){#lv_cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:"acts acts" "stage stage" "disp acq" "illum instr"}}
+  @container (min-width:780px){#lv_cols{grid-template-columns:auto minmax(232px,.8fr) minmax(240px,1.2fr);grid-template-areas:"stage acts acq" "stage disp acq" "illum illum instr"}}
   .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
   /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
      pointer leaves them for 0.1 s) */
@@ -314,6 +327,20 @@
   #lv_recPop .recrow[hidden]{display:none}
   #lv_recPop .recrow button{margin-left:auto;padding:3px 10px}
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
+  /* the stage: an XY pad (one step / 10 steps each way, as Micro-Manager's stage control) beside the focus (Z) */
+  #lv_stageBox{--pad-b:24px}
+  #lv_stageBox .stage{display:flex;gap:var(--space-4);align-items:flex-start;flex-wrap:wrap}
+  #lv_stageBox .pad{display:grid;grid-template-columns:repeat(5,var(--pad-b));grid-template-rows:repeat(5,var(--pad-b));gap:2px}
+  #lv_stageBox button[data-dx],#lv_stageBox button[data-dz]{padding:0;width:var(--pad-b);height:var(--pad-b);font-size:var(--font-size-caption);line-height:1}
+  #lv_stageBox button.big,#lv_stageBox button[data-dz="10"],#lv_stageBox button[data-dz="-10"]{letter-spacing:-3px}
+  #lv_stageBox .zc{display:flex;flex-direction:column;align-items:center;gap:2px}
+  #lv_stageBox .zc .zrow{margin:0}
+  #lv_stageBox .zc #lv_z{width:64px}
+  /* x, y and the two steps: a small table */
+  #lv_stageBox .sf{display:grid;grid-template-columns:auto 58px auto;gap:2px 4px;align-items:center}
+  #lv_stageBox .sf>div{display:contents}
+  #lv_stageBox .sf label{color:var(--color-text-muted);text-align:right;white-space:nowrap}
+  #lv_stageBox .sf input[type=number]{width:58px}
   #liveCtl .zrow input[type=number]{width:46px}
   #liveCtl .zrow #lv_z{width:70px}
   #liveCtl .zrow label{margin-left:4px}
@@ -494,13 +521,17 @@
   #mStage.worldBig>#liveView :is(#lv_idle,#lv_scale,#lv_zoomNav,#lv_play){display:none!important}
   #mFocus{display:none}
   body.mobile #mFocus{display:flex;align-items:center;gap:6px;margin:2px 0 4px;font-size:var(--font-size-body)}
-  body.mobile #lv_z,body.mobile #lv_z+.u{display:none}   /* the knob instead (its readout shows the height) */
+  body.mobile #lv_z,body.mobile #lv_z+.u,body.mobile #lv_stageBox :is(.pad,.xyf,.zc>button){display:none}
+  body.mobile #lv_stageBox .stage{flex-direction:column;align-items:stretch;gap:var(--space-1)}
+  body.mobile #lv_stageBox .zc{align-items:stretch}
+  body.mobile #lv_stageBox .sf{display:block}
+  body.mobile #lv_stageBox .sf>.zstep{display:flex;justify-content:flex-end}   /* the knob instead (its readout shows the height) */
   body.mobile #liveCtl .zrow{justify-content:flex-end}
   body.mobile #mFocus button{flex:none;width:40px;height:36px;padding:0;font-size:var(--font-size-icon);line-height:1;touch-action:manipulation}
   #mKnob{flex:1 1 0;min-width:0;height:34px;cursor:ew-resize;touch-action:none}
   #mZ{flex:none;min-width:58px;text-align:right;color:var(--color-text);font-variant-numeric:tabular-nums}
   body.mobile #liveBar{flex-wrap:wrap;row-gap:4px;border-top:1px solid var(--color-border)}
-  body.mobile #liveBar>button,body.mobile #lv_recWrap>button{padding:6px 10px}
+  body.mobile #liveBar>button,body.mobile #lv_acts>button,body.mobile #lv_recWrap>button{padding:6px 10px}
   body.mobile #lv_live{width:84px}
   body.mobile #menuBtn{order:1;margin-left:auto;font-size:var(--font-size-icon)}
   body.mobile #liveBar::after{content:'';order:1;flex-basis:100%;height:0}
@@ -589,7 +620,8 @@
 </head>
 <body>
 <div id="wrap">
-  <div id="worldCol">
+  <!-- One strip across the window: the title bar (left) and the status bar (right) -->
+  <div id="topBar">
   <div id="viewBar">
     <h1>inSiliScope</h1>
     <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; the live camera on the right starts by itself (■ Stop stops it).">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt</span>
@@ -598,6 +630,15 @@
     <a id="mmLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="micro-manager" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>
+    <div id="liveBar">
+      <span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span>
+      <div id="lv_info"></div>
+      <div id="levelSeg" class="seg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
+      <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
+      <div id="menu" class="popover" role="menu"></div>
+    </div>
+  </div>
+  <div id="worldCol">
   <div id="canvasHost" class="isc-dark">
     <canvas id="cvBase"></canvas>
     <canvas id="cvGl"></canvas>
@@ -622,22 +663,6 @@
   <div id="side">
     <!-- The live microscope: its bar (level with the View bar), the camera image at the stage position (= the world
          view's centre) with the settings under it, and the controls column beside them. -->
-    <div id="liveBar">
-      <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button>
-      <button id="lv_snap" title="Snap: one frame">Snap</button>
-      <span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header), or with its settings file and ground truth as one .zip; asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
-        <div id="lv_recPop" class="popover" hidden role="dialog" aria-label="Record">
-          <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
-          <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
-          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
-        </div></span>
-      <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
-      <span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span>
-      <div id="lv_info"></div>
-      <div id="levelSeg" class="seg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
-      <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
-      <div id="menu" class="popover" role="menu"></div>
-    </div>
     <div id="sideBody">
     <div id="sideMain">
       <div id="liveView" class="isc-dark">
@@ -649,19 +674,33 @@
       </div>
     <button id="ctlUp" type="button" title="Spread these controls over the image (a click, or rest the pointer here; they fold back when the pointer leaves them)" aria-label="Spread the controls over the image" aria-expanded="false"><span aria-hidden="true">▲</span></button>
     <div id="liveCtl"><div id="lv_cols">
-      <div class="lvCol" id="lv_colAcq">
-        <div class="lc"><h5>Focus (Z stage)</h5>
-          <div class="zrow"><input type="number" id="lv_z" step="0.1" title="The focal plane's height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span>
-            <label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
+      <div id="lv_acts"><button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button><button id="lv_snap" title="Snap: one frame">Snap</button><span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header), or with its settings file and ground truth as one .zip; asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
+        <div id="lv_recPop" class="popover" hidden role="dialog" aria-label="Record">
+          <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
+          <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
+          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
+        </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button></div>
+      <div class="lc" id="lv_stageBox"><h5>Stage</h5>
+        <div class="stage">
+          <div class="pad" role="group" aria-label="Move the stage in x and y"><button type="button" class="big" style="grid-area:1/3" data-dx="0" data-dy="-1" data-big="1" title="Move the field of view up by 10 steps (hold to repeat)" aria-label="up, 10 steps">▲▲</button><button type="button" class="" style="grid-area:2/3" data-dx="0" data-dy="-1" data-big="0" title="Move the field of view up by one step (hold to repeat)" aria-label="up, one step">▲</button><button type="button" class="big" style="grid-area:3/1" data-dx="-1" data-dy="0" data-big="1" title="Move the field of view left by 10 steps (hold to repeat)" aria-label="left, 10 steps">◀◀</button><button type="button" class="" style="grid-area:3/2" data-dx="-1" data-dy="0" data-big="0" title="Move the field of view left by one step (hold to repeat)" aria-label="left, one step">◀</button><button type="button" class="" style="grid-area:3/4" data-dx="1" data-dy="0" data-big="0" title="Move the field of view right by one step (hold to repeat)" aria-label="right, one step">▶</button><button type="button" class="big" style="grid-area:3/5" data-dx="1" data-dy="0" data-big="1" title="Move the field of view right by 10 steps (hold to repeat)" aria-label="right, 10 steps">▶▶</button><button type="button" class="" style="grid-area:4/3" data-dx="0" data-dy="1" data-big="0" title="Move the field of view down by one step (hold to repeat)" aria-label="down, one step">▼</button><button type="button" class="big" style="grid-area:5/3" data-dx="0" data-dy="1" data-big="1" title="Move the field of view down by 10 steps (hold to repeat)" aria-label="down, 10 steps">▼▼</button></div>
+          <div class="zc"><button type="button" data-dz="10" title="Focus up by 10 steps (hold to repeat)" aria-label="Focus up, 10 steps">▲▲</button><button type="button" data-dz="1" title="Focus up by one step (hold to repeat)" aria-label="Focus up, one step">▲</button><div class="zrow"><input type="number" id="lv_z" step="0.1" title="The focal plane&#39;s height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span></div><button type="button" data-dz="-1" title="Focus down by one step (hold to repeat)" aria-label="Focus down, one step">▼</button><button type="button" data-dz="-10" title="Focus down by 10 steps (hold to repeat)" aria-label="Focus down, 10 steps">▼▼</button></div>
+          <div class="sf">
+            <div class="srow xyf"><label for="lv_x">x</label><input type="number" id="lv_x" step="any" title="The stage position (the field of view&#39;s centre), x"><span class="u">µm</span></div>
+            <div class="srow xyf"><label for="lv_y">y</label><input type="number" id="lv_y" step="any" title="The stage position (the field of view&#39;s centre), y"><span class="u">µm</span></div>
+            <div class="srow xyf"><label for="lv_xyStep">XY step</label><input type="number" id="lv_xyStep" min="0.01" step="0.5" value="1"><span class="u">µm</span></div>
+            <div class="zrow zstep"><label for="lv_zStep">Z step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
+          </div>
         </div>
-        <div class="lc"><h5>Acquisition</h5><div class="cfg" id="cfgPanel"></div>
-          <div class="cfg" id="lv_expRow"><span class="lab"><label for="lv_exp" data-tip="The camera's exposure time per frame; live frames come at most once per exposure. <code>Camera.Exposure</code>">Exposure</label></span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
-        </div>
+      </div>
+      <div class="lc" id="lv_dispBox"><h5>Display</h5>
+        <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
+        <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
+      </div>
+      <div class="lc" id="lv_acqBox"><h5>Acquisition</h5><div class="cfg" id="cfgPanel"></div>
+        <div class="cfg" id="lv_expRow"><span class="lab"><label for="lv_exp" data-tip="The camera's exposure time per frame; live frames come at most once per exposure. <code>Camera.Exposure</code>">Exposure</label></span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
+      </div>
+      <div class="lvCol" id="lv_colIllum">
         <div class="lc" id="lv_illumHost"></div>
-        <div class="lc"><h5>Display</h5>
-          <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
-          <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
-        </div>
       </div>
       <div class="lvCol" id="lv_instrHost"></div>
     </div></div>
@@ -7338,7 +7377,7 @@ const scopeView = (() => {
     refresh(0);
   }
   // the panels start under the title bar (its height can change with the window)
-  function place() { col.style.setProperty('--scope-top', document.getElementById('viewBar').offsetHeight + 'px'); }
+  function place() { const vb = document.getElementById('viewBar'); col.style.setProperty('--scope-top', (col.contains(vb) ? vb.offsetHeight : 0) + 'px'); }
   function set(v) {
     on = !!v;
     col.classList.toggle('scope', on);

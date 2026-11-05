@@ -99,9 +99,21 @@ try {
     `the settings fold to a ${shut.setW.toFixed(0)} px tab (the image stays ${shut.w.toFixed(0)} px, moved ${(shut.liveLeft - sq.liveLeft).toFixed(0)} px right, the bar fits: overflow ${shut.barOver} px) and open again`);
   // where the groups sit: the instrument under the image beside the acquisition controls, the simulation's in the settings
   const where = await page.evaluate(() => Object.fromEntries(['illum', 'lightpath', 'objective', 'camera', 'perf', 'formation']
-    .map(g => [g, document.querySelector(`details[data-group=${g}]`).closest('#lv_colAcq,#lv_instrHost,#panel').id])));
-  check(where.illum === 'lv_colAcq' && where.lightpath === 'lv_instrHost' && where.objective === 'lv_instrHost' && where.camera === 'lv_instrHost'
+    .map(g => [g, document.querySelector(`details[data-group=${g}]`).closest('#lv_colIllum,#lv_instrHost,#panel').id])));
+  check(where.illum === 'lv_colIllum' && where.lightpath === 'lv_instrHost' && where.objective === 'lv_instrHost' && where.camera === 'lv_instrHost'
     && where.perf === 'panel' && where.formation === 'panel', `the groups' places ${JSON.stringify(where)}`);
+  // the stage box: the XY pad moves the field of view by the step (10 steps on a double arrow), the focus arrows step Z
+  const st = await page.evaluate(() => {
+    const press = sel => { const b = document.querySelector(sel); b.dispatchEvent(new PointerEvent('pointerdown', { button: 0 })); b.dispatchEvent(new PointerEvent('pointerup', { button: 0 })); };
+    const x0 = view.cx, y0 = view.cy, z0 = +document.getElementById('mv_z').value;
+    press('#lv_stageBox button[data-dx="1"][data-big="0"]'); press('#lv_stageBox button[data-dy="1"][data-big="1"]'); press('#lv_stageBox button[data-dz="-10"]');
+    const r = { dx: +(view.cx - x0).toFixed(6), dy: +(view.cy - y0).toFixed(6), dz: +(+document.getElementById('mv_z').value - z0).toFixed(6),
+      order: [...document.querySelectorAll('#lv_cols .lc>h5')].map(h => h.textContent).slice(0, 3).join(',') };
+    view.cx = x0; view.cy = y0; requestDraw();
+    const z = document.getElementById('mv_z'); z.value = z0; z.dispatchEvent(new Event('input', { bubbles: true })); z.dispatchEvent(new Event('change', { bubbles: true }));
+    return r; });
+  check(st.dx === 1 && st.dy === 10 && st.dz === -1 && st.order === 'Stage,Display,Acquisition',
+    `the stage pad: right +${st.dx} µm, down ×10 +${st.dy} µm, focus ▼▼ ${st.dz} µm (steps 1 µm / 0.1 µm); the boxes ${st.order}`);
   // the handle spreads the controls over the image's lower 75 %; they fold back 0.1 s after the pointer leaves them
   await page.click('#ctlUp');
   await page.waitForTimeout(200);   // (the 0.1 s slide)

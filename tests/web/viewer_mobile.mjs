@@ -119,8 +119,8 @@ try {
   const back = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect();
     return { mobile: document.body.classList.contains('mobile'), top: !!document.getElementById('mTop'),
       host: document.getElementById('canvasHost').parentElement.id, live: document.getElementById('liveView').parentElement.id,
-      bar: document.getElementById('liveBar').parentElement.id, barFirst: document.getElementById('side').firstElementChild.id, sq: Math.abs(v.width - v.height) < 1 && v.width > 200 }; });
-  check(!back.mobile && !back.top && back.host === 'worldCol' && back.live === 'sideMain' && back.bar === 'side' && back.barFirst === 'liveBar' && back.sq,
+      bar: document.getElementById('liveBar').parentElement.id, barFirst: document.getElementById('side').firstElementChild.id, acts: document.getElementById('lv_acts').parentElement.id, sq: Math.abs(v.width - v.height) < 1 && v.width > 200 }; });
+  check(!back.mobile && !back.top && back.host === 'worldCol' && back.live === 'sideMain' && back.bar === 'topBar' && back.barFirst === 'sideBody' && back.acts === 'lv_cols' && back.sq,
     `a wide window puts every node back ${JSON.stringify(back)}`);
   check(!errors.length, 'no page errors' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));
 } catch (e) { fail++; console.log('FAIL ', e.message); }

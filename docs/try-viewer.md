@@ -14,18 +14,21 @@ through it step by step.
   a drag then pans within the image instead of moving the stage, and a click on the inset shows the whole image again. Its display
   options (layers, look, tilt and rotation, z clip) are under **View ▾** in the info box at its top left, which lists
   one item per line where the view is (seed, centre, scale, tilt) and what is still loading; View ▾ opens the options
-  in the same box. The microscope is on the right: its bar (level with the title bar) holds ▶ Live / Snap / ● Record /
-  ↺ and one short line with the frame rate and the time per frame (its tooltip adds the image size, the pixel size
-  and a recording's message); under it the live camera image, always square, and below it at the same width the
-  microscope: the controls you use while imaging (the focus, the acquisition (imaging mode, illumination, drift,
-  quality, exposure), the lasers and the BFP position, the display range) and beside them, in a second column when
-  there is room, the instrument (**Light path**, **Objective & PSF**, **Camera**). The small ▲ on the image's lower
+  in the same box. One bar runs across the top of the window: the name and the Sample | Microscope switch at the left,
+  and at the right end one short line with the frame rate and the time per frame (its tooltip adds the image size,
+  the pixel size and a recording's message), Basic / Advanced / Expert and ☰. The microscope is on the right: the
+  live camera image, always square, and below it at the same width the controls you use while imaging: ▶ Live /
+  Snap / ● Record / ↺, the **Stage** (an XY pad as in Micro-Manager's stage control: ▲ ◀ ▶ ▼ move the field of
+  view by one step, the double arrows by 10; the focus's ▲ ▼ beside it alike; holding a button repeats; x, y and the
+  two steps as numbers), the **Display** and the **Acquisition** (imaging mode, illumination, drift, quality,
+  exposure). Under a large image they sit side by side, so all of them stay in view; below them the lasers and the
+  BFP position, and the instrument (**Light path**, **Objective & PSF**, **Camera**). The small ▲ on the image's lower
   edge (a click, or the pointer resting on it) spreads these controls over the lower three quarters of the image; they fold back a tenth of a second after the
   pointer leaves them (or on ▼ or Esc). At the right edge, down to the bottom of the window, the **Settings** column:
   the sample, its preparation and, from the Advanced level, the **Simulation** (performance, image formation), with
   a search box on top. Its
   » folds it to a narrow **« Show settings** tab at the right edge (the image keeps its size and moves right; the Sample or
-  Microscope view gets the room; Basic / Advanced / Expert hide with the settings; remembered in your browser), and a click
+  Microscope view gets the room; remembered in your browser), and a click
   on the tab, or typing a search, opens it again. The search box highlights every line that matches (at the current
   level), opens their groups and hides the rest of the settings. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 72 % by dragging; remembered in your
@@ -82,7 +85,7 @@ through it step by step.
   convert and bleach and widefield labels fade where you look, at the beam's own shape and depth, while a place you have
   not lit yet is fresh; moving away and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
-  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below). **Focus**: the arrows of the Z field (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
+  parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below). **Focus**: the Stage's ▲ ▼ (one step, ▲▲ ▼▼ 10 steps), the arrows of the Z field (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
   mouse wheel over the image step it by the step size (beside it on the same line). **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
   range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display

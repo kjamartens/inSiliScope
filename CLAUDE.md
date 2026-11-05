@@ -253,14 +253,17 @@ that finishes them.
   in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
-  layout (2026-10-14): a bar `#liveBar` level with the title bar (Live / Snap / Record / fresh, the one-line info: fps
+  layout (2026-10-14; 2026-11-05: `#liveBar` sits at the right end of `#topBar`, one bar across the window with the title
+  bar `#viewBar`; Live / Snap / Record / fresh moved under the image, `#lv_acts`): the one-line info: fps
   and ms/frame only, the sizes, pattern state and recording message in its tooltip (2026-11-03; only it gives way,
-  `flex:none` on the rest, a narrow bar drops `#setIcons`); at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
+  `flex:none` on the rest); at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
   reach the column's boxes; View ▾ sits in the world view's info box `#hud`, one item per line, the View options opening in
   it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the controls `#liveCtl` under it at its width to the bottom (`#sideMain`)
-  = **Acquire** (2026-11-05, docs/dev/DESIGN.md "Regions": focus, Acquisition (the MM
+  = **Acquire** (2026-11-05, docs/dev/DESIGN.md "Regions": Live / Snap / Record `#lv_acts` (in the bar on a phone), the Stage `#lv_stageBox` (an XY pad
+  moving `view.cx/cy` by `lv_xyStep`, ×10 on the double arrows, held = repeat; the focus's arrows; x/y fields), Display, focus, Acquisition (the MM
   presets, exposure), the settings group Illumination via `host: 'lv_illumHost'`, a box hidden when none of its rows
-  shows at the level, display) in `#lv_colAcq` and beside it the instrument's groups Light path, Objective & PSF, Camera
+  shows at the level, display) in a grid `#lv_cols` by the strip's width (from 780 px Stage | buttons over Display | Acquisition in one row) and
+  the instrument's groups Light path, Objective & PSF, Camera
   (`host: 'lv_instrHost'`; two columns `#lv_cols` from 520 px; the handle `#ctlUp` (a click or 0.3 s of hover) spreads them over the image's lower
   75 %, `#sideMain.ctlUp`, folded back 0.1 s after the pointer leaves; a 0.1 s slide each way, token `duration.fold`), and at the right edge the settings column `#setCol` (2026-11-05: `#panel` under the
   search `#sideTop` with "Changed only" `#setChanged`; its » `#setFold` folds it to a vertical tab `#setTab`, kept in

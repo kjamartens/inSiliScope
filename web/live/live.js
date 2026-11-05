@@ -101,6 +101,43 @@ const stepZ = dir => {
 $('lv_zStep').value = store.get('zStep', '0.1');
 syncZStep();
 $('lv_zStep').addEventListener('input', () => { store.set('zStep', $('lv_zStep').value); syncZStep(); });
+// The stage box (as Micro-Manager's stage control): the XY pad moves the field of view (the world view's centre) one
+// step or 10 steps each way, the focus arrows step Z the same; a button held down repeats. x and y show the stage
+// position (µm) and take a typed one.
+const xyStep = () => Math.max(0.001, +$('lv_xyStep').value || 1);
+const moveXY = (dx, dy) => { view.cx += dx * xyStep(); view.cy += dy * xyStep(); noteInteraction(); requestDraw(); };
+$('lv_xyStep').value = store.get('xyStep', '1');
+$('lv_xyStep').addEventListener('input', () => store.set('xyStep', $('lv_xyStep').value));
+function holdRepeat(btn, act) {
+  let t = 0;
+  const stop = () => clearTimeout(t);
+  btn.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0) return;
+    act();
+    const again = ms => { t = setTimeout(() => { act(); again(90); }, ms); };
+    again(400);
+  });
+  for (const e of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(e, stop);
+  btn.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); act(); } });
+}
+for (const b of document.querySelectorAll('#lv_stageBox button[data-dx]')) {
+  const k = b.dataset.big === '1' ? 10 : 1;
+  holdRepeat(b, () => moveXY(k * +b.dataset.dx, k * +b.dataset.dy));
+}
+for (const b of document.querySelectorAll('#lv_stageBox button[data-dz]')) holdRepeat(b, () => stepZ(+b.dataset.dz));
+{
+  const fx = $('lv_x'), fy = $('lv_y'), fmt = v => String(+v.toFixed(2));
+  const show = () => {
+    if (document.activeElement !== fx && fx.value !== fmt(view.cx)) fx.value = fmt(view.cx);
+    if (document.activeElement !== fy && fy.value !== fmt(view.cy)) fy.value = fmt(view.cy);
+  };
+  for (const [f, k] of [[fx, 'cx'], [fy, 'cy']]) f.addEventListener('change', () => {
+    if (f.value === '' || !isFinite(+f.value)) { show(); return; }
+    view[k] = +f.value; noteInteraction(); requestDraw();
+  });
+  show();
+  setInterval(() => { if (!document.hidden) show(); }, 200);
+}
 // Up/Down arrows over the live image (or PageUp/PageDown anywhere outside an input) step the focus.
 document.addEventListener('keydown', ev => {
   const t = ev.target, inField = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
@@ -504,6 +541,7 @@ const FOCUS_PX_PER_STEP = 16;
 // Reset all to defaults (the settings menu): the column's own controls too (the mirrored ones follow their settings)
 window.addEventListener('isc-reset', () => {
   $('lv_zStep').value = '0.1'; $('lv_zStep').dispatchEvent(new Event('input'));
+  $('lv_xyStep').value = '1'; $('lv_xyStep').dispatchEvent(new Event('input'));
   $('lv_auto').checked = true; $('lv_auto').dispatchEvent(new Event('change'));
   setLiveFrac(0.5, true); resizeCanvas(); drawScale();   // the panel's width (the splitter) too
 });

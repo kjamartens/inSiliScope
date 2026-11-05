@@ -88,13 +88,17 @@ for (const e of ['input', 'change']) document.addEventListener(e, ev => { if (/^
 window.addEventListener('resize', drawKnob);
 window.addEventListener('load', drawKnob);
 
-const moved = ['canvasHost', 'liveView', 'liveBar'].map(id => ({ el: $(id), parent: null, next: null }));
+// (Live / Snap / Record sit in the Acquisition box on a wide window, in the sticky bar here)
+const moved = ['canvasHost', 'liveView', 'liveBar', 'lv_acts'].map(id => ({ el: $(id), parent: null, next: null }));
+const stageTitle = $('lv_stageBox').querySelector(':scope > h5');
 let on = false;
 function enter() {
   for (const m of moved) { m.parent = m.el.parentNode; m.next = m.el.nextSibling; }
-  const [host, live, bar] = moved.map(m => m.el);
+  const [host, live, bar, acts] = moved.map(m => m.el);
   stage.prepend(live, host);
+  bar.prepend(acts);
   top.append(bar);
+  stageTitle.textContent = 'Focus (Z stage)';   // (no XY pad on a phone: a drag moves the stage)
   $('side').prepend(top);
   $('lv_z').closest('.zrow').before(knob);   // in the Focus box, in place of the focus field
 }
@@ -102,6 +106,7 @@ function leave() {
   for (const m of moved.slice().reverse()) m.parent.insertBefore(m.el, m.next);
   top.remove();
   knob.remove();
+  stageTitle.textContent = 'Stage';
 }
 function showBig(which) {
   stage.classList.toggle('worldBig', which === 'world');
