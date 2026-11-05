@@ -96,8 +96,8 @@ through it step by step.
   in its title (on by default) sets the range from each frame (0.1-99.9 % of the pixels); a drag turns it off. **Setup**
   (beside the Display): a button per laser line (lit in the line's colour when on; a click turns it off, or on again at
   its last power; at the Basic level the lines the labels use, and any line that is on), the setup in four rows
-  (the labels' modes, the light's regime (Epi, HILO, or TIRF with its depth; a HILO beam reaching over 100 µm deep
-  counts as Epi), the NA and pixel size, the exposure; each row's tooltip
+  (the labels' modes, the light's regime (Epi, HILO or TIRF; a HILO beam reaching over 100 µm deep counts as Epi; the depth in its
+  tooltip), the NA and pixel size, the exposure; each row's tooltip
   has the details), and a line that shows only when something looks off, the most serious first; a click on it lists
   each with what to do. It checks: live failed; all lasers off, or none reaching the sample; nothing labelled; a label
   no laser excites, or only weakly; a label whose light the filters block; saturated pixels; the focus below the

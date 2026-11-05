@@ -124,7 +124,7 @@ function drawFacts() {
     if (ex) {
       // (HILO whose light reaches over 100 µm deep -- a beam close to the axis -- reads as Epi: it lights the whole sample)
       const regime = ex.regime === 'HILO' && depth > 100000 ? 'Epi' : ex.regime;
-      light = regime + (regime === 'TIRF' && depth > 0 ? ' · ' + fmtUm(depth) : '');   // (HILO's depth: in the tooltip)
+      light = regime;   // (the depth: in the tooltip)
       const pat = ex.pattern && ex.pattern.type && ex.pattern.type !== 'Off' ? ex.pattern.type : '';
       if (pat) light += ' · ' + pat;
       tip = `${regime === ex.regime ? regime : 'Epi (technically HILO)'} (BFP position ${(+ex.u).toFixed(2)})` + (depth > 0 ? `; the light reaches ${fmtUm(depth)} into the sample` : '') + (pat ? `; pattern ${pat}` : '') +
