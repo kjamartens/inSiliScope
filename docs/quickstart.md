@@ -22,7 +22,7 @@ A first tour, about five minutes:
    bleach where you look: move away and back and the place you imaged is dimmer than its fresh neighbours.
 3. **Focus and look closer.** The **Z** field (or Page Up / Page Down, or the wheel over the live image) moves the
    focus through the cells; the side view on the left shows the focal plane. **Ctrl + wheel** zooms into the live
-   image; **Display** sets the contrast on an upright level bar (the frame's histogram) beside the stage; **Setup** left of the
+   image; **Display** sets the contrast on an upright level bar (the frame's histogram) beside the stage; **Info** left of the
    stage turns lasers on and off, sums up the setup and warns when something looks off (click the warning for what to do). On a phone, the live image comes first with the sample as
    an inset (tap it to swap them); two fingers up or down on the live image focus, a pinch zooms, and the **Focus** box
    has a ruler to swipe ([the viewer reference](try-viewer.md) has every gesture).
@@ -70,8 +70,8 @@ older builds refuse the DLL.
       (`CellField` / `Nanorulers` / `Beads`, the `SampleHolder` position);
     - `Illumination` (`Epi` / `HILO` / `TIRF`: where the laser spot sits in the objective's back focal plane,
       `Lasers.BfpPosition` 0 / 0.95 / 1.03) and `BfpPosition` (the same as an editable field, 0 = epi, 1 = the critical
-      angle). The channels' light presets set it too: the DNA-PAINT channel HILO, the nanorulers TIRF, the others epi
-      ([Illumination geometry](physics/dyes-and-light-path.md#illumination-geometry)); `Lasers.Pattern` (a property,
+      angle). A channel, dye, mode or specimen leaves it where it is; `Lasers.Preset` picked by name sets it too (the
+      DNA-PAINT presets HILO, on the nanorulers TIRF, the others epi) ([Illumination geometry](physics/dyes-and-light-path.md#illumination-geometry)); `Lasers.Pattern` (a property,
       not a group) makes the light several coherent beams at that radius for structured illumination (SIM2D, SIM3D,
       the lattices), stepping with every frame an acquisition takes
       ([Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim));

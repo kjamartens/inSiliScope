@@ -42,8 +42,10 @@ GAUSS = [("Renderer", "PsfModel", "Gaussian")]
 
 
 def label(mode, dye):
-    """The microtubules' label: their mode, then the dye (Typical or a dye with data in that mode)."""
-    return [("CellField", "Microtubules_Mode", mode), ("CellField", "Microtubules_Label", dye)]
+    """The microtubules' label: their mode, then the dye (Typical or a dye with data in that mode), then the Lasers'
+    Auto preset picked (since 2026-11-05 a label pick applies its lasers and filters but not its BFP position; picked
+    by hand it sets that too, as a label pick did when the reference was stored)."""
+    return [("CellField", "Microtubules_Mode", mode), ("CellField", "Microtubules_Label", dye), ("light-auto", "", "")]
 
 
 # (name, pre-init seed, [(device, property, value)]). Each config regenerates
@@ -183,6 +185,10 @@ def apply(core, hub_layout, settings):
         set_checked(core, "CellField", "Microtubules_Binder", "Legacy")
     for device, prop, value in settings:
         if device == "pores":   # the nuclear pores keep their label
+            continue
+        if device == "light-auto":   # (the pre-hub layout applied its label's preset by itself)
+            if hub_layout:
+                core.setProperty("Lasers", "Preset", "Auto")
             continue
         if device == "light":   # BrightField: the lamp alone
             if hub_layout:

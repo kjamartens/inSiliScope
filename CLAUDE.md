@@ -264,12 +264,12 @@ that finishes them.
   replaced by a joystick `#lv_joy` (2026-11-05: the knob's offset d sets the speed `JOY_STEPS` d^2 steps/s of `lv_xyStep`, springs back; a
   click near an edge one step; arrow keys; Shift 10 steps / 10x the speed) moving `view.cx/cy`; the focus wheel `#mFocus` (live.js: ▲, a
   thumbwheel (drag / scroll / click), ▼, the height `#mZ` as a number; on a phone the ruler with − / +, mobile.js no longer owns it); a right-click opens
-  `#lv_xyPop` / `#lv_zPop` with x/y/z and the steps; a phone shows Setup and Acquisition before Display, its level bar lying down), Display, the Setup box `#lv_statBox` (2026-11-05, `web/live/status.js`: laser on/off buttons, four fact rows from the setup job,
+  `#lv_xyPop` / `#lv_zPop` with x/y/z and the steps; a phone shows Info and Acquisition before Display, its level bar lying down), Display, the Info box `#lv_statBox` (2026-11-05, `web/live/status.js`: laser on/off buttons, four fact rows from the setup job,
   a warning line only when a check fails -- no light, nothing labelled, a label no line excites or the filters block,
   saturation, the focus off the sample or above the TIRF light, no cell in view, slow frames; drift left out, the user's
   choice -- its list with what to do on a click; `self.ISC_STATUS.warnings()`), focus, Acquisition (the MM
   presets, exposure), the settings group Illumination via `host: 'lv_illumHost'`, a box hidden when none of its rows
-  shows at the level, display) in a grid `#lv_cols` by the strip's width (from 520 px the buttons across, Setup | Stage | Display (`#lv_sd`) beside Acquisition) and
+  shows at the level, display) in a grid `#lv_cols` by the strip's width (from 520 px the buttons across, Info | Stage | Display (`#lv_sd`) beside Acquisition) and
   the instrument's groups Light path, Objective & PSF, Camera
   (`host: 'lv_instrHost'`; two columns `#lv_cols` from 520 px; the handle `#ctlUp` (a click or 0.3 s of hover) spreads them over the image's lower
   75 %, `#sideMain.ctlUp`, folded back 0.1 s after the pointer leaves; a 0.1 s slide each way, token `duration.fold`), and at the right edge the settings column `#setCol` (2026-11-05: `#panel` under the
@@ -568,8 +568,9 @@ the focus on a 10 nm grid and the mean-field scenes stay at an anchor within 1 u
 (`FluorescenceMovie::AnchorMeanField`; dSTORM HILO 1.5 -> 12 fps). Shipped configs: groups `Illumination` (Epi / HILO / TIRF) and
 `BfpPosition`, not in Startup. A mount keeps the lasers and the BFP as set. Viewer: the **BFP position** slider with a
 regime / depth readout (2026-11-05, the user's choice: only the slider, Illumination's Preset, Epi / HILO / TIRF, the Pattern, a
-reset or a settings file move it -- not a dye or mode pick (`lightNoBfp`), the Imaging mode (`mm_config_ui.js` `LEAVE`) or the specimen;
-MM's Auto preset still does; a Pattern on with the BFP below `SIM_EPI_BELOW` 0.05 goes Off and comes back above) (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
+reset or a settings file move it -- not a dye or mode pick (`lightNoBfp`), the Imaging mode (its MM presets carry none) or the specimen;
+MM alike: a dye, mode (channel) or slide-dye pick applies the Auto preset without it, `ApplyLightPreset(id, false)`, and
+`isc_mm.label()` / `adapter_pixel_hash.py` pick `Lasers.Preset` Auto after a label so the tests keep their old geometry; a Pattern on with the BFP below `SIM_EPI_BELOW` 0.05 goes Off and comes back above) (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
 the schema's consts are not in its scope); cli `--setup-json` `excitation` (section and axis of the factor), figures
 `light-geometry`, `light-geometry-images`.
 

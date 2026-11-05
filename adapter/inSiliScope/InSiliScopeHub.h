@@ -112,7 +112,9 @@ public:
    // world: the illumination history and the drift start afresh (the camera's SyncHistoryWorld).
    void MountSpecimen(int index);
    // A light preset by id, or "Auto": the labelled targets' dyes' presets combined (sim::ScopeAutoLightPreset).
-   void ApplyLightPreset(const std::string& id);
+   // geometry: also its BFP position (Lasers.Preset picked; not when a dye, a mode or the slide's dye applies Auto:
+   // the BFP position moves only by Lasers.BfpPosition, Lasers.Preset and Lasers.Pattern -- the user's choice, 2026-11-05).
+   void ApplyLightPreset(const std::string& id, bool geometry = true);
    // Lasers or filters set by hand: the light path is no preset's any more.
    void ClearLightPreset();
    void ApplyCameraPreset(int index);

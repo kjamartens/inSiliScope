@@ -242,9 +242,11 @@ def _drift_checks(core, cam, xy, x0, y0):
 
 
 def _label(core, cam, mode, dye="Typical", pct=None, imager=None):
-    """The microtubules' label: their mode, their dye (loads the Lasers' Auto preset), labelling, imager (DNA-PAINT)."""
+    """The microtubules' label: their mode, their dye (loads the Lasers' Auto preset's lasers and filters; the preset is
+    then picked, so its BFP position too: a label pick leaves that since 2026-11-05), labelling, imager (DNA-PAINT)."""
     core.setProperty("CellField", "Microtubules_Mode", mode)
     core.setProperty("CellField", "Microtubules_Label", dye)
+    core.setProperty("Lasers", "Preset", "Auto")
     if pct is not None:
         core.setProperty("CellField", "Microtubules_LabelingPct", str(pct))
     if imager is not None:

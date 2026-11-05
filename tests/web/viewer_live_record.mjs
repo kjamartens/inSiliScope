@@ -152,7 +152,7 @@ try {
     && ran > 0.3 && near(p3[1], p2[1]) && near(p5[0], p4[0]) && knobBack && near(p6[1] - p5[1], 10) && near(p7[0] - p6[0], -10),
     `the joystick: a click at the right edge +${(p1[0] - st.x0).toFixed(2)} µm in x, at the lower left (${(p2[0] - p1[0]).toFixed(2)}, +${(p2[1] - p1[1]).toFixed(2)}) µm; `
     + `the knob held right moved ${ran.toFixed(2)} µm in 0.5 s and stopped when let go (knob back: ${knobBack}); Shift+↓ +${(p6[1] - p5[1]).toFixed(2)} µm, Shift+click at the left ${(p7[0] - p6[0]).toFixed(2)} µm`);
-  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Setup,Stage,Display,Acquisition',
+  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Info,Stage,Display,Acquisition',
     `the focus wheel: click above +${(zb - za).toFixed(2)}, 36 px drag up +${(zc - zb).toFixed(2)}, a scroll notch down ${(zd - zc).toFixed(2)} µm, shown under it as "${zShown}", ▲ +${(ze - zd).toFixed(2)}; `
     + `right-click opens the step box (${JSON.stringify(pop)}), a click elsewhere shuts it; the boxes ${st.order}`);
   // the display's level bar beside the stage: a drag near the top moves the white level up (auto off), the handles'
@@ -204,7 +204,7 @@ try {
     return b && /^(Epi|HILO|TIRF|Clipped)\b/.test(b.textContent) && b.textContent;
   }, null, { timeout: 30000 }).then(h => h.jsonValue(), () => null);
   check(!!ro, `the BFP readout from the setup job: ${ro ? `"${ro}"` : 'nothing in 30 s'}`);
-  // the Setup box beside the display (web/live/status.js): the facts from the setup job, a laser button turns its line
+  // the Info box beside the display (web/live/status.js): the facts from the setup job, a laser button turns its line
   // off and on again at its power, a warning only when something is off (all lasers off; the focus under the glass),
   // its list on a click
   const facts = await page.waitForFunction(() => /DNA-PAINT ×2\n(Light\n)?HILO/.test(document.getElementById('lv_facts').innerText) && document.getElementById('lv_facts').innerText,
@@ -238,7 +238,7 @@ try {
     return r;
   });
   check(!!facts && stat.beside && stat.off && stat.back && stat.dark && stat.list && stat.closed && stat.lit && stat.below && stat.after,
-    `the Setup box left of the stage or under it (${(facts || 'no facts').replace(/\n/g, ' ')}); a laser button turns 640 nm off and back on; all off: "nolight" first, its list on a click, Esc closes; the focus at -1 µm: "below" (warnings before: ${stat.before.join(', ') || 'none'}) ${JSON.stringify(stat)}`);
+    `the Info box left of the stage or under it (${(facts || 'no facts').replace(/\n/g, ' ')}); a laser button turns 640 nm off and back on; all off: "nolight" first, its list on a click, Esc closes; the focus at -1 µm: "below" (warnings before: ${stat.before.join(', ') || 'none'}) ${JSON.stringify(stat)}`);
   if (process.env.ISC_SHOT) await page.screenshot({ path: process.env.ISC_SHOT, clip: await (await page.$('#liveCtl')).boundingBox() });
   await page.evaluate(() => document.getElementById('lv_live').click());
   const names = seen.map(s => s.split('#')[0]), vals = seen.map(s => s.split('#')[1].split('|'));

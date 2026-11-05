@@ -70,13 +70,10 @@ const FOLLOW = new Set(['camera-type', 'em-gain', 'qe-curve']);
 const follows = (k, set) => FOLLOW.has(k) && set['camera-preset'] !== undefined;
 // Labels first (picking a dye or mode loads its light preset and labelling), the light path and numbers after.
 const order = k => (/-mode$/.test(k) ? 0 : /-dye$/.test(k) ? 1 : /^specimen$|^camera-preset$/.test(k) ? 2 : 3);
-// What a group's presets leave alone in the viewer: the Imaging mode (Channel) not the BFP position (it moves only by its
-// slider, Illumination's Preset, Epi / HILO / TIRF, the Pattern: the user's choice, 2026-11-05; Micro-Manager's
-// Channel presets still set it).
-const LEAVE = { Channel: new Set(['illum-bfp']) };
-const own = (set, group) => { const l = group && LEAVE[group]; if (!l) return set; const o = { ...set }; for (const k of l) delete o[k]; return o; };
-function apply(preset, group) {
-  const set = own(preset.set || {}, group), missing = [];
+// (The Imaging mode's (Channel) presets carry no BFP position: a dye or mode pick leaves it in Micro-Manager too,
+// 2026-11-05.)
+function apply(preset) {
+  const set = preset.set || {}, missing = [];
   for (const k of Object.keys(set).sort((a, b) => order(a) - order(b))) {
     const el = $('mv_' + k), v = follows(k, set) ? -1 : valueOf(k, set);
     if (v === -1 && follows(k, set) && !el) { delete extra[k]; continue; }
@@ -120,8 +117,8 @@ function pruneExtra() { if (engine) for (const k in extra) if (!engine.has(k) &&
 
 // Which preset of a group the panel is at now (else blank: "custom"). An option is compared where the viewer has it: a
 // control, or an extra a preset set (else the engine's default).
-function matches(preset, group) {
-  const set = own(preset.set || {}, group);
+function matches(preset) {
+  const set = preset.set || {};
   for (const k in set) {
     const el = $('mv_' + k), v = valueOf(k, set);
     if (follows(k, set) && +(el ? el.value : k in extra ? extra[k] : -1) === -1) continue;
@@ -150,7 +147,7 @@ const SKIP = ['Specimen', 'Camera', 'Aberrations', 'BfpPosition'];
 function markCurrent() {
   for (const r of rows) {
     if (r.slider) { const el = $('mv_' + r.slider.key); if (el) { r.range.value = el.value; r.num.value = fmt3(el.value); } continue; }
-    const hit = r.group.presets.find(q => matches(q, r.group.name));
+    const hit = r.group.presets.find(matches);
     r.sel.value = hit ? hit.name : '';
   }
 }
@@ -207,7 +204,7 @@ function render() {
     sel.append(Object.assign(document.createElement('option'), { value: '', textContent: '—', disabled: true }));
     const shown = p => mode ? p.name.replace(/^\S+\s+(?=(dSTORM|DNA-PAINT|PALM|WideField)\b)/, '') : p.name;
     for (const p of g.presets) sel.append(Object.assign(document.createElement('option'), { value: p.name, textContent: shown(p) }));
-    sel.addEventListener('change', () => { const p = g.presets.find(q => q.name === sel.value); if (p) apply(p, g.name); });
+    sel.addEventListener('change', () => { const p = g.presets.find(q => q.name === sel.value); if (p) apply(p); });
     into.append(sel);
     rows.push({ group: g, sel });
   }

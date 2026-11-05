@@ -75,7 +75,7 @@ through it step by step.
   the inset swaps the two (remembered in your browser). ▶ Live / Snap / ● Record sit under the image and stay on screen
   while the controls and settings below scroll with the page. One finger on the live image moves the stage; two fingers
   moving up or down together move the focus (up = focus up), spread or pinched they zoom into the image. In the
-  **Focus** box (above the Setup, the Acquisition, then the Display, whose level bar lies down there) the focus wheel is a ruler: swipe it like a focus knob (left = up, one step per notch, a fast
+  **Focus** box (above the Info, the Acquisition, then the Display, whose level bar lies down there) the focus wheel is a ruler: swipe it like a focus knob (left = up, one step per notch, a fast
   swipe goes further) or press − / + (held, they repeat). On the world view one finger pans; two fingers pinch to zoom,
   twist to turn the view, and moved up or down together they tilt it. A long press on a setting's name shows its help.
   The page starts at most two cell workers on a touch screen, to stay within a phone's memory.
@@ -93,7 +93,7 @@ through it step by step.
   the image is shown in, the frame's histogram (log counts, dark at the bottom; its axes span the darkest to the
   brightest pixel and the tallest bar of the last 10 s of frames, so they move slowly) and a ◀ handle per level with
   its number (ADU). Drag a handle, or anywhere on the bar to move the nearer level; a right-click types them. **auto**
-  in its title (on by default) sets the range from each frame (0.1-99.9 % of the pixels); a drag turns it off. **Setup**
+  in its title (on by default) sets the range from each frame (0.1-99.9 % of the pixels); a drag turns it off. **Info**
   (left of the Stage): a button per laser line (lit in the line's colour when on; a click turns it off, or on again at
   its last power; at the Basic level the lines the labels use, and any line that is on), the setup in four rows
   (the labels' modes, the light's regime (Epi, HILO or TIRF; a HILO beam reaching over 100 µm deep counts as Epi; the depth in its
