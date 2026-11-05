@@ -328,6 +328,7 @@ function draw(d) {
 const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128, HIST_KEEP_MS = 10000;
 let hist = null, hMin = 0, hMax = 1, hTop = 0;
 const hRecent = [];   // {t, mn, mx, top} per frame shown
+window.addEventListener('isc-theme', () => { if (L.frame) drawHist(); });   // the theme's colours (web/design/theme.js)
 function drawHist(newFrame) {
   const fr = L.frame;
   const W = Math.max(1, Math.round(hc.clientWidth * devicePixelRatio)), H = Math.round(56 * devicePixelRatio);
@@ -348,8 +349,7 @@ function drawHist(newFrame) {
     hTop = Math.max(...hRecent.map(r => r.top));
   }
   const top = hTop;
-  const css = getComputedStyle(document.body), accent = css.getPropertyValue('--accent').trim() || '#4a90d9';
-  const muted = css.getPropertyValue('--muted').trim() || '#8b97a8', pad = 9 * devicePixelRatio, ph = H - pad;
+  const accent = iscTheme.tok('--color-accent'), muted = iscTheme.tok('--color-text-muted'), pad = 9 * devicePixelRatio, ph = H - pad;
   const xOf = v => ((v - hMin) / (hMax - hMin)) * W;
   // the display range (black .. white) as a shaded band, then the bars and the two markers
   const xl = xOf(L.lo), xh = xOf(L.hi);

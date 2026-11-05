@@ -42,7 +42,8 @@ function viewValues() {
     v[el.id] = el.type === 'checkbox' ? el.checked : el.tagName === 'SELECT' || el.value === '' || !Number.isFinite(+el.value) ? el.value : +el.value;
   v['view.scale'] = view.scale;
   v['ui.settingsLevel'] = document.body.dataset.level;
-  v['ui.style'] = document.body.dataset.uiStyle;
+  v['ui.theme'] = self.iscTheme ? iscTheme.theme() : 'dark';
+  v['ui.density'] = self.iscTheme ? iscTheme.density() : 'comfortable';
   return v;
 }
 // The four engine parts: every engine option of each (the spec's value, else the engine's default), the keys the spec
@@ -188,7 +189,10 @@ function applyView(values, note) {
   for (const [k, v] of Object.entries(values || {})) {
     if (k === 'view.scale') { if (+v > 0) view.scale = +v; continue; }
     if (k === 'ui.settingsLevel') { const b = document.querySelector(`#levelSeg [data-level="${v}"]`); if (b) b.click(); continue; }
-    if (k === 'ui.style') { const r = document.querySelector(`#menu [name=uiStyle][value="${v}"]`); if (r && !r.checked) { r.checked = true; fire(r); } continue; }
+    // the theme and density (a file from before 2026-11-05 has one 'ui.style': focus | compact | light)
+    if (k === 'ui.theme' && self.iscTheme) { iscTheme.setTheme(v); continue; }
+    if (k === 'ui.density' && self.iscTheme) { iscTheme.setDensity(v); continue; }
+    if (k === 'ui.style' && self.iscTheme) { iscTheme.setTheme(v === 'light' ? 'light' : 'dark'); iscTheme.setDensity(v === 'compact' ? 'compact' : 'comfortable'); continue; }
     const el = $(k);
     if (el && (el.closest('#viewPanel') || LIVE_VIEW_IDS.includes(k))) setControl(el, v, note);
     else if (note) note(`view ${k}: not in this viewer`);
@@ -282,17 +286,17 @@ css.textContent = `
   #menuSetup{width:300px;max-width:100%} #menuSetup h4{margin-top:0}
   #setIcons{display:flex;gap:2px;flex:none} #setIcons button{padding:3px 5px;line-height:0}
   body.mobile #setIcons{display:none}   /* (no room in the phone's bar: ☰ has Save / Load) */
-  #lv_setupRows{display:grid;grid-template-columns:auto 1fr auto;gap:1px 6px;font-size:11px;align-items:baseline}
-  #lv_setupRows .p{color:var(--muted)} #lv_setupRows .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #lv_setupRows .i{font-family:ui-monospace,Consolas,monospace;color:var(--muted)} #lv_setupRows .i.ed::after{content:' edited';color:var(--accent)}
-  #lv_setupRows .s{grid-column:1/-1;color:var(--muted);font-size:10px;margin:-1px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #setDlg{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
+  #lv_setupRows{display:grid;grid-template-columns:auto 1fr auto;gap:1px 6px;font-size:var(--font-size-caption);align-items:baseline}
+  #lv_setupRows .p{color:var(--color-text-muted)} #lv_setupRows .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #lv_setupRows .i{font-family:var(--font-family-mono);color:var(--color-text-muted)} #lv_setupRows .i.ed::after{content:' edited';color:var(--color-accent)}
+  #lv_setupRows .s{grid-column:1/-1;color:var(--color-text-muted);font-size:var(--font-size-caption);margin:-1px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #setDlg{position:fixed;inset:0;z-index:var(--z-tooltip);background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center}
   #setDlg[hidden]{display:none}
-  #setDlg .box{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:12px 14px;width:min(560px,calc(100vw - 32px));
-    max-height:calc(100vh - 48px);overflow:auto;box-shadow:0 8px 28px rgba(0,0,0,.45);font-size:12px}
-  #setDlg h3{margin:0 0 8px;font-size:14px} #setDlg .part{display:grid;grid-template-columns:auto 1fr;gap:0 8px;margin:6px 0}
-  #setDlg .part .s{grid-column:2;color:var(--muted);font-size:11px} #setDlg .warn{color:#e0a64a;margin:6px 0}
-  #setDlg .msg{color:var(--muted);margin:6px 0;white-space:pre-wrap;max-height:180px;overflow:auto;font-size:11px}
+  #setDlg .box{background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:12px 14px;width:min(560px,calc(100vw - 32px));
+    max-height:calc(100vh - 48px);overflow:auto;box-shadow:var(--shadow-dialog);font-size:var(--font-size-body)}
+  #setDlg h3{margin:0 0 8px;font-size:var(--font-size-title)} #setDlg .part{display:grid;grid-template-columns:auto 1fr;gap:0 8px;margin:6px 0}
+  #setDlg .part .s{grid-column:2;color:var(--color-text-muted);font-size:var(--font-size-caption)} #setDlg .warn{color:var(--color-status-warn);margin:6px 0}
+  #setDlg .msg{color:var(--color-text-muted);margin:6px 0;white-space:pre-wrap;max-height:180px;overflow:auto;font-size:var(--font-size-caption)}
   #setDlg .row{display:flex;gap:8px;align-items:center;margin-top:10px} #setDlg .row .sp{flex:1}
   #setDlg input[type=text]{flex:1;min-width:0} #setDlg input[type=number]{width:5em}
   #setDlg .part input[type=number]{padding:0 2px}`;

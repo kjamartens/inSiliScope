@@ -62,7 +62,7 @@ mkdocs build --config-file .mkdocs_site.yml --site-dir "$OUT/docs"
 rm -f .mkdocs_site.yml
 
 cp web/index.html web/illumination.html web/voxelize.html web/open_in_napari.py web/insiliscope_module.js web/wf_gpu.js web/dye_library.js web/origami_designs.js web/social.jpg "$OUT/"
-for d in scene anim encode live; do if [ -d web/$d ]; then cp -r web/$d "$OUT/$d"; fi; done
+for d in scene anim encode live design; do if [ -d web/$d ]; then cp -r web/$d "$OUT/$d"; fi; done
 
 # The old layout's URLs: every docs page at the root (/physics/optics/ -> /docs/physics/optics/) and the viewer at
 # /viewer/ get a small redirect page, unless the viewer's own files take that path.

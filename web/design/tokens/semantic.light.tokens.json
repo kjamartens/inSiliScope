@@ -1,0 +1,55 @@
+{
+  "$description": "Semantic tokens, theme Light: the same names as semantic.dark.tokens.json. Overlays over the dark world view and images keep their dark values (not repeated here).",
+  "color": {
+    "$type": "color",
+    "bg": { "app": { "$value": "{color.neutral.150}" } },
+    "surface": {
+      "default": { "$value": "{color.neutral.50}" },
+      "raised": { "$value": "{color.neutral.0}" },
+      "hover": { "$value": "{color.neutral.100}" }
+    },
+    "border": {
+      "default": { "$value": "{color.neutral.200}" },
+      "strong": { "$value": "{color.neutral.300}" }
+    },
+    "input": {
+      "bg": { "$value": "{color.neutral.0}" },
+      "border": { "$value": "{color.neutral.500}" }
+    },
+    "text": {
+      "default": { "$value": "{color.neutral.800}" },
+      "muted": { "$value": "{color.neutral.600}" }
+    },
+    "accent": {
+      "default": { "$value": "{accent.light}" },
+      "on": { "$value": "{color.neutral.0}" }
+    },
+    "link": { "$value": "{color.blue.600}" },
+    "focus-ring": { "$value": "{accent.light}" },
+    "guide": { "$value": "{color.neutral.200}" },
+    "status": {
+      "live": { "$value": "{color.red.600}" },
+      "ok": { "$value": "{color.green.600}" },
+      "warn": { "$value": "{color.yellow.600}" },
+      "error": { "$value": "{color.red.600}" }
+    },
+    "panel": {
+      "ink": { "$value": "#5d6672" },
+      "fill": { "$value": "#e9ecf0" },
+      "text": { "$value": "#222222" },
+      "muted": { "$value": "#69727e" },
+      "curve-text": { "$value": "#555555" },
+      "dichroic": { "$value": "#888888" },
+      "exfilter": { "$value": "#777777" },
+      "qe": { "$value": "#bbbbbb" },
+      "em-fill": { "$value": "rgba(0,120,255,0.12)" },
+      "em-edge": { "$value": "rgba(0,0,0,0)" },
+      "laser-edge": { "$value": "#111111" },
+      "sample-fill": { "$value": "#cfe8de" },
+      "sample-stroke": { "$value": "#7aa79a" },
+      "glass": { "$value": "#dfe9f2" },
+      "lens": { "$value": "#bfd8ef" },
+      "mirror": { "$value": "#7f9bb4" }
+    }
+  }
+}

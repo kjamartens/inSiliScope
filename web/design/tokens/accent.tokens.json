@@ -1,0 +1,8 @@
+{
+  "$description": "THE accent (highlight) colour: the one place to change it. Point both at another palette of primitives.tokens.json (blue, teal, violet, amber, magenta), keeping the 400 shade for the dark theme and the 600 shade for the light one, then run node tools/gen_design_tokens.mjs. To try one without editing: ?accent=teal or ?accent=%23e66a00 in the viewer's URL, or localStorage isc.ui.accent (not offered in the UI).",
+  "accent": {
+    "$type": "color",
+    "dark": { "$value": "{color.blue.400}" },
+    "light": { "$value": "{color.blue.600}" }
+  }
+}

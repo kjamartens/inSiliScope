@@ -18,6 +18,7 @@ const set = v => { try { localStorage.setItem(KEY, v); } catch (e) { /* private 
 
 const top = document.createElement('div'), stage = document.createElement('div'), swap = document.createElement('button');
 top.id = 'mTop'; stage.id = 'mStage'; swap.id = 'mSwap';
+stage.className = 'isc-dark';   // the images: dark in every theme (web/design/tokens.css)
 swap.type = 'button';
 swap.setAttribute('aria-label', 'Swap the live image and the world view');
 swap.title = 'Swap the live image and the world view';
@@ -36,22 +37,23 @@ knob.innerHTML = '<button type="button" data-dir="-1" aria-label="Focus down" ti
 const kcv = knob.querySelector('canvas');
 const zStep = () => Math.max(0.001, +$('lv_zStep').value || 0.1);
 const step = dir => { if (self.liveState && liveState.stepZ) liveState.stepZ(dir); };
+window.addEventListener('isc-theme', () => drawKnob());
 function drawKnob() {
   if (!on || !$('mv_z')) return;
   const dpr = devicePixelRatio, W = Math.round(kcv.clientWidth * dpr), H = Math.round(kcv.clientHeight * dpr);
   if (!W || !H) return;
   if (kcv.width !== W || kcv.height !== H) { kcv.width = W; kcv.height = H; }
-  const g = kcv.getContext('2d'), cs = getComputedStyle(document.body);
+  const g = kcv.getContext('2d');
   const z = +$('mv_z').value || 0, st = zStep(), at = z / st, cx = W / 2, sp = KNOB_PX * dpr;
   g.clearRect(0, 0, W, H);
-  g.fillStyle = cs.getPropertyValue('--muted') || '#adb8c8';
+  g.fillStyle = iscTheme.tok('--color-text-muted');
   g.font = `${10 * dpr}px system-ui,sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
   for (let k = Math.floor(at - cx / sp) - 1; k <= Math.ceil(at + cx / sp) + 1; k++) {
     const x = Math.round(cx + (k - at) * sp) + 0.5, major = k % 10 === 0, mid = k % 5 === 0;
     g.fillRect(x - 0.5 * dpr, H - (major ? 16 : mid ? 11 : 7) * dpr, dpr, (major ? 16 : mid ? 11 : 7) * dpr);
     if (major) g.fillText(+(k * st).toFixed(3) + '', x, 2 * dpr);
   }
-  g.fillStyle = cs.getPropertyValue('--accent') || '#559ded';
+  g.fillStyle = iscTheme.tok('--color-accent');
   g.fillRect(cx - dpr, 0, 2 * dpr, H);
   $('mZ').textContent = z.toFixed(st < 0.01 ? 3 : 2) + ' µm';
 }

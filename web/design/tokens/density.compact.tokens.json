@@ -1,0 +1,10 @@
+{
+  "$description": "Density Compact (Appearance in the menu): the sizes that differ from the default (Comfortable, in semantic.dark.tokens.json's density group).",
+  "density": {
+    "$type": "dimension",
+    "control-h": { "$value": "22px" },
+    "row-gap": { "$value": "{space.1}" },
+    "group-gap": { "$value": "{space.4}" },
+    "pad": { "$value": "{space.3}" }
+  }
+}
