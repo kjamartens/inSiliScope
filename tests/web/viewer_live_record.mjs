@@ -207,13 +207,15 @@ try {
   // the Setup box beside the display (web/live/status.js): the facts from the setup job, a laser button turns its line
   // off and on again at its power, a warning only when something is off (all lasers off; the focus under the glass),
   // its list on a click
-  const facts = await page.waitForFunction(() => /^Labels\nDNA-PAINT ×2\nLight\nHILO/.test(document.getElementById('lv_facts').innerText) && document.getElementById('lv_facts').innerText,
+  const facts = await page.waitForFunction(() => /DNA-PAINT ×2\n(Light\n)?HILO/.test(document.getElementById('lv_facts').innerText) && document.getElementById('lv_facts').innerText,
     null, { timeout: 15000 }).then(h => h.jsonValue(), () => null);
   const stat = await page.evaluate(async () => {
     const $ = id => document.getElementById(id), R = e => e.getBoundingClientRect(), wait = ms => new Promise(r => setTimeout(r, ms));
     const ids = () => ISC_STATUS.warnings().map(w => w.id);
     const until = async f => { for (let i = 0; i < 40 && !f(); i++) await wait(100); return f(); };
-    const r = { beside: Math.abs(R($('lv_statBox')).top - R($('lv_dispBox')).top) < 2 && R($('lv_statBox')).left > R($('lv_dispBox')).right };
+    // (beside the display, or under the stage and the display when the strip is narrow)
+    const sb = R($('lv_statBox')), db = R($('lv_dispBox')), st = R($('lv_stageBox'));
+    const r = { beside: (Math.abs(sb.top - db.top) < 2 && sb.left > db.right) || (sb.top >= Math.max(db.bottom, st.bottom) - 1 && Math.abs(sb.left - st.left) < 2) };
     const chip = nm => document.querySelector(`#lv_laserChips .chip[data-nm="${nm}"]`);
     const p640 = $('mv_laser-640').value;
     chip(640).click(); r.off = $('mv_laser-640').value === '0' && chip(640).getAttribute('aria-pressed') === 'false';
@@ -236,7 +238,7 @@ try {
     return r;
   });
   check(!!facts && stat.beside && stat.off && stat.back && stat.dark && stat.list && stat.closed && stat.lit && stat.below && stat.after,
-    `the Setup box beside the display (${(facts || 'no facts').replace(/\n/g, ' ')}); a laser button turns 640 nm off and back on; all off: "nolight" first, its list on a click, Esc closes; the focus at -1 µm: "below" (warnings before: ${stat.before.join(', ') || 'none'}) ${JSON.stringify(stat)}`);
+    `the Setup box beside the display or under it (${(facts || 'no facts').replace(/\n/g, ' ')}); a laser button turns 640 nm off and back on; all off: "nolight" first, its list on a click, Esc closes; the focus at -1 µm: "below" (warnings before: ${stat.before.join(', ') || 'none'}) ${JSON.stringify(stat)}`);
   if (process.env.ISC_SHOT) await page.screenshot({ path: process.env.ISC_SHOT, clip: await (await page.$('#liveCtl')).boundingBox() });
   await page.evaluate(() => document.getElementById('lv_live').click());
   const names = seen.map(s => s.split('#')[0]), vals = seen.map(s => s.split('#')[1].split('|'));

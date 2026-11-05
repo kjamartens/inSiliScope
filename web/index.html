@@ -154,12 +154,14 @@
   #lv_acts{grid-area:acts} #lv_sd{grid-area:sd} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
   #lv_sd{display:flex;flex-wrap:wrap;gap:var(--space-3) var(--space-5);align-items:flex-start}
   #lv_sd>.lc{flex:none}
-  #lv_sd>#lv_statBox{flex:1 1 0;min-width:120px}
+  /* the Setup box takes what the column leaves beside the stage and the display (its contents add no width: the
+     column stays the Illumination's); narrow, its rows are values alone (the names in their tooltips) */
+  #lv_sd>#lv_statBox{flex:1 1 0;min-width:96px;container-type:inline-size}
   #lv_cols>.lc,#lv_sd>.lc{border-top:0}
   /* tight at the top: under the largest image the strip is ~170 px high */
   #lv_cols>.lc,#lv_sd>.lc,#lv_cols>#lv_acts{padding-top:var(--space-2)}
   #sideMain>#liveCtl{padding-top:var(--space-1)}
-  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(440px) minmax(0,1fr);grid-template-areas:"acts acts" "sd acq" "illum instr"}}
+  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(320px) minmax(0,1fr);grid-template-areas:"acts acts" "sd acq" "illum instr"}}
   .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
   /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
      pointer leaves them for 0.1 s) */
@@ -392,9 +394,11 @@
   #lv_statBox .chip:hover{background:var(--color-surface-hover)}
   #lv_statBox .chip.on{background:var(--chip-c,var(--color-accent));border-color:var(--chip-c,var(--color-accent));color:var(--color-bg-canvas);font-weight:600}
   #lv_statBox .chip:disabled{opacity:.45;cursor:default}
-  #lv_statBox .facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px var(--space-2);font-size:var(--font-size-caption);line-height:1.35}
+  /* the rows in the settings labels' type (.cfg .lab label: the inherited size, muted, line height 1.2) */
+  #lv_statBox .facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px var(--space-2);line-height:1.2;color:var(--color-text-muted)}
   #lv_statBox .facts .f{display:contents}
   #lv_statBox .facts .k{color:var(--color-text-muted)}
+  @container (max-width:180px){#lv_statBox .facts{grid-template-columns:minmax(0,1fr)} #lv_statBox .facts .k{display:none}}
   #lv_statBox .facts .v{overflow-wrap:anywhere}
   #lv_statBox .facts .v>span{white-space:nowrap}
   #lv_warn{display:flex;align-items:flex-start;gap:var(--space-1);width:100%;margin-top:var(--space-2);padding:var(--space-1) var(--space-2);

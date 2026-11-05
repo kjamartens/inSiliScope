@@ -122,19 +122,21 @@ function drawFacts() {
     const ex = S && S.excitation, lit = litLines(), depth = depthOf(ex, lit);
     let light = '…', tip = '';
     if (ex) {
-      light = ex.regime + (ex.regime !== 'Epi' && depth > 0 ? ' · ' + fmtUm(depth) : '');
+      // (HILO whose light reaches over 100 µm deep -- a beam close to the axis -- reads as Epi: it lights the whole sample)
+      const regime = ex.regime === 'HILO' && depth > 100000 ? 'Epi' : ex.regime;
+      light = regime + (regime === 'TIRF' && depth > 0 ? ' · ' + fmtUm(depth) : '');   // (HILO's depth: in the tooltip)
       const pat = ex.pattern && ex.pattern.type && ex.pattern.type !== 'Off' ? ex.pattern.type : '';
       if (pat) light += ' · ' + pat;
-      tip = `${ex.regime} (BFP position ${(+ex.u).toFixed(2)})` + (depth > 0 ? `; the light reaches ${fmtUm(depth)} into the sample` : '') + (pat ? `; pattern ${pat}` : '') +
+      tip = `${regime === ex.regime ? regime : 'Epi (technically HILO)'} (BFP position ${(+ex.u).toFixed(2)})` + (depth > 0 ? `; the light reaches ${fmtUm(depth)} into the sample` : '') + (pat ? `; pattern ${pat}` : '') +
         (lit.length ? '\n' + lit.map(l => `${l.nm} nm: ${+l.kw.toFixed(3)} kW/cm²`).join('\n') : '\nno laser reaches the sample');
     }
     rows.push(['Light', light, tip]);
   }
   rows.push(['Optics', `NA ${na} · ${px.toFixed(px < 10 ? 1 : 0)} nm px`, `Objective NA ${na}; ${px.toFixed(1)} nm per camera pixel at the sample` + (S ? `\n${S.light_path.dichroic}\n${S.light_path.emission_filter}` : '')]);
   const cam = camera();
-  rows.push(['Camera', (cam ? cam.id + ' · ' : '') + exp + ' ms', (cam ? cam.name + '; ' : '') + `${exp} ms exposure`]);
+  rows.push(['Camera', exp + ' ms', (cam ? cam.name + '; ' : '') + `${exp} ms exposure`]);   // (its name: in the tooltip)
   // (a value breaks only between its parts)
-  const html = rows.map(([k, v, t]) => `<div class="f" title="${esc(t)}"><span class="k">${k}</span><span class="v">${v.split(' · ').map(x => `<span>${esc(x)}</span>`).join(' · ')}</span></div>`).join('');
+  const html = rows.map(([k, v, t]) => `<div class="f" title="${esc(k + ': ' + t)}"><span class="k">${k}</span><span class="v">${v.split(' · ').map(x => `<span>${esc(x)}</span>`).join(' · ')}</span></div>`).join('');
   if (facts.innerHTML !== html) facts.innerHTML = html;
 }
 
