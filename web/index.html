@@ -137,6 +137,21 @@
   body:not(.mobile) #wrap.setShut #levelSeg{display:none}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--color-border)}
   #sideMain>#liveCtl{flex:1}
+  /* under the image: the acquisition controls | the instrument, two columns when there is room for them */
+  #liveCtl{container-type:inline-size}
+  #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--space-2) var(--space-5);align-items:start}
+  @container (min-width:520px){#lv_cols{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+  .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
+  /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
+     pointer leaves them for 0.5 s) */
+  #sideMain{position:relative;container-type:inline-size}
+  #ctlUp{position:absolute;z-index:calc(var(--z-overlay) + 2);left:50%;top:calc(100cqw - 9px);transform:translateX(-50%);width:36px;height:16px;padding:0;
+    font-size:var(--font-size-caption);line-height:1;border-radius:var(--radius-md);background:var(--color-surface-raised);border:1px solid var(--color-border-strong);color:var(--color-text-muted)}
+  #ctlUp:hover,#ctlUp:focus-visible{background:var(--color-accent);border-color:var(--color-accent);color:var(--color-accent-on)}
+  #sideMain.ctlUp #ctlUp{top:calc(25cqw - 9px)}
+  #sideMain.ctlUp #ctlUp span{display:inline-block;transform:rotate(180deg)}
+  #sideMain.ctlUp>#liveCtl{position:absolute;left:0;right:0;bottom:0;top:25cqw;z-index:calc(var(--z-overlay) + 1);background:var(--color-surface);
+    box-shadow:var(--shadow-raised);border-top:1px solid var(--color-border-strong)}
   #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:var(--color-bg-canvas);overflow:hidden}
   #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:var(--color-bg-canvas)}
   #lv_scale,#lv_idle{position:absolute;color:var(--color-overlay-text);font-size:var(--font-size-caption);pointer-events:none;text-shadow:0 0 3px var(--color-overlay-shadow)}
@@ -488,7 +503,7 @@
   body.mobile #menu{max-width:calc(100vw - 16px);box-sizing:border-box}
   body.mobile #sideBody{display:flex;flex-direction:column}
   body.mobile #sideMain,body.mobile #setCol{display:contents}
-  body.mobile :is(#setColHead,#setStrip){display:none!important}
+  body.mobile :is(#setColHead,#setStrip,#ctlUp){display:none!important}
   body.mobile #liveCtl{order:1;overflow:visible;min-height:auto;--lab-w:112px;--lab-w-base:112px;--val-w:60px}
   body.mobile #sideTop{order:2;border-top:1px solid var(--color-border)}
   body.mobile :is(#panel,#animPanel){order:3;overflow:visible;min-height:auto}
@@ -625,7 +640,9 @@
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
         <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the movie, optionally with its settings and ground truth">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
-    <div id="liveCtl">
+    <button id="ctlUp" type="button" title="Spread these controls over the image (they fold back when the pointer leaves them)" aria-label="Spread the controls over the image" aria-expanded="false"><span aria-hidden="true">▲</span></button>
+    <div id="liveCtl"><div id="lv_cols">
+      <div class="lvCol" id="lv_colAcq">
         <div class="lc"><h5>Focus (Z stage)</h5>
           <div class="zrow"><input type="number" id="lv_z" step="0.1" title="The focal plane's height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span>
             <label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
@@ -638,9 +655,9 @@
           <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
           <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
         </div>
-        <div class="lc t-expert" id="lv_perfBox" title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display (shown at the Expert level)"><h5>Performance</h5>
-          <div id="lv_perfNote"></div><div id="lv_perfOut"></div><div id="lv_memOut"></div></div>
-    </div>
+      </div>
+      <div class="lvCol" id="lv_instrHost"></div>
+    </div></div>
     </div>
     <!-- The settings (Sample, Sample preparation, Instrument) in a column at the right that folds to a tab at the edge -->
     <div id="setCol">
@@ -1299,7 +1316,8 @@ const UI_GROUPS = [
     { kind: 'html', html: '<div class="sub" id="patternReadout"></div>', show: FL },
   ] },
   // the light path's hardware (Instrument): the beam's shape, the filters and the dichroic, the BrightField lamp
-  { sect: 'Instrument', id: 'lightpath', title: 'Light path', open: true, items: [
+  // the instrument: under the live image, the column beside the acquisition controls
+  { id: 'lightpath', host: 'lv_instrHost', title: 'Light path', open: true, items: [
     select('mv_illum-profile', 'Beam profile', 'The beam\'s cross-section at the sample: Flat (laterally infinite), Gaussian or FlatTop (a soft-edged disc). Off the axis a beam lights less: photons, bleaching and the free-imager background follow it. <code>Lasers.IlluminationProfile</code>', [['0', 'Flat'], ['1', 'Gaussian'], ['2', 'FlatTop']], '1', { adv, show: FL }),
     num('mv_illum-fwhm', 'Beam FWHM', '% FOV', 'The beam\'s full width at half maximum (Gaussian, FlatTop), % of the field of view\'s width. <code>Lasers.IlluminationFwhmPct</code>', 10, 300, 5, 100, { adv, show: FL }),
     num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of the imager solution over the coverslip (a tape/flow chamber, estimate): the free DNA-PAINT imager in it adds a background, collected defocused from the heights the beam lights (epi: about the beam\'s radius; HILO: the sheet; TIRF: the evanescent layer). <code>Lasers.ChamberHeightUm</code>', 0, null, 1, 100, { adv, show: FL }),
@@ -1323,7 +1341,7 @@ const UI_GROUPS = [
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
   
   ] },
-  { id: 'objective', title: 'Objective & PSF', open: true, items: [
+  { id: 'objective', host: 'lv_instrHost', title: 'Objective & PSF', open: true, items: [
     { kind: 'html', html: '<div class="cfg" id="cfgObjectiveHost"></div>' },   // the Objective preset (web/live/mm_config_ui.js)
     num('mv_na', 'NA', 'NA', 'Numerical aperture of the objective (the Objective preset sets it; a value typed here makes the preset Custom). <code>Objective.NA</code>', 0.1, 1.7, 0.01, 1.4, { adv: true }),
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
@@ -1332,7 +1350,7 @@ const UI_GROUPS = [
     text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. <code>Objective.ZernikeCoefficients</code>', undefined, { maxlength: 400 }),
   ] },
   // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
-  { id: 'camera', title: 'Camera', open: true, items: [
+  { id: 'camera', host: 'lv_instrHost', title: 'Camera', open: true, items: [
     select('mv_camera-preset', 'Camera', 'Camera preset: sets the QE curve, the magnification and the noise values (Advanced; edit them after). Kinetix22 = the defaults; iXon Ultra 897 = an EMCCD. <code>Camera.CameraPreset</code>',
       DD.cameras.map((c, i) => [String(i), c.name]), String(DD.cameras.findIndex(c => c.id === DD.cameraDefault)), {
         apply: v => { const c = DD.cameras[+v], K = { 'mv_qe': 'quantumEfficiency', 'mv_dark-per-sec': 'darkCurrentElectronsPerSec', 'mv_gain': 'gainElectronsPerAdu', 'mv_offset': 'offsetAdu', 'mv_offset-std': 'offsetStdAdu', 'mv_read-noise': 'readNoiseElectrons', 'mv_gain-std-pct': 'gainStdPct', 'mv_read-noise-std-pct': 'readNoiseStdPct', 'mv_cic': 'cicElectrons', 'mv_bit-depth': 'bitDepth' }, o = {};
@@ -1358,6 +1376,10 @@ const UI_GROUPS = [
     num('emissionMag', 'Magnification', '×', 'Magnification between the objective and the camera (tube lens / relay); a camera preset sets its own (Kinetix22 0.667, iXon Ultra 897 1.6). The pixel size follows. <code>EmissionPath.EmissionMagnification</code>', 0.1, 10, 'any', 0.667),
     { kind: 'html', html: '<div class="sub" id="magReadout"></div>' },
     num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × magnification). Typing a size sets the Magnification that gives it (the camera and objective stay). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { derived: true, changedWith: 'emissionMag' }),
+  ] },
+  // the simulation itself (not the instrument): where a frame's time and memory go, how the image is formed
+  { sect: 'Simulation', id: 'perf', title: 'Performance', open: true, items: [
+    { kind: 'html', expert: true, html: '<div id="lv_perfBox" title="Where each frame’s time goes: the engine’s phases (Simulation/Timing.h), the worker and the display; the worker’s memory (Expert)"><div id="lv_perfNote"></div><div id="lv_perfOut"></div><div id="lv_memOut"></div></div>' },
   ] },
   { id: 'formation', title: 'Image formation', items: [
     num('mv_wf-upscale', 'Mean-field upscaling', '× per px', 'Mean-field (FFT) grid cells per camera pixel, per axis: WideField dyes, pre states and the dSTORM initial ON while they are dense. <code>Renderer.WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: FL }),
@@ -1445,6 +1467,7 @@ const MM_STANDARD = { 'mv_exposure-ms': 'basic', 'mv_z': 'basic', 'mv_size': 'ba
   'mv_specimen': 'basic', 'mv_modality': 'basic', 'mv_ex-filter': 'advanced' };
 function tierOf(e, g) {
   const T = self.ISC_MM_TIERS, low = t => t && t.toLowerCase();
+  if (e.expert) return 'expert';
   const own = (e.adv || (g && g.adv)) ? 'advanced' : 'basic';
   if (!e.id || !T) return own;
   if (MM_STANDARD[e.id]) return MM_STANDARD[e.id];
@@ -1793,6 +1816,23 @@ $('setTab').addEventListener('click', () => foldSettings(false));
 for (const [id, ev] of [['setSearch', 'input'], ['setChanged', 'change']])
   $(id).addEventListener(ev, () => { if ($('wrap').classList.contains('setShut')) foldSettings(false); });
 foldSettings(store.get('setShut', '0') === '1');
+// The handle on the image's lower edge spreads the controls under it over the image (75 % of it); they fold back when
+// the pointer has left them (and the handle) for 0.5 s, on a second click or on Esc. Not while a select of theirs is
+// open (its list lies outside them).
+{
+  const main = $('sideMain'), ctl = $('liveCtl'), btn = $('ctlUp');
+  let timer = 0;
+  const spread = on => { clearTimeout(timer); main.classList.toggle('ctlUp', on); btn.setAttribute('aria-expanded', on);
+    btn.title = on ? 'Fold the controls back under the image' : 'Spread these controls over the image (they fold back when the pointer leaves them)'; };
+  const later = () => { clearTimeout(timer); if (main.classList.contains('ctlUp')) timer = setTimeout(() => {
+    const a = document.activeElement;
+    if (a && a.tagName === 'SELECT' && ctl.contains(a)) { a.addEventListener('blur', later, { once: true }); return; }
+    if (!ctl.matches(':hover') && !btn.matches(':hover')) spread(false);
+  }, 500); };
+  btn.addEventListener('click', () => spread(!main.classList.contains('ctlUp')));
+  for (const el of [ctl, btn]) { el.addEventListener('pointerleave', later); el.addEventListener('pointerenter', () => clearTimeout(timer)); }
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && main.classList.contains('ctlUp')) spread(false); });
+}
 function setLevel(v) {
   if (!LEVELS.includes(v)) v = 'basic';
   document.body.dataset.level = v;

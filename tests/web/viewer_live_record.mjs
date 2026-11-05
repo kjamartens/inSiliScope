@@ -97,6 +97,23 @@ try {
   check(shut.setW < 40 && Math.abs(shut.setRight - shut.W) < 2 && Math.abs(shut.w - sq.w) < 1 && Math.abs(shut.w - shut.h) < 1
     && shut.liveLeft > sq.liveLeft + 250 && shut.barOver <= 0 && Math.abs(open.w - sq.w) < 1 && Math.abs(open.liveLeft - sq.liveLeft) < 1,
     `the settings fold to a ${shut.setW.toFixed(0)} px tab (the image stays ${shut.w.toFixed(0)} px, moved ${(shut.liveLeft - sq.liveLeft).toFixed(0)} px right, the bar fits: overflow ${shut.barOver} px) and open again`);
+  // where the groups sit: the instrument under the image beside the acquisition controls, the simulation's in the settings
+  const where = await page.evaluate(() => Object.fromEntries(['illum', 'lightpath', 'objective', 'camera', 'perf', 'formation']
+    .map(g => [g, document.querySelector(`details[data-group=${g}]`).closest('#lv_colAcq,#lv_instrHost,#panel').id])));
+  check(where.illum === 'lv_colAcq' && where.lightpath === 'lv_instrHost' && where.objective === 'lv_instrHost' && where.camera === 'lv_instrHost'
+    && where.perf === 'panel' && where.formation === 'panel', `the groups' places ${JSON.stringify(where)}`);
+  // the handle spreads the controls over the image's lower 75 %; they fold back 0.5 s after the pointer leaves them
+  await page.click('#ctlUp');
+  const up = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect(), c = document.getElementById('liveCtl').getBoundingClientRect();
+    return { top: (c.top - v.top) / v.height, bottom: c.bottom, H: innerHeight, w: c.width - v.width }; });
+  await page.mouse.move(5, 300);
+  await page.waitForTimeout(250);
+  const still = await page.evaluate(() => document.getElementById('sideMain').classList.contains('ctlUp'));
+  await page.waitForTimeout(600);
+  const back = await page.evaluate(() => !document.getElementById('sideMain').classList.contains('ctlUp') &&
+    Math.abs(document.getElementById('liveCtl').getBoundingClientRect().top - document.getElementById('liveView').getBoundingClientRect().bottom) < 2);
+  check(Math.abs(up.top - 0.25) < 0.01 && Math.abs(up.bottom - up.H) < 2 && Math.abs(up.w) < 2 && still && back,
+    `the handle spreads the controls from ${(100 * up.top).toFixed(0)} % of the image to the bottom; still spread 0.25 s after the pointer left, folded back by 0.85 s`);
   // the BFP readout, from the movie spec's C++ setup (the setup job), names a regime (the spectra: viewer_scope_view.mjs)
   const ro = await page.waitForFunction(() => {
     const b = document.getElementById('bfpReadout');

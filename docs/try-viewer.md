@@ -16,10 +16,14 @@ through it step by step.
   one item per line where the view is (seed, centre, scale, tilt) and what is still loading; View ▾ opens the options
   in the same box. The microscope is on the right: its bar (level with the title bar) holds ▶ Live / Snap / ● Record /
   ↺ and one short line with the frame rate and the time per frame (its tooltip adds the image size, the pixel size
-  and a recording's message); under it the live camera image, always square, with the controls you use while imaging
-  below it at the same width: the focus, the acquisition (imaging mode, illumination, drift, quality, exposure), the
-  lasers and the BFP position, the display range and, at the Expert level, the performance. At the right edge, down to
-  the bottom of the window, the **Settings** column: every sample and instrument setting, with a search box on top. Its
+  and a recording's message); under it the live camera image, always square, and below it at the same width the
+  microscope: the controls you use while imaging (the focus, the acquisition (imaging mode, illumination, drift,
+  quality, exposure), the lasers and the BFP position, the display range) and beside them, in a second column when
+  there is room, the instrument (**Light path**, **Objective & PSF**, **Camera**). The small ▲ on the image's lower
+  edge spreads these controls over the lower three quarters of the image; they fold back half a second after the
+  pointer leaves them (or on ▼ or Esc). At the right edge, down to the bottom of the window, the **Settings** column:
+  the sample, its preparation and, from the Advanced level, the **Simulation** (performance, image formation), with
+  a search box on top. Its
   » folds it to a narrow **« Show settings** tab at the right edge (the image keeps its size and moves right; the Sample or
   Microscope view gets the room; Basic / Advanced / Expert hide with the settings; remembered in your browser), and a click
   on the tab, or typing a search, opens it again. The search box highlights every line that matches (at the current
@@ -84,7 +88,7 @@ through it step by step.
   tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
   range). Live pauses while the page is hidden. The world view always outlines the camera's field (dashed white, "camera"), and the x-z
   view draws the **focal plane** across it, at the focus height in the sample's frame (a live drift moves both).
-- **Performance** (its own box under Display, at the Expert level): how each label was drawn (SMLM splat: every
+- **Performance** (Settings › Simulation, at the Expert level): how each label was drawn (SMLM splat: every
   blink placed with the PSF; binned SMLM: the same blinks on a finer grid, one FFT convolution, many blinks at once;
   mean-field widefield: no single blinks; or BrightField), the sample's time, how long this place has been lit and the
   drift; then where each frame's time goes, in milliseconds with one decimal: the engine's phases (setup, the core's
@@ -115,8 +119,8 @@ through it step by step.
 - **Illumination** (in the controls column, under Acquisition): the light preset, each laser line as a
   slider with its power (kW/cm², three decimals; at the Basic level only the lines the labelled dyes use in their
   modes, with 405, 488 and 561 nm for PALM, and any line that is on), the BFP position and the pattern. The beam's
-  shape, the filters, the dichroic, the background and the BrightField lamp are the instrument's: **Instrument › Light
-  path** in the Settings column (the spectra: the Microscope view's
+  shape, the filters, the dichroic, the background and the BrightField lamp are the instrument's: **Light
+  path** beside them (the spectra: the Microscope view's
   **Spectral info** panel, where each laser line has the colour of its wavelength and each dye's excitation (dashed) and
   emission (solid) the colour of its weighted emission wavelength, with what reaches the camera per label: detected
   fraction and wavelength, photons per second, activation, free-imager background;
@@ -126,12 +130,12 @@ through it step by step.
   configurations' Channel group, its presets named by the mode alone, without the dye they also pick: dSTORM,
   DNA-PAINT, PALM, WideField, BrightField, and in Advanced WideField + BrightField), Illumination, Drift and Quality,
   then the exposure. Each setting has one place: the groups the settings already have a control for are not repeated
-  here (Specimen: Sample › Specimen; Camera: Instrument › Camera; Aberrations: Objective & PSF; the BFP position:
-  Illumination), the Objective preset is the first row of Instrument › Objective & PSF, and the laser-power groups are
+  here (Specimen: Sample › Specimen; Camera: the Camera group; Aberrations: Objective & PSF; the BFP position:
+  Illumination), the Objective preset is the first row of Objective & PSF, and the laser-power groups are
   the lasers' sliders in Illumination. A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
   the adapter itself, so the two stay the same). The select shows the preset the settings are at, or "—" once a
   setting differs.
-- **Camera** (Settings column, Instrument): the camera, the field of view (px) and the
+- **Camera** (under the image, beside the acquisition controls): the camera, the field of view (px) and the
   **Magnification** between the objective and the camera (`EmissionPath.EmissionMagnification`; a camera preset sets its
   own: 0.667 with the Kinetix22, 1.6 with the iXon), with the total magnification under it. The pixel size follows as in
   Micro-Manager, sensor pixel / (objective x magnification), 97.45 nm at 100x with the Kinetix22; typing a pixel size

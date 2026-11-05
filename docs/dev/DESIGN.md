@@ -122,8 +122,8 @@ Components use **semantic tokens only**. A primitive used in a component is a bu
 | Left view | `#canvasHost` / `#scopeHost` | the world view with its HUD (View ▾) and legend; or the Microscope view's panels (`cli/scope_panels.*` describes them, `web/live/scope_panels.js` draws them) |
 | Live bar | `#liveBar` | Live, Snap, Record, fresh sample, the one-line status (`#lv_info`, full text in its tooltip), the settings level (`#levelSeg`), the settings-file icons, ☰ |
 | Live image | `#liveView` | the camera image; the zoom inset; the recording's player |
-| **Acquire** | `#liveCtl` (under the image, at its width) | Focus, **Acquisition** (Micro-Manager presets: imaging mode, illumination, drift, quality; exposure), **Illumination** (light preset, laser powers, BFP position, pattern), Display, Performance (Expert) |
-| **Settings** column | `#setCol` at the right edge: `#setColHead` (» folds it to the tab `#setTab`, `isc.ui.setShut`; the live image keeps its width, the left view takes the room), the search `#sideTop` (one search over every setting, and "Changed only"; typing unfolds the column), `#panel` | **Sample** (specimen first, then its structures), **Sample preparation** (labels, beads, custom dyes), **Instrument** (light path, objective and PSF, camera, image formation), About |
+| **Microscope** | `#liveCtl` (under the image, at its width; `#lv_cols`: two columns from 520 px; the handle `#ctlUp` spreads it over the image's lower 75 %, `#sideMain.ctlUp`, folded back 0.5 s after the pointer leaves) | `#lv_colAcq` = **Acquire**: Focus, **Acquisition** (Micro-Manager presets: imaging mode, illumination, drift, quality; exposure), **Illumination** (light preset, laser powers, BFP position, pattern), Display; `#lv_instrHost` = the **instrument**: Light path, Objective & PSF, Camera (groups with `host: 'lv_instrHost'`) |
+| **Settings** column | `#setCol` at the right edge: `#setColHead` (» folds it to the tab `#setTab`, `isc.ui.setShut`; the live image keeps its width, the left view takes the room), the search `#sideTop` (one search over every setting, and "Changed only"; typing unfolds the column), `#panel` | **Sample** (specimen first, then its structures), **Sample preparation** (labels, beads, custom dyes), **Simulation** (Performance (Expert), Image formation: how the simulator works, not the instrument), About |
 | Menu | `#menu` | the settings file (save and load), Appearance (theme, density, the animation pane), Settings (expand or collapse all, reset all, the hidden-changes note), Tools, About |
 
 A new setting goes in the region its job belongs to (rule 2), at the level its Micro-Manager property has (`tierOf`).
@@ -143,7 +143,7 @@ All of them are styled in `web/index.html`'s `<style>` with tokens only.
 | Two-knob slider | `.dual` (`pair` rows) | a min..max range | the boxes and the knobs stay together |
 | Setting row | `.opt` (grid: `.lab`, `.ctl`, `.val`) | one setting | `.changed` (accent bar, ↺), `.hit` (search), `.t-advanced` and `.t-expert` (level); labels wrap to two lines, never an ellipsis |
 | Group | `details.grp[data-group]` | the one folding level | its title row is the button: caret, title, `.grpChg` (n changed, ↺) |
-| Section | `.sect` | the area's top-level headings (Sample, Instrument …) | a heading over a line; does not fold |
+| Section | `.sect` | the area's top-level headings (Sample, Simulation …) | a heading over a line; does not fold |
 | Sub-heading | `.subhead` | a few rows inside a group | caption size, muted; use sparingly |
 | Column box | `#liveCtl .lc > h5` | an Acquire box | looks like a group title; folds (`.shut`) |
 | Readout | `.sub` under a control (`#bfpReadout`, `#patternReadout`) | what a value means now | text only, never an input |
