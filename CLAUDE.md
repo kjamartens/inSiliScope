@@ -244,24 +244,39 @@ that finishes them.
 - `web/live/mobile.js` -- the viewer **on a phone** (2026-10-22; windows up to 700 px, `body.mobile`, CSS in
   `web/index.html`): it moves `#canvasHost`, `#liveView` and `#liveBar` into a sticky `#mTop` (square `#mStage`: live
   image big, world view the inset (37.5 %), `.worldBig` swapped by a tap on `#mSwap`, `isc.ui.mobileBig`) and back on a wider
-  window; the focus knob `#mFocus` in the Focus box in place of `#lv_z`; touch: two fingers on the world view pinch /
+  window; the focus wheel `#mFocus` drawn as a ruler, the Z step under it; touch: two fingers on the world view pinch /
   twist / tilt, on the live image focus (up together) or zoom (`zoomAt`); long press = a setting's help; at most 2 cell
   workers on a coarse pointer. Test: `tests/web/viewer_mobile.mjs` (touch through CDP).
 - `web/live/` -- the viewer's **live microscope** (2026-10-13, layout A2: world view + View bar left, a draggable live
   panel right): `live.js` (splitter, View pop-over, the live loop on its own worker, started by itself once the engine is up (2026-10-22, `L.auto`, not counted;
   `?live=0` keeps it off: every browser test that drives Live loads the page with it): one `live` job per frame, at most one
-  in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
+  in flight, paced to the exposure, paused while hidden; contrast on an upright level bar beside the stage (`#lv_sd`, `#lv_lvl`: grey scale, histogram with axes over the last 10 s, ◀ handles with numbers right-aligned in 5 digits; right-click `#lv_dispPop`),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
-  layout (2026-10-14): a bar `#liveBar` level with the title bar (Live / Snap / Record / fresh, the one-line info: fps
+  layout (2026-10-14; 2026-11-05: `#liveBar` sits at the right end of `#topBar`, one bar across the window with the title
+  bar `#viewBar`; Live / Snap / Record / fresh moved under the image, `#lv_acts`, a row across the strip with the info line
+  `#lv_info` / `#lv_busy` at its right end (on a phone mobile.js puts both back in the bar)): the one-line info: fps
   and ms/frame only, the sizes, pattern state and recording message in its tooltip (2026-11-03; only it gives way,
-  `flex:none` on the rest, a narrow bar drops `#setIcons`); at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
+  `flex:none` on the rest); at its right end the settings level `#levelSeg` and the ☰ `#menu`, whose Expand/Collapse all
   reach the column's boxes; View ▾ sits in the world view's info box `#hud`, one item per line, the View options opening in
-  it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the settings under it at its width (`#sideMain`) and the controls
-  column `#liveCtl` to the bottom (focus, configuration, the settings groups Illumination & light path and Objective & PSF
-  via `host: 'lv_illumHost'` / `'lv_objHost'`, a box hidden when none of its rows shows at the level, display,
-  performance); the settings search highlights matching rows (`.opt.hit`, the column's too) and opens every group with
-  a match; render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
+  it; its counts are `#hud` data- attributes, which the tests read), under it `#sideBody`: the square image with the controls `#liveCtl` under it at its width to the bottom (`#sideMain`)
+  = **Acquire** (2026-11-05, docs/dev/DESIGN.md "Regions": Live / Snap / Record `#lv_acts` (in the bar on a phone), the Stage `#lv_stageBox` (an XY pad, since
+  replaced by a joystick `#lv_joy` (2026-11-05: the knob's offset d sets the speed `JOY_STEPS` d^2 steps/s of `lv_xyStep`, springs back; a
+  click near an edge one step; arrow keys; Shift 10 steps / 10x the speed) moving `view.cx/cy`; the focus wheel `#mFocus` (live.js: ▲, a
+  thumbwheel (drag / scroll / click), ▼, the height `#mZ` as a number; on a phone the ruler with − / +, mobile.js no longer owns it); a right-click opens
+  `#lv_xyPop` / `#lv_zPop` with x/y/z and the steps; a phone shows Info and Acquisition before Display, its level bar lying down), Display, the Info box `#lv_statBox` (2026-11-05, `web/live/status.js`: laser on/off buttons, four fact rows from the setup job,
+  a warning line only when a check fails -- no light, nothing labelled, a label no line excites or the filters block,
+  saturation, the focus off the sample or above the TIRF light, no cell in view, slow frames; drift left out, the user's
+  choice -- its list with what to do on a click; `self.ISC_STATUS.warnings()`), focus, Acquisition (the MM
+  presets, exposure), the settings group Illumination via `host: 'lv_illumHost'`, a box hidden when none of its rows
+  shows at the level, display) in a grid `#lv_cols` by the strip's width (from 520 px the buttons across, Info | Stage | Display (`#lv_sd`) beside Acquisition) and
+  the instrument's groups Light path, Objective & PSF, Camera
+  (`host: 'lv_instrHost'`; two columns `#lv_cols` from 520 px; the handle `#ctlUp` (a click or 0.3 s of hover) spreads them over the image's lower
+  75 %, `#sideMain.ctlUp`, folded back 0.1 s after the pointer leaves; a 0.1 s slide each way, token `duration.fold`), and at the right edge the settings column `#setCol` (2026-11-05: `#panel` under the
+  search `#sideTop` with "Changed only" `#setChanged`; its » `#setFold` folds it to a vertical tab `#setTab`, kept in
+  `isc.ui.setShut`, `foldSettings`, class `setShut` on `#wrap`; the live image keeps its width, `--live-w` less `--set-w`, and the
+  world view takes the room; a search unfolds it; on a phone both are plain boxes again); the search highlights matching rows (`.opt.hit`, the column's too) and opens every group with a match; render paths/time/drift and the performance in the settings' section Simulation
+  (group `perf`, Expert, `lv_perfBox`; with Image formation);
   **● Record** (2026-10-14): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
   `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames from the box's
   `lv_recT` start time, default 0 s (2026-11-03; not `mv_start-sec`, which live keeps), on the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
@@ -276,7 +291,8 @@ that finishes them.
   rows (`self.ISC_SHOW_DATA`)), `mm_config_ui.js` (the
   Configuration: the MM config groups as selects (the Channel group shows as "Mode", its presets without the dye names,
   viewer only; the laser-power slider groups are skipped: the lasers are sliders in
-  the column's Illumination & light path, made in live.js beside each `mv_laser-*` number); a preset sets the `mv_<option>` controls, options without a
+  the column's Illumination, made in live.js beside each `mv_laser-*` number; groups a viewer control already sets are
+  left out, `SKIP`: Specimen, Camera, Aberrations, BfpPosition; the Objective goes into Objective & PSF, `HOME`); a preset sets the `mv_<option>` controls, options without a
   control go into every spec via `self.ISC_MM_EXTRA`; camera-type/em-gain/qe-curve follow the camera preset; the pixel
   size from the optics, read-only in the settings, set at load and on a camera change) and `mm_config.js` (**generated by `tools/gen_mm_configs.py` in the same run as the `.cfg`
   files**, `--check` covers it: each preset applied on a fresh hub at Startup, the adapter's engine spec via
@@ -435,6 +451,12 @@ that finishes them.
 
 ## Working rules
 
+**Viewer design (2026-11-05): [docs/dev/DESIGN.md](docs/dev/DESIGN.md).** Every viewer UI change follows it: the
+region a control belongs to, each setting once, the components, sentence-case names with units. Colours, font sizes,
+spacing come only from the design tokens (`web/design/tokens/*.tokens.json` -> `node tools/gen_design_tokens.mjs`
+-> `web/design/tokens.css`; `iscTheme.tok()` in canvas code, redraw on `isc-theme`); the accent is
+`web/design/tokens/accent.tokens.json`. Check: `node tests/web/design_lint.mjs` (literals, generated CSS, WCAG contrast).
+
 **C++ only (2026-10-28).** New models go straight into the C++ (the iteration mode with a JS twin first, the lab and
 `PORT_PENDING.md` are retired); a new structure gets golden cases from the C++ and `world_checks`.
 
@@ -545,7 +567,10 @@ targets keeps the position they agree on. The kinetics follow the local light th
 the focus on a 10 nm grid and the mean-field scenes stay at an anchor within 1 um, their images phase-ramp shifted
 (`FluorescenceMovie::AnchorMeanField`; dSTORM HILO 1.5 -> 12 fps). Shipped configs: groups `Illumination` (Epi / HILO / TIRF) and
 `BfpPosition`, not in Startup. A mount keeps the lasers and the BFP as set. Viewer: the **BFP position** slider with a
-regime / depth readout (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
+regime / depth readout (2026-11-05, the user's choice: only the slider, Illumination's Preset, Epi / HILO / TIRF, the Pattern, a
+reset or a settings file move it -- not a dye or mode pick (`lightNoBfp`), the Imaging mode (its MM presets carry none) or the specimen;
+MM alike: a dye, mode (channel) or slide-dye pick applies the Auto preset without it, `ApplyLightPreset(id, false)`, and
+`isc_mm.label()` / `adapter_pixel_hash.py` pick `Lasers.Preset` Auto after a label so the tests keep their old geometry; a Pattern on with the BFP below `SIM_EPI_BELOW` 0.05 goes Off and comes back above) (the JS `scopeExcitation`; helpers the main script needs from the schema go through `DYE_UI`,
 the schema's consts are not in its scope); cli `--setup-json` `excitation` (section and axis of the factor), figures
 `light-geometry`, `light-geometry-images`.
 

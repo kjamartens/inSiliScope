@@ -24,7 +24,9 @@ export async function runViewer(name, { watchdogSec = 120, viewport = { width: 1
   const server = http.createServer((req, res) => {
     const f = path.join(ROOT, 'web', decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html');
     if (!f.startsWith(path.join(ROOT, 'web')) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.statusCode = 404; res.end(); return; }
-    res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : 'text/html');
+    // (a stylesheet sent as text/html is dropped by the browser: web/design/tokens.css)
+    res.setHeader('content-type', f.endsWith('.js') || f.endsWith('.mjs') ? 'text/javascript' : f.endsWith('.css') ? 'text/css'
+      : f.endsWith('.json') ? 'application/json' : 'text/html');
     res.end(fs.readFileSync(f));
   }).listen(0);
   const t0 = Date.now(), sec = () => ((Date.now() - t0) / 1000).toFixed(1);

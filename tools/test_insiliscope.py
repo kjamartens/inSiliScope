@@ -394,6 +394,14 @@ for bfp, regime in (("0", "Epi"), ("0.95", "HILO"), ("1.03", "TIRF"), ("1.1", "C
         assert 120 < depth < 200, f"TIRF at 1.03 and 640 nm: d ~ 155 nm, got {depth:.0f}"
     if regime == "Epi":
         assert depth == -1, f"epi has no depth, got {depth}"
+# A mode or dye pick applies the Auto preset's lasers and filters, not its geometry (2026-11-05)
+core.setProperty("Lasers", "BfpPosition", "0.4")
+mt_mode = core.getProperty("CellField", "Microtubules_Mode")
+core.setProperty("CellField", "Microtubules_Mode", "dSTORM")
+assert core.getProperty("Lasers", "Preset") == "Auto", "a mode pick applies the Auto preset"
+assert float(core.getProperty("Lasers", "BfpPosition")) == 0.4, "a mode pick leaves BfpPosition"
+core.setProperty("CellField", "Microtubules_Mode", mt_mode)
+assert float(core.getProperty("Lasers", "BfpPosition")) == 0.4, "a mode pick leaves BfpPosition"
 core.setProperty("Lasers", "Preset", "dSTORM-640")
 assert float(core.getProperty("Lasers", "BfpPosition")) == 0, "a preset without a geometry sets epi"
 core.setProperty("Lasers", "Preset", "Auto")

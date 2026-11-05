@@ -12,9 +12,9 @@ const LS = 'isc.anim.v1';
 
 // ---- styles (the panel's own; the tab bar is in index.html) ----
 document.head.append(h('style', {}, `
-#animPanel .an-sec{margin:10px 0 4px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:6px}
+#animPanel .an-sec{margin:10px 0 4px;font-size:var(--font-size-caption);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--color-text-muted);display:flex;align-items:center;gap:6px}
 #animPanel .an-sec span{flex:1}
-#animPanel .an-row{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr);align-items:center;gap:6px;margin:var(--row-gap) 0}
+#animPanel .an-row{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr);align-items:center;gap:6px;margin:var(--density-row-gap) 0}
 #animPanel .an-row .ctl{display:flex;gap:4px;align-items:center;min-width:0}
 #animPanel .an-row .ctl>*{min-width:0}
 #animPanel .an-row input[type=number]{width:64px}
@@ -22,29 +22,29 @@ document.head.append(h('style', {}, `
 #animPanel .an-row select{max-width:100%}
 #animPanel .btns{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}
 #animPanel .btns button{padding:3px 7px}
-#animPanel button.mini{padding:1px 5px;font-size:11px;line-height:1.3}
-#animPanel details.an-card{border:1px solid var(--border);border-radius:var(--radius);margin:6px 0;background:var(--grp-bg)}
-#animPanel details.an-card>summary{cursor:pointer;padding:4px 6px;list-style:none;display:flex;align-items:center;gap:4px;background:var(--grp-head);border-radius:var(--radius)}
+#animPanel button.mini{padding:1px 5px;font-size:var(--font-size-caption);line-height:1.3}
+#animPanel details.an-card{border:1px solid var(--color-border);border-radius:var(--radius-md);margin:6px 0;background:var(--grp-bg)}
+#animPanel details.an-card>summary{cursor:pointer;padding:4px 6px;list-style:none;display:flex;align-items:center;gap:4px;background:var(--grp-head);border-radius:var(--radius-md)}
 #animPanel details.an-card>summary::-webkit-details-marker{display:none}
 #animPanel details.an-card>summary .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #animPanel details.an-card>summary .t b{font-weight:600}
 #animPanel details.an-card .body{padding:4px 8px 6px}
-#animPanel details.an-card.step{margin-left:6px;border-color:color-mix(in srgb,var(--border) 70%,transparent)}
-#animPanel details.an-card.sel>summary{box-shadow:inset 3px 0 0 var(--accent)}
+#animPanel details.an-card.step{margin-left:6px;border-color:color-mix(in srgb,var(--color-border) 70%,transparent)}
+#animPanel details.an-card.sel>summary{box-shadow:inset 3px 0 0 var(--color-accent)}
 #animPanel table.layers{width:100%;border-collapse:collapse;margin:4px 0}
-#animPanel table.layers th{font-weight:500;color:var(--muted);font-size:10px;text-align:center;padding:1px}
+#animPanel table.layers th{font-weight:500;color:var(--color-text-muted);font-size:var(--font-size-caption);text-align:center;padding:1px}
 #animPanel table.layers th:first-child{text-align:left}
 #animPanel table.layers td{padding:1px 2px;text-align:center}
 #animPanel table.layers td:first-child{text-align:left;max-width:120px}
 #animPanel table.layers select{max-width:120px}
 #animPanel table.layers input[type=color]{width:22px;height:18px;padding:0;border:none;background:none}
 #animPanel table.layers input[type=number]{width:44px}
-#animPanel .warn{color:#e6a23c;font-size:11px;margin:4px 0}
-#animPanel .note{color:var(--muted);font-size:11px;margin:4px 0;line-height:1.4}
+#animPanel .warn{color:#e6a23c;font-size:var(--font-size-caption);margin:4px 0}
+#animPanel .note{color:var(--color-text-muted);font-size:var(--font-size-caption);margin:4px 0;line-height:1.4}
 #animPanel progress{width:100%}
-#animBar{background:rgba(10,13,18,.96);border-top:1px solid #232a35;align-items:center;gap:8px;padding:0 10px;color:#dfe6ee;font-size:11px}
-#animBar button{background:#1a212b;border-color:#2c3644;color:#dfe6ee;padding:3px 9px}
-#animBar select{background:#1a212b;border-color:#2c3644;color:#dfe6ee}
+#animBar{background:rgba(10,13,18,.96);border-top:1px solid var(--color-overlay-border);align-items:center;gap:8px;padding:0 10px;color:var(--color-overlay-text);font-size:var(--font-size-caption)}
+#animBar button{background:var(--color-overlay-control-bg);border-color:var(--color-overlay-control-border);color:var(--color-overlay-text);padding:3px 9px}
+#animBar select{background:var(--color-overlay-control-bg);border-color:var(--color-overlay-control-border);color:var(--color-overlay-text)}
 #animBar canvas{flex:1;height:30px;cursor:pointer;background:transparent}
 #animBar .tm{font-variant-numeric:tabular-nums;min-width:86px;text-align:right}
 `));

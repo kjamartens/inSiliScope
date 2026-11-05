@@ -20,7 +20,7 @@ const arg = k => { const a = process.argv.find(s => s.startsWith('--' + k)); ret
 const server = http.createServer((req, res) => {
   const f = path.join(ROOT, 'web', decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html');
   if (!f.startsWith(path.join(ROOT, 'web')) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.statusCode = 404; res.end(); return; }
-  res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : 'text/html');
+  res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html');   // (a stylesheet sent as text/html is dropped: web/design/tokens.css)
   res.end(fs.readFileSync(f));
 }).listen(0);
 
@@ -76,17 +76,170 @@ try {
     return { a, z, over };
   });
   check(bar.a === bar.z && bar.over <= 0, `the bar's buttons stay put under a long info and the busy marker (overflow ${bar.over} px)`);
-  const sq = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect(), c = document.getElementById('liveCtl').getBoundingClientRect(),
-    p = document.getElementById('panel').getBoundingClientRect(), vb = document.getElementById('viewBar').getBoundingClientRect(), lb = document.getElementById('liveBar').getBoundingClientRect();
-    return { w: v.width, h: v.height, pw: p.width, ctlBottom: c.bottom, H: innerHeight, vbH: vb.height, lbH: lb.height, illum: !!document.querySelector('#liveCtl details[data-group=illum]') }; });
-  check(Math.abs(sq.w - sq.h) < 1 && Math.abs(sq.pw - sq.w) < 2 && Math.abs(sq.ctlBottom - sq.H) < 2 && Math.abs(sq.vbH - sq.lbH) < 1 && sq.illum,
-    `layout: the image square (${sq.w.toFixed(0)} px), the settings as wide (${sq.pw.toFixed(0)} px), the controls column to the bottom, the bars level (${sq.vbH.toFixed(0)}/${sq.lbH.toFixed(0)} px), illumination in the column ${JSON.stringify(sq)}`);
+  // the image with the Acquire controls under it at its width, the settings (search on top) a column at the right edge
+  const layout = () => page.evaluate(() => { const R = id => document.getElementById(id).getBoundingClientRect();
+    const v = R('liveView'), c = R('liveCtl'), s = R('setCol'), vb = R('viewBar'), lb = R('liveBar');
+    const bar = document.getElementById('liveBar');
+    return { w: v.width, h: v.height, liveLeft: v.left, barOver: bar.scrollWidth - bar.clientWidth, cw: c.width, ctlBottom: c.bottom, setRight: s.right, setBottom: s.bottom, setW: s.width, W: innerWidth,
+      H: innerHeight, vbH: vb.height, lbH: lb.height, illum: !!document.querySelector('#liveCtl details[data-group=illum]'),
+      search: document.getElementById('sideTop').parentElement.id }; });
+  const sq = await layout();
+  check(Math.abs(sq.w - sq.h) < 1 && Math.abs(sq.cw - sq.w) < 2 && Math.abs(sq.ctlBottom - sq.H) < 2 && Math.abs(sq.setRight - sq.W) < 2
+    && Math.abs(sq.setBottom - sq.H) < 2 && Math.abs(sq.vbH - sq.lbH) < 1 && sq.illum && sq.search === 'setCol',
+    `layout: the image square (${sq.w.toFixed(0)} px), the controls as wide and to the bottom, the settings column at the right edge with the search, the bars level (${sq.vbH.toFixed(0)}/${sq.lbH.toFixed(0)} px), illumination in the controls ${JSON.stringify(sq)}`);
+  // the settings column folds to a tab at the right edge (the image keeps its size and moves right) and opens again
+  await page.click('#setFold');
+  await page.waitForTimeout(300);
+  const shut = await layout();
+  await page.click('#setTab');
+  await page.waitForTimeout(300);
+  const open = await layout();
+  check(shut.setW < 40 && Math.abs(shut.setRight - shut.W) < 2 && Math.abs(shut.w - sq.w) < 1 && Math.abs(shut.w - shut.h) < 1
+    && shut.liveLeft > sq.liveLeft + 250 && shut.barOver <= 0 && Math.abs(open.w - sq.w) < 1 && Math.abs(open.liveLeft - sq.liveLeft) < 1,
+    `the settings fold to a ${shut.setW.toFixed(0)} px tab (the image stays ${shut.w.toFixed(0)} px, moved ${(shut.liveLeft - sq.liveLeft).toFixed(0)} px right, the bar fits: overflow ${shut.barOver} px) and open again`);
+  // where the groups sit: the instrument under the image beside the acquisition controls, the simulation's in the settings
+  const where = await page.evaluate(() => Object.fromEntries(['illum', 'lightpath', 'objective', 'camera', 'perf', 'formation']
+    .map(g => [g, document.querySelector(`details[data-group=${g}]`).closest('#lv_colIllum,#lv_instrHost,#panel').id])));
+  check(where.illum === 'lv_colIllum' && where.lightpath === 'lv_instrHost' && where.objective === 'lv_instrHost' && where.camera === 'lv_instrHost'
+    && where.perf === 'panel' && where.formation === 'panel', `the groups' places ${JSON.stringify(where)}`);
+  // the stage box: a click near the joystick's right edge moves one step right, one near its lower-left corner one
+  // step down and left; dragging the knob right moves the stage right while held and stops when let go (the knob back
+  // in the middle); Shift + ↓ on it 10 steps; the readout shows the position; the focus wheel steps Z (a click above
+  // its line one up, a 36 px drag up three up, a scroll notch down one down); a right-click opens the step box
+  const st = await page.evaluate(() => ({ x0: view.cx, y0: view.cy, z0: +document.getElementById('mv_z').value,
+    order: [...document.querySelectorAll('#lv_cols .lc>h5')].map(h => h.firstChild.textContent.trim()).slice(0, 4).join(',') }));
+  const jb = await (await page.$('#lv_joy')).boundingBox(), jc = [jb.x + jb.width / 2, jb.y + jb.height / 2], R = jb.width / 2;
+  const pos = () => page.evaluate(() => [view.cx, view.cy]);
+  await page.mouse.click(jc[0] + 0.8 * R, jc[1]);
+  const p1 = await pos();
+  await page.mouse.click(jc[0] - 0.6 * R, jc[1] + 0.6 * R);
+  const p2 = await pos();
+  await page.mouse.move(jc[0], jc[1]); await page.mouse.down();
+  for (let i = 1; i <= 6; i++) await page.mouse.move(jc[0] + 5 * i, jc[1]);
+  await page.waitForTimeout(500);
+  const p3 = await pos();
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+  const p4 = await pos(), knobBack = await page.$eval('#lv_joy .jk', e => e.style.transform === '');
+  await page.waitForTimeout(200);
+  const p5 = await pos();
+  await page.keyboard.down('Shift'); await page.keyboard.press('ArrowDown'); await page.keyboard.up('Shift');   // (the joystick has the focus from its clicks)
+  const p6 = await pos();
+  await page.keyboard.down('Shift'); await page.mouse.click(jc[0] - 0.8 * R, jc[1]); await page.keyboard.up('Shift');
+  const p7 = await pos();
+  const kb = await (await page.$('#mKnob')).boundingBox(), kz = () => page.$eval('#mv_z', e => +e.value);
+  const za = await kz();
+  await page.mouse.click(kb.x + kb.width / 2, kb.y + kb.height * 0.25);
+  const zb = await kz();
+  await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height * 0.85); await page.mouse.down();
+  for (let i = 1; i <= 12; i++) { await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height * 0.85 - 3 * i); await page.waitForTimeout(16); }
+  await page.mouse.up();
+  const zc = await kz();
+  await page.mouse.move(kb.x + kb.width / 2, kb.y + kb.height / 2); await page.mouse.wheel(0, 100); await page.waitForTimeout(50);
+  const zd = await kz();
+  const zShown = await page.$eval('#mZ', e => e.innerText.trim());
+  await page.click('#mFocus button[data-dir="1"]');
+  const ze = await kz();
+  await page.click('#lv_joy', { button: 'right' });
+  const pop = await page.evaluate(() => ({ open: !document.getElementById('lv_xyPop').hidden, focus: document.activeElement.id }));
+  await page.mouse.click(5, 300);
+  const popShut = await page.evaluate(() => document.getElementById('lv_xyPop').hidden);
+  await page.evaluate(s => { view.cx = s.x0; view.cy = s.y0; requestDraw();
+    const z = document.getElementById('mv_z'); z.value = s.z0; z.dispatchEvent(new Event('input', { bubbles: true })); z.dispatchEvent(new Event('change', { bubbles: true })); }, st);
+  const near = (a, b, e = 1e-6) => Math.abs(a - b) < e;
+  const ran = p3[0] - p2[0];
+  check(near(p1[0] - st.x0, 1) && near(p1[1], st.y0) && near(p2[0] - p1[0], -1) && near(p2[1] - p1[1], 1)
+    && ran > 0.3 && near(p3[1], p2[1]) && near(p5[0], p4[0]) && knobBack && near(p6[1] - p5[1], 10) && near(p7[0] - p6[0], -10),
+    `the joystick: a click at the right edge +${(p1[0] - st.x0).toFixed(2)} µm in x, at the lower left (${(p2[0] - p1[0]).toFixed(2)}, +${(p2[1] - p1[1]).toFixed(2)}) µm; `
+    + `the knob held right moved ${ran.toFixed(2)} µm in 0.5 s and stopped when let go (knob back: ${knobBack}); Shift+↓ +${(p6[1] - p5[1]).toFixed(2)} µm, Shift+click at the left ${(p7[0] - p6[0]).toFixed(2)} µm`);
+  check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Info,Stage,Display,Acquisition',
+    `the focus wheel: click above +${(zb - za).toFixed(2)}, 36 px drag up +${(zc - zb).toFixed(2)}, a scroll notch down ${(zd - zc).toFixed(2)} µm, shown under it as "${zShown}", ▲ +${(ze - zd).toFixed(2)}; `
+    + `right-click opens the step box (${JSON.stringify(pop)}), a click elsewhere shuts it; the boxes ${st.order}`);
+  // the display's level bar beside the stage: a drag near the top moves the white level up (auto off), the handles'
+  // numbers end where "auto" ends, whatever their digits; a right-click opens the levels box
+  const lv = await (await page.$('#lv_lvl')).boundingBox(), hb0 = await page.evaluate(() => [liveState.lo, liveState.hi]);
+  await page.mouse.move(lv.x + 20, lv.y + lv.height * 0.6); await page.mouse.down();
+  await page.mouse.move(lv.x + 20, lv.y + lv.height * 0.3, { steps: 4 }); await page.mouse.move(lv.x + 20, lv.y + 3, { steps: 4 }); await page.mouse.up();
+  const lvl = await page.evaluate(() => {
+    const R = e => e.getBoundingClientRect(), sd = R(document.getElementById('lv_stageBox')), dp = R(document.getElementById('lv_dispBox'));
+    const set = (lo, hi) => { const a = document.getElementById('lv_lo'), b = document.getElementById('lv_hi'); a.value = lo; b.value = hi; a.dispatchEvent(new Event('input')); };
+    const ends = () => [...document.querySelectorAll('#lv_lvl .tag b')].map(b => +R(b).right.toFixed(1));
+    const r = { lo: liveState.lo, hi: liveState.hi, auto: document.getElementById('lv_auto').checked, beside: Math.abs(dp.top - sd.top) < 2 && dp.left > sd.right,
+      chip: +R(document.querySelector('#lv_dispBox .autoChip')).right.toFixed(1), ends: [] };
+    for (const [lo, hi] of [[7, 950], [1700, 1760], [120, 65535]]) { set(lo, hi); r.ends.push(...ends()); }
+    const tags = [...document.querySelectorAll('#lv_lvl .tag')].map(t => R(t)); 
+    set(r.lo, r.hi); document.getElementById('lv_auto').checked = true; document.getElementById('lv_auto').dispatchEvent(new Event('change'));
+    return r; });
+  await page.click('#lv_lvl', { button: 'right' });
+  const lpop = await page.evaluate(() => ({ open: !document.getElementById('lv_dispPop').hidden, focus: document.activeElement.id }));
+  await page.mouse.click(5, 300);
+  check(lvl.beside && lvl.hi > hb0[1] && lvl.lo < hb0[1] && !lvl.auto && lvl.ends.every(e => Math.abs(e - lvl.chip) < 0.6) && lpop.open && lpop.focus === 'lv_hi',
+    `the level bar beside the stage: a drag to the top white ${hb0[1]} -> ${lvl.hi} (black ${lvl.lo}, auto off, beside: ${lvl.beside}); the numbers (1 to 5 digits) end at ${[...new Set(lvl.ends)]} px, "auto" at ${lvl.chip}; right-click opens the levels (${JSON.stringify(lpop)})`);
+  // the handle spreads the controls over the image's lower 75 %; they fold back 0.1 s after the pointer leaves them
+  await page.click('#ctlUp');
+  await page.waitForTimeout(200);   // (the 0.1 s slide)
+  const up = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect(), c = document.getElementById('liveCtl').getBoundingClientRect();
+    return { top: (c.top - v.top) / v.height, bottom: c.bottom, H: innerHeight, w: c.width - v.width }; });
+  await page.mouse.move(5, 300);
+  const still = await page.evaluate(() => document.getElementById('sideMain').classList.contains('ctlUp'));
+  await page.waitForTimeout(400);
+  const back = await page.evaluate(() => !document.getElementById('sideMain').classList.contains('ctlUp') &&
+    Math.abs(document.getElementById('liveCtl').getBoundingClientRect().top - document.getElementById('liveView').getBoundingClientRect().bottom) < 2);
+  check(Math.abs(up.top - 0.25) < 0.01 && Math.abs(up.bottom - up.H) < 2 && Math.abs(up.w) < 2 && still && back,
+    `the handle spreads the controls from ${(100 * up.top).toFixed(0)} % of the image to the bottom; still spread as the pointer leaves, folded back by 0.4 s`);
+  // resting the pointer on the handle spreads them too: not at 0.15 s, by 0.45 s
+  const hb = await (await page.$('#ctlUp')).boundingBox();
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.waitForTimeout(150);
+  const early = await page.evaluate(() => document.getElementById('sideMain').classList.contains('ctlUp'));
+  await page.waitForTimeout(300);
+  const rest = await page.evaluate(() => document.getElementById('sideMain').classList.contains('ctlUp'));
+  await page.mouse.move(5, 300);
+  await page.waitForTimeout(400);
+  const gone = await page.evaluate(() => !document.getElementById('sideMain').classList.contains('ctlUp'));
+  check(!early && rest && gone, `the pointer resting on the handle spreads them (0.15 s: ${early}, 0.45 s: ${rest}), leaving folds them back (${gone})`);
   // the BFP readout, from the movie spec's C++ setup (the setup job), names a regime (the spectra: viewer_scope_view.mjs)
   const ro = await page.waitForFunction(() => {
     const b = document.getElementById('bfpReadout');
     return b && /^(Epi|HILO|TIRF|Clipped)\b/.test(b.textContent) && b.textContent;
   }, null, { timeout: 30000 }).then(h => h.jsonValue(), () => null);
   check(!!ro, `the BFP readout from the setup job: ${ro ? `"${ro}"` : 'nothing in 30 s'}`);
+  // the Info box beside the display (web/live/status.js): the facts from the setup job, a laser button turns its line
+  // off and on again at its power, a warning only when something is off (all lasers off; the focus under the glass),
+  // its list on a click
+  const facts = await page.waitForFunction(() => /DNA-PAINT ×2\n(Light\n)?HILO/.test(document.getElementById('lv_facts').innerText) && document.getElementById('lv_facts').innerText,
+    null, { timeout: 15000 }).then(h => h.jsonValue(), () => null);
+  const stat = await page.evaluate(async () => {
+    const $ = id => document.getElementById(id), R = e => e.getBoundingClientRect(), wait = ms => new Promise(r => setTimeout(r, ms));
+    const ids = () => ISC_STATUS.warnings().map(w => w.id);
+    const until = async f => { for (let i = 0; i < 40 && !f(); i++) await wait(100); return f(); };
+    // (left of the stage, or under the stage and the display when the strip is narrow)
+    const sb = R($('lv_statBox')), db = R($('lv_dispBox')), st = R($('lv_stageBox'));
+    const r = { beside: (Math.abs(sb.top - st.top) < 2 && sb.right < st.left) || (sb.top >= Math.max(db.bottom, st.bottom) - 1 && Math.abs(sb.left - st.left) < 2) };
+    const chip = nm => document.querySelector(`#lv_laserChips .chip[data-nm="${nm}"]`);
+    const p640 = $('mv_laser-640').value;
+    chip(640).click(); r.off = $('mv_laser-640').value === '0' && chip(640).getAttribute('aria-pressed') === 'false';
+    chip(640).click(); r.back = $('mv_laser-640').value === p640 && chip(640).classList.contains('on');
+    const on = [...document.querySelectorAll('#lv_laserChips .chip.on')].map(c => c.dataset.nm);
+    r.before = ids();
+    for (const nm of on) chip(nm).click();
+    r.dark = await until(() => ids()[0] === 'nolight' && !$('lv_warn').hidden && $('lv_warn').dataset.sev === 'error');
+    $('lv_warn').click();
+    r.list = !$('lv_warnPop').hidden && /Click a laser above/.test($('lv_warnPop').textContent);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    r.closed = $('lv_warnPop').hidden;
+    for (const nm of on) chip(nm).click();
+    r.lit = await until(() => !ids().includes('nolight'));
+    const z = $('mv_z'), z0 = z.value;
+    z.value = -1; z.dispatchEvent(new Event('change', { bubbles: true }));
+    r.below = await until(() => ids().includes('below') && /below the coverslip/.test($('lv_warn').textContent));
+    z.value = z0; z.dispatchEvent(new Event('change', { bubbles: true }));
+    r.after = await until(() => !ids().includes('below'));
+    return r;
+  });
+  check(!!facts && stat.beside && stat.off && stat.back && stat.dark && stat.list && stat.closed && stat.lit && stat.below && stat.after,
+    `the Info box left of the stage or under it (${(facts || 'no facts').replace(/\n/g, ' ')}); a laser button turns 640 nm off and back on; all off: "nolight" first, its list on a click, Esc closes; the focus at -1 µm: "below" (warnings before: ${stat.before.join(', ') || 'none'}) ${JSON.stringify(stat)}`);
+  if (process.env.ISC_SHOT) await page.screenshot({ path: process.env.ISC_SHOT, clip: await (await page.$('#liveCtl')).boundingBox() });
   await page.evaluate(() => document.getElementById('lv_live').click());
   const names = seen.map(s => s.split('#')[0]), vals = seen.map(s => s.split('#')[1].split('|'));
   check(names.every(n => n === names[0]) && /blink events \(core\)/.test(names[0]) && /BrightField image/.test(names[0]),

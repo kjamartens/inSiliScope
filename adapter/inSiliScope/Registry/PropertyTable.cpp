@@ -712,7 +712,9 @@ std::vector<PropDef> BuildTable()
       PropDef d = Row(L, "Preset", Tier::Basic, "light-preset",
                       "A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser "
                       "line at its highest power; the multi-band filter set where their filters differ), what a dye or "
-                      "mode pick applies. A preset by name: one dye mode's. None = as set.");
+                      "mode pick applies (its lasers and filters: such a pick leaves BfpPosition). A preset by name: one "
+                      "dye mode's. Picked here, a preset also sets BfpPosition (DNA-PAINT: HILO, on the nanorulers TIRF; "
+                      "else epi). None = as set.");
       d.kind = PropKind::Text;
       d.getText = [](H& h) { return h.State().LightPreset(); };
       d.setText = [](H& h, const std::string& s) {
@@ -739,7 +741,8 @@ std::vector<PropDef> BuildTable()
       add(Opt(L, "BfpPosition", Tier::Basic, "illum-bfp", 0, 1.2,
               "Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical "
               "angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge "
-              "NA / medium index (beyond it no light reaches the sample)."));
+              "NA / medium index (beyond it no light reaches the sample). Set by Lasers.Preset, the config group "
+              "Illumination and a Lasers.Pattern pick; a dye, mode or specimen pick leaves it."));
       {
          // The geometry's readouts (the engine's excitation for the current settings).
          auto excitation = [](H& h, sim::Excitation& ex) {
@@ -1297,7 +1300,7 @@ std::vector<PropDef> BuildTable()
                               "applies the Lasers' Auto preset: the dye's channel at 0.02 kW/cm^2 (Mix: 561 nm).");
          ThenText(d, [](H& h) {
             if (h.State().MountedSpecimen() == ISC_SPECIMEN_SLIDE)
-               h.ApplyLightPreset("Auto");
+               h.ApplyLightPreset("Auto", false);   // (not the BFP position)
          });
          add(d);
       }

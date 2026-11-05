@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>inSiliScope viewer</title>
+<title>inSiliScope</title>
 <!-- Link previews (LinkedIn, X, Slack, ...): social.jpg is web/social.jpg, copied to the site root by tools/build_site.sh. -->
 <meta name="description" content="A simulated fluorescence microscope in your browser: synthetic cells and DNA-origami nanorulers in 3D, imaged live with realistic dyes, optics and camera noise (dSTORM, PALM, DNA-PAINT, widefield, brightfield). Also a Micro-Manager device adapter.">
 <meta property="og:type" content="website">
@@ -19,167 +19,237 @@
 <link rel="icon" type="image/png" sizes="32x32" href="https://kjamartens.github.io/favicon-32x32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="https://kjamartens.github.io/favicon-16x16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="https://kjamartens.github.io/apple-touch-icon.png">
+<link rel="stylesheet" href="design/tokens.css">
+<script src="design/theme.js"></script>
 <style>
-  /* UI styles: one DOM, themed by body[data-ui-style] (compact | focus | light). A new style is one block of tokens
-     below plus one entry in UI_STYLES (uiSchema script; oneOpen: only one group open at a time). The canvas area and its overlays stay dark in every style. */
-  :root{--side-w:380px;--lab-w:116px;--lab-w-base:116px;--val-w:68px;--bg:#040507;--panel:#141b25;--border:#36414f;--text:#eef2f7;--muted:#adb8c8;--accent:#559ded;
-    --link:#9cc6f2;--in-bg:#1f2836;--in-border:#4a576c;--grp-bg:transparent;--grp-head:transparent;--tip-bg:#222c39;
-    --row-gap:4px;--fs:12px;--radius:6px;--guide:#46546a}
-  body[data-ui-style=focus]{--panel:#0f141b;--border:#26303d;--grp-bg:#161d27;--grp-head:#1b2430;--accent:#5aa9e6;--guide:#3a4a60}
-  body[data-ui-style=light]{--panel:#f5f6f8;--border:#d9dde3;--text:#1f2329;--muted:#5d6672;--accent:#4051b5;
-    --link:#4051b5;--in-bg:#fff;--in-border:#c4cad3;--tip-bg:#fff;--guide:#c4cad3}
-  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial,sans-serif;overflow:hidden}
+  /* The look comes from the design tokens (web/design/tokens.css, generated from web/design/tokens/*.tokens.json;
+     rules: docs/dev/DESIGN.md): no colour or font-size literal here (tests/web/design_lint.mjs). Theme and density are
+     <html data-theme data-density> (web/design/theme.js); the image areas carry .isc-dark (dark in every theme). The
+     layout widths below are this page's own: --lab-w / --val-w are a setting row's label and value columns. */
+  :root{--side-w:380px;--lab-w:var(--density-label-w);--lab-w-base:var(--density-label-w);--val-w:var(--density-value-w)}
+  html,body{margin:0;padding:0;background:var(--color-bg-app);color:var(--color-text);font-family:var(--font-family-ui);overflow:hidden}
   /* Layout: the world view (left, with its View bar) | a splitter | the live microscope (right: the live camera with
-     its controls beside it, then every setting). --live-w: the right panel's width (33-62 % of the window, dragged; 50 % by default). */
-  #wrap{display:grid;grid-template-columns:minmax(0,1fr) 6px var(--live-w,50vw);height:100vh}
+     its controls under it, then the settings column). --live-w: the right panel's width with the settings open (33-72 %
+     of the window, dragged; 50 % by default); the live image takes it less the column (--set-w, at least 200 px) at
+     every fold, so folding the column (--set-cur) moves the image and gives the world view the room. */
+  #wrap{--set-w:340px;--set-cur:var(--set-w);display:grid;height:100vh;grid-template-rows:auto minmax(0,1fr);
+    grid-template-columns:minmax(0,1fr) 6px calc(max(var(--live-w,50vw) - var(--set-w),200px) + var(--set-cur))}
+  body:not(.mobile) #wrap.setShut{--set-cur:28px}
   #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
-  #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);flex-wrap:wrap}
-  #viewBar h1{font-size:14px;margin:0 6px 0 0;white-space:nowrap}
-  #viewBar a.back{font-size:11px;color:var(--link);text-decoration:none;white-space:nowrap}
+  /* the top strip: the title bar takes the room, the status bar (info, level, file icons, menu) sits at the right end */
+  #topBar{grid-column:1/-1;display:flex;align-items:stretch;min-width:0;background:var(--color-surface);border-bottom:1px solid var(--color-border)}
+  #topBar>#viewBar{flex:1 1 0;min-width:0;border-bottom:0}
+  #topBar>#liveBar{flex:0 1 auto;border-bottom:0}
+  #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--color-surface);border-bottom:1px solid var(--color-border);font-size:var(--font-size-body);flex-wrap:wrap}
+  #viewBar h1{font-size:var(--font-size-title);margin:0 6px 0 0;white-space:nowrap}
+  #viewBar a.back{font-size:var(--font-size-caption);color:var(--color-link);text-decoration:none;white-space:nowrap}
   #viewBar #mmLink{margin-right:20px}
-  #viewBar .tagline{flex:1 1 0;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  #viewBar .tagline{flex:1 1 0;font-size:var(--font-size-caption);color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
   #viewBar a.back:hover{text-decoration:underline}
   #viewBar .sp{flex:1}
   #viewBar button{padding:3px 8px}
-  #viewBar button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--in-bg))}
+  #viewBar button.on{border-color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 18%,var(--color-input-bg))}
   #viewPanel{pointer-events:auto;flex:0 1 auto;min-height:0;width:206px;--lab-w:76px;--val-w:44px;max-width:calc(100vw - 40px);overflow-y:auto;box-sizing:border-box;margin-top:4px;
-    padding:4px 0 0;border-top:1px solid #232a35;color:var(--text);font-size:var(--fs)}
+    padding:4px 0 0;border-top:1px solid var(--color-overlay-border);color:var(--color-text);font-size:var(--font-size-body)}
   #viewPanel[hidden]{display:none}
   #viewPanel{overflow-x:hidden;padding-left:7px!important}   /* room for the changed-row bar at the left */
   #viewPanel .opt.btnrow{flex-direction:column;gap:4px;align-items:stretch}
   #viewPanel .opt.btnrow button{flex:none;width:100%}
   .mapPick{position:relative;min-width:0}
   #viewPanel .opt:has(.mapPick){grid-template-columns:1fr;row-gap:2px}
-  .mapBtn{width:100%;display:block;padding:2px 4px;text-align:left;background:var(--in-bg);border:1px solid var(--in-border);border-radius:4px;color:var(--text);cursor:pointer}
-  .mapBtn::after{content:'▾';position:absolute;right:6px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:10px}
-  .mapList{position:absolute;z-index:20;right:0;min-width:170px;top:calc(100% + 2px);max-height:260px;overflow-y:auto;background:var(--panel);border:1px solid var(--in-border);border-radius:4px;padding:2px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+  .mapBtn{width:100%;display:block;padding:2px 4px;text-align:left;background:var(--color-input-bg);border:1px solid var(--color-input-border);border-radius:var(--radius-sm);color:var(--color-text);cursor:pointer}
+  .mapBtn::after{content:'▾';position:absolute;right:6px;top:50%;transform:translateY(-50%);color:var(--color-text-muted);font-size:var(--font-size-caption)}
+  .mapList{position:absolute;right:0;min-width:170px;top:calc(100% + 2px);max-height:260px;overflow-y:auto;padding:2px}
   .mapList[hidden]{display:none}
-  .mapItem{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:3px;cursor:pointer;white-space:nowrap}
-  .mapList .mapItem:hover{background:color-mix(in srgb,var(--accent) 20%,transparent)}
-  .mapList .mapItem.sel{outline:1px solid var(--accent)}
-  .mapItem .bar{flex:none;width:34px;height:9px;border-radius:2px;outline:1px solid rgba(255,255,255,.15)}
-  .mapItem .nm{overflow:hidden;text-overflow:ellipsis;font-size:11px}
+  .mapItem{display:flex;align-items:center;gap:6px;padding:2px 4px;border-radius:var(--radius-sm);cursor:pointer;white-space:nowrap}
+  .mapList .mapItem:hover{background:color-mix(in srgb,var(--color-accent) 20%,transparent)}
+  .mapList .mapItem.sel{outline:1px solid var(--color-accent)}
+  .mapItem .bar{flex:none;width:34px;height:9px;border-radius:var(--radius-sm);outline:1px solid var(--color-overlay-border)}
+  .mapItem .nm{overflow:hidden;text-overflow:ellipsis;font-size:var(--font-size-caption)}
   #viewPanel .opt.pair:has(#zClipMin){align-items:start}
   #viewPanel .opt.pair:has(#zClipMin) .ctl{display:grid;grid-template-columns:26px auto 1fr;grid-template-rows:auto 1fr auto;column-gap:6px;row-gap:4px;height:74px}
   #viewPanel .opt.pair:has(#zClipMin) .dual{grid-column:1;grid-row:1 / 4;align-self:center;justify-self:center;width:70px!important;min-width:70px;flex:none;transform:rotate(-90deg)}
   #viewPanel #zClipMax{grid-column:2;grid-row:1}
   #viewPanel #zClipMin{grid-column:2;grid-row:3}
   #viewPanel .opt.pair:has(#zClipMin) .ctl .u{grid-column:3;grid-row:2;align-self:center;width:auto}
-  #viewPanel button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 22%,var(--in-bg))}
+  #viewPanel button.on{border-color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 22%,var(--color-input-bg))}
   #viewPanel .opt.pair .ctl input[type=number]{width:40px}
   #viewPanel .opt.gridrow{grid-template-columns:1fr}
   #viewPanel .opt.gridrow>label{margin-bottom:2px}
-  #splitter{cursor:col-resize;background:var(--border);opacity:.6}
-  #splitter:hover,#splitter.drag{background:var(--accent);opacity:1}
-  #side{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--panel);box-sizing:border-box;font-size:var(--fs)}
-  #sideTop{position:relative;padding:6px 12px;border-bottom:1px solid var(--border)}
+  #splitter{cursor:col-resize;background:var(--color-border);opacity:.6}
+  #splitter:hover,#splitter.drag{background:var(--color-accent);opacity:1}
+  #side{display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--color-surface);box-sizing:border-box;font-size:var(--font-size-body)}
+  #sideTop{position:relative;padding:6px 12px;border-bottom:1px solid var(--color-border)}
   #sideTop .bar{display:flex;align-items:center;gap:8px}
-  #sideTop input[type=search]{flex:1;min-width:0;background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:3px 6px;font-size:var(--fs);font-family:inherit}
+  #sideTop .chgOnly{display:flex;align-items:center;gap:var(--space-1);white-space:nowrap;color:var(--color-text-muted);cursor:pointer}
+  /* a changed setting's own reset (shown on the row's hover or focus; a double-click on its name does the same) */
+  .lab .rowReset{flex:none;visibility:hidden;width:16px;height:16px;padding:0;border:0;background:none;color:var(--color-accent);font-size:var(--font-size-caption);line-height:1}
+  .opt.changed:is(:hover,:focus-within) .lab .rowReset,.lab .rowReset:focus-visible{visibility:visible}
+  .opt:not(.changed) .lab .rowReset{display:none}
+  #sideTop input[type=search]{flex:1;min-width:0;background:var(--color-input-bg);border:1px solid var(--color-input-border);color:var(--color-text);border-radius:var(--radius-sm);padding:3px 6px;font-size:var(--font-size-body);font-family:inherit}
   .grp .opt.nomatch,.grp .kids.nomatch,.grp .subhead.nomatch{display:none!important}
   /* a setting that differs from its default: a thin accent bar at the row's left and a faint tint */
-  #liveCtl .cfg .lab.changed{position:relative}
-  #liveCtl .cfg .lab.changed::before{content:'';position:absolute;left:-5px;top:3px;bottom:3px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--accent) 75%,transparent)}
-  .opt.changed{position:relative;background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:2px}
-  .opt.changed::before{content:'';position:absolute;left:-5px;top:2px;bottom:2px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--accent) 75%,transparent)}
+  .cfg .lab.changed{position:relative}
+  .cfg .lab.changed::before{content:'';position:absolute;left:-5px;top:3px;bottom:3px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--color-accent) 75%,transparent)}
+  .opt.changed{position:relative;background:color-mix(in srgb,var(--color-accent) 6%,transparent);border-radius:var(--radius-sm)}
+  .opt.changed::before{content:'';position:absolute;left:-5px;top:2px;bottom:2px;width:2px;border-radius:1px;background:color-mix(in srgb,var(--color-accent) 75%,transparent)}
   /* a row the search matches: the whole line highlighted */
-  .opt.hit{background:color-mix(in srgb,var(--accent) 22%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);border-radius:3px}
+  .opt.hit{background:color-mix(in srgb,var(--color-accent) 22%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--color-accent) 22%,transparent);border-radius:var(--radius-sm)}
   details.grp.nomatch-grp{display:none!important}
   /* The right side: a bar (Live / Snap / Record / fresh, the one-line info) level with the world view's View bar; under
      it the camera image (square) with the settings below it at the same width, and beside both the microscope's
      controls column (focus, configuration, illumination, display, performance), which scrolls, down to the bottom. */
-  #liveBar{position:relative;display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--panel);border-bottom:1px solid var(--border);font-size:var(--fs);min-width:0}
-  #liveBar>button,#lv_recWrap>button{padding:3px 8px;white-space:nowrap}
+  #liveBar{position:relative;display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--color-surface);border-bottom:1px solid var(--color-border);font-size:var(--font-size-body);min-width:0}
+  #liveBar>button,#lv_acts>button,#lv_recWrap>button{padding:3px 8px;white-space:nowrap}
+  /* Live, Snap, Record, fresh: a row across the strip under the image, the info line (and the busy marker) at its right
+     end, giving way first (in the bar on a phone) */
+  #lv_acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:var(--density-pad)}
+  #lv_acts>*{flex:none}
+  #lv_acts>#lv_busy{margin-left:auto}
+  #lv_acts>#lv_info{flex:1 1 0;text-align:right}
+  #lv_acts>#lv_busy:not([hidden])+#lv_info{flex:0 1 auto}
+  #liveBar>#lv_acts{margin:0;flex-wrap:nowrap}
+  /* the strip is at the window's foot: the Record box opens upwards there */
+  #lv_cols #lv_recPop{top:auto;bottom:calc(100% + 4px)}
   /* only the info line gives way (it takes the room left, from a zero basis): a long text or a busy marker never
      squeezes or moves the buttons; Record keeps one width as its text turns into the frame count */
   #liveBar>:not(#lv_info,#lv_busy){flex:none}
-  #liveBar{container-type:inline-size}
-  /* a narrow panel: the settings-file icons go (☰ has Save / Load) so the speed keeps its room */
-  @container (max-width:600px){#setIcons{display:none!important} #liveBar #levelSeg button{padding:3px 5px}}
   #lv_rec{min-width:66px;font-variant-numeric:tabular-nums}
   /* Live: clearly a button to press (red outline, red play triangle); red when on; the same size as Stop */
-  #lv_live{width:74px;border:1px solid #e5484d!important;font-weight:600}
-  #lv_live .ico{color:#e5484d}
-  #lv_live.on,#lv_rec.on{border-color:#e5484d;background:#b3261e;color:#fff}
-  #lv_live.on .ico{color:#fff}
+  #lv_live{width:74px;border:1px solid var(--color-status-live)!important;font-weight:600}
+  #lv_live .ico{color:var(--color-status-live)}
+  #lv_live.on,#lv_rec.on{border-color:var(--color-status-live);background:var(--color-status-live-on);color:var(--color-status-on-live)}
+  #lv_live.on .ico{color:var(--color-status-on-live)}
   #lv_recWrap{position:relative;display:inline-block}
   /* one line, always (reserved before the first frame too); the full text in its tooltip */
-  #lv_busy{flex:0 1 auto;min-width:0;overflow:hidden;margin-left:4px;font-size:11px;line-height:1.4;color:var(--accent);white-space:nowrap}
+  #lv_busy{flex:0 1 auto;min-width:0;overflow:hidden;margin-left:4px;font-size:var(--font-size-caption);line-height:1.4;color:var(--color-accent);white-space:nowrap}
   #lv_busy[hidden]{display:none}
   #lv_busy+#lv_info{margin-left:2px}
-  #lv_info{flex:1 1 0;min-width:0;margin-left:4px;font-size:11px;line-height:1.4;height:1.4em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--ctl-w,274px)}
-  #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--border)}
-  #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:#000;overflow:hidden}
-  #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:#000}
-  #lv_scale,#lv_idle{position:absolute;color:#dfe6ee;font-size:11px;pointer-events:none;text-shadow:0 0 3px #000}
-  #lv_perfNote{font-size:10px;line-height:1.35;color:var(--muted);margin-bottom:3px;overflow-wrap:anywhere}
+  #lv_info{flex:1 1 0;min-width:0;margin-left:4px;font-size:var(--font-size-caption);line-height:1.4;height:1.4em;color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--set-cur)}
+  /* the settings column (right): a head with the fold button; folded, only a vertical tab at the edge */
+  #setCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+  #setColHead{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) var(--space-2) var(--space-2) var(--space-5);
+    border-bottom:1px solid var(--color-border);font-weight:600;color:var(--color-text)}
+  #setFold{height:22px;width:26px;padding:0;line-height:1}
+  #setStrip{display:none;flex:1;width:28px;flex-direction:column;align-items:center;padding:var(--space-2) 0;box-sizing:border-box;
+    border-left:2px solid var(--color-accent);background:var(--color-surface)}
+  #setTab{display:flex;flex-direction:column;align-items:center;gap:var(--space-3);width:22px;padding:var(--space-3) 0;
+    border:1px solid var(--color-border-strong);border-radius:var(--radius-md);background:var(--color-surface-raised);color:var(--color-text);cursor:pointer}
+  #setTab .chev{color:var(--color-accent);font-size:var(--font-size-title);line-height:1;font-weight:600}
+  #setTab span:not(.chev){writing-mode:vertical-rl;letter-spacing:.04em;font-weight:600}
+  #setTab:hover,#setTab:focus-visible{background:var(--color-accent);border-color:var(--color-accent);color:var(--color-accent-on)}
+  #setTab:hover .chev,#setTab:focus-visible .chev{color:var(--color-accent-on)}
+  body:not(.mobile) #wrap.setShut #setCol>:not(#setStrip){display:none}
+  body:not(.mobile) #wrap.setShut #setStrip{display:flex}
+  #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--color-border)}
+  #sideMain>#liveCtl{flex:1}
+  /* under the image: the acquisition controls | the instrument, two columns when there is room for them */
+  #liveCtl{container-type:inline-size}
+  /* the boxes by the strip's width: one column (Live / Snap / Record first, then the stage and the display side by
+     side); from 520 px the buttons (with the info line at the right) across the strip, then the stage and the display
+     at the left, the acquisition at the right; the illumination and the instrument below */
+  #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "sd" "acq" "illum" "instr";
+    gap:var(--space-3) var(--space-5);align-items:start}
+  #lv_acts{grid-area:acts} #lv_sd{grid-area:sd} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
+  #lv_sd{display:flex;flex-wrap:wrap;gap:var(--space-3) var(--space-5);align-items:flex-start}
+  #lv_sd>.lc{flex:none}
+  /* the Info box takes what the column leaves beside the stage and the display (its contents add no width: the
+     column stays the Illumination's); narrow, its rows are values alone (the names in their tooltips) */
+  #lv_sd>#lv_statBox{flex:1 1 0;min-width:96px;container-type:inline-size}
+  /* first (left of the stage); in a strip too narrow for the three, last, so it wraps under the stage and the display */
+  @container (max-width:340px){#lv_sd>#lv_statBox{order:3}}
+  #lv_cols>.lc,#lv_sd>.lc{border-top:0}
+  /* tight at the top: under the largest image the strip is ~170 px high */
+  #lv_cols>.lc,#lv_sd>.lc,#lv_cols>#lv_acts{padding-top:var(--space-2)}
+  #sideMain>#liveCtl{padding-top:var(--space-1)}
+  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(320px) minmax(0,1fr);grid-template-areas:"acts acts" "sd acq" "illum instr"}}
+  .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
+  /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
+     pointer leaves them for 0.1 s) */
+  #sideMain{position:relative;container-type:inline-size}
+  #ctlUp{position:absolute;z-index:calc(var(--z-overlay) + 2);left:50%;top:calc(100cqw - 9px);transform:translateX(-50%);width:36px;height:16px;padding:0;
+    font-size:var(--font-size-caption);line-height:1;border-radius:var(--radius-md);background:var(--color-surface-raised);border:1px solid var(--color-border-strong);color:var(--color-text-muted)}
+  #ctlUp:hover,#ctlUp:focus-visible{background:var(--color-accent);border-color:var(--color-accent);color:var(--color-accent-on)}
+  #ctlUp{transition:top var(--duration-fold) ease-out}
+  #sideMain.ctlUp #ctlUp{top:calc(25cqw - 9px)}
+  #sideMain.ctlUp #ctlUp span{display:inline-block;transform:rotate(180deg)}
+  #sideMain.ctlUp>#liveCtl{position:absolute;left:0;right:0;bottom:0;top:25cqw;z-index:calc(var(--z-overlay) + 1);background:var(--color-surface);
+    box-shadow:var(--shadow-raised);border-top:1px solid var(--color-border-strong);animation:ctlRise var(--duration-fold) ease-out}
+  /* folding back: still spread for the slide down, then in its place (the script drops both classes after it) */
+  #sideMain.ctlUp.ctlFall>#liveCtl{animation:ctlFall var(--duration-fold) ease-in forwards}
+  #sideMain.ctlFall #ctlUp{top:calc(100cqw - 9px)}
+  @keyframes ctlRise{from{top:100cqw}to{top:25cqw}}
+  @keyframes ctlFall{from{top:25cqw}to{top:100cqw}}
+  @media (prefers-reduced-motion:reduce){#sideMain #liveCtl,#sideMain.ctlUp>#liveCtl{animation:none!important} #ctlUp{transition:none}}
+  #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:var(--color-bg-canvas);overflow:hidden}
+  #lv_cv{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:pixelated;cursor:default;background:var(--color-bg-canvas)}
+  #lv_scale,#lv_idle{position:absolute;color:var(--color-overlay-text);font-size:var(--font-size-caption);pointer-events:none;text-shadow:0 0 3px var(--color-overlay-shadow)}
+  #lv_perfNote{font-size:var(--font-size-caption);line-height:1.35;color:var(--color-text-muted);margin-bottom:3px;overflow-wrap:anywhere}
   #lv_perfNote:empty{display:none}
-  #lv_perfOut,#lv_memOut{font-size:10px;line-height:1.35;color:var(--muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
+  #lv_perfOut,#lv_memOut{font-size:var(--font-size-caption);line-height:1.35;color:var(--color-text-muted);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0 8px}
   #lv_memOut{margin-top:4px}
-  #lv_perfOut .tot,#lv_memOut .tot{color:var(--text);font-weight:600}
+  #lv_perfOut .tot,#lv_memOut .tot{color:var(--color-text);font-weight:600}
   #lv_perfOut .sub{padding-left:8px}
   #lv_perfOut span:nth-child(2n),#lv_memOut span:nth-child(2n){text-align:right;font-variant-numeric:tabular-nums}
   input[readonly]{opacity:.75;cursor:default}
   #lv_scale{bottom:6px;right:8px;text-align:center}
   /* the zoom inset: the image's outline, the part shown, the factor */
-  #lv_zoomNav{position:absolute;top:6px;left:6px;z-index:2;width:44px;height:44px;border:1px solid rgba(255,255,255,.55);background:rgba(10,14,20,.55);cursor:pointer;border-radius:2px}
+  #lv_zoomNav{position:absolute;top:6px;left:6px;z-index:2;width:44px;height:44px;border:1px solid var(--color-overlay-frame);background:var(--color-overlay-bg);cursor:pointer;border-radius:var(--radius-sm)}
   #lv_zoomNav[hidden]{display:none}
-  #lv_zoomNav i{position:absolute;border:1px solid #fff;box-sizing:border-box;min-width:2px;min-height:2px}
-  #lv_zoomNav span{position:absolute;left:calc(100% + 5px);top:50%;transform:translateY(-50%);color:#dfe6ee;font-size:11px;text-shadow:0 0 3px #000;white-space:nowrap}
+  #lv_zoomNav i{position:absolute;border:1px solid var(--color-overlay-mark);box-sizing:border-box;min-width:2px;min-height:2px}
+  #lv_zoomNav span{position:absolute;left:calc(100% + 5px);top:50%;transform:translateY(-50%);color:var(--color-overlay-text);font-size:var(--font-size-caption);text-shadow:0 0 3px var(--color-overlay-shadow);white-space:nowrap}
   /* a finished recording plays in the live view: play/pause, position, Save, close */
   #lv_play{position:absolute;left:6px;right:6px;bottom:6px;z-index:3;display:flex;align-items:center;gap:5px;padding:4px 6px;
-    background:rgba(10,14,20,.78);border:1px solid var(--border);border-radius:var(--radius);font-size:11px;color:#dfe6ee}
+    background:var(--color-overlay-bg);border:1px solid var(--color-border);border-radius:var(--radius-md);font-size:var(--font-size-caption);color:var(--color-overlay-text)}
   #lv_play[hidden]{display:none}
   #lv_play input[type=range]{flex:1 1 auto;min-width:40px}
   #lv_play button{padding:2px 7px;white-space:nowrap}
   #lv_playN{font-variant-numeric:tabular-nums;white-space:nowrap}
   #liveView.playing #lv_scale{bottom:40px}
-  #lv_scale i{display:block;height:3px;background:#fff;margin-top:2px}
-  #lv_idle{inset:0;display:flex;align-items:center;justify-content:center;color:#8b97a8;font-size:12px;text-align:center;padding:12px}
-  #lv_idleLive{pointer-events:auto;margin-left:4px;border:1px solid #e5484d;font-weight:600}
-  #lv_idleLive .ico{color:#e5484d}
+  #lv_scale i{display:block;height:3px;background:var(--color-overlay-mark);margin-top:2px}
+  #lv_idle{inset:0;display:flex;align-items:center;justify-content:center;color:var(--color-overlay-text-muted);font-size:var(--font-size-body);text-align:center;padding:12px}
+  #lv_idleLive{pointer-events:auto;margin-left:4px;border:1px solid var(--color-status-live);font-weight:600}
+  #lv_idleLive .ico{color:var(--color-status-live)}
   #lv_idle [hidden]{display:none}
   .dots{display:inline-block;width:1.2em;text-align:left;font-style:normal}
   .dots::after{content:'.';animation:isc-dots 1.2s steps(1) infinite}
   @keyframes isc-dots{0%{content:'.'}33%{content:'..'}67%{content:'...'}}
   #liveCtl{min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;padding:6px;
-    --lab-w:78px;--lab-w-base:78px;--val-w:44px}
+    --lab-w:var(--density-label-w-column);--lab-w-base:var(--density-label-w-column);--val-w:44px}
   #liveCtl .opt input[type=number]{width:50px}
   /* every box of the column laid out as the Configuration: a muted name column, controls 24 px high, rows 3 px apart */
   #liveCtl select,#liveCtl input[type=number],#liveCtl input[type=text],#panel select,#panel input[type=number],#panel input[type=text]{height:24px;box-sizing:border-box}
   #liveCtl .opt,#panel .opt{gap:6px;margin:3px 0;min-height:24px}
   #liveCtl .opt .ctl select{max-width:none;width:100%}
   .opt.text:has(#zernCoeffs),.opt.text:has(#simBeams){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val,.opt.text:has(#simBeams)>.val{display:none}
-  #simBeams{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}
-  #zernCoeffs{width:100%;box-sizing:border-box;font:10px ui-monospace,Consolas,monospace}   /* (the 28 Zernike modes under their name) */
-  #liveCtl .sub{font-size:10px;line-height:1.35}
-  #liveCtl .opt .unit,#liveCtl .opt .u{font-size:10px}
-  #liveCtl .lc{border:1px solid var(--border);border-radius:var(--radius);padding:5px 7px;flex:none}
+  #simBeams{width:100%;box-sizing:border-box;font:var(--font-size-caption) var(--font-family-mono)}
+  #zernCoeffs{width:100%;box-sizing:border-box;font:var(--font-size-caption) var(--font-family-mono)}   /* (the 28 Zernike modes under their name) */
+  #liveCtl .sub{font-size:var(--font-size-caption);line-height:1.35}
+  #liveCtl .opt .unit,#liveCtl .opt .u{font-size:var(--font-size-caption)}
+  /* the column's boxes (Focus, Presets, Light, Display, ...) look like the settings' groups: a heading, no box; a thin
+     line between two boxes (ui: docs/dev/DESIGN.md "Groups") */
+  #liveCtl .lc{flex:none;padding-top:var(--density-pad)}
+  #liveCtl .lc+.lc{border-top:1px solid var(--color-border)}
   #liveCtl .lc[hidden]{display:none}
-  #liveCtl .lc h5,#liveCtl details.grp>summary{margin:0 0 4px;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-  /* each box folds on a click on its title (open on every load); no arrow, no line under the title */
-  #liveCtl .lc h5{cursor:pointer;user-select:none}
+  #liveCtl .lc>h5{cursor:pointer;user-select:none}
   #liveCtl .lc.shut>:not(h5){display:none}
-  #liveCtl .lc.shut>h5,#liveCtl details.grp:not([open])>summary{margin-bottom:0}
-  #liveCtl details.grp>summary::before{display:none}
-  #liveCtl details.grp[open]>summary,body[data-ui-style=focus] #liveCtl details.grp[open]>summary{border-bottom:0;border-radius:0;background:none;color:var(--muted)}
-  body[data-ui-style=focus] #liveCtl details.grp[open]{border:0;background:none}
-  /* a settings group moved into the column (Illumination & light path): the column's look */
-  #liveCtl details.grp{border:0;margin:0;background:none}
-  #liveCtl details.grp>summary{padding:0;background:none;cursor:pointer}
   #liveCtl details.grp>.body{padding:0}
   /* the laser rows of Illumination & light path: a slider beside the number, as the Configuration had */
   #liveCtl .opt.number:has(>.ctl.lsl){grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w)}
   #liveCtl .ctl.lsl{display:flex;gap:4px;align-items:center}
   #liveCtl .ctl.lsl input[type=range]{flex:1 1 auto;min-width:0;width:0}
   /* the left view's switch (title bar): the sample or the microscope (#scopeHost, its panels: web/live/scope_panels.js) */
-  #leftSeg{display:flex;border:1px solid var(--in-border);border-radius:var(--radius);overflow:hidden;flex:none}
-  #leftSeg button{border:0;border-radius:0;padding:3px 9px;background:var(--in-bg);color:var(--muted);font-size:11px;cursor:pointer}
-  #leftSeg button+button{border-left:1px solid var(--in-border)}
-  #leftSeg button.on{background:color-mix(in srgb,var(--accent) 28%,var(--in-bg));color:var(--text)}
-  #scopeHost{display:none;flex-direction:column;gap:10px;flex:1;min-height:0;overflow:auto;padding:10px;box-sizing:border-box;background:var(--bg)}
+  /* a segmented control (.seg): a few exclusive choices side by side (the left view, the settings level, the theme) */
+  .seg{display:flex;border:1px solid var(--color-input-border);border-radius:var(--radius-md);overflow:hidden;flex:none}
+  .seg button{border:0;border-radius:0;height:auto;min-height:22px;padding:2px var(--space-3);background:var(--color-input-bg);color:var(--color-text-muted);font-size:var(--font-size-caption);cursor:pointer}
+  .seg button+button{border-left:1px solid var(--color-input-border)}
+  .seg button:hover{color:var(--color-text);background:var(--color-surface-hover)}
+  .seg button.on,.seg button[aria-checked=true]{background:color-mix(in srgb,var(--color-accent) 28%,var(--color-input-bg));color:var(--color-text)}
+  .seg button:focus-visible{outline-offset:-2px}
+  #scopeHost{display:none;flex-direction:column;gap:10px;flex:1;min-height:0;overflow:auto;padding:10px;box-sizing:border-box;background:var(--color-bg-app)}
   #worldCol.scope #scopeHost{display:flex}
-  body:not(.mobile) #worldCol.scope #scopeHost{position:absolute;left:0;right:0;bottom:0;top:var(--scope-top,34px);z-index:40}
+  body:not(.mobile) #worldCol.scope #scopeHost{position:absolute;left:0;right:0;bottom:0;top:var(--scope-top,34px);z-index:var(--z-scope)}
   /* the light path on top in the middle, the other panels in a grid under it */
   #scopeHost .sTop{display:flex;justify-content:center;flex:none}
   #scopeHost .sTop>.pnl{flex:0 1 1100px}
@@ -188,16 +258,16 @@
   #worldCol.scope #scopeHost.filled{display:block}
   #scopeHost.filled :is(.sTop,.sGrid){display:none}
   #scopeHost:not(.filled)>.pnl.big{display:none}
-  #scopeHost .pnl.busy .pnlTitle::after{content:' \2026';color:var(--muted)}
-  #scopeHost .pnl[data-error] .pnlCap{color:#e0a64a}
-  #scopeHost .pnl{display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);
-    padding:8px 10px;min-width:0;font-size:11px;color:var(--text);box-sizing:border-box}
+  #scopeHost .pnl.busy .pnlTitle::after{content:' \2026';color:var(--color-text-muted)}
+  #scopeHost .pnl[data-error] .pnlCap{color:var(--color-status-warn)}
+  #scopeHost .pnl{display:flex;flex-direction:column;background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);
+    padding:8px 10px;min-width:0;font-size:var(--font-size-caption);color:var(--color-text);box-sizing:border-box}
   #scopeHost .pnl:not(.big){cursor:zoom-in}
-  #scopeHost .pnl:not(.big):hover{border-color:var(--accent)}
-  #scopeHost .pnl.big{cursor:default;font-size:12px;max-width:1200px;margin:0 auto}
-  .pnlHead{display:flex;align-items:center;gap:8px;margin-bottom:6px;min-height:22px} .pnlTitle{flex:1;min-width:0;font-weight:600;font-size:12px;line-height:1.3}
-  .pnl.big .pnlTitle{font-size:14px}
-  .pnlBtn{flex:none;width:24px;height:22px;padding:0;font-size:13px;line-height:20px;text-align:center}
+  #scopeHost .pnl:not(.big):hover{border-color:var(--color-accent)}
+  #scopeHost .pnl.big{cursor:default;font-size:var(--font-size-body);max-width:1200px;margin:0 auto}
+  .pnlHead{display:flex;align-items:center;gap:8px;margin-bottom:6px;min-height:22px} .pnlTitle{flex:1;min-width:0;font-weight:600;font-size:var(--font-size-body);line-height:1.3}
+  .pnl.big .pnlTitle{font-size:var(--font-size-title)}
+  .pnlBtn{flex:none;width:24px;height:22px;padding:0;font-size:var(--font-size-body);line-height:20px;text-align:center}
   .pnlViews{display:flex;gap:8px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
   .pnl.big .pnlViews{gap:16px;align-items:flex-end}
   /* a grid panel (the PSF's 2 x 2): its rows share the view's height, the images' bottoms on a line */
@@ -213,26 +283,26 @@
      sizeImages sets the new height (wrapping meanwhile made the x-z jump under the x-y and back while the divider moved) */
   .pnl:not(.big) .pnlViews.imgs{flex-wrap:nowrap}
   .pnl.big .pv-image{flex:var(--a,1) 1 0;max-width:calc(var(--img-h) * var(--a,1))} .pnl.big{--img-h:max(240px, calc(100vh - 330px))}
-  .pv-image canvas{display:block;width:100%;height:auto;background:#000;border-radius:2px;cursor:inherit}
+  .pv-image canvas{display:block;width:100%;height:auto;background:var(--color-bg-canvas);border-radius:var(--radius-sm);cursor:inherit}
   /* a panel image's zoom (the wheel; scope_panels.js attachZoom): the inset shows the part shown, as #lv_zoomNav without its text */
-  .pvImg{position:relative;overflow:hidden;border-radius:2px}
-  .pvNav{position:absolute;top:4px;left:4px;width:clamp(18px,18%,44px);border:1px solid rgba(255,255,255,.55);background:rgba(10,14,20,.55);cursor:pointer;border-radius:2px}
-  .pvNav[hidden]{display:none} .pvNav i{position:absolute;border:1px solid #fff;box-sizing:border-box;min-width:2px;min-height:2px}
+  .pvImg{position:relative;overflow:hidden;border-radius:var(--radius-sm)}
+  .pvNav{position:absolute;top:4px;left:4px;width:clamp(18px,18%,44px);border:1px solid var(--color-overlay-frame);background:var(--color-overlay-bg);cursor:pointer;border-radius:var(--radius-sm)}
+  .pvNav[hidden]{display:none} .pvNav i{position:absolute;border:1px solid var(--color-overlay-mark);box-sizing:border-box;min-width:2px;min-height:2px}
   .pv-curves,.pv-rows,.pv-schematic{flex:1 1 100%}
   .pv-curves canvas{display:block;width:100%;height:auto;cursor:inherit}
   .pnl.big .pv-curves canvas{max-width:900px;margin:0 auto}
-  .pv figcaption{font-size:11px;font-weight:600;text-align:center} .pv figcaption:empty,.pvNote:empty{display:none}
-  .pvNote{font-size:11px;color:var(--muted);line-height:1.35;text-align:center}
+  .pv figcaption{font-size:var(--font-size-caption);font-weight:600;text-align:center} .pv figcaption:empty,.pvNote:empty{display:none}
+  .pvNote{font-size:var(--font-size-caption);color:var(--color-text-muted);line-height:1.35;text-align:center}
   .pnl:not(.big) .pv-rows{display:none}
   /* a rows view (what reaches the camera) as the spectra's legend: a left-aligned title, the names left, the text after */
-  .pv-rows figcaption,.pvHead{text-align:left;font-size:11px;font-weight:600;color:var(--text);margin:10px 0 2px}
-  .pv-rows .pvBody{display:grid;grid-template-columns:minmax(9em,max-content) minmax(0,1fr);gap:3px 14px;font-size:11px;line-height:1.4;text-align:left;color:var(--text)}
-  .pv-rows .rwL{font-weight:600;color:var(--muted)}
-  .pLegend{display:flex;flex-wrap:wrap;justify-content:center;gap:3px 16px;margin-top:6px;color:var(--text);font-size:11px;line-height:1.4}
+  .pv-rows figcaption,.pvHead{text-align:left;font-size:var(--font-size-caption);font-weight:600;color:var(--color-text);margin:10px 0 2px}
+  .pv-rows .pvBody{display:grid;grid-template-columns:minmax(9em,max-content) minmax(0,1fr);gap:3px 14px;font-size:var(--font-size-caption);line-height:1.4;text-align:left;color:var(--color-text)}
+  .pv-rows .rwL{font-weight:600;color:var(--color-text-muted)}
+  .pLegend{display:flex;flex-wrap:wrap;justify-content:center;gap:3px 16px;margin-top:6px;color:var(--color-text);font-size:var(--font-size-caption);line-height:1.4}
   .pLegend span{display:inline-flex;align-items:center;gap:6px}
   /* the spectra's legend: rows along the light path, the part's name left, its items after it */
   .pLegend.pSpecLegend{display:grid;grid-template-columns:minmax(9em,max-content) minmax(0,1fr);gap:4px 14px;justify-content:start;text-align:left;margin:8px 0 0}
-  .pSpecLegend .lgHead{font-weight:600;color:var(--muted)}
+  .pSpecLegend .lgHead{font-weight:600;color:var(--color-text-muted)}
   .pSpecLegend .lgItems{display:flex;flex-wrap:wrap;gap:3px 16px;align-items:center}
   .pSpecLegend .lgItems.dyes{flex-direction:column;align-items:flex-start}
   .pSpecLegend .lgSub{gap:10px} .pSpecLegend .lgSub b{font-weight:600;min-width:9em}
@@ -241,119 +311,198 @@
   .pSpecLegend.lgHov [data-i]:not(.lgOn){opacity:.35}
   .pv-curves{position:relative}
   .pnlCtl{display:flex;flex-direction:column;gap:4px;margin-top:8px} .pnlCtl:empty{display:none}
-  .pc{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;cursor:default} .pcL{flex:1;color:var(--muted)} .pc input{order:3;flex:1 1 100%;min-width:0;margin:2px 0 0}
+  .pc{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;cursor:default} .pcL{flex:1;color:var(--color-text-muted)} .pc input{order:3;flex:1 1 100%;min-width:0;margin:2px 0 0}
   .pcV{flex:none;text-align:right;font-variant-numeric:tabular-nums;cursor:pointer}
   .pnl.big .pnlCtl{max-width:720px;width:100%;margin:10px auto 0}
   .pnl.big .pc{flex-wrap:nowrap} .pnl.big .pcL{flex:none;width:100px} .pnl.big .pc input{order:0;flex:1 1 auto;margin:0} .pnl.big .pcV{min-width:84px}
-  .pnlCap{margin-top:8px;color:var(--muted);line-height:1.4;text-align:center} .pnlCap:empty{display:none}
+  .pnlCap{margin-top:8px;color:var(--color-text-muted);line-height:1.4;text-align:center} .pnlCap:empty{display:none}
   .pSchem{display:flex;flex-direction:column;align-items:center;position:relative}
-  .pTip{position:absolute;z-index:3;max-width:280px;padding:5px 8px;border-radius:6px;background:var(--panel,#1b2430);color:var(--text,#dde3ea);border:1px solid var(--border,#3a4656);font-size:11.5px;line-height:1.35;white-space:pre-line;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+  .pTip{position:absolute;z-index:3;max-width:280px;padding:7px 9px;border-radius:var(--radius-md);background:var(--color-surface-raised);color:var(--color-text);border:1px solid var(--color-border-strong);font-size:var(--font-size-caption);line-height:1.45;white-space:pre-line;pointer-events:none;box-shadow:var(--shadow-raised)}
   .pTip[hidden]{display:none}
   .pSchem svg.pDraw{display:block;width:100%;height:auto;font-family:inherit;overflow:visible}
-  .pDraw .pClick{cursor:pointer} .pDraw g.pClick:hover{filter:brightness(1.3)} .pDraw text.pClick:hover{fill:var(--accent)}
+  .pDraw .pClick{cursor:pointer} .pDraw g.pClick:hover{filter:brightness(1.3)} .pDraw text.pClick:hover{fill:var(--color-accent)}
   /* the parts of the panel under the pointer */
-  .pDraw g.pHl{filter:drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 5px var(--accent))} .pDraw text.pHl{fill:var(--accent)}
+  .pDraw g.pHl{filter:drop-shadow(0 0 2px var(--color-accent)) drop-shadow(0 0 5px var(--color-accent))} .pDraw text.pHl{fill:var(--color-accent)}
   /* the pointer on a part or a beam of the light path: no zoom-in cursor (the tile's), the thing marked, its panels too */
   .pDraw [data-tip]{cursor:default} .pDraw .pClick[data-tip]{cursor:pointer}
-  .pDraw g.pHov{filter:drop-shadow(0 0 2px var(--accent)) drop-shadow(0 0 5px var(--accent))} .pDraw text.pHov{fill:var(--accent)}
+  .pDraw g.pHov{filter:drop-shadow(0 0 2px var(--color-accent)) drop-shadow(0 0 5px var(--color-accent))} .pDraw text.pHov{fill:var(--color-accent)}
   .pDraw path.pBeamVis.pHov{stroke-width:4.5px;stroke-opacity:1}
-  #scopeHost .pnl.pnlHov{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  #scopeHost .pnl.pnlHov{border-color:var(--color-accent);box-shadow:0 0 0 1px var(--color-accent)}
   .pBeamLegend{max-width:900px}
   body.mobile #scopeHost .sGrid{grid-template-columns:minmax(0,1fr)}
-  #lv_recPop{position:absolute;z-index:20;left:0;top:calc(100% + 4px);width:230px;display:flex;flex-direction:column;gap:5px;padding:7px 8px;
-    border:1px solid var(--border);border-radius:var(--radius);background:var(--panel,var(--in-bg));box-shadow:0 4px 14px rgba(0,0,0,.35)}
+  #lv_recPop{position:absolute;left:0;top:calc(100% + 4px);width:230px;display:flex;flex-direction:column;gap:var(--space-2);padding:var(--space-3) var(--space-4)}
   #lv_recPop[hidden]{display:none}
-  #lv_recPop .recrow{display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)}
+  #lv_recPop .recrow{display:flex;align-items:center;gap:4px;font-size:var(--font-size-caption);color:var(--color-text-muted)}
   #lv_recPop .recrow input[type=number]{width:72px}
   #lv_recPop .recrow[hidden]{display:none}
   #lv_recPop .recrow button{margin-left:auto;padding:3px 10px}
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
+  /* the stage: an XY pad (one step / 10 steps each way, as Micro-Manager's stage control) beside the focus (Z) */
+  #lv_stageBox{--pad-b:24px}
+  #lv_stageBox .stage{display:flex;gap:var(--space-3);align-items:center}
+  /* the joystick: a knob dragged from the middle sets the stage's speed and direction; it springs back */
+  #lv_stageBox .joy{--joy-d:60px;position:relative;flex:none;width:var(--joy-d);height:var(--joy-d);border-radius:50%;
+    background:var(--color-input-bg);border:1px solid var(--color-input-border);touch-action:none;cursor:grab}
+  #lv_stageBox .joy:focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:2px}
+  #lv_stageBox .joy.held{cursor:grabbing}
+  #lv_stageBox .ja{position:absolute;font-size:var(--font-size-caption);line-height:1;color:var(--color-text-muted);pointer-events:none}
+  #lv_stageBox .ja.n{top:3px;left:50%;transform:translateX(-50%)} #lv_stageBox .ja.s{bottom:3px;left:50%;transform:translateX(-50%)}
+  #lv_stageBox .ja.w{left:4px;top:50%;transform:translateY(-50%)} #lv_stageBox .ja.e{right:4px;top:50%;transform:translateY(-50%)}
+  #lv_stageBox .jk{position:absolute;left:50%;top:50%;width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;
+    background:var(--color-border-strong);pointer-events:none;transition:transform var(--duration-fold) ease-out}
+  #lv_stageBox .joy.held .jk{transition:none;background:var(--color-accent)}
+  /* the focus wheel beside it: ▲, the wheel (drag, scroll, click), ▼, the height (a number: the unit is in the tooltip) */
+  #mFocus{display:flex;flex-direction:column;gap:2px;width:22px}
+  #mFocus>button{padding:0;height:16px;font-size:var(--font-size-caption);line-height:1}
+  #mZ{align-self:center;width:max-content;font-size:var(--font-size-caption);color:var(--color-text-muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+  #mZ .u{display:none}
+  #mFocus .gM{display:none}
+  #mKnob{flex:none;height:40px;width:100%;cursor:ns-resize;touch-action:none;border-radius:var(--radius-sm);
+    background:var(--color-input-bg);border:1px solid var(--color-input-border)}
+  /* the right-click box */
+  #lv_cols .sf.popover{position:fixed;z-index:var(--z-popover);padding:var(--space-2) var(--space-3)}
+  #lv_cols .sf.popover[hidden]{display:none}
+  /* x, y and the two steps: a small table */
+  #lv_cols .sf{display:grid;grid-template-columns:auto 58px auto;gap:2px 4px;align-items:center}
+  #lv_cols .sf>div{display:contents}
+  #lv_cols .sf label{color:var(--color-text-muted);text-align:right;white-space:nowrap}
+  #lv_cols .sf input[type=number]{width:58px}
+  #lv_cols .sf .zrow{margin:0}
   #liveCtl .zrow input[type=number]{width:46px}
   #liveCtl .zrow #lv_z{width:70px}
   #liveCtl .zrow label{margin-left:4px}
   #liveCtl .crow input[type=number]{width:50px}
-  #liveCtl .crow label,#liveCtl .zrow label{color:var(--muted);white-space:nowrap}
-  #liveCtl .cfg{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr);gap:3px 6px;align-items:center}
-  #liveCtl .cfg select{width:100%}
-  #liveCtl .cfg input[type=range]{width:100%}
+  #liveCtl .crow label,#liveCtl .zrow label{color:var(--color-text-muted);white-space:nowrap}
+  .cfg{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr);gap:var(--density-row-gap) 6px;align-items:center}
+  #panel .cfg:not(:empty){margin:var(--density-row-gap) 0}
+  .cfg select{width:100%}
+  .cfg input[type=range]{width:100%}
   /* every Configuration row the same height, so the Exposure row (moved into the grid by mm_config_ui.js) lines up */
-  #liveCtl .cfg .expv{display:flex;align-items:center;gap:4px}
+  .cfg .expv{display:flex;align-items:center;gap:4px}
   #lv_exp{width:62px}
-  #liveCtl .cfg .lab{display:flex;min-width:0}
-  #liveCtl .cfg .lab label{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #liveCtl .cfg .lab label[data-tip]:hover{color:var(--accent)}
-  #liveCtl .note{font-size:10.5px;color:var(--muted)}
-  #lv_hist{display:block;width:100%;height:56px;margin-top:4px;cursor:ew-resize;touch-action:none}
+  .cfg .lab{display:flex;min-width:0}
+  .cfg .lab label{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.2;color:var(--color-text-muted)}
+  .cfg .lab label[data-tip]:hover{color:var(--color-accent)}
+  #liveCtl .note{font-size:var(--font-size-caption);color:var(--color-text-muted)}
+  /* the display's level bar: the grey scale shown, the histogram upright (dark at the bottom), and a ◀ handle per level
+     with its number; the handles touch the bar, the numbers are right-aligned in a column 5 digits wide (16-bit ADU),
+     so digits line up by place, nothing moves as a number grows or shrinks, and "auto" ends where they end */
+  #liveCtl #lv_dispBox>h5{padding-right:0}
+  /* the Info box: the lasers as buttons (on: the line's colour), four short rows, and a line only when something is
+     off (its colour the severity's; a click lists each with what to do) */
+  #lv_statBox .chips{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-bottom:var(--space-2)}
+  #lv_statBox .chip{min-width:0;padding:0 var(--space-2);height:20px;border-radius:var(--radius-sm);font-size:var(--font-size-caption);
+    font-variant-numeric:tabular-nums;background:transparent;color:var(--color-text-muted);border:1px solid var(--color-border-strong);cursor:pointer}
+  #lv_statBox .chip:hover{background:var(--color-surface-hover)}
+  #lv_statBox .chip.on{background:var(--chip-c,var(--color-accent));border-color:var(--chip-c,var(--color-accent));color:var(--color-bg-canvas);font-weight:600}
+  #lv_statBox .chip:disabled{opacity:.45;cursor:default}
+  /* the rows in the settings labels' type (.cfg .lab label: the inherited size, muted, line height 1.2) */
+  #lv_statBox .facts{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px var(--space-2);line-height:1.2;color:var(--color-text-muted)}
+  #lv_statBox .facts .f{display:contents}
+  #lv_statBox .facts .k{color:var(--color-text-muted)}
+  @container (max-width:180px){#lv_statBox .facts{grid-template-columns:minmax(0,1fr)} #lv_statBox .facts .k{display:none}}
+  #lv_statBox .facts .v{overflow-wrap:anywhere}
+  #lv_statBox .facts .v>span{white-space:nowrap}
+  #lv_warn{display:flex;align-items:flex-start;gap:var(--space-1);width:100%;margin-top:var(--space-2);padding:var(--space-1) var(--space-2);
+    text-align:left;font-size:var(--font-size-caption);line-height:1.35;border-radius:var(--radius-sm);cursor:pointer;
+    background:var(--color-surface);border:1px solid var(--sev-c);color:var(--color-text)}
+  #lv_warn[hidden]{display:none}
+  #lv_warn[data-sev=error]{--sev-c:var(--color-status-error)} #lv_warn[data-sev=warn]{--sev-c:var(--color-status-warn)}
+  #lv_warn[data-sev=info]{--sev-c:var(--color-border-strong)}
+  #lv_warn .i,#lv_warnPop .i{flex:none;color:var(--sev-c)}
+  #lv_warn .t{flex:1 1 auto}
+  #lv_warn .n{flex:none;color:var(--color-text-muted)}
+  #lv_warnPop{position:fixed;z-index:var(--z-popover);width:min(320px,calc(100vw - 16px));padding:var(--space-2) var(--space-3);font-size:var(--font-size-caption)}
+  #lv_warnPop .w+.w{border-top:1px solid var(--color-border);margin-top:var(--space-2);padding-top:var(--space-2)}
+  #lv_warnPop .w[data-sev=error]{--sev-c:var(--color-status-error)} #lv_warnPop .w[data-sev=warn]{--sev-c:var(--color-status-warn)}
+  #lv_warnPop .w[data-sev=info]{--sev-c:var(--color-text-muted)}
+  #lv_warnPop b{display:flex;gap:var(--space-1);font-weight:600}
+  #lv_warnPop p{margin:var(--space-1) 0 0;color:var(--color-text-muted);line-height:1.4}
+  #lv_dispBox>h5 .autoChip{margin-left:auto;display:inline-flex;align-items:center;padding:0 var(--space-2);border-radius:var(--radius-sm);
+    font-size:var(--font-size-caption);font-weight:normal;line-height:1.5;color:var(--color-text-muted);border:1px solid var(--color-border);cursor:pointer}
+  #lv_dispBox>h5 .autoChip:has(:checked){background:var(--color-accent);color:var(--color-accent-on);border-color:var(--color-accent)}
+  #lv_dispBox>h5 .autoChip:has(:focus-visible){outline:2px solid var(--color-focus-ring);outline-offset:1px}
+  #lv_dispBox>h5 .autoChip input{position:absolute;opacity:0;width:0;height:0;margin:0}
+  #lv_lvl{display:flex;gap:2px;height:88px;cursor:ns-resize;touch-action:none;user-select:none}
+  #lv_lut{width:8px;border-radius:2px}
+  #lv_hist{display:block;width:34px;height:100%;border-radius:var(--radius-sm);background:var(--color-input-bg)}
+  #lv_lvl .tags{position:relative;flex:1 0 auto;min-width:calc(5ch + 14px);font-size:var(--font-size-caption);font-variant-numeric:tabular-nums}
+  #lv_lvl .tag{position:absolute;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:2px;line-height:12px;height:12px;color:var(--color-text);white-space:nowrap}
+  #lv_lvl .tag i{flex:none;width:0;height:0;border:4px solid transparent;border-left:0;border-right:6px solid var(--color-accent)}
+  #lv_lvl .tag b{font-weight:normal}
+  #lv_lvl.empty .tag{visibility:hidden}
   #panel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
-  #side p.sub{font-size:11px;color:var(--muted);margin:6px 0;line-height:1.4}
-  #side p.sub a{color:var(--link)}
-  input[type=number],input[type=text],select{background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:2px 4px;font-size:var(--fs);font-family:inherit;box-sizing:border-box}
+  #side p.sub{font-size:var(--font-size-caption);color:var(--color-text-muted);margin:6px 0;line-height:1.4}
+  #side p.sub a{color:var(--color-link)}
+  input[type=number],input[type=text],select{background:var(--color-input-bg);border:1px solid var(--color-input-border);color:var(--color-text);border-radius:var(--radius-sm);padding:2px 4px;font-size:var(--font-size-body);font-family:inherit;box-sizing:border-box}
   input[type=number]{width:64px;-moz-appearance:textfield;appearance:textfield}
   input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
   /* the focus keeps its arrows (they step by the step size) */
   #lv_z{-moz-appearance:auto;appearance:auto}
   #lv_z::-webkit-inner-spin-button{-webkit-appearance:inner-spin-button}
-  input[type=range],input[type=checkbox]{accent-color:var(--accent)}
+  input[type=range],input[type=checkbox]{accent-color:var(--color-accent)}
   input[type=range]{-webkit-appearance:none;appearance:none;height:14px;margin:0;background:none;cursor:pointer}
-  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:linear-gradient(to right,var(--accent) var(--p,0%),var(--in-border) var(--p,0%))}
-  input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:var(--in-border)}
-  input[type=range]::-moz-range-progress{height:4px;border-radius:2px;background:var(--accent)}
-  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:50%;background:var(--accent);border:2px solid var(--panel)}
-  input[type=range]::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--panel)}
+  input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:var(--radius-sm);background:linear-gradient(to right,var(--color-accent) var(--p,0%),var(--color-input-border) var(--p,0%))}
+  input[type=range]::-moz-range-track{height:4px;border-radius:var(--radius-sm);background:var(--color-input-border)}
+  input[type=range]::-moz-range-progress{height:4px;border-radius:var(--radius-sm);background:var(--color-accent)}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:50%;background:var(--color-accent);border:2px solid var(--color-surface)}
+  input[type=range]::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:var(--color-accent);border:2px solid var(--color-surface)}
   input[type=range]:disabled{opacity:.5;cursor:default}
-  button{background:var(--in-bg);border:1px solid var(--in-border);color:var(--text);border-radius:4px;padding:5px 8px;font-size:var(--fs);cursor:pointer;font-family:inherit}
-  button:hover{border-color:var(--accent)}
+  button{background:var(--color-input-bg);border:1px solid var(--color-input-border);color:var(--color-text);border-radius:var(--radius-sm);padding:5px 8px;font-size:var(--font-size-body);cursor:pointer;font-family:inherit}
+  button:hover{border-color:var(--color-accent)}
+  button:disabled{opacity:.5;cursor:default}
+  /* the keyboard's focus: one ring everywhere (WCAG 2.4.7; 3:1 against the surfaces) */
+  :focus-visible{outline:2px solid var(--color-focus-ring);outline-offset:1px}
+  input:focus-visible,select:focus-visible{outline-offset:0}
+  /* a pop-over (.popover): the menu, the Record box, the colour-map list */
+  .popover{background:var(--color-surface-raised);color:var(--color-text);border:1px solid var(--color-border-strong);border-radius:var(--radius-md);
+    box-shadow:var(--shadow-raised);z-index:var(--z-popover)}
   /* hamburger menu */
-  #menuBtn{font-size:16px;line-height:1;padding:3px 8px}
-  #menu{display:none;position:absolute;right:8px;top:100%;z-index:20;margin-top:4px;min-width:210px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  #menuBtn{font-size:var(--font-size-icon);line-height:1;padding:3px 8px}
+  #menu{display:none;position:absolute;right:8px;top:100%;margin-top:4px;min-width:230px;max-height:calc(100vh - 60px);overflow-y:auto;padding:var(--space-2) var(--space-5) var(--space-4)}
   #menu.open{display:block}
-  #menu h4{margin:6px 0 4px;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  #menu h4{margin:var(--space-5) 0 var(--space-2);padding-top:var(--space-3);border-top:1px solid var(--color-border);font-size:var(--font-size-caption);font-weight:600;color:var(--color-text-muted)}
+  #menu>h4:first-child,#menu>div:first-child>h4:first-child{margin-top:var(--space-2);padding-top:0;border-top:0}
+  #menu .seg{margin:var(--space-1) 0}
+  #menu .seg button{flex:1}
   #menu label{display:block;margin:3px 0;cursor:pointer}
   #menu .btns{display:flex;gap:6px;margin-top:8px}
   #menu .btns button{flex:1;padding:3px 6px}
-  #menu .note{font-size:11px;color:var(--muted);margin-top:6px}
-  /* groups and sections */
-  .sect{margin:12px 0 2px;font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-  details.grp{border:1px solid var(--border);border-radius:var(--radius);margin:6px 0;background:var(--grp-bg)}
-  details.grp>summary{cursor:pointer;padding:5px 8px;font-weight:600;list-style:none;display:flex;align-items:center;gap:6px;background:var(--grp-head);border-radius:var(--radius)}
+  #menu .note{font-size:var(--font-size-caption);color:var(--color-text-muted);margin-top:6px}
+  /* Sections and groups (docs/dev/DESIGN.md "Groups"): a section is a heading over a line; a group is the one level
+     that folds: its whole title row is the button (a caret, the title, the count of changed settings and a reset when
+     there are any); no boxes: groups are apart by spacing. The column's boxes share the group title's look. */
+  .sect{margin:var(--space-6) 0 var(--space-2);padding-top:var(--space-3);border-top:1px solid var(--color-border-strong);
+    font-size:var(--font-size-body);font-weight:600;color:var(--color-text)}
+  #panel>.sect:first-child,#panel>div:first-child+.sect{margin-top:var(--space-3)}
+  details.grp{margin:0 0 var(--density-group-gap)}
+  details.grp>summary,#liveCtl .lc>h5{display:flex;align-items:center;gap:var(--space-2);min-height:var(--density-control-h);margin:0 0 var(--space-1);
+    padding:0 var(--space-2) 0 0;cursor:pointer;list-style:none;border-radius:var(--radius-sm);
+    font-size:var(--font-size-body);font-weight:600;color:var(--color-text);letter-spacing:0;text-transform:none;user-select:none}
+  details.grp>summary:hover,#liveCtl .lc>h5:hover{background:var(--color-surface-hover)}
   details.grp>summary::-webkit-details-marker{display:none}
-  details.grp>summary::before{content:'▸';color:var(--muted);font-size:10px;transition:transform .12s}
-  details.grp[open]>summary::before{transform:rotate(90deg)}
-  details.grp[open]>summary{border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0}
-  details.grp .body{padding:4px 8px 6px}
-  /* focus: the one open group carries the accent: its title in the accent colour, its box a faint tint of it */
-  body[data-ui-style=focus] details.grp[open]{border-color:color-mix(in srgb,var(--accent) 45%,var(--border));background:color-mix(in srgb,var(--accent) 7%,var(--panel))}
-  body[data-ui-style=focus] details.grp[open]>summary{color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--panel));border-bottom-color:color-mix(in srgb,var(--accent) 35%,var(--border))}
-  body[data-ui-style=focus] details.grp[open]>summary::before{color:var(--accent)}
-  /* the settings under the image: boxes as in the controls column (a small muted title, no arrow, no line or
-     background under it); every group open on load, a click on the title folds it */
-  #panel details.grp,body[data-ui-style=focus] #panel details.grp[open]{border:1px solid var(--border);background:none;padding:5px 7px;margin:6px 0}
-  #panel details.grp>summary,body[data-ui-style=focus] #panel details.grp[open]>summary{padding:0;margin:0 0 4px;background:none;border:0;border-radius:0;
-    font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-  #panel details.grp:not([open])>summary{margin-bottom:0}
-  #panel details.grp>summary::before{display:none}
-  #panel details.grp>.body{padding:0}
-  /* the title sits in the box's top line (as a fieldset's legend): the line stops either side of it; the boxes keep room
-     above for it */
-  #liveCtl .lc>h5,#liveCtl .lc>details.grp>summary,#panel details.grp>summary{width:fit-content;max-width:calc(100% - 4px);box-sizing:border-box;
-    line-height:13px;margin-top:-12px!important;margin-left:-4px!important;padding:0 4px!important;background:var(--panel)!important}
-  #liveCtl{gap:12px;padding-top:12px}
-  #panel details.grp,body[data-ui-style=focus] #panel details.grp[open]{margin:12px 0 6px}
-  #liveCtl .lc.shut,#liveCtl .lc:has(>details.grp:not([open])),#panel details.grp:not([open]){padding-bottom:3px}
-  #panel .sect{font-size:11px;color:var(--text);margin-top:14px}
+  details.grp>summary::before,#liveCtl .lc>h5::before{content:'▸';flex:none;width:12px;text-align:center;color:var(--color-text-muted);
+    font-size:var(--font-size-caption);transition:transform var(--duration-fast)}
+  details.grp[open]>summary::before,#liveCtl .lc:not(.shut)>h5::before{transform:rotate(90deg)}
+  details.grp>.body{padding:0 0 0 var(--space-5)}
+  #liveCtl details.grp>.body{padding:0}
+  /* a group's changed settings: their count and a reset, at the title's right end */
+  .grpChg{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1);font-size:var(--font-size-caption);font-weight:400;color:var(--color-accent)}
+  .grpChg[hidden]{display:none}
+  .grpChg button{height:18px;min-width:18px;padding:0 var(--space-1);line-height:1;font-size:var(--font-size-caption)}
   /* one option = one line: label (help on hover) | control | value + unit */
-  .opt{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w);align-items:center;gap:6px;margin:var(--row-gap) 0}
+  .opt{display:grid;grid-template-columns:var(--lab-w) minmax(0,1fr) var(--val-w);align-items:center;gap:6px;margin:var(--density-row-gap) 0}
   .opt .lab{display:flex;align-items:center;gap:4px;min-width:0}
-  .opt .lab label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  .opt .lab label{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.2;overflow-wrap:anywhere;color:var(--color-text-muted)}
   .opt .ctl{display:flex;align-items:center;gap:4px;justify-content:flex-end}
   .opt .ctl input[type=range]{width:100%;min-width:0}
   .opt .ctl select{max-width:150px}
-  .opt .val{white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
-  .opt .val b{color:var(--text);font-weight:500}
+  .opt .val{white-space:nowrap;color:var(--color-text-muted);font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis}
+  .opt .val b{color:var(--color-text);font-weight:500}
   .opt.wide{grid-template-columns:1fr}
   .opt.wide button{width:100%}
   #panel .opt.wide button,#liveCtl .opt.wide button{height:24px;padding-top:0;padding-bottom:0}
-  #reseed{height:22px;padding:0 8px;font-size:11px}
+  #reseed{height:22px;padding:0 8px;font-size:var(--font-size-caption)}
   .opt.check{grid-template-columns:minmax(0,1fr) auto}
   /* rows without a value (select, preset, checkbox): no empty cell, which would wrap onto a second grid row */
   .opt>.val:empty{display:none}
@@ -365,25 +514,21 @@
   .opt.pair .ctl input[type=number]{width:52px;flex:none;padding:2px 3px}
   .opt.pair .ctl .dual{flex:1;min-width:30px;width:auto}
   .opt.pair .ctl{grid-column:2 / 4}
-  .opt.pair .ctl .u{flex:none;width:calc(var(--val-w) - 26px);padding-left:2px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .opt.pair .ctl .u{flex:none;width:calc(var(--val-w) - 26px);padding-left:2px;color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .opt.pair .val{display:none}
   .opt.hasSide{grid-template-columns:var(--lab-w) minmax(0,1fr) minmax(34px,auto) auto}
-  .opt label.side{display:flex;align-items:center;gap:2px;justify-self:end;color:var(--muted);white-space:nowrap;cursor:pointer}
+  .opt label.side{display:flex;align-items:center;gap:2px;justify-self:end;color:var(--color-text-muted);white-space:nowrap;cursor:pointer}
   .opt label.side input{margin:0}
-  label[data-tip],.subhead [data-tip]{cursor:help}
-  label[data-tip]:hover,.subhead [data-tip]:hover{color:var(--accent)}
-  #tip{position:fixed;z-index:50;display:none;max-width:280px;background:var(--tip-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:11.5px;line-height:1.45;box-shadow:0 6px 18px rgba(0,0,0,.35);pointer-events:none}
-  #tip code{font-size:10.5px;color:var(--muted)}
+  label[data-tip],.subhead [data-tip]{cursor:help;text-decoration:underline dotted color-mix(in srgb,var(--color-text-muted) 45%,transparent);text-underline-offset:3px}
+  label[data-tip]:hover,.subhead [data-tip]:hover{color:var(--color-accent)}
+  #tip{position:fixed;z-index:var(--z-tooltip);display:none;max-width:280px;background:var(--color-surface-raised);color:var(--color-text);border:1px solid var(--color-border-strong);border-radius:var(--radius-md);padding:7px 9px;font-size:var(--font-size-caption);line-height:1.45;box-shadow:var(--shadow-raised);pointer-events:none}
+  #tip code{font-size:var(--font-size-caption);color:var(--color-text-muted)}
   /* preset children: indented under their preset with a guide line */
-  .kids{margin-left:5px;padding-left:9px;border-left:2px solid var(--guide)}
+  .kids{margin-left:5px;padding-left:9px;border-left:2px solid var(--color-guide)}
   .kids .opt{--lab-w:calc(var(--lab-w-base) - 16px)}
   body[data-level=basic] .t-advanced,body[data-level=basic] .t-expert,body[data-level=advanced] .t-expert{display:none!important}
-  #levelSeg{display:flex;border:1px solid var(--in-border);border-radius:var(--radius);overflow:hidden;flex:none}
-  #levelSeg button{border:0;border-radius:0;padding:3px 8px;background:var(--in-bg);color:var(--muted);font-size:11px;cursor:pointer}
-  #levelSeg button+button{border-left:1px solid var(--in-border)}
-  #levelSeg button.on{background:color-mix(in srgb,var(--accent) 28%,var(--in-bg));color:var(--text)}
   /* sub-headings inside a group, button rows, checkbox grids, radio columns */
-  .subhead{display:flex;align-items:center;gap:5px;margin:12px 0 4px;padding-bottom:2px;border-bottom:1px solid var(--border);font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+  .subhead{display:flex;align-items:center;gap:5px;margin:12px 0 4px;padding-bottom:2px;border-bottom:1px solid var(--color-border);font-size:var(--font-size-caption);font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-muted)}
   .body>.subhead:first-child{margin-top:4px}
   .opt.btnrow{display:flex;gap:6px}
   .opt.btnrow button{flex:1;padding:4px 6px;white-space:nowrap}
@@ -397,34 +542,34 @@
   .radios label{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .radios input{margin:0 3px 0 0;vertical-align:-2px}
   /* the data layers' status list */
-  .dataStatus{margin:8px 0 4px;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:11px;line-height:1.35}
+  .dataStatus{margin:8px 0 4px;border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:5px 8px;font-size:var(--font-size-caption);line-height:1.35}
   .dataStatus:empty{display:none}
-  .dataStatus .hd{color:var(--muted);margin-bottom:4px}
-  .dataStatus .hd.q{margin:6px 0 2px;padding-top:4px;border-top:1px solid var(--border)}
-  .dataStatus .st a{color:var(--link);text-decoration:none;margin-left:3px}
+  .dataStatus .hd{color:var(--color-text-muted);margin-bottom:4px}
+  .dataStatus .hd.q{margin:6px 0 2px;padding-top:4px;border-top:1px solid var(--color-border)}
+  .dataStatus .st a{color:var(--color-link);text-decoration:none;margin-left:3px}
   .dataStatus .r{display:grid;grid-template-columns:14px minmax(0,1fr) auto;column-gap:4px;align-items:baseline;margin:3px 0}
   .dataStatus .r .st{font-variant-numeric:tabular-nums}
   .dataStatus .sub2,.dataStatus .bar{grid-column:2 / 4}
-  .dataStatus .sub2{color:var(--muted);font-size:10.5px}
-  .dataStatus .sub2 a{color:var(--link)}
-  .dataStatus .bar{height:3px;margin-top:2px;background:var(--in-border);border-radius:2px;overflow:hidden}
-  .dataStatus .bar>i{display:block;height:100%;background:var(--accent)}
-  .dataStatus .r.ok .ic,.dataStatus .r.ok .st{color:#5fbf72}
-  .dataStatus .r.run .ic,.dataStatus .r.run .st{color:var(--accent)}
-  .dataStatus .r.fail .ic,.dataStatus .r.fail .st{color:#e06c6c}
+  .dataStatus .sub2{color:var(--color-text-muted);font-size:var(--font-size-caption)}
+  .dataStatus .sub2 a{color:var(--color-link)}
+  .dataStatus .bar{height:3px;margin-top:2px;background:var(--color-input-border);border-radius:var(--radius-sm);overflow:hidden}
+  .dataStatus .bar>i{display:block;height:100%;background:var(--color-accent)}
+  .dataStatus .r.ok .ic,.dataStatus .r.ok .st{color:var(--color-status-ok)}
+  .dataStatus .r.run .ic,.dataStatus .r.run .st{color:var(--color-accent)}
+  .dataStatus .r.fail .ic,.dataStatus .r.fail .st{color:var(--color-status-error)}
   .dataStatus .r.off{opacity:.55}
-  .dataStatus .ft{color:var(--muted);font-size:10px;margin-top:4px}
+  .dataStatus .ft{color:var(--color-text-muted);font-size:var(--font-size-caption);margin-top:4px}
   /* two-knob range slider (two overlaid range inputs) */
   .dual{position:relative;width:96px;height:18px}
-  .dual .track,.dual .fill{position:absolute;top:8px;height:3px;border-radius:2px}
-  .dual .track{left:0;right:0;background:var(--in-border)}
-  .dual .fill{background:var(--accent)}
+  .dual .track,.dual .fill{position:absolute;top:8px;height:3px;border-radius:var(--radius-sm)}
+  .dual .track{left:0;right:0;background:var(--color-input-border)}
+  .dual .fill{background:var(--color-accent)}
   .dual input{position:absolute;left:0;top:0;width:100%!important;height:18px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
   .dual input[type=range]::-webkit-slider-runnable-track{background:none;height:18px}
   .dual input[type=range]::-moz-range-track{background:none}
   .dual input[type=range]::-moz-range-progress{background:none}
-  .dual input[type=range]::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:12px;height:12px;margin-top:3px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
-  .dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--panel);cursor:pointer}
+  .dual input[type=range]::-webkit-slider-thumb{pointer-events:auto;-webkit-appearance:none;width:12px;height:12px;margin-top:3px;border-radius:50%;background:var(--color-accent);border:2px solid var(--color-surface);cursor:pointer}
+  .dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:10px;height:10px;border-radius:50%;background:var(--color-accent);border:2px solid var(--color-surface);cursor:pointer}
   /* Phones (body.mobile: a window at most 700 px wide, set by web/live/mobile.js): one column that scrolls with the
      page. The title bar, then (sticky, kept on screen) the square stage (#mStage) with the live image filling it and
      the world view as an inset in its top-right corner (.worldBig: the other way round; a tap on the inset swaps
@@ -437,38 +582,58 @@
   body.mobile #viewBar .tagline,body.mobile #viewBar .sp{display:none}
   body.mobile #viewBar{justify-content:space-between;gap:10px}
   body.mobile #viewBar #mmLink{margin:0 0 0 auto}
-  body.mobile #viewBar a.back{font-size:12px}
-  #mTop{position:sticky;top:0;z-index:10;background:var(--panel)}
-  #mStage{position:relative;width:100%;aspect-ratio:1;background:#000;overflow:hidden}
+  body.mobile #viewBar a.back{font-size:var(--font-size-body)}
+  #mTop{position:sticky;top:0;z-index:10;background:var(--color-surface)}
+  #mStage{position:relative;width:100%;aspect-ratio:1;background:var(--color-bg-canvas);overflow:hidden}
   #mStage>#liveView,#mStage>#canvasHost{position:absolute;inset:0;width:auto;height:auto;aspect-ratio:auto;flex:none;overflow:hidden}
   #mStage>#canvasHost,#mStage.worldBig>#liveView,#mSwap{inset:6px 6px auto auto;width:37.5%;height:37.5%;z-index:5;box-sizing:border-box;
-    border:1px solid rgba(255,255,255,.6);border-radius:4px}
+    border:1px solid var(--color-overlay-frame);border-radius:var(--radius-sm)}
   #mStage.worldBig>#canvasHost{inset:0;width:auto;height:auto;z-index:auto;border:0;border-radius:0}
   #mSwap{position:absolute;z-index:6;padding:0;background:none;border-color:transparent}
   #mStage:not(.worldBig)>#canvasHost :is(#hud,#legend,#animBar,#movie,#xzSplit,#loading),
   #mStage.worldBig>#liveView :is(#lv_idle,#lv_scale,#lv_zoomNav,#lv_play){display:none!important}
-  #mFocus{display:none}
-  body.mobile #mFocus{display:flex;align-items:center;gap:6px;margin:2px 0 4px;font-size:12px}
-  body.mobile #lv_z,body.mobile #lv_z+.u{display:none}   /* the knob instead (its readout shows the height) */
+  body.mobile #mZ .u{display:inline}
+  body.mobile #mFocus{flex-direction:row;align-items:center;gap:6px;width:auto;height:auto;margin:2px 0 4px;font-size:var(--font-size-body)}
+  body.mobile #mFocus>[data-dir="-1"]{order:-1}
+  body.mobile #mFocus>[data-dir="1"]{order:5}
+  body.mobile #mFocus .gM{display:inline} body.mobile #mFocus .gD{display:none}
+  body.mobile #lv_stageBox #lv_xyPop{display:none!important}
+  body.mobile #lv_stageBox #lv_zPop{display:flex!important;position:static;justify-content:flex-end;padding:0;border:0;background:none;box-shadow:none}
+  body.mobile #lv_stageBox #lv_zPop .zpos{display:none}
+  /* on a phone the acquisition comes before the display */
+  body.mobile #lv_sd{display:contents}
+  body.mobile #lv_stageBox{grid-area:stage} body.mobile #lv_dispBox{grid-area:disp} body.mobile #lv_statBox{grid-area:stat}
+  body.mobile #lv_cols{grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "stat" "acq" "disp" "illum" "instr"}
+  /* on a phone the level bar lies down: the grey scale, the histogram, the handles (▲ over the number) under it */
+  body.mobile #lv_statBox .chip{height:32px;padding:0 var(--space-3)}
+  body.mobile #lv_lvl{flex-direction:column;height:auto;cursor:ew-resize}
+  body.mobile #lv_lut{width:auto;height:8px}
+  body.mobile #lv_hist{width:100%;height:48px}
+  body.mobile #lv_lvl .tags{flex:none;min-width:0;height:22px}
+  body.mobile #lv_lvl .tag{right:auto;top:0;height:auto;flex-direction:column;justify-content:flex-start;gap:1px;transform:translateX(-50%)}
+  body.mobile #lv_lvl .tag i{border:4px solid transparent;border-top:0;border-bottom:6px solid var(--color-accent)}
+  body.mobile #lv_stageBox .joy{display:none}
+  body.mobile #lv_stageBox .stage{flex-direction:column;align-items:stretch;gap:var(--space-1)}
   body.mobile #liveCtl .zrow{justify-content:flex-end}
-  body.mobile #mFocus button{flex:none;width:40px;height:36px;padding:0;font-size:20px;line-height:1;touch-action:manipulation}
-  #mKnob{flex:1 1 0;min-width:0;height:34px;cursor:ew-resize;touch-action:none}
-  #mZ{flex:none;min-width:58px;text-align:right;color:var(--text);font-variant-numeric:tabular-nums}
-  body.mobile #liveBar{flex-wrap:wrap;row-gap:4px;border-top:1px solid var(--border)}
-  body.mobile #liveBar>button,body.mobile #lv_recWrap>button{padding:6px 10px}
+  body.mobile #mFocus button{flex:none;width:40px;height:36px;padding:0;font-size:var(--font-size-icon);line-height:1;touch-action:manipulation}
+  body.mobile #mKnob{flex:1 1 0;min-width:0;height:34px;min-height:0;cursor:ew-resize;background:none;border:0}
+  body.mobile #mZ{flex:none;align-self:auto;width:auto;min-width:58px;text-align:right;font-size:inherit;color:var(--color-text)}
+  body.mobile #liveBar{flex-wrap:wrap;row-gap:4px;border-top:1px solid var(--color-border)}
+  body.mobile #liveBar>button,body.mobile #lv_acts>button,body.mobile #lv_recWrap>button{padding:6px 10px}
   body.mobile #lv_live{width:84px}
-  body.mobile #menuBtn{order:1;margin-left:auto;font-size:18px}
+  body.mobile #menuBtn{order:1;margin-left:auto;font-size:var(--font-size-icon)}
   body.mobile #liveBar::after{content:'';order:1;flex-basis:100%;height:0}
   body.mobile :is(#lv_busy,#lv_info,#levelSeg){order:2}
   body.mobile #lv_info{flex:1 1 0;margin-left:0}
-  body.mobile #levelSeg button{padding:5px 9px;font-size:12px}
+  body.mobile #levelSeg button{padding:5px 9px;font-size:var(--font-size-body)}
   body.mobile #menu{max-width:calc(100vw - 16px);box-sizing:border-box}
   body.mobile #sideBody{display:flex;flex-direction:column}
-  body.mobile #sideMain{display:contents}
+  body.mobile #sideMain,body.mobile #setCol{display:contents}
+  body.mobile :is(#setColHead,#setStrip,#ctlUp){display:none!important}
   body.mobile #liveCtl{order:1;overflow:visible;min-height:auto;--lab-w:112px;--lab-w-base:112px;--val-w:60px}
-  body.mobile #sideTop{order:2;border-top:1px solid var(--border)}
+  body.mobile #sideTop{order:2;border-top:1px solid var(--color-border)}
   body.mobile :is(#panel,#animPanel){order:3;overflow:visible;min-height:auto}
-  body.mobile :is(input[type=number],input[type=text],input[type=search],select){font-size:16px}
+  body.mobile :is(input[type=number],input[type=text],input[type=search],select){font-size:var(--font-size-input-phone)}
   body.mobile :is(#liveCtl,#panel) :is(select,input[type=number],input[type=text]),body.mobile #setSearch{height:32px}
   body.mobile :is(#liveCtl,#panel) .opt{min-height:32px}
   body.mobile #liveCtl .opt input[type=number],body.mobile #liveCtl .crow input[type=number]{width:68px}
@@ -499,60 +664,68 @@
   canvas.dragging{cursor:grabbing}
   /* Three stacked layers, all the same pixel size: #cvBase (grid + microtubules, 2D), #cvGl (cell bodies, WebGL2),
      #cv (nuclei + scale bar, 2D, the interactive one). #cvGl/#cvBase are display:none when WebGL2 is unavailable. */
-  #cvBase{position:absolute;top:0;left:0;background:#05070a;pointer-events:none;z-index:0}
+  #cvBase{position:absolute;top:0;left:0;background:var(--color-bg-canvas);pointer-events:none;z-index:0}
   #cvGl{position:absolute;top:0;left:0;pointer-events:none;z-index:1}
   #cv{position:relative;z-index:2;background:transparent}
   /* x-z side view: the bottom --xz-h of the canvas area (the three layers above shrink to the rest) */
-  #cvXZ{position:absolute;left:0;bottom:0;display:none;background:#05070a;box-sizing:border-box;z-index:2}
+  #cvXZ{position:absolute;left:0;bottom:0;display:none;background:var(--color-bg-canvas);box-sizing:border-box;z-index:2}
   #xzSplit{position:absolute;left:0;right:0;height:9px;bottom:calc(var(--xz-h, 0px) - 4px);z-index:4;display:none;cursor:ns-resize;touch-action:none;
-    background:linear-gradient(transparent 3px,#3a4454 3px,#3a4454 6px,transparent 6px)}
-  #xzSplit:hover,#xzSplit.drag{background:linear-gradient(transparent 3px,var(--accent) 3px,var(--accent) 6px,transparent 6px)}
+    background:linear-gradient(transparent 3px,var(--color-border-strong) 3px,var(--color-border-strong) 6px,transparent 6px)}
+  #xzSplit:hover,#xzSplit.drag{background:linear-gradient(transparent 3px,var(--color-accent) 3px,var(--color-accent) 6px,transparent 6px)}
   #canvasHost.xz #legend{bottom:calc(var(--xz-h) + 8px)}
-  #hud,#legend,#movie{z-index:3;color:#dfe6ee}
-  #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:14px;color:#8b97a8;background:#05070a}
-  #loading.err{pointer-events:auto;color:#eef2f7;line-height:1.6;padding:0 24px;text-align:center}
-  #loading.err a{color:#9cc6f2}
-  #movie{position:absolute;bottom:8px;right:8px;display:none;z-index:4;background:rgba(10,13,18,.94);border:1px solid #232a35;border-radius:6px;padding:6px;font-size:11px}
+  #hud,#legend,#movie{z-index:3;color:var(--color-overlay-text)}
+  #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:4;pointer-events:none;font-size:var(--font-size-title);color:var(--color-overlay-text-muted);background:var(--color-bg-canvas)}
+  #loading.err{pointer-events:auto;color:var(--color-overlay-text);line-height:1.6;padding:0 24px;text-align:center}
+  #loading.err a{color:var(--color-overlay-text)}
+  #movie{position:absolute;bottom:8px;right:8px;display:none;z-index:4;background:var(--color-overlay-bg-strong);border:1px solid var(--color-overlay-border);border-radius:var(--radius-md);padding:6px;font-size:var(--font-size-caption)}
   #movie .t{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:3px 0}
   #movie .t.drag{cursor:move;user-select:none}
-  #movie a{color:#8bb8e8}
-  #movie button{background:#1a212b;border-color:#2c3644;color:#dfe6ee}
-  #mv_cv{display:block;image-rendering:pixelated;cursor:default;background:#000}
+  #movie a{color:var(--color-overlay-text)}
+  #movie button{background:var(--color-overlay-control-bg);border-color:var(--color-overlay-control-border);color:var(--color-overlay-text)}
+  #mv_cv{display:block;image-rendering:pixelated;cursor:default;background:var(--color-bg-canvas)}
   /* the world view's info box, one column: the View button, where the view is, notes; the View options open in it */
-  #hud{position:absolute;top:8px;left:8px;font-size:11px;background:rgba(10,13,18,.78);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5;pointer-events:none;
+  #hud{position:absolute;top:8px;left:8px;font-size:var(--font-size-caption);background:var(--color-overlay-bg);border:1px solid var(--color-overlay-border);border-radius:var(--radius-md);padding:6px 9px;line-height:1.5;pointer-events:none;
     display:flex;flex-direction:column;align-items:flex-start;max-height:calc(100% - 16px);box-sizing:border-box}
   #canvasHost.xz #hud{max-height:calc(100% - var(--xz-h) - 16px)}
   #hudText{white-space:pre;margin-top:4px}
-  #hud:has(#viewPanel:not([hidden])){background:rgba(10,13,18,.94);z-index:5}
+  #hud:has(#viewPanel:not([hidden])){background:var(--color-overlay-bg-strong);z-index:5}
   /* the View group in the box: no box or title of its own */
-  #viewPanel details.grp,body[data-ui-style=focus] #viewPanel details.grp[open]{border:0;background:none;margin:0}
+  #viewPanel details.grp{border:0;background:none;margin:0}
   #viewPanel details.grp>summary{display:none}
   #viewPanel details.grp>.body{padding:0}
   #hud #viewBtn{pointer-events:auto;padding:2px 8px}
-  #hud #viewBtn.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,var(--in-bg))}
-  #legend{position:absolute;bottom:8px;left:8px;max-width:calc(100% - 150px);font-size:11px;background:rgba(10,13,18,.7);border:1px solid #232a35;border-radius:6px;padding:6px 9px;line-height:1.5}
-  .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+  #hud #viewBtn.on{border-color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 18%,var(--color-input-bg))}
+  #legend{position:absolute;bottom:8px;left:8px;max-width:calc(100% - 150px);font-size:var(--font-size-caption);background:var(--color-overlay-bg);border:1px solid var(--color-overlay-border);border-radius:var(--radius-md);padding:6px 9px;line-height:1.5}
+  .sw{display:inline-block;width:10px;height:10px;border-radius:var(--radius-sm);margin-right:5px;vertical-align:-1px}
   /* sidebar tabs: the settings panel and the animation editor (web/anim/editor.js styles its own panel) */
   #tabs{display:flex;gap:4px;margin-top:8px}
   #tabs[hidden]{display:none}   /* shown by the menu's "Show animation pane (beta)" (web/anim/editor.js) */
-  #tabs button{flex:1;padding:4px 6px;border-radius:5px 5px 0 0;border-bottom:none;color:var(--muted)}
-  #tabs button.on{color:var(--text);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--in-bg))}
+  #tabs button{flex:1;padding:4px 6px;border-radius:5px 5px 0 0;border-bottom:none;color:var(--color-text-muted)}
+  #tabs button.on{color:var(--color-text);border-color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 14%,var(--color-input-bg))}
   #animPanel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
   #animBar{position:absolute;left:0;right:0;bottom:0;height:46px;display:none;z-index:3;box-sizing:border-box}
 </style>
 </head>
 <body>
 <div id="wrap">
-  <div id="worldCol">
+  <!-- One strip across the window: the title bar (left) and the status bar (right) -->
+  <div id="topBar">
   <div id="viewBar">
     <h1>inSiliScope</h1>
     <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; the live camera on the right starts by itself (■ Stop stops it).">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt</span>
     <span class="sp"></span>
-    <div id="leftSeg" role="radiogroup" aria-label="Left view" title="What the left view shows: the sample (the world view) or the microscope (the overview, the illumination profile, the PSF, the back focal plane, the spectral info)"><button data-left="sample" role="radio" class="on" aria-checked="true">Sample</button><button data-left="scope" role="radio" aria-checked="false">Microscope</button></div>
+    <div id="leftSeg" class="seg" role="radiogroup" aria-label="Left view" title="What the left view shows: the sample (the world view) or the microscope (the overview, the illumination profile, the PSF, the back focal plane, the spectral info)"><button data-left="sample" role="radio" class="on" aria-checked="true">Sample</button><button data-left="scope" role="radio" aria-checked="false">Microscope</button></div>
     <a id="mmLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="micro-manager" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>
-  <div id="canvasHost">
+    <div id="liveBar">
+      <div id="levelSeg" class="seg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
+      <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
+      <div id="menu" class="popover" role="menu"></div>
+    </div>
+  </div>
+  <div id="worldCol">
+  <div id="canvasHost" class="isc-dark">
     <canvas id="cvBase"></canvas>
     <canvas id="cvGl"></canvas>
     <canvas id="cv"></canvas>
@@ -576,58 +749,78 @@
   <div id="side">
     <!-- The live microscope: its bar (level with the View bar), the camera image at the stage position (= the world
          view's centre) with the settings under it, and the controls column beside them. -->
-    <div id="liveBar">
-      <button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button>
-      <button id="lv_snap" title="Snap: one frame">Snap</button>
-      <span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header), or with its settings file and ground truth as one .zip; asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
-        <div id="lv_recPop" hidden role="dialog" aria-label="Record">
-          <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
-          <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
-          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
-        </div></span>
-      <button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button>
-      <span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span>
-      <div id="lv_info"></div>
-      <div id="levelSeg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
-      <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
-      <div id="menu" role="menu"></div>
-    </div>
     <div id="sideBody">
     <div id="sideMain">
-      <div id="liveView">
+      <div id="liveView" class="isc-dark">
         <canvas id="lv_cv" width="1" height="1"></canvas>
         <div id="lv_idle"><span id="lv_idlePress">Press <button id="lv_idleLive" title="Live: image the sample under the world view's centre"><span class="ico">▶</span> Live</button></span><span id="lv_idleStart" hidden>Starting<i class="dots"></i></span></div>
         <div id="lv_scale"></div>
         <div id="lv_zoomNav" hidden title="The zoom (Ctrl + wheel over the image) and the part shown; a drag pans it. Click: the whole image"><i></i><span></span></div>
         <div id="lv_play" hidden><button id="lv_playBtn" title="Play / pause">❚❚</button><input type="range" id="lv_playPos" min="0" max="0" step="1" value="0" aria-label="Frame"><span id="lv_playN"></span><button id="lv_playSave" title="Save the recording: the movie, optionally with its settings and ground truth">Save</button><button id="lv_playClose" title="Close the recording (back to the live view; Live, Snap or Record close it too)">✕</button></div>
       </div>
-    <div id="sideTop">
-      <div class="bar">
-        <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
+    <button id="ctlUp" type="button" title="Spread these controls over the image (a click, or rest the pointer here; they fold back when the pointer leaves them)" aria-label="Spread the controls over the image" aria-expanded="false"><span aria-hidden="true">▲</span></button>
+    <div id="liveCtl"><div id="lv_cols">
+      <div id="lv_acts"><button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button><button id="lv_snap" title="Snap: one frame">Snap</button><span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header), or with its settings file and ground truth as one .zip; asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
+        <div id="lv_recPop" class="popover" hidden role="dialog" aria-label="Record">
+          <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
+          <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
+          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
+        </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button><span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span><div id="lv_info"></div></div>
+      <!-- the setup, the stage and the display side by side -->
+      <div id="lv_sd">
+      <div class="lc" id="lv_statBox"><h5>Info</h5>
+        <div class="chips" id="lv_laserChips" role="group" aria-label="Lasers: a click turns a line on or off"></div>
+        <div class="facts" id="lv_facts"></div>
+        <button type="button" id="lv_warn" hidden aria-haspopup="dialog" aria-expanded="false"></button>
+        <div id="lv_warnPop" class="popover" hidden role="dialog" aria-label="What to check"></div>
       </div>
-      <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
-    </div>
-    <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
-    <div id="panel"></div>
-    <div id="animPanel" hidden></div>
-    </div>
-    <div id="liveCtl">
-        <div class="lc"><h5>Focus (Z stage)</h5>
-          <div class="zrow"><input type="number" id="lv_z" step="0.1" title="The focal plane's height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span>
-            <label for="lv_zStep">step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
+      <div class="lc" id="lv_stageBox"><h5>Stage</h5>
+        <div class="stage">
+          <div class="joy" id="lv_joy" tabindex="0" role="application" aria-label="Move the stage in x and y: drag the knob, or the arrow keys (Shift: 10 steps)" title="Drag the knob: the further from the middle, the faster the stage moves; a click near an edge moves one step; arrow keys too; Shift: 10 steps, 10x as fast; right-click: the step and a typed position"><span class="ja n">▲</span><span class="ja s">▼</span><span class="ja w">◀</span><span class="ja e">▶</span><span class="jk"></span></div>
+          <div id="mFocus" role="group" aria-label="Focus" title="Focus: drag or scroll the wheel (up = up), click above or below its line for one step; right-click: the step and a typed height"><button type="button" data-dir="1" aria-label="Focus up" title="Focus up one step (hold to repeat; right-click: the step)"><span class="gD">▲</span><span class="gM">+</span></button><canvas id="mKnob" aria-label="Focus wheel"></canvas><button type="button" data-dir="-1" aria-label="Focus down" title="Focus down one step (hold to repeat; right-click: the step)"><span class="gD">▼</span><span class="gM">−</span></button><span id="mZ" title="The focal plane&#39;s height above the coverslip (µm)"><span></span><span class="u"> µm</span></span></div>
+          <!-- right-click on the pad / the focus wheel: a typed position and the step (on a phone the Z step shows under the wheel) -->
+          <div id="lv_xyPop" class="popover sf" hidden role="dialog" aria-label="Stage position and step">
+            <div class="srow xyf"><label for="lv_x">x</label><input type="number" id="lv_x" step="any" title="The stage position (the field of view&#39;s centre), x"><span class="u">µm</span></div>
+            <div class="srow xyf"><label for="lv_y">y</label><input type="number" id="lv_y" step="any" title="The stage position (the field of view&#39;s centre), y"><span class="u">µm</span></div>
+            <div class="srow"><label for="lv_xyStep">XY step</label><input type="number" id="lv_xyStep" min="0.01" step="0.5" value="1"><span class="u">µm</span></div>
+          </div>
+          <div id="lv_zPop" class="popover sf" hidden role="dialog" aria-label="Focus and step">
+            <div class="srow zrow zpos"><label for="lv_z">z</label><input type="number" id="lv_z" step="0.1" title="The focal plane&#39;s height above the coverslip; its arrows (and the wheel over the image, PageUp/PageDown) step by the step size"><span class="u">µm</span></div>
+            <div class="srow zrow zstep"><label for="lv_zStep">Z step</label><input type="number" id="lv_zStep" min="0.01" step="0.05" value="0.1"><span class="u">µm</span></div>
+          </div>
         </div>
-        <div class="lc"><h5>Configuration</h5><div class="cfg" id="cfgPanel"></div>
-          <div class="cfg" id="lv_expRow"><span class="lab"><label for="lv_exp" data-tip="The camera's exposure time per frame; live frames come at most once per exposure. <code>Camera.Exposure</code>">Exposure</label></span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
+      </div>
+      <div class="lc" id="lv_dispBox"><h5>Display<label class="autoChip" title="Auto: the display range follows each frame (its darkest to its brightest pixel); a drag on the bar sets it by hand"><input type="checkbox" id="lv_auto" checked>auto</label></h5>
+        <div class="lvl" id="lv_lvl" title="The frame&#39;s histogram (log counts; the darkest pixel of the last 10 s at the bottom, the brightest at the top, in ADU), the grey scale shown, and the display range: drag a handle (or anywhere on the bar: the nearer one); right-click: type the levels"><div class="lut" id="lv_lut"></div><canvas id="lv_hist"></canvas><div class="tags"><span class="tag" id="lv_hiTag"><i></i><b></b></span><span class="tag" id="lv_loTag"><i></i><b></b></span></div></div>
+        <div id="lv_dispPop" class="popover sf" hidden role="dialog" aria-label="Display levels">
+          <div class="srow"><label for="lv_hi">White</label><input type="number" id="lv_hi" title="White level (ADU)"><span class="u">ADU</span></div>
+          <div class="srow"><label for="lv_lo">Black</label><input type="number" id="lv_lo" title="Black level (ADU)"><span class="u">ADU</span></div>
         </div>
+      </div>
+      </div>
+      <div class="lc" id="lv_acqBox"><h5>Acquisition</h5><div class="cfg" id="cfgPanel"></div>
+        <div class="cfg" id="lv_expRow"><span class="lab"><label for="lv_exp" data-tip="The camera's exposure time per frame; live frames come at most once per exposure. <code>Camera.Exposure</code>">Exposure</label></span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>
+      </div>
+      <div class="lvCol" id="lv_colIllum">
         <div class="lc" id="lv_illumHost"></div>
-        <div class="lc" id="lv_objHost"></div>
-        <div class="lc" id="lv_camHost"></div>
-        <div class="lc"><h5>Display</h5>
-          <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
-          <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
+      </div>
+      <div class="lvCol" id="lv_instrHost"></div>
+    </div></div>
+    </div>
+    <!-- The settings (Sample, Sample preparation, Instrument) in a column at the right that folds to a tab at the edge -->
+    <div id="setCol">
+      <div id="setColHead"><span>Settings</span><button id="setFold" type="button" title="Fold the settings to a tab at the right edge (the live image moves right, the view on the left gets the room)" aria-label="Fold the settings" aria-expanded="true">»</button></div>
+      <div id="sideTop">
+        <div class="bar">
+          <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
+          <label class="chgOnly" title="Show only the settings that differ from their defaults (at this level)"><input type="checkbox" id="setChanged"> Changed only</label>
         </div>
-        <div class="lc t-expert" id="lv_perfBox" title="Where each frame's time goes: the engine's phases (Simulation/Timing.h), the worker and the display (shown at the Expert level)"><h5>Performance</h5>
-          <div id="lv_perfNote"></div><div id="lv_perfOut"></div><div id="lv_memOut"></div></div>
+        <div id="tabs" role="tablist" hidden><button data-tab="settings" class="on" role="tab">Settings</button><button data-tab="anim" role="tab" title="Animations: orbits, layers building up, slabs sweeping through a cell; export as MP4, WebM or GIF">Animation</button></div>
+      </div>
+    <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
+      <div id="panel"></div>
+      <div id="animPanel" hidden></div>
+          <div id="setStrip"><button id="setTab" type="button" title="Show the settings" aria-label="Show the settings" aria-expanded="false"><span class="chev" aria-hidden="true">«</span><span>Show settings</span></button></div>
     </div>
     </div>
   </div>
@@ -660,9 +853,9 @@
 // level on (Basic / Advanced / Expert: the Micro-Manager property's tier, tierOf in the uiPanel script; adv = the
 // viewer's own Advanced for a setting MM does not have); show() hides rows that do not apply (e.g. WideField rows unless that modality is
 // chosen). A preset (or an entry with kids) draws its kids indented under it; picking a preset writes their values,
-// editing one by hand makes it "Custom". Styles are CSS only (body[data-ui-style], UI_STYLES).
+// editing one by hand makes it "Custom". The look is the design tokens' (web/design/, docs/dev/DESIGN.md).
 // This script is data only (no DOM access until a show()/fmt() runs). The renderer is the uiPanel script below.
-const { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI } = (() => {
+const { UI_GROUPS, USER_DYES, cameraModeGain, DYE_UI } = (() => {
 const $ = id => document.getElementById(id);
 const modality = () => +($('mv_modality') ? $('mv_modality').value : 0);
 const FL = () => modality() === 0, BF = () => modality() === 1;
@@ -844,7 +1037,10 @@ const basicLaserShown = nm => {
 };
 // A dye pick or a mode change loads the auto light preset (the targets' presets combined).
 // In BrightField (its Preset) the lasers stay off: the dye's preset is loaded when a fluorescence preset is picked.
-const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightPresetValues(autoLightPreset(vals)));
+// (not the BFP position: it moves only by its slider, Illumination's Preset, Epi / HILO / TIRF, the Pattern, a reset or
+// a settings file -- the user's choice, 2026-11-05)
+const lightNoBfp = q => { const o = lightPresetValues(q); delete o['mv_illum-bfp']; return o; };
+const withLightPreset = vals => BF() ? vals : Object.assign(vals, lightNoBfp(autoLightPreset(vals)));
 // The panel's first light: the cell field's default labels' presets combined (as the engine's auto; a target with
 // no default label adds none).
 const DEFAULT_LIGHT = lightPresetValues(combineLightPresets(DD.specimens[SPECIMEN_DEFAULT].targets.filter(t => t.defaultDye !== 'None').map(t =>
@@ -1233,7 +1429,7 @@ const UI_GROUPS = [
     num('mv_bf-absorption-per-um', 'Absorption', '1/µm', 'Intensity absorption of cell material (unstained: 0). <code>CellField.AbsorptionPerUm</code>', 0, null, 0.01, 0, { adv, show: BF, cls: 'bfRow' }),
   ] },
 
-  { id: 'illum', host: 'lv_illumHost', title: 'Illumination & light path', open: true, items: [
+  { id: 'illum', host: 'lv_illumHost', title: 'Illumination', open: true, items: [
     select('mv_modality', 'Modality', 'Fluorescence: every label in its mode (dSTORM, PALM, DNA-PAINT blinks; WideField dyes; pre states) through the light path. BrightField: transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Micro-Manager: the <code>Lasers</code> and <code>TransmittedLamp</code> shutters',
       [['0', 'Fluorescence'], ['1', 'BrightField']], '0', { show: () => false }),   // set by the Preset below (BrightField or a fluorescence preset)
     preset('lightPreset', 'Preset', 'The imaging modality and the light path. BrightField (lasers off): transmitted light through the cells\' refractive index (partially coherent multislice wave optics). Every other preset is fluorescence (every label in its mode through the light path): laser intensities, dichroic and emission filter for a type of experiment and colour (data/dyes/light_path.json; dSTORM from Dempsey et al. 2011, the rest estimates). In fluorescence, picking a dye or mode loads its suggested preset; editing a row shows "Custom". <code>Lasers.Preset</code> (BrightField: the <code>TransmittedLamp</code> shutter)',
@@ -1245,11 +1441,7 @@ const UI_GROUPS = [
     num('mv_laser-custom-nm', 'Custom laser', 'nm', 'Wavelength of an extra laser line (0 = none; not in Micro-Manager).', 0, 1000, 1, 0, { adv, show: FL, kids: [
       num('mv_laser-custom', 'Intensity', 'kW/cm²', 'Its intensity at the sample.', 0, 10, 'any', 0, { adv, show: FL }),
     ] }),
-    range('mv_illum-bfp', 'BFP position', '', 'Where the laser spot sits in the objective\'s back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet through the focus), above: TIRF (an evanescent layer) up to the pupil edge NA / n<sub>medium</sub> (beyond it no light reaches the sample). The DNA-PAINT presets set HILO (0.95), the nanorulers TIRF (1.03). Below: the regime and how deep the light reaches. <code>Lasers.BfpPosition</code>', 0, 1.2, 0.01, DEFAULT_LIGHT['mv_illum-bfp'], { show: FL, kids: [
-      select('mv_illum-profile', 'Beam profile', 'The beam\'s cross-section at the sample: Flat (laterally infinite), Gaussian or FlatTop (a soft-edged disc). Off the axis a beam lights less: photons, bleaching and the free-imager background follow it. <code>Lasers.IlluminationProfile</code>', [['0', 'Flat'], ['1', 'Gaussian'], ['2', 'FlatTop']], '1', { adv, show: FL }),
-      num('mv_illum-fwhm', 'Beam FWHM', '% FOV', 'The beam\'s full width at half maximum (Gaussian, FlatTop), % of the field of view\'s width. <code>Lasers.IlluminationFwhmPct</code>', 10, 300, 5, 100, { adv, show: FL }),
-      num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of the imager solution over the coverslip (a tape/flow chamber, estimate): the free DNA-PAINT imager in it adds a background, collected defocused from the heights the beam lights (epi: about the beam\'s radius; HILO: the sheet; TIRF: the evanescent layer). <code>Lasers.ChamberHeightUm</code>', 0, null, 1, 100, { adv, show: FL }),
-    ] }),
+    range('mv_illum-bfp', 'BFP position', '', 'Where the laser spot sits in the objective\'s back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet through the focus), above: TIRF (an evanescent layer) up to the pupil edge NA / n<sub>medium</sub> (beyond it no light reaches the sample). The DNA-PAINT light presets set HILO (0.95; on the nanorulers TIRF, 1.03), and so do Epi / HILO / TIRF and a Pattern pick; a dye, mode, Imaging mode or specimen pick leaves it. With a Pattern on, below 0.05 the Pattern goes Off (the beams at the centre make no fringes) and comes back above. Below: the regime and how deep the light reaches. <code>Lasers.BfpPosition</code>', 0, 1.2, 0.01, DEFAULT_LIGHT['mv_illum-bfp'], { show: FL }),
     { kind: 'html', html: '<div class="sub" id="bfpReadout"></div>', show: FL },
     // Structured illumination (spec/ALGORITHM.md "Structured illumination"): the light as coherent beams in the BFP at
     // the BFP position's radius, the pattern stepping with the frame. A type pick sets the radius and the polarization.
@@ -1273,6 +1465,13 @@ const UI_GROUPS = [
           num('mv_tube-length-mm', 'Tube length', 'mm', 'The tube lens\' focal length: the objective\'s focal length is it over the magnification (100), the pupil\'s radius that × NA; a beam\'s spot size and tilt map to the sample through it. <code>Objective.TubeLengthMm</code>', 50, 500, 1, 200, { adv, show: FL }),
         ] }),
     { kind: 'html', html: '<div class="sub" id="patternReadout"></div>', show: FL },
+  ] },
+  // the light path's hardware (Instrument): the beam's shape, the filters and the dichroic, the BrightField lamp
+  // the instrument: under the live image, the column beside the acquisition controls
+  { id: 'lightpath', host: 'lv_instrHost', title: 'Light path', open: true, items: [
+    select('mv_illum-profile', 'Beam profile', 'The beam\'s cross-section at the sample: Flat (laterally infinite), Gaussian or FlatTop (a soft-edged disc). Off the axis a beam lights less: photons, bleaching and the free-imager background follow it. <code>Lasers.IlluminationProfile</code>', [['0', 'Flat'], ['1', 'Gaussian'], ['2', 'FlatTop']], '1', { adv, show: FL }),
+    num('mv_illum-fwhm', 'Beam FWHM', '% FOV', 'The beam\'s full width at half maximum (Gaussian, FlatTop), % of the field of view\'s width. <code>Lasers.IlluminationFwhmPct</code>', 10, 300, 5, 100, { adv, show: FL }),
+    num('mv_chamber-height-um', 'Chamber height', 'µm', 'Depth of the imager solution over the coverslip (a tape/flow chamber, estimate): the free DNA-PAINT imager in it adds a background, collected defocused from the heights the beam lights (epi: about the beam\'s radius; HILO: the sheet; TIRF: the evanescent layer). <code>Lasers.ChamberHeightUm</code>', 0, null, 1, 100, { adv, show: FL }),
     select('mv_ex-filter', 'Excitation filter', 'Laser clean-up filter in front of the dichroic: each laser line is scaled by its transmission (a 640 nm clean-up blocks the 561 nm line). None, ideal ±5 nm bands or real curves (FPbase). <code>ExcitationFilter</code>',
       DD.excitationFilters.map((f, i) => [String(i), f.name]), String(DEFAULT_LIGHT['mv_ex-filter']), { adv, show: FL, kids: [
         num('mv_ex-lo-nm', 'From', 'nm', 'Custom band pass: low edge. <code>ExcitationFilter-CustomLoNm</code>', 300, 900, 0.5, 635, { adv, show: () => DD.excitationFilters[+$('mv_ex-filter').value].id === 'Custom' }),
@@ -1291,8 +1490,10 @@ const UI_GROUPS = [
     num('mv_bf-photons-per-px-per-sec', 'Lamp', 'ph/px/s', 'BrightField photons per camera pixel per second with no specimen. <code>TransmittedLamp.IntensityPhotonsPerPxPerSec</code>', 0, null, 5000, 80000, { show: BF, cls: 'bfRow' }),
     num('mv_bf-condenser-na', 'Condenser NA', 'NA', 'Condenser aperture: 0 = coherent; close to the objective NA flattens a phase object in focus. <code>TransmittedLamp.CondenserNA</code>', 0, 1.4, 0.05, 0.4, { show: BF, cls: 'bfRow' }),
     num('mv_bf-wavelength-nm', 'Wavelength', 'nm', 'BrightField illumination wavelength. <code>TransmittedLamp.WavelengthNm</code>', 300, 1000, 10, 550, { adv, show: BF, cls: 'bfRow' }),
+  
   ] },
-  { id: 'objective', host: 'lv_objHost', title: 'Objective & PSF', open: true, items: [
+  { id: 'objective', host: 'lv_instrHost', title: 'Objective & PSF', open: true, items: [
+    { kind: 'html', html: '<div class="cfg" id="cfgObjectiveHost"></div>' },   // the Objective preset (web/live/mm_config_ui.js)
     num('mv_na', 'NA', 'NA', 'Numerical aperture of the objective (the Objective preset sets it; a value typed here makes the preset Custom). <code>Objective.NA</code>', 0.1, 1.7, 0.01, 1.4, { adv: true }),
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3'),
@@ -1300,7 +1501,7 @@ const UI_GROUPS = [
     text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. <code>Objective.ZernikeCoefficients</code>', undefined, { maxlength: 400 }),
   ] },
   // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
-  { id: 'camera', host: 'lv_camHost', title: 'Camera', open: true, items: [
+  { id: 'camera', host: 'lv_instrHost', title: 'Camera', open: true, items: [
     select('mv_camera-preset', 'Camera', 'Camera preset: sets the QE curve, the magnification and the noise values (Advanced; edit them after). Kinetix22 = the defaults; iXon Ultra 897 = an EMCCD. <code>Camera.CameraPreset</code>',
       DD.cameras.map((c, i) => [String(i), c.name]), String(DD.cameras.findIndex(c => c.id === DD.cameraDefault)), {
         apply: v => { const c = DD.cameras[+v], K = { 'mv_qe': 'quantumEfficiency', 'mv_dark-per-sec': 'darkCurrentElectronsPerSec', 'mv_gain': 'gainElectronsPerAdu', 'mv_offset': 'offsetAdu', 'mv_offset-std': 'offsetStdAdu', 'mv_read-noise': 'readNoiseElectrons', 'mv_gain-std-pct': 'gainStdPct', 'mv_read-noise-std-pct': 'readNoiseStdPct', 'mv_cic': 'cicElectrons', 'mv_bit-depth': 'bitDepth' }, o = {};
@@ -1327,7 +1528,11 @@ const UI_GROUPS = [
     { kind: 'html', html: '<div class="sub" id="magReadout"></div>' },
     num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × magnification). Typing a size sets the Magnification that gives it (the camera and objective stay). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { derived: true, changedWith: 'emissionMag' }),
   ] },
-  { sect: 'Microscope', id: 'formation', title: 'Image formation', items: [
+  // the simulation itself (not the instrument): where a frame's time and memory go, how the image is formed
+  { sect: 'Simulation', id: 'perf', title: 'Performance', open: true, items: [
+    { kind: 'html', expert: true, html: '<div id="lv_perfBox" title="Where each frame’s time goes: the engine’s phases (Simulation/Timing.h), the worker and the display; the worker’s memory (Expert)"><div id="lv_perfNote"></div><div id="lv_perfOut"></div><div id="lv_memOut"></div></div>' },
+  ] },
+  { id: 'formation', title: 'Image formation', items: [
     num('mv_wf-upscale', 'Mean-field upscaling', '× per px', 'Mean-field (FFT) grid cells per camera pixel, per axis: WideField dyes, pre states and the dSTORM initial ON while they are dense. <code>Renderer.WideFieldUpscaling</code>', 1, 4, 1, 1, { adv, show: FL }),
     num('mv_wf-plane-nm', 'Mean-field z plane', 'nm', 'Thickness of the mean-field dye planes. <code>Renderer.WideFieldZPlaneNm</code>', 5, 500, 5, 25, { adv, show: FL }),
     num('mv_mean-field-density-per-um2', 'Mean-field above', '/µm²', 'A continuous population renders mean-field (fast, its mean image) while more than this many of its dyes emit per µm² within the focal slab, per dye (exact windows) below. <code>Renderer.MeanFieldDensityPerUm2</code>', 0, null, 1, 20, { adv, show: FL }),
@@ -1391,14 +1596,12 @@ const UI_GROUPS = [
   ] },
 ];
 
-// Styles: name -> menu label. The look is CSS (body[data-ui-style=...]); add a block there and an entry here.
-const UI_STYLES = { compact: { label: 'Compact (dark)' }, focus: { label: 'Focus' }, light: { label: 'Light' } };
 // The structure's dye and mode as the panel has them, for the data layers (dataModeOv in the main script).
 const dyeNameOf = P => isNone(choiceOf(P)) ? 'None' : USER_DYES.isUser(choiceOf(P)) ? USER_DYES.name(USER_DYES.slot(choiceOf(P))) : choiceDye(choiceOf(P)).name;
-const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, autoLightPreset, brightField: BF, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
+const DYE_UI = { mtMode, dye: () => choiceDye(mtChoice()), lightPresetValues, lightNoBfp, autoLightPreset, brightField: BF, prefix: curPrefix, nanorulers: NR, targets: TARGETS,
   structure: () => curTarget().structure, specimen: () => mounted().id, beads: BEADS, slide: SLIDE, isNone, noneValue: DYE_NONE_V, dyeNameOf,
   dyeName: () => dyeNameOf(curPrefix()), refreshUserDyes };
-return { UI_GROUPS, UI_STYLES, USER_DYES, cameraModeGain, DYE_UI };
+return { UI_GROUPS, USER_DYES, cameraModeGain, DYE_UI };
 })();
 </script>
 <script id="uiPanel">
@@ -1415,6 +1618,7 @@ const MM_STANDARD = { 'mv_exposure-ms': 'basic', 'mv_z': 'basic', 'mv_size': 'ba
   'mv_specimen': 'basic', 'mv_modality': 'basic', 'mv_ex-filter': 'advanced' };
 function tierOf(e, g) {
   const T = self.ISC_MM_TIERS, low = t => t && t.toLowerCase();
+  if (e.expert) return 'expert';
   const own = (e.adv || (g && g.adv)) ? 'advanced' : 'basic';
   if (!e.id || !T) return own;
   if (MM_STANDARD[e.id]) return MM_STANDARD[e.id];
@@ -1565,35 +1769,34 @@ function renderEntry(e, host, g, parent) {
 }
 
 const panel = $('panel');
-const oneOpen = () => !!(UI_STYLES[document.body.dataset.uiStyle] || {}).oneOpen;
-// Open groups: every settings group opens fully on load (a click on its title folds it for the session); a style
-// with oneOpen keeps one remembered group open instead. A group with a host of its own (the View panel) is apart.
-function applyOpen() {
-  const inPanel = groups.filter(G => !G.g.host);
-  if (oneOpen()) {
-    const want = store.get('focusOpen', (inPanel.find(G => G.det.open) || inPanel[0]).g.id);
-    for (const G of inPanel) G.det.open = G.g.id === want;
-  } else for (const G of inPanel) G.det.open = true;
-}
+// Open groups: every settings group opens fully on load (a click on its title folds it for the session). A group with
+// a host of its own (the View panel) is apart.
+function applyOpen() { for (const G of groups) if (!G.g.host) G.det.open = true; }
 let searching = false;   // a search opens every group with a match (the one-open rule waits)
 let curSect = { el: h('div'), groups: [] };   // groups before the first section header (none shown)
 for (const g of UI_GROUPS) {
   const into = g.host ? $(g.host) : panel;
   if (g.sect !== undefined) { curSect = { el: h('div', { class: 'sect' }, g.sect), groups: [] }; into.append(curSect.el); }
   const det = h('details', { class: 'grp', 'data-group': g.id });
-  det.append(h('summary', {}, g.title));
+  // the title row: the title, then (when some differ from their defaults) their count and a reset for the group
+  const sum = h('summary', {}), chg = h('span', { class: 'grpChg', hidden: true });
+  const chgN = h('span'), chgReset = h('button', { type: 'button', title: 'Reset this group’s settings (those shown at this level) to their defaults', 'aria-label': 'Reset ' + g.title }, '↺');
+  chg.append(chgN, chgReset);
+  sum.append(h('span', { class: 'grpTitle' }, g.title), chg);
+  det.append(sum);
   const body = h('div', { class: 'body' });
   det.append(body);
   // a hosted group (the View panel, the controls column) keeps its own remembered state, open by default
   const inColumn = g.host && !!$(g.host).closest('#liveCtl');
   if (g.host) det.open = inColumn || store.get('open.' + g.id, g.open ? '1' : '0') === '1';
-  det.addEventListener('toggle', () => {
-    if (inColumn || (!g.host && !oneOpen())) return;
-    if (g.host) store.set('open.' + g.id, det.open ? '1' : '0');
-    else if (det.open && !g.host && !searching) { store.set('focusOpen', g.id); for (const o of groups) if (o.det !== det && !o.g.host) o.det.open = false; }
-  });
+  det.addEventListener('toggle', () => { if (g.host && !inColumn) store.set('open.' + g.id, det.open ? '1' : '0'); });
   into.append(det);
-  const G = { g, det, sect: g.host ? { el: h('div'), groups: [] } : curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
+  const G = { g, det, chg, chgN, sect: g.host ? { el: h('div'), groups: [] } : curSect, entries: g.items.map(e => renderEntry(e, body, g, null)) };
+  chgReset.addEventListener('click', ev => {
+    ev.preventDefault(); ev.stopPropagation();   // (not a click on the title: the group stays open)
+    const level = document.body.dataset.level;
+    resetDefaults(r => r.group === g && atLevel(r.tier, level) && isShown(r));
+  });
   groups.push(G); G.sect.groups.push(G);
 }
 // The Randomize button sits small in the Seed row (in place of its unit), not on a row of its own.
@@ -1632,9 +1835,9 @@ const resettable = r => !!r.id && !r.ro && !r.derived && !/(-dye|^mv_dye\d+)\./.
   : ['range', 'number', 'check', 'select', 'radio', 'text'].includes(r.kind) && r.value !== undefined);
 // Every setting back to its default, its handlers fired (so what follows it, the column's mirrors too, follows);
 // a second pass catches values a handler moved again (a dye pick loading its light preset, ...).
-function resetDefaults() {
+function resetDefaults(only) {
   for (let pass = 0; pass < 3; pass++) {
-    const todo = entries.filter(r => resettable(r) && !isDefault(r));
+    const todo = entries.filter(r => resettable(r) && !isDefault(r) && (!only || only(r)));
     if (!todo.length) break;
     for (const r of todo) for (const [id, v] of r.kind === 'pair' ? [[r.id + 'Min', r.vMin], [r.id + 'Max', r.vMax]] : [[r.id, r.value]]) {
       const el = $(id);
@@ -1644,7 +1847,7 @@ function resetDefaults() {
     }
   }
   sync();
-  window.dispatchEvent(new Event('isc-reset'));   // the column's own controls (live.js)
+  if (!only) window.dispatchEvent(new Event('isc-reset'));   // the column's own controls (live.js)
 }
 // A slider's fill (left of its knob) is the CSS variable --p.
 function rangeFill(el) {
@@ -1673,7 +1876,18 @@ function sync() {
     if (r.kind === 'preset') $(r.id).value = presetMatch(r);
     if (r.row && (r.kind !== 'html' || r.show)) r.row.style.display = isShown(r) ? '' : 'none';
     if (r.kidsEl) r.kidsEl.style.display = isShown(r) ? '' : 'none';
-    if (r.row && resettable(r)) r.row.classList.toggle('changed', !isDefault(r));
+    if (r.row && resettable(r)) {
+      const ch = !isDefault(r);
+      r.row.classList.toggle('changed', ch);
+      if (ch && !r.resetBtn) {   // made once, on the first change; hidden by CSS while the row is at its default
+        const lab = r.row.querySelector(':scope > .lab');
+        if (lab) {
+          r.resetBtn = h('button', { type: 'button', class: 'rowReset', title: 'Back to the default (or double-click the name)', 'aria-label': 'Reset ' + r.label }, '↺');
+          r.resetBtn.addEventListener('click', ev => { ev.preventDefault(); resetDefaults(x => x === r); });
+          lab.append(r.resetBtn);
+        }
+      }
+    }
     else if (r.row && r.changedWith) {   // a derived row is marked with the row it follows (the pixel size: the Magnification)
       const o = entries.find(e => e.id === r.changedWith);
       r.row.classList.toggle('changed', !!o && resettable(o) && !isDefault(o));
@@ -1689,6 +1903,9 @@ function sync() {
   }
   endHead();
   for (const G of groups) {
+    const n = entries.filter(r => r.group === G.g && r.row && r.row.classList.contains('changed') && resettable(r) && atLevel(r.tier, level) && isShown(r)).length;
+    G.chg.hidden = !n;
+    G.chgN.textContent = n ? n + ' changed' : '';
     const any = G.g.items.length && entries.some(r => r.group === G.g && r.kind !== 'head' &&
       (r.kind === 'html' ? atLevel(r.tier, level) : isShown(r) && atLevel(r.tier, level)));
     G.det.style.display = any && (!G.g.show || G.g.show()) ? '' : 'none';
@@ -1721,14 +1938,66 @@ for (const r of entries) if (r.init) r.init();
 
 // ---- hamburger menu: level, style, expand/collapse ----
 const menu = $('menu'), menuBtn = $('menuBtn');
-menu.innerHTML = '<h4>Style</h4>' + Object.keys(UI_STYLES).map(k => `<label><input type="radio" name="uiStyle" value="${k}"> ${UI_STYLES[k].label}</label>`).join('') +
-  '<h4>Panes</h4><label title="The Settings / Animation tabs: the animation editor (beta)"><input type="checkbox" id="showAnimPane"> Show animation pane (beta)</label>' +
+// sections (docs/dev/DESIGN.md "Menu"): the settings file (web/live/settings_file.js puts it first), Appearance,
+// Settings, Tools, About
+const segOf = (name, opts, label) => `<div class="seg" role="radiogroup" aria-label="${label}" data-seg="${name}">` +
+  opts.map(([v, t, tip]) => `<button type="button" role="radio" data-v="${v}" title="${tip}">${t}</button>`).join('') + '</div>';
+menu.innerHTML = '<h4>Appearance</h4>' +
+  segOf('theme', [['dark', 'Dark', 'Dark panels (the default: images are judged best against a dark, neutral surround)'],
+    ['light', 'Light', 'Light panels; the world view and the live image stay dark'], ['system', 'System', 'Follow the system’s light or dark setting']], 'Theme') +
+  segOf('density', [['comfortable', 'Comfortable', 'More room between the settings'], ['compact', 'Compact', 'More settings on the screen']], 'Density') +
+  '<label title="The Settings / Animation tabs: the animation editor (beta)"><input type="checkbox" id="showAnimPane"> Show the animation pane (beta)</label>' +
+  '<h4>Settings</h4>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
   '<div class="btns"><button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all to defaults</button></div>' +
-  '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground-truth table to a density stack at any voxel size">Voxelize ground truth ↗</a>: a ground-truth table to a stack</div>' +
   '<div class="note" id="advNote"></div>' +
+  '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground-truth table to a density stack at any voxel size">Voxelize ground truth ↗</a>: a ground-truth table to a stack</div>' +
+  '<h4>About</h4>' +
   (self.ISC_VERSION ? `<div class="note">inSiliScope ${self.ISC_VERSION}</div>` : '') +
   '<div class="note"><a id="privacyLink" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/privacy/">Privacy</a>: anonymous usage counts, no cookies</div>';
+// the settings column folds to a tab at the right edge (remembered); a search or "Changed only" unfolds it
+function foldSettings(shut) {
+  $('wrap').classList.toggle('setShut', shut);
+  $('setFold').setAttribute('aria-expanded', !shut); $('setTab').setAttribute('aria-expanded', !shut);
+  store.set('setShut', shut ? '1' : '0');
+  window.dispatchEvent(new Event('resize'));   // the world view takes the width (the live image keeps its own)
+}
+$('setFold').addEventListener('click', () => foldSettings(true));
+$('setTab').addEventListener('click', () => foldSettings(false));
+for (const [id, ev] of [['setSearch', 'input'], ['setChanged', 'change']])
+  $(id).addEventListener(ev, () => { if ($('wrap').classList.contains('setShut')) foldSettings(false); });
+foldSettings(store.get('setShut', '0') === '1');
+// The handle on the image's lower edge spreads the controls under it over the image (75 % of it), on a click or when the
+// pointer rests on it for 0.3 s; they fold back when
+// the pointer has left them (and the handle) for 0.1 s, on a second click or on Esc. Not while a select of theirs is
+// open (its list lies outside them).
+{
+  const main = $('sideMain'), ctl = $('liveCtl'), btn = $('ctlUp');
+  let timer = 0;
+  // folding back slides them down first (--duration-fold, 0.1 s), then they take their place under the image again
+  const foldMs = () => matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : parseFloat(iscTheme.tok('--duration-fold')) || 0;
+  let fall = 0;
+  const isUp = () => main.classList.contains('ctlUp') && !main.classList.contains('ctlFall');
+  const spread = on => {
+    clearTimeout(timer); clearTimeout(fall); main.classList.remove('ctlFall');
+    if (!on && isUp() && foldMs()) {
+      main.classList.add('ctlFall');
+      fall = setTimeout(() => main.classList.remove('ctlUp', 'ctlFall'), foldMs());
+    } else main.classList.toggle('ctlUp', on);
+    btn.setAttribute('aria-expanded', on);
+    btn.title = on ? 'Fold the controls back under the image' : 'Spread these controls over the image (a click, or rest the pointer here; they fold back when the pointer leaves them)'; };
+  const later = () => { clearTimeout(timer); if (isUp()) timer = setTimeout(() => {
+    const a = document.activeElement;
+    if (a && a.tagName === 'SELECT' && ctl.contains(a)) { a.addEventListener('blur', later, { once: true }); return; }
+    if (!ctl.matches(':hover') && !btn.matches(':hover')) spread(false);
+  }, 100); };
+  btn.addEventListener('click', () => { clearTimeout(hover); spread(!isUp()); });
+  let hover = 0;
+  btn.addEventListener('pointerenter', () => { clearTimeout(hover); if (!isUp()) hover = setTimeout(() => spread(true), 300); });
+  btn.addEventListener('pointerleave', () => clearTimeout(hover));
+  for (const el of [ctl, btn]) { el.addEventListener('pointerleave', later); el.addEventListener('pointerenter', () => clearTimeout(timer)); }
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && isUp()) spread(false); });
+}
 function setLevel(v) {
   if (!LEVELS.includes(v)) v = 'basic';
   document.body.dataset.level = v;
@@ -1737,10 +2006,20 @@ function setLevel(v) {
   sync();
 }
 $('levelSeg').addEventListener('click', ev => { if (ev.target.dataset.level) setLevel(ev.target.dataset.level); });
-function setStyle(v) { if (!UI_STYLES[v]) v = 'focus'; document.body.dataset.uiStyle = v; store.set('style', v); menu.querySelector(`[name=uiStyle][value=${v}]`).checked = true; applyOpen(); window.dispatchEvent(new Event('resize')); }
-menu.addEventListener('change', ev => {
-  if (ev.target.name === 'uiStyle') setStyle(ev.target.value);
+// theme and density (web/design/theme.js keeps them; the menu's segmented controls show them)
+function showAppearance() {
+  for (const seg of menu.querySelectorAll('[data-seg]')) {
+    const cur = seg.dataset.seg === 'theme' ? iscTheme.theme() : iscTheme.density();
+    for (const b of seg.children) { b.classList.toggle('on', b.dataset.v === cur); b.setAttribute('aria-checked', b.dataset.v === cur); }
+  }
+}
+menu.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-seg] button');
+  if (!b) return;
+  if (b.parentElement.dataset.seg === 'theme') iscTheme.setTheme(b.dataset.v); else iscTheme.setDensity(b.dataset.v);
+  window.dispatchEvent(new Event('resize'));
 });
+window.addEventListener('isc-theme', showAppearance);
 menu.addEventListener('click', ev => {
   const act = ev.target.dataset && ev.target.dataset.act;
   if (act === 'reset') { resetDefaults(); openMenu(false); }
@@ -1824,39 +2103,50 @@ document.addEventListener('pointerdown', ev => { if (ev.pointerType === 'touch' 
 panel.addEventListener('scroll', hideTip);
 $('viewPanel').addEventListener('scroll', hideTip);
 
-// ---- search: show only the rows whose label or help text has every typed word (their group opened) ----
-const search = $('setSearch');
+// a double-click on a changed setting's name: back to its default
+document.addEventListener('dblclick', ev => {
+  const lab = ev.target instanceof Element && ev.target.closest('.opt.changed > .lab');
+  const r = lab && entries.find(e => e.row === lab.parentElement);
+  if (r && resettable(r)) { ev.preventDefault(); resetDefaults(x => x === r); }
+});
+
+// ---- search: show only the rows whose label or help text has every typed word (their group opened); "Changed
+// only": only the rows that differ from their defaults ----
+const search = $('setSearch'), chgOnly = $('setChanged');
 const rowText = r => ((r.label || '') + ' ' + (r.tip || '') + ' ' + (r.id || '') + ' ' + (r.group ? r.group.title : '')).replace(/<[^>]+>/g, ' ').toLowerCase();
 // The matching rows are highlighted (in the settings and in the controls column, whose groups are not hidden).
 function applySearch() {
-  const words = search.value.toLowerCase().split(/\s+/).filter(Boolean);
-  searching = words.length > 0;
+  const words = search.value.toLowerCase().split(/\s+/).filter(Boolean), onlyChanged = chgOnly.checked;
+  const active = words.length > 0 || onlyChanged;
+  searching = active;
   // only rows the current level shows (and that apply: show()) count
   const lv = document.body.dataset.level, offLevel = el => el.classList.contains('t-expert') ? lv !== 'expert' : el.classList.contains('t-advanced') && lv === 'basic';
-  const hit = r => !offLevel(r.row) && isShown(r) && words.every(w => rowText(r).includes(w));
+  const hit = r => !offLevel(r.row) && isShown(r) && words.every(w => rowText(r).includes(w)) && (!onlyChanged || r.row.classList.contains('changed'));
   const keep = new Set();
-  if (words.length) for (const r of entries) if (r.row && hit(r)) for (let p = r; p; p = p.parent) keep.add(p);
-  for (const r of entries) if (r.row) r.row.classList.toggle('hit', !!words.length && hit(r));
+  if (active) for (const r of entries) if (r.row && hit(r)) for (let p = r; p; p = p.parent) keep.add(p);
+  for (const r of entries) if (r.row) r.row.classList.toggle('hit', words.length > 0 && hit(r));
   for (const r of entries) {
     if (!r.row || (r.group && r.group.host)) continue;
-    const off = words.length && !keep.has(r) && !(r.parent && keep.has(r.parent) && hit(r.parent));
+    const off = active && !keep.has(r) && !(r.parent && keep.has(r.parent) && hit(r.parent));
     r.row.classList.toggle('nomatch', !!off);
     if (r.kidsEl) r.kidsEl.classList.toggle('nomatch', !!off && !(r.kidEntries || []).some(k => keep.has(k)));
   }
   for (const G of groups) {
-    const any = !words.length || G.entries.length && entries.some(r => r.group === G.g && keep.has(r));
-    if (G.g.host) { if (words.length && any) G.det.open = true; continue; }
+    const any = !active || G.entries.length && entries.some(r => r.group === G.g && keep.has(r));
+    if (G.g.host) { if (active && any) G.det.open = true; continue; }
     G.det.classList.toggle('nomatch-grp', !any);
-    if (words.length && any) G.det.open = true;
+    if (active && any) G.det.open = true;
   }
-  if (!words.length) applyOpen();
+  if (!active) applyOpen();
   else { const first = document.querySelector('#panel .opt.hit'); if (first) first.scrollIntoView({ block: 'nearest' }); }
 }
 search.addEventListener('input', applySearch);
+chgOnly.addEventListener('change', applySearch);
 new MutationObserver(() => { if (search.value.trim()) applySearch(); }).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
 
 // (stored 'default' / 'advanced' before the three tiers: 'default' is Basic now)
-setStyle(store.get('style', 'focus'));
+showAppearance();
+applyOpen();
 setLevel(store.get('settingsLevel', 'basic'));   // (a new key: the old 'level' was Default/Advanced; Basic by default)
 window.uiSync = sync;
 window.uiKit = { h, labelCell, store, showTip, hideTip };   // shared with the animation editor (web/anim/editor.js)
@@ -2185,7 +2475,7 @@ for (const [id, kindId] of [['mtMap', 'mt.lines'], ['npcMap', 'npc.lines'], ['nu
   sel.addEventListener('change', () => { try { localStorage.setItem(lsKey, sel.value); } catch (e) { /* private window */ } });
   const wrap = document.createElement('div'); wrap.className = 'mapPick';
   const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'mapBtn';
-  const list = document.createElement('div'); list.className = 'mapList'; list.hidden = true;
+  const list = document.createElement('div'); list.className = 'mapList popover'; list.hidden = true;
   const item = (v, label) => {
     const it = document.createElement('div'); it.className = 'mapItem'; it.dataset.v = v;
     it.innerHTML = '<span class="bar"></span><span class="nm"></span>';
@@ -7054,6 +7344,29 @@ beamsEl.addEventListener('input', () => {   // (typing arrives settled, settle.j
 beamsEl.addEventListener('blur', showBeams);
 for (const k of ['mv_sim-type', 'mv_sim-polarization', 'mv_sim-centre-amp', 'mv_illum-bfp', 'mv_sim-angles', 'mv_sim-angle0-deg'])
   document.getElementById(k).addEventListener('input', () => { if (!BEAMS.user) showBeams(); });
+// A pattern's beams at the BFP's centre make no fringes: the BFP position below SIM_EPI_BELOW with a pattern on sets the
+// pattern Off (plain epi) and keeps it aside; back at or above it, the pattern set aside comes back (the user's choice,
+// 2026-11-05). A pattern picked by hand, a reset or a settings file forgets it. Set quietly (ISC_QUIET): the Pattern's
+// own pick would move the BFP position.
+const SIM_EPI_BELOW = 0.05;
+{
+  const bfp = document.getElementById('mv_illum-bfp'), sim = document.getElementById('mv_sim-type');
+  let parked = null, setting = false;
+  const setSim = v => {
+    const q = self.ISC_QUIET;
+    setting = true; self.ISC_QUIET = true;
+    try { sim.value = v; sim.dispatchEvent(new Event('input', { bubbles: true })); sim.dispatchEvent(new Event('change', { bubbles: true })); }
+    finally { self.ISC_QUIET = q; setting = false; }
+  };
+  bfp.addEventListener('input', () => {
+    if (self.ISC_QUIET) return;
+    const u = +bfp.value;
+    if (u < SIM_EPI_BELOW && sim.value !== '0') { parked = sim.value; setSim('0'); }
+    else if (u >= SIM_EPI_BELOW && parked !== null) { const p = parked; parked = null; if (sim.value === '0') setSim(p); }
+  });
+  sim.addEventListener('input', () => { if (!setting) parked = null; });
+  window.addEventListener('isc-reset', () => { parked = null; });
+}
 document.getElementById('mv_sim-type').addEventListener('change', () => { BEAMS.user = null; forgetBeams(); showBeams(); });
 window.addEventListener('isc-reset', () => BEAMS.clear());
 setTimeout(showBeams, 0);
@@ -7076,7 +7389,7 @@ const scopeView = (() => {
   const big = document.createElement('div');
   big.className = 'pnl big';
   const paramText = () => Object.entries(params).map(([k, v]) => k + '=' + v).join(' ');
-  const light = () => document.body.dataset.uiStyle === 'light';
+  const light = () => !!(self.iscTheme && iscTheme.isLight());
   function post(job, done) {
     jobs.set(job.id, done);
     if (genWorkers.ok) genWorkers.dyes.postMessage(job);
@@ -7192,7 +7505,7 @@ const scopeView = (() => {
     refresh(0);
   }
   // the panels start under the title bar (its height can change with the window)
-  function place() { col.style.setProperty('--scope-top', document.getElementById('viewBar').offsetHeight + 'px'); }
+  function place() { const vb = document.getElementById('viewBar'); col.style.setProperty('--scope-top', (col.contains(vb) ? vb.offsetHeight : 0) + 'px'); }
   function set(v) {
     on = !!v;
     col.classList.toggle('scope', on);
@@ -7215,7 +7528,7 @@ const scopeView = (() => {
   // every settings change (the settings, the controls column, the Configuration; a restore, a reset)
   for (const t of ['input', 'change'])
     document.addEventListener(t, e => { if (on && e.target && e.target.closest && e.target.closest('#side')) refresh(); }, true);
-  for (const t of ['isc-restored', 'isc-reset']) window.addEventListener(t, () => refresh());
+  for (const t of ['isc-restored', 'isc-reset', 'isc-theme']) window.addEventListener(t, () => refresh());   // (a theme: the drawings' colours)
   window.addEventListener('resize', place);
   // a new width: the panels drawn again (the light path lies down or stands up with its width)
   let resizeTimer = 0, lastW = 0;
@@ -7277,7 +7590,7 @@ document.getElementById('mv_fid-type').addEventListener('input', () => {
 // A slide dye pick loads its channel (the auto light preset; a settings file brings its own).
 document.getElementById('mv_slide-dye').addEventListener('input', () => {
   if (!DYE_UI.slide() || DYE_UI.brightField() || self.ISC_QUIET) return;
-  for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
+  for (const [k, v] of Object.entries(DYE_UI.lightNoBfp(DYE_UI.autoLightPreset()))) setById(k, v);
 });
 els.mv_specimen.addEventListener('input', () => {
   const nr = DYE_UI.nanorulers();
@@ -7290,11 +7603,11 @@ els.mv_specimen.addEventListener('input', () => {
   }
   if (DYE_UI.beads() && !quiet) {
     if (document.getElementById('mv_fid-height').value === '1') setById('mv_fid-height', 0);
-    if (!DYE_UI.brightField()) for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
+    if (!DYE_UI.brightField()) for (const [k, v] of Object.entries(DYE_UI.lightNoBfp(DYE_UI.autoLightPreset()))) setById(k, v);
   }
   // The fluorescent slide: its light (its dye's channel at 0.02 kW/cm^2), its group open.
   if (DYE_UI.slide() && !quiet && !DYE_UI.brightField())
-    for (const [k, v] of Object.entries(DYE_UI.lightPresetValues(DYE_UI.autoLightPreset()))) setById(k, v);
+    for (const [k, v] of Object.entries(DYE_UI.lightNoBfp(DYE_UI.autoLightPreset()))) setById(k, v);
   if (DYE_UI.slide()) {
     const g = document.querySelector('details.grp[data-group="slide"]');
     if (g && !g.open) g.open = true;
@@ -7304,11 +7617,7 @@ els.mv_specimen.addEventListener('input', () => {
     const g = document.querySelector('details.grp[data-group="fiducials"]');
     if (g && !g.open) g.open = true;
   }
-  if (!DYE_UI.brightField() && !self.ISC_QUIET) {   // (a settings file brings its own)
-    const b = document.getElementById('mv_illum-bfp');
-    b.value = DYE_UI.lightPresetValues(DYE_UI.autoLightPreset())['mv_illum-bfp'];
-    b.dispatchEvent(new Event('input', { bubbles: true }));
-  }
+  // (the BFP position stays as it is: Illumination's Epi / HILO / TIRF moves it)
   // the nanorulers close up, the slide at its camera field (~60 % of the view; its layer fills the view, nothing
   // else to see), cells out
   const fieldUm = (+document.getElementById('mv_size').value || 128) * ((+document.getElementById('mv_pixel-nm').value || 100) / 1000);
@@ -7407,6 +7716,7 @@ resizeCanvas();
 </script>
 <script src="live/zip.js"></script>
 <script src="live/live.js"></script>
+<script src="live/status.js"></script>
 <script src="live/mm_config_ui.js"></script>
 <script src="live/settings_core.js"></script>
 <script src="live/settings_file.js"></script>

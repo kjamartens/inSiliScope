@@ -20,7 +20,7 @@ const fileOf = url => {
   const f = path.join(ROOT, 'web', decodeURIComponent(url.split('?')[0]).replace(/^\/+/, '') || 'index.html');
   return f.startsWith(path.join(ROOT, 'web')) && fs.existsSync(f) && !fs.statSync(f).isDirectory() ? f : null;
 };
-const type = f => (f.endsWith('.js') ? 'text/javascript' : f.endsWith('.json') ? 'application/json' : 'text/html');
+const type = f => (f.endsWith('.js') ? 'text/javascript' : f.endsWith('.json') ? 'application/json' : f.endsWith('.css') ? 'text/css' : 'text/html');
 const server = http.createServer((req, res) => {
   const f = fileOf(req.url);
   if (!f) { res.statusCode = 404; res.end(); return; }

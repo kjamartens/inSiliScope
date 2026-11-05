@@ -1,0 +1,13 @@
+{
+  "$description": "Density Comfortable (the default): control height, row and group spacing, and the label column. Compact overrides some of these (density.compact.tokens.json).",
+  "density": {
+    "$type": "dimension",
+    "control-h": { "$value": "24px", "$description": "Inputs, selects and buttons in the settings (32 px on a phone, web/index.html body.mobile)." },
+    "row-gap": { "$value": "{space.2}", "$description": "Between two setting rows." },
+    "group-gap": { "$value": "{space.5}", "$description": "Between two groups: more than within one (proximity)." },
+    "pad": { "$value": "{space.4}", "$description": "Inside panels and pop-overs." },
+    "label-w": { "$value": "116px", "$description": "The label column of a setting row under the image." },
+    "label-w-column": { "$value": "92px", "$description": "The label column in the Acquire column." },
+    "value-w": { "$value": "68px" }
+  }
+}

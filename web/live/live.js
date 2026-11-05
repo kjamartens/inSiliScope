@@ -12,9 +12,9 @@
 const $ = id => document.getElementById(id);
 const store = uiKit.store;
 
-// ---- splitter: the right panel's width, 33-62 % of the window (50 % by default) ----
+// ---- splitter: the right panel's width, 33-72 % of the window (50 % by default) ----
 const wrap = $('wrap'), splitter = $('splitter');
-const LIVE_MIN = 0.33, LIVE_MAX = 0.62;
+const LIVE_MIN = 0.33, LIVE_MAX = 0.72;
 function setLiveFrac(f, save) {
   f = Math.max(LIVE_MIN, Math.min(LIVE_MAX, f));
   wrap.style.setProperty('--live-w', (100 * f).toFixed(2) + 'vw');
@@ -27,7 +27,9 @@ splitter.addEventListener('pointerdown', e => {
   e.preventDefault();
   splitter.classList.add('drag');
   splitter.setPointerCapture(e.pointerId);
-  const move = ev => { setLiveFrac((innerWidth - ev.clientX) / innerWidth, true); resizeCanvas(); };
+  // the fraction is the panel's width with the settings open: a folded column adds back what it gave up
+  const shut = wrap.classList.contains('setShut') ? parseFloat(getComputedStyle(wrap).getPropertyValue('--set-w')) - $('setCol').getBoundingClientRect().width : 0;
+  const move = ev => { setLiveFrac((innerWidth - ev.clientX + shut) / innerWidth, true); resizeCanvas(); };
   const up = () => { splitter.classList.remove('drag'); splitter.removeEventListener('pointermove', move); splitter.removeEventListener('pointerup', up); resizeCanvas(); drawScale(); };
   splitter.addEventListener('pointermove', move); splitter.addEventListener('pointerup', up);
 });
@@ -63,15 +65,14 @@ for (const num of document.querySelectorAll('#lv_illumHost input[type=number][id
   num.addEventListener('change', back);
 }
 
-// A settings group in the column (Illumination & light path, Objective & PSF, Camera) shows only when one of its rows
-// does at the current level (Objective & PSF has no Basic row).
+// A settings group in the column (Illumination) shows only when one of its rows does at the current level.
 function syncHostBoxes() {
-  for (const id of ['lv_illumHost', 'lv_objHost', 'lv_camHost']) {
+  for (const id of ['lv_illumHost']) {
     const box = $(id);
     if (box) box.hidden = ![...box.querySelectorAll('.opt')].some(e => getComputedStyle(e).display !== 'none');
   }
 }
-// A click on a box's title folds it (Focus, Configuration, Display, Performance; the settings groups fold as details).
+// A click on a box's title folds it (Focus, Acquisition, Display, Performance; the settings groups fold as details).
 for (const t of document.querySelectorAll('#liveCtl .lc > h5')) t.addEventListener('click', () => t.parentElement.classList.toggle('shut'));
 let hostTimer = 0;
 const syncHostsSoon = () => { clearTimeout(hostTimer); hostTimer = setTimeout(syncHostBoxes, 30); };
@@ -100,6 +101,202 @@ const stepZ = dir => {
 $('lv_zStep').value = store.get('zStep', '0.1');
 syncZStep();
 $('lv_zStep').addEventListener('input', () => { store.set('zStep', $('lv_zStep').value); syncZStep(); });
+// The stage box: the joystick moves the field of view (the world view's centre), the focus wheel beside it steps Z,
+// its height under it. A right-click on either opens a box with a typed position and the step.
+const xyStep = () => Math.max(0.001, +$('lv_xyStep').value || 1);
+const moveXY = (dx, dy) => { view.cx += dx * xyStep(); view.cy += dy * xyStep(); noteInteraction(); requestDraw(); };
+$('lv_xyStep').value = store.get('xyStep', '1');
+$('lv_xyStep').addEventListener('input', () => store.set('xyStep', $('lv_xyStep').value));
+function holdRepeat(btn, act) {
+  let t = 0;
+  const stop = () => clearTimeout(t);
+  btn.addEventListener('pointerdown', ev => {
+    if (ev.button > 0) return;   // (not the right button: that opens the step box)
+    if (ev.pointerType === 'touch') ev.preventDefault();
+    act();
+    const again = ms => { t = setTimeout(() => { act(); again(90); }, ms); };
+    again(400);
+  });
+  for (const e of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(e, stop);
+  btn.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); act(); } });
+}
+// ---- the joystick: the knob dragged from the middle moves the stage at a speed growing with the square of its
+// distance (full: JOY_STEPS steps per second), in its direction (right = the field of view to the right, as ▶); let
+// go, it springs back and the stage stops. A click near an edge (no drag) moves one step that way (the diagonals
+// too); the arrow keys on it one step. Shift: 10 steps a click or a key, 10x the speed of a drag.
+{
+  const JOY_STEPS = 12, joy = $('lv_joy'), knob = joy.querySelector('.jk');
+  let hold = null, raf = 0, shift = false;
+  for (const e of ['keydown', 'keyup']) window.addEventListener(e, ev => { shift = ev.shiftKey; });
+  const vec = ev => {
+    const r = joy.getBoundingClientRect(), R = r.width / 2;
+    let x = (ev.clientX - r.left - R) / R, y = (ev.clientY - r.top - R) / R;
+    const d = Math.hypot(x, y);
+    if (d > 1) { x /= d; y /= d; }
+    return { x, y, R };
+  };
+  const tick = t => {
+    if (!hold) return;
+    const dt = Math.min(0.1, (t - hold.t) / 1000), d = Math.hypot(hold.x, hold.y);
+    hold.t = t;
+    if (d > 0.12) { const v = JOY_STEPS * d * (shift ? 10 : 1); moveXY(hold.x * v * dt, hold.y * v * dt); }   // speed JOY_STEPS d^2 (a dead zone in the middle)
+    raf = requestAnimationFrame(tick);
+  };
+  joy.addEventListener('pointerdown', ev => {
+    if (ev.button > 0) return;
+    ev.preventDefault();
+    joy.focus({ preventScroll: true });   // (then the arrow keys work on it)
+    joy.setPointerCapture(ev.pointerId);
+    shift = ev.shiftKey;
+    const v = vec(ev);
+    hold = { x0: ev.clientX, y0: ev.clientY, x: 0, y: 0, moved: 0, click: v, t: performance.now() };
+    joy.classList.add('held');
+    raf = requestAnimationFrame(tick);
+  });
+  joy.addEventListener('pointermove', ev => {
+    if (!hold) return;
+    shift = ev.shiftKey;
+    hold.moved = Math.max(hold.moved, Math.hypot(ev.clientX - hold.x0, ev.clientY - hold.y0));
+    if (hold.moved < 3) return;
+    // the knob follows the drag from where it was pressed
+    const r = joy.getBoundingClientRect(), R = r.width / 2;
+    let x = (ev.clientX - hold.x0) / R, y = (ev.clientY - hold.y0) / R;
+    const d = Math.hypot(x, y);
+    if (d > 1) { x /= d; y /= d; }
+    hold.x = x; hold.y = y;
+    knob.style.transform = `translate(${x * (R - 10)}px,${y * (R - 10)}px)`;
+  });
+  const end = () => {
+    if (!hold) return;
+    if (hold.moved < 3) {
+      const { x, y } = hold.click;
+      const k = shift ? 10 : 1;
+      if (Math.hypot(x, y) > 0.4) moveXY(k * (Math.abs(x) > 0.38 ? Math.sign(x) : 0), k * (Math.abs(y) > 0.38 ? Math.sign(y) : 0));
+    }
+    hold = null; cancelAnimationFrame(raf);
+    joy.classList.remove('held'); knob.style.transform = '';
+  };
+  joy.addEventListener('pointerup', end); joy.addEventListener('pointercancel', end);
+  joy.addEventListener('keydown', ev => {
+    const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
+    if (!d) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const k = ev.shiftKey ? 10 : 1;
+    moveXY(k * d[0], k * d[1]);
+  });
+}
+{
+  const fx = $('lv_x'), fy = $('lv_y'), fmt = v => String(+v.toFixed(2));
+  const show = () => {
+    if (document.activeElement !== fx && fx.value !== fmt(view.cx)) fx.value = fmt(view.cx);
+    if (document.activeElement !== fy && fy.value !== fmt(view.cy)) fy.value = fmt(view.cy);
+  };
+  for (const [f, k] of [[fx, 'cx'], [fy, 'cy']]) f.addEventListener('change', () => {
+    if (f.value === '' || !isFinite(+f.value)) { show(); return; }
+    view[k] = +f.value; noteInteraction(); requestDraw();
+  });
+  show();
+  setInterval(() => { if (!document.hidden) show(); }, 200);
+}
+// ---- the focus wheel #mFocus (beside the joystick; on a phone, web/live/mobile.js, alone in the Focus box): one step of
+// the step size per KNOB_PX dragged, a fast drag several; a scroll notch one step; ▲ / ▼ (− / + on a phone) step once
+// and repeat while held. On a wide window a thumbwheel seen edge-on: its ticks move with the pointer (drag up = focus
+// up), a click above or below its line steps once. On a phone a ruler (values grow to the right: swipe left to focus
+// up), as before. Two fingers up or down on the live image move the focus too (below).
+{
+  const KNOB_PX = 12, knob = $('mFocus'), kcv = $('mKnob');
+  const phone = () => document.body.classList.contains('mobile');
+  const zStep = () => Math.max(0.001, +$('lv_zStep').value || 0.1);
+  const draw = () => {
+    const dpr = devicePixelRatio, W = Math.round(kcv.clientWidth * dpr), H = Math.round(kcv.clientHeight * dpr);
+    if (!W || !H) return;
+    if (kcv.width !== W || kcv.height !== H) { kcv.width = W; kcv.height = H; }
+    const g = kcv.getContext('2d');
+    const z = +$('mv_z').value || 0, st = zStep(), at = z / st, sp = KNOB_PX * dpr;
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = iscTheme.tok('--color-text-muted');
+    if (!phone()) {
+      // the wheel's ticks on a cylinder (radius = half the height): spaced KNOB_PX at the line, closer and fainter
+      // towards its edges; no numbers (the height is under it)
+      const cy = H / 2, r = H / 2, da = sp / r;
+      for (let k = Math.floor(at - Math.PI / 2 / da) - 1; k <= Math.ceil(at + Math.PI / 2 / da) + 1; k++) {
+        const a = (k - at) * da;
+        if (Math.abs(a) >= Math.PI / 2) continue;
+        const len = (k % 10 === 0 ? 0.8 : k % 5 === 0 ? 0.55 : 0.35) * W;
+        g.globalAlpha = 0.2 + 0.8 * Math.cos(a);
+        g.fillRect(Math.round((W - len) / 2), Math.round(cy + r * Math.sin(a)), Math.round(len), dpr);
+      }
+      g.globalAlpha = 1;
+      g.fillStyle = iscTheme.tok('--color-accent');
+      g.fillRect(0, Math.round(cy - dpr), W, 2 * dpr);
+    } else {
+      g.font = `${10 * dpr}px system-ui,sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
+      const cx = W / 2;
+      for (let k = Math.floor(at - cx / sp) - 1; k <= Math.ceil(at + cx / sp) + 1; k++) {
+        const x = Math.round(cx + (k - at) * sp) + 0.5, major = k % 10 === 0, mid = k % 5 === 0;
+        g.fillRect(x - 0.5 * dpr, H - (major ? 16 : mid ? 11 : 7) * dpr, dpr, (major ? 16 : mid ? 11 : 7) * dpr);
+        if (major) g.fillText(+(k * st).toFixed(3) + '', x, 2 * dpr);
+      }
+      g.fillStyle = iscTheme.tok('--color-accent');
+      g.fillRect(cx - dpr, 0, 2 * dpr, H);
+    }
+    $('mZ').firstChild.textContent = z.toFixed(st < 0.01 ? 3 : 2);   // (the unit: a span shown on a phone)
+  };
+  let drag = null;
+  kcv.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0) return;
+    drag = { x: ev.clientX, y: ev.clientY, t: ev.timeStamp, acc: 0, moved: 0 };
+    kcv.setPointerCapture(ev.pointerId);
+  });
+  kcv.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    const d = phone() ? ev.clientX - drag.x : ev.clientY - drag.y, dt = Math.max(1, ev.timeStamp - drag.t), v = Math.abs(d) / dt;   // px per ms
+    const gain = v > 0.6 ? Math.min(8, 1 + (v - 0.6) * 6) : 1;   // a fast drag moves further
+    drag.x = ev.clientX; drag.y = ev.clientY; drag.t = ev.timeStamp;
+    drag.acc -= d * gain; drag.moved += Math.abs(d);
+    while (Math.abs(drag.acc) >= KNOB_PX) { const s = Math.sign(drag.acc); stepZ(s); drag.acc -= s * KNOB_PX; }
+  });
+  kcv.addEventListener('pointerup', ev => {
+    // a click (no drag) on the wheel: one step towards that side of its line
+    if (drag && drag.moved < 3 && !phone()) { const r = kcv.getBoundingClientRect(); stepZ(ev.clientY < r.top + r.height / 2 ? 1 : -1); }
+    drag = null;
+  });
+  kcv.addEventListener('pointercancel', () => { drag = null; });
+  kcv.addEventListener('wheel', ev => { ev.preventDefault(); stepZ(ev.deltaY < 0 ? 1 : -1); }, { passive: false });
+  for (const b of knob.querySelectorAll('button')) holdRepeat(b, () => stepZ(+b.dataset.dir));
+  knob.addEventListener('contextmenu', ev => { if (phone()) ev.preventDefault(); });   // (a long press would open it)
+  for (const e of ['input', 'change']) document.addEventListener(e, ev => { if (/^(mv_z|lv_z|lv_zStep)$/.test(ev.target.id || '')) draw(); }, true);
+  window.addEventListener('isc-theme', draw);
+  new ResizeObserver(draw).observe(kcv);
+  draw();
+}
+// ---- the right-click boxes: on the joystick x, y and the XY step; on the focus wheel z and the Z step; on the level bar
+// the white and black levels (a phone shows the Z step under its ruler and opens none: a long press there is the wheel's)
+{
+  const pops = [$('lv_xyPop'), $('lv_zPop'), $('lv_dispPop')];
+  const close = () => { for (const p of pops) p.hidden = true; };
+  const open = (pop, ev) => {
+    ev.preventDefault();
+    if (document.body.classList.contains('mobile')) return;
+    close();
+    pop.hidden = false;
+    // at the pointer (from the keyboard: at the control), kept in the window
+    let x = ev.clientX, y = ev.clientY;
+    if (!x && !y) { const r = ev.target.getBoundingClientRect(); x = r.left; y = r.bottom; }
+    // (fixed, but measured: an ancestor may hold fixed boxes)
+    pop.style.left = pop.style.top = '0px';
+    const o = pop.getBoundingClientRect(), w = o.width, h = o.height;
+    pop.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) - o.left + 'px';
+    pop.style.top = (y + 4 + h <= innerHeight - 4 ? y + 4 : Math.max(4, y - h - 4)) - o.top + 'px';
+    const f = pop.querySelector('[id$=Step]') || pop.querySelector('input');
+    f.focus({ preventScroll: true }); f.select();
+  };
+  $('lv_joy').addEventListener('contextmenu', ev => open(pops[0], ev));
+  $('mFocus').addEventListener('contextmenu', ev => open(pops[1], ev));
+  $('lv_lvl').addEventListener('contextmenu', ev => open(pops[2], ev));
+  document.addEventListener('pointerdown', ev => { if (!pops.some(p => !p.hidden && p.contains(ev.target))) close(); }, true);
+  for (const p of pops) p.addEventListener('keydown', ev => { if (ev.key === 'Escape' || ev.key === 'Enter') { ev.preventDefault(); ev.target.dispatchEvent(new Event('change', { bubbles: true })); close(); } });
+}
 // Up/Down arrows over the live image (or PageUp/PageDown anywhere outside an input) step the focus.
 document.addEventListener('keydown', ev => {
   const t = ev.target, inField = t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA');
@@ -113,7 +310,7 @@ $('liveView').addEventListener('wheel', ev => { ev.preventDefault(); stepZ(ev.de
 // events or a movie; spawned on the first Live or Snap.
 const L = self.liveState = { on: false, worker: null, pending: null, id: 0, frames: 0, t: 0, history: null,
   lastShown: 0, fps: 0, ms: 0, w: 0, h: 0, frame: null, lo: 0, hi: 1, spec: '', snap: false, err: '' };
-L.stepZ = stepZ;   // (the phone's focus knob, web/live/mobile.js)
+L.stepZ = stepZ;
 function worker() {
   if (L.worker) return L.worker;
   if (!genWorkers.ok) return null;
@@ -322,18 +519,24 @@ function draw(d) {
   requestDraw();
 }
 
-// ---- the live histogram: log counts, the display range over it ----
-// The axes move slowly: x spans the darkest to the brightest pixel of the frames of the last 10 s, y the tallest bar of
-// those frames, so a blink or a dim frame does not rescale it.
-const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128, HIST_KEEP_MS = 10000;
+// ---- the live histogram, upright (the display's level bar): log counts, the display range over it ----
+// The axes move slowly: the value axis spans the darkest to the brightest pixel of the frames of the last 10 s (dark at
+// the bottom), the count axis the tallest bar of those frames, so a blink or a dim frame does not rescale it. Beside
+// it the grey scale the range gives (#lv_lut) and a handle per level with its number (#lv_loTag, #lv_hiTag), kept
+// apart when the levels are close. On a phone the bar lies down (dark at the left, the handles under it).
+const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128, HIST_KEEP_MS = 10000, TAG_H = 12, TAG_W = 44;
+const lying = () => document.body.classList.contains('mobile');
 let hist = null, hMin = 0, hMax = 1, hTop = 0;
 const hRecent = [];   // {t, mn, mx, top} per frame shown
+window.addEventListener('isc-theme', () => { if (L.frame) drawHist(); });   // the theme's colours (web/design/theme.js)
+new ResizeObserver(() => drawHist()).observe(hc);
 function drawHist(newFrame) {
   const fr = L.frame;
-  const W = Math.max(1, Math.round(hc.clientWidth * devicePixelRatio)), H = Math.round(56 * devicePixelRatio);
+  const W = Math.max(1, Math.round(hc.clientWidth * devicePixelRatio)), H = Math.max(1, Math.round(hc.clientHeight * devicePixelRatio));
   if (hc.width !== W || hc.height !== H) { hc.width = W; hc.height = H; }
   hg.clearRect(0, 0, W, H);
-  if (!fr) return;
+  $('lv_lvl').classList.toggle('empty', !fr);
+  if (!fr) { $('lv_lut').style.background = ''; return; }
   if (newFrame || !hist) {
     let mn = 65535, mx = 0;
     for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
@@ -348,42 +551,74 @@ function drawHist(newFrame) {
     hTop = Math.max(...hRecent.map(r => r.top));
   }
   const top = hTop;
-  const css = getComputedStyle(document.body), accent = css.getPropertyValue('--accent').trim() || '#4a90d9';
-  const muted = css.getPropertyValue('--muted').trim() || '#8b97a8', pad = 9 * devicePixelRatio, ph = H - pad;
-  const xOf = v => ((v - hMin) / (hMax - hMin)) * W;
-  // the display range (black .. white) as a shaded band, then the bars and the two markers
-  const xl = xOf(L.lo), xh = xOf(L.hi);
-  hg.fillStyle = muted; hg.globalAlpha = 0.12; hg.fillRect(Math.max(0, xl), 0, Math.max(1, Math.min(W, xh) - Math.max(0, xl)), ph);
-  hg.globalAlpha = 1; hg.fillStyle = muted;
-  const bw = W / NB;
-  for (let b = 0; b < NB; b++) {
-    const hh = top ? (hist[b] / top) * (ph - 2) : 0;
-    hg.fillRect(b * bw, ph - hh, Math.max(1, bw - 0.5), hh);
+  const accent = iscTheme.tok('--color-accent'), muted = iscTheme.tok('--color-text-muted');
+  const frac = v => (v - hMin) / (hMax - hMin), yOf = v => H - frac(v) * H;
+  const pl = (100 * frac(L.lo)).toFixed(2), ph = (100 * frac(L.hi)).toFixed(2);
+  const set = (id, pos, v) => {
+    const t = $(id);
+    t.style.top = lying() ? '' : pos.toFixed(1) + 'px'; t.style.left = lying() ? pos.toFixed(1) + 'px' : '';
+    t.lastChild.textContent = String(Math.round(v));
+  };
+  if (lying()) {   // the same, lying down: values along x, the bars up from the bottom, the handles under the bar
+    const xl = frac(L.lo) * W, xh = frac(L.hi) * W, bw = W / NB;
+    hg.fillStyle = muted; hg.globalAlpha = 0.12; hg.fillRect(Math.max(0, xl), 0, Math.max(1, Math.min(W, xh) - Math.max(0, xl)), H);
+    hg.globalAlpha = 1;
+    for (let b = 0; b < NB; b++) { const hh = top ? (hist[b] / top) * (H - 2) : 0; hg.fillRect(b * bw, H - hh, Math.max(1, bw - 0.5), hh); }
+    hg.fillStyle = accent;
+    const lw = Math.max(1, Math.round(devicePixelRatio));
+    for (const x of [xl, xh]) if (x >= -1 && x <= W + 1) hg.fillRect(Math.round(x - lw / 2), 0, lw, H);
+    $('lv_lut').style.background = `linear-gradient(to right, #000 ${pl}%, #fff ${ph}%)`;   // design:allow (the image's own grey scale)
+    const Wc = hc.clientWidth, cl = v => Math.min(Wc, Math.max(0, Wc * frac(v)));
+    let al = cl(L.lo), ah = cl(L.hi);
+    if (ah - al < TAG_W) { const m = (al + ah) / 2; al = m - TAG_W / 2; ah = m + TAG_W / 2; }
+    al = Math.max(TAG_W / 2, Math.min(Wc - 1.5 * TAG_W, al)); ah = Math.min(Wc - TAG_W / 2, Math.max(al + TAG_W, ah));
+    set('lv_loTag', al, L.lo); set('lv_hiTag', ah, L.hi);
+    return;
   }
-  hg.strokeStyle = accent; hg.lineWidth = Math.max(1, devicePixelRatio);
-  for (const x of [xl, xh]) if (x >= -1 && x <= W + 1) { hg.beginPath(); hg.moveTo(x, 0); hg.lineTo(x, ph); hg.stroke(); }
-  hg.fillStyle = muted; hg.font = `${9 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`; hg.textBaseline = 'bottom';
-  hg.textAlign = 'left'; hg.fillText(String(hMin), 1, H);
-  hg.textAlign = 'right'; hg.fillText(String(hMax) + ' ADU', W - 1, H);
+  // the display range (black .. white) as a shaded band, then the bars (from the left) and the two markers
+  const yl = yOf(L.lo), yh = yOf(L.hi);
+  hg.fillStyle = muted; hg.globalAlpha = 0.12; hg.fillRect(0, Math.max(0, yh), W, Math.max(1, Math.min(H, yl) - Math.max(0, yh)));
+  hg.globalAlpha = 1; hg.fillStyle = muted;
+  const bh = H / NB;
+  for (let b = 0; b < NB; b++) {
+    const ww = top ? (hist[b] / top) * (W - 2) : 0;
+    hg.fillRect(0, H - (b + 1) * bh, ww, Math.max(1, bh - 0.5));
+  }
+  hg.fillStyle = accent;
+  const lw = Math.max(1, Math.round(devicePixelRatio));
+  for (const y of [yl, yh]) if (y >= -1 && y <= H + 1) hg.fillRect(0, Math.round(y - lw / 2), W, lw);
+  // the grey scale shown: black below the black level, white above the white level
+  $('lv_lut').style.background = `linear-gradient(to top, #000 ${pl}%, #fff ${ph}%)`;   // design:allow (the image's own grey scale)
+  // the handles: centred on their levels, inside the bar, at least a handle's height apart
+  const Hc = hc.clientHeight, cl = v => Math.min(Hc, Math.max(0, Hc * (1 - frac(v))));
+  let tl = cl(L.lo) - TAG_H / 2, th = cl(L.hi) - TAG_H / 2;
+  if (tl - th < TAG_H) { const m = (tl + th) / 2; th = m - TAG_H / 2; tl = m + TAG_H / 2; }
+  th = Math.max(0, Math.min(Hc - 2 * TAG_H, th)); tl = Math.max(th + TAG_H, Math.min(Hc - TAG_H, tl));
+  set('lv_loTag', tl, L.lo); set('lv_hiTag', th, L.hi);
 }
-// Dragging in the histogram moves the nearer marker (the display range by hand: auto off).
-hc.addEventListener('pointerdown', ev => {
-  if (!L.frame) return;
+// Dragging on the bar moves the nearer level, on a handle that handle's (the display range by hand: auto off).
+$('lv_lvl').addEventListener('pointerdown', ev => {
+  if (!L.frame || ev.button > 0) return;
   ev.preventDefault();
-  hc.setPointerCapture(ev.pointerId);
-  const r = hc.getBoundingClientRect(), valAt = e => Math.round(hMin + ((e.clientX - r.left) / r.width) * (hMax - hMin));
-  const which = Math.abs(valAt(ev) - L.lo) <= Math.abs(valAt(ev) - L.hi) ? 'lo' : 'hi';
+  const lvl = $('lv_lvl');
+  lvl.setPointerCapture(ev.pointerId);
+  const r = hc.getBoundingClientRect(), valAt = e => Math.round(hMin + (lying() ? (e.clientX - r.left) / r.width : 1 - (e.clientY - r.top) / r.height) * (hMax - hMin));
+  const tag = ev.target.closest('.tag');
+  const which = tag ? (tag.id === 'lv_loTag' ? 'lo' : 'hi') : Math.abs(valAt(ev) - L.lo) <= Math.abs(valAt(ev) - L.hi) ? 'lo' : 'hi';
+  const at = tag ? valAt(ev) - L[which] : 0;   // (a handle keeps its offset from the pointer)
   const move = e => {
-    const v = valAt(e);
+    const v = valAt(e) - at;
     if (which === 'lo') L.lo = Math.min(v, L.hi - 1); else L.hi = Math.max(v, L.lo + 1);
     $('lv_auto').checked = false;
     $('lv_lo').value = L.lo; $('lv_hi').value = L.hi;
     paint(); drawHist();
   };
-  const up = () => { hc.removeEventListener('pointermove', move); hc.removeEventListener('pointerup', up); };
-  move(ev);
-  hc.addEventListener('pointermove', move); hc.addEventListener('pointerup', up);
+  const up = () => { lvl.removeEventListener('pointermove', move); lvl.removeEventListener('pointerup', up); };
+  if (!tag) move(ev);
+  lvl.addEventListener('pointermove', move); lvl.addEventListener('pointerup', up);
 });
+// (the box's title folds it; a click on "auto" there only ticks it)
+$('lv_auto').closest('label').addEventListener('click', ev => ev.stopPropagation());
 function paint() {
   if (!L.frame) return;
   const w = L.w, h = L.h;
@@ -503,6 +738,7 @@ const FOCUS_PX_PER_STEP = 16;
 // Reset all to defaults (the settings menu): the column's own controls too (the mirrored ones follow their settings)
 window.addEventListener('isc-reset', () => {
   $('lv_zStep').value = '0.1'; $('lv_zStep').dispatchEvent(new Event('input'));
+  $('lv_xyStep').value = '1'; $('lv_xyStep').dispatchEvent(new Event('input'));
   $('lv_auto').checked = true; $('lv_auto').dispatchEvent(new Event('change'));
   setLiveFrac(0.5, true); resizeCanvas(); drawScale();   // the panel's width (the splitter) too
 });

@@ -70,6 +70,8 @@ const FOLLOW = new Set(['camera-type', 'em-gain', 'qe-curve']);
 const follows = (k, set) => FOLLOW.has(k) && set['camera-preset'] !== undefined;
 // Labels first (picking a dye or mode loads its light preset and labelling), the light path and numbers after.
 const order = k => (/-mode$/.test(k) ? 0 : /-dye$/.test(k) ? 1 : /^specimen$|^camera-preset$/.test(k) ? 2 : 3);
+// (The Imaging mode's (Channel) presets carry no BFP position: a dye or mode pick leaves it in Micro-Manager too,
+// 2026-11-05.)
 function apply(preset) {
   const set = preset.set || {}, missing = [];
   for (const k of Object.keys(set).sort((a, b) => order(a) - order(b))) {
@@ -137,6 +139,11 @@ function matches(preset) {
   return true;
 }
 let rows = [];
+// Where a config group's select goes: the Acquisition box (host) by default; the Objective in Objective & PSF. Left
+// out: the groups whose setting has its own control (Specimen: Sample > Specimen; Camera: Camera > Camera, which sets
+// the same; Aberrations: Objective & PSF > Aberrations; BfpPosition: Illumination > BFP position).
+const HOME = { Objective: 'cfgObjectiveHost' };
+const SKIP = ['Specimen', 'Camera', 'Aberrations', 'BfpPosition'];
 function markCurrent() {
   for (const r of rows) {
     if (r.slider) { const el = $('mv_' + r.slider.key); if (el) { r.range.value = el.value; r.num.value = fmt3(el.value); } continue; }
@@ -153,22 +160,26 @@ function render() {
   const T = CFG[tier] || CFG.Basic;
   if (!optics) optics = { ...T.optics };
   host.innerHTML = '';
+  for (const id of new Set(Object.values(HOME))) if ($(id)) $(id).innerHTML = '';
   rows = [];
-  const first = ['Specimen', 'Channel', 'Objective', 'Camera'];
+  const first = ['Channel', 'Illumination', 'Drift', 'Quality'];
   const groups = T.groups.slice().sort((a, b) => ((first.indexOf(a.name) + 1 || 99) - (first.indexOf(b.name) + 1 || 99)));
   for (const g of groups) {
-    // the laser powers are set in Illumination & light path (sliders there), not here
+    // the laser powers are set in Illumination (sliders there), not here; a group the settings already have a control
+    // for is left out (each setting in one place: docs/dev/DESIGN.md)
     if (g.slider && /^laser-/.test(g.slider.key)) continue;
+    if (SKIP.includes(g.name)) continue;
+    const into = HOME[g.name] && $(HOME[g.name]) ? $(HOME[g.name]) : host;
     // the viewer calls the Channel group "Mode" and leaves the dye names out of its presets (the dye is in the label
     // settings); the presets and what they set are Micro-Manager's
     const mode = g.name === 'Channel';
     const lab = document.createElement('span'), name = document.createElement('label');
     lab.className = 'lab';
-    name.textContent = g.slider ? g.name.replace(/\s*\(.*\)$/, '').replace(/^Laser /, '') : mode ? 'Mode' : g.name;
+    name.textContent = g.slider ? g.name.replace(/\s*\(.*\)$/, '').replace(/^Laser /, '') : mode ? 'Imaging mode' : g.name;
     name.dataset.tip = mode ? 'The imaging mode: a preset of the Micro-Manager config group <code>Channel</code> (each one also picks its dye and light path)'
       : `A preset of the Micro-Manager config group <code>${g.name}</code>`;
     lab.append(name);
-    host.append(lab);
+    into.append(lab);
     if (g.slider) {
       const s = g.slider, el = $('mv_' + s.key), wrap = document.createElement('span');
       wrap.style.display = 'flex'; wrap.style.gap = '4px'; wrap.style.alignItems = 'center';
@@ -183,7 +194,7 @@ function render() {
       num.addEventListener('input', () => set(num.value, true));
       num.addEventListener('change', () => { num.value = fmt3(num.value); });
       wrap.append(range, num);
-      host.append(wrap);
+      into.append(wrap);
       rows.push({ slider: s, range, num });
       continue;
     }
@@ -194,7 +205,7 @@ function render() {
     const shown = p => mode ? p.name.replace(/^\S+\s+(?=(dSTORM|DNA-PAINT|PALM|WideField)\b)/, '') : p.name;
     for (const p of g.presets) sel.append(Object.assign(document.createElement('option'), { value: p.name, textContent: shown(p) }));
     sel.addEventListener('change', () => { const p = g.presets.find(q => q.name === sel.value); if (p) apply(p); });
-    host.append(sel);
+    into.append(sel);
     rows.push({ group: g, sel });
   }
   host.append(...expCells);   // the Exposure row last, in the same grid as the others

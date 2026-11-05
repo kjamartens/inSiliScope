@@ -20,7 +20,7 @@ const arg = k => { const a = process.argv.find(s => s.startsWith('--' + k)); ret
 const server = http.createServer((req, res) => {
   const f = path.join(ROOT, 'web', decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html');
   if (!f.startsWith(path.join(ROOT, 'web')) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.statusCode = 404; res.end(); return; }
-  res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : 'text/html');
+  res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html');   // (a stylesheet sent as text/html is dropped: web/design/tokens.css)
   res.end(fs.readFileSync(f));
 }).listen(0);
 
@@ -71,6 +71,12 @@ try {
   check(true, 'Live starts by itself, a tap on Stop stops it');
 
   // the focus knob (in the Focus box): a slow swipe 60 px to the left = 5 steps up; then − once
+  const order = await page.evaluate(() => ['lv_stageBox', 'lv_statBox', 'lv_acqBox', 'lv_dispBox'].map(id => document.getElementById(id).getBoundingClientRect().top));
+  // the display's level bar lies down on a phone: wider than high, the handles under the histogram
+  const lie = await page.evaluate(() => { const R = id => document.getElementById(id).getBoundingClientRect(), h = R('lv_hist'), l = R('lv_loTag');
+    return { wide: h.width > 2 * h.height, under: l.top >= h.bottom - 1 }; });
+  check(order[0] < order[1] && order[1] < order[2] && order[2] < order[3] && lie.wide && lie.under,
+    `the boxes under the stage: Stage, Info, Acquisition, Display (tops ${order.map(Math.round)}); the level bar lies down (${JSON.stringify(lie)})`);
   const k = await rect('#mKnob'), z0 = await z();
   await touch([[k.x + k.w * 0.7, k.y + k.h / 2, k.x + k.w * 0.7 - 60, k.y + k.h / 2]], 12, 60);
   const z1 = await z();
@@ -119,8 +125,8 @@ try {
   const back = await page.evaluate(() => { const v = document.getElementById('liveView').getBoundingClientRect();
     return { mobile: document.body.classList.contains('mobile'), top: !!document.getElementById('mTop'),
       host: document.getElementById('canvasHost').parentElement.id, live: document.getElementById('liveView').parentElement.id,
-      bar: document.getElementById('liveBar').parentElement.id, barFirst: document.getElementById('side').firstElementChild.id, sq: Math.abs(v.width - v.height) < 1 && v.width > 200 }; });
-  check(!back.mobile && !back.top && back.host === 'worldCol' && back.live === 'sideMain' && back.bar === 'side' && back.barFirst === 'liveBar' && back.sq,
+      bar: document.getElementById('liveBar').parentElement.id, barFirst: document.getElementById('side').firstElementChild.id, acts: document.getElementById('lv_acts').parentElement.id, sq: Math.abs(v.width - v.height) < 1 && v.width > 200 }; });
+  check(!back.mobile && !back.top && back.host === 'worldCol' && back.live === 'sideMain' && back.bar === 'topBar' && back.barFirst === 'sideBody' && back.acts === 'lv_cols' && back.sq,
     `a wide window puts every node back ${JSON.stringify(back)}`);
   check(!errors.length, 'no page errors' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));
 } catch (e) { fail++; console.log('FAIL ', e.message); }

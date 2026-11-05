@@ -1,0 +1,103 @@
+{
+  "$description": "inSiliScope viewer: primitive tokens (raw values). Components never use these directly: they use the semantic tokens (semantic.*.tokens.json), which point here. Format: W3C Design Tokens Format Module 2025.10 structure ($value, $type, $description, aliases {group.token}); colours and dimensions are written as CSS strings (the format's draft form, which Style Dictionary reads). Generated into web/design/tokens.css by tools/gen_design_tokens.mjs; rules in docs/dev/DESIGN.md.",
+  "color": {
+    "$type": "color",
+    "neutral": {
+      "$description": "The chrome's greys: barely cool, so the images' colours are judged against a neutral surround.",
+      "0": { "$value": "#ffffff" },
+      "50": { "$value": "#f4f5f7" },
+      "100": { "$value": "#e8eaed" },
+      "150": { "$value": "#dde0e4" },
+      "200": { "$value": "#ccd1d7" },
+      "300": { "$value": "#a9b0b9" },
+      "400": { "$value": "#8a929c" },
+      "500": { "$value": "#6f7781" },
+      "600": { "$value": "#555c65" },
+      "650": { "$value": "#4b525a" },
+      "700": { "$value": "#363b42" },
+      "750": { "$value": "#2a2e34" },
+      "800": { "$value": "#1f2227" },
+      "850": { "$value": "#181a1e" },
+      "900": { "$value": "#121417" },
+      "950": { "$value": "#0a0b0d" },
+      "1000": { "$value": "#000000" }
+    },
+    "blue": { "400": { "$value": "#5aa2ef" }, "600": { "$value": "#2d5fb3" } },
+    "teal": { "400": { "$value": "#3cc3b0" }, "600": { "$value": "#0d7466" } },
+    "violet": { "400": { "$value": "#a690f2" }, "600": { "$value": "#6448c4" } },
+    "amber": { "400": { "$value": "#e9a640" }, "600": { "$value": "#995a00" } },
+    "magenta": { "400": { "$value": "#ea7bc8" }, "600": { "$value": "#a42f80" } },
+    "red": { "400": { "$value": "#ef6b6b" }, "500": { "$value": "#e5484d" }, "600": { "$value": "#c0303a" }, "700": { "$value": "#b3261e" } },
+    "green": { "400": { "$value": "#5fbf72" }, "600": { "$value": "#2a7a3b" } },
+    "yellow": { "400": { "$value": "#e0a64a" }, "600": { "$value": "#8a5a00" } },
+    "okabe-ito": {
+      "$description": "Okabe & Ito (2008) colour-blind-safe categorical palette, for data that needs categories (not for chrome).",
+      "1": { "$value": "#e69f00" },
+      "2": { "$value": "#56b4e9" },
+      "3": { "$value": "#009e73" },
+      "4": { "$value": "#f0e442" },
+      "5": { "$value": "#0072b2" },
+      "6": { "$value": "#d55e00" },
+      "7": { "$value": "#cc79a7" },
+      "8": { "$value": "#000000" }
+    }
+  },
+  "font": {
+    "family": {
+      "$type": "fontFamily",
+      "ui": { "$value": "system-ui, 'Segoe UI', Arial, sans-serif" },
+      "mono": { "$value": "ui-monospace, Consolas, monospace" }
+    },
+    "size": {
+      "$type": "dimension",
+      "$description": "Three sizes for text (caption, body, title) plus the icon glyphs' size: no other font size in the viewer.",
+      "caption": { "$value": "11px", "$description": "Units, notes, readouts, legends, the tooltips' code." },
+      "body": { "$value": "12px", "$description": "Labels, values, buttons, inputs." },
+      "title": { "$value": "14px", "$description": "The app name, a panel shown filling the view." },
+      "icon": { "$value": "16px", "$description": "A glyph used as an icon (the menu's)." },
+      "input-phone": { "$value": "16px", "$description": "Inputs on a phone: iOS zooms in on a focused field below 16 px." }
+    },
+    "weight": {
+      "$type": "fontWeight",
+      "regular": { "$value": 400 },
+      "medium": { "$value": 500 },
+      "semibold": { "$value": 600 }
+    }
+  },
+  "space": {
+    "$type": "dimension",
+    "$description": "One spacing scale on a 4 px grid (with 2 and 6 px half steps for tight rows).",
+    "0": { "$value": "0px" },
+    "1": { "$value": "2px" },
+    "2": { "$value": "4px" },
+    "3": { "$value": "6px" },
+    "4": { "$value": "8px" },
+    "5": { "$value": "12px" },
+    "6": { "$value": "16px" },
+    "7": { "$value": "24px" }
+  },
+  "radius": {
+    "$type": "dimension",
+    "sm": { "$value": "3px", "$description": "Inputs, buttons, chips." },
+    "md": { "$value": "6px", "$description": "Panels, pop-overs, overlays." },
+    "lg": { "$value": "8px", "$description": "Dialogs, the menu." }
+  },
+  "shadow": {
+    "$type": "shadow",
+    "raised": { "$value": "0 4px 14px rgba(0,0,0,.35)", "$description": "Pop-overs, tooltips, the menu." },
+    "dialog": { "$value": "0 8px 28px rgba(0,0,0,.45)", "$description": "Dialogs." }
+  },
+  "z": {
+    "$type": "number",
+    "overlay": { "$value": 3, "$description": "Boxes over the world view (HUD, legend)." },
+    "popover": { "$value": 20 },
+    "scope": { "$value": 40, "$description": "The Microscope view over the world view." },
+    "dialog": { "$value": 45 },
+    "tooltip": { "$value": 50 }
+  },
+  "duration": {
+    "$type": "duration",
+    "fast": { "$value": "120ms" },
+    "fold": { "$value": "100ms", "$description": "a panel that slides open or shut (the controls spread over the live image)" }
+  }
+}

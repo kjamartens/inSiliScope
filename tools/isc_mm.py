@@ -100,11 +100,15 @@ def precomputed(core, on=True):
     core.setProperty("Camera", "Test_AcqMode", "Precomputed" if on else "Live")
 
 
-def label(core, mode, dye="Typical", target="Microtubules", device="CellField"):
+def label(core, mode, dye="Typical", target="Microtubules", device="CellField", geometry=True):
     """A target's label (the microtubules by default): its own mode, then its dye (Typical, one with data in it, or
-    None)."""
+    None). A pick applies the Lasers' Auto preset's lasers and filters, not its BFP position (2026-11-05); geometry:
+    the Auto preset picked as well, for the mounted specimen's targets, so the BFP position is the preset's too (DNA-PAINT
+    HILO, the nanorulers TIRF, else epi), as a label pick set it before."""
     core.setProperty(device, target + "_Mode", mode)
     core.setProperty(device, target + "_Label", dye)
+    if geometry and core.getProperty("SampleHolder", "Label") == device:
+        core.setProperty("Lasers", "Preset", "Auto")
 
 
 def custom_microtubule_dye(core, **fields):

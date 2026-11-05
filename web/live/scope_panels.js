@@ -37,6 +37,7 @@
   // the hue follows the spectrum piecewise (400 violet, 450 blue, 490 cyan, 520 green, 570 yellow, 590 orange,
   // >= 625 red).
   const WAVE_HUE = [[400, 275], [450, 235], [490, 185], [520, 125], [570, 58], [590, 32], [625, 2]];
+  // design:allow -- a wavelength's own colour (physics, not the theme): a hue per nm
   function waveColour(nm, light) {
     let hue = WAVE_HUE[WAVE_HUE.length - 1][1];
     if (nm <= WAVE_HUE[0][0]) hue = WAVE_HUE[0][1];
@@ -44,11 +45,14 @@
       const [a, ha] = WAVE_HUE[i - 1], [b, hb] = WAVE_HUE[i];
       hue = ha + (hb - ha) * (nm - a) / (b - a); break;
     }
-    return light ? `hsl(${hue.toFixed(0)},85%,42%)` : `hsl(${hue.toFixed(0)},100%,${nm >= 625 ? 66 : 62}%)`;
+    return light ? `hsl(${hue.toFixed(0)},85%,42%)` : `hsl(${hue.toFixed(0)},100%,${nm >= 625 ? 66 : 62}%)`;   // design:allow
   }
 
   // ---- images ----
-  // The heat map: dark blue-black -> orange -> white.
+  // The theme's colours (web/design/tokens.css, docs/dev/DESIGN.md) as they resolve now: tok('panel-ink') = --color-panel-ink.
+  // (Not a theme of their own: they read the page's; the panels redraw on 'isc-theme'.)
+  const tok = n => (self.iscTheme ? self.iscTheme.tok('--color-' + n) : '') || '#888';   // design:allow -- the fallback before theme.js
+  // The heat map: dark blue-black -> orange -> white (design:allow: a data colour map).
   const RAMP = (() => {
     const r = new Uint8Array(256 * 3);
     for (let i = 0; i < 256; i++) {
@@ -60,7 +64,7 @@
     return r;
   })();
   const peakOf = (data, v) => { let m = 0; for (let i = v.offset, e = v.offset + v.len; i < e; i++) if (data[i] > m) m = data[i]; return m; };
-  const ROLE = { line: 'rgba(255,255,255,0.85)', evanescent: '#7cf', focus: '#559ded' };
+  const roleColour = r => tok(r === 'evanescent' ? 'panel-evanescent' : r === 'focus' ? 'accent' : 'panel-line');
   // An image at the canvas's size on the page (its pixels scaled up or down, pixelated ones without smoothing), the
   // overlays over it in screen pixels: an image stretched one way (an x-z section of 71 planes) keeps even lines and
   // dashes. Before the canvas is laid out, at the image's own size.
@@ -109,7 +113,7 @@
     // image units -> canvas pixels (through the fraction of the whole image)
     const sx = ws / v.w * Z.z * W, sy = ws / v.h * Z.z * H;
     const X = x => (w0 + x / v.w * ws - Z.x) * Z.z * W, Y = y => (h0 + y / v.h * ws - Z.y) * Z.z * H;
-    g.fillStyle = '#000';
+    g.fillStyle = tok('bg-canvas');
     g.fillRect(0, 0, W, H);
     // the part of the image on the canvas, clipped to the image (a source rect beyond it is not drawn by every browser)
     const ix0 = Math.max(0, (Z.x - w0) / ws * v.w), iy0 = Math.max(0, (Z.y - h0) / ws * v.h);
@@ -118,7 +122,7 @@
     const lw = cw > 0 ? Math.max(1.25, cw / 240) * dpr : Math.max(1, v.w / 200);
     if (v.scalebarUm > 0) scaleBar(g, W, H, v.scalebarUm / Z.z, dpr);
     for (const o of v.overlays || []) {
-      g.strokeStyle = ROLE[o.role] || ROLE.line;
+      g.strokeStyle = roleColour(o.role);
       // a dashed line marks a place (the cut, the focus): thin and half see-through, so the image shows through
       g.lineWidth = o.dash ? Math.max(dpr, 0.7 * lw) : lw;
       g.globalAlpha = o.dash ? 0.5 : 1;
@@ -161,15 +165,15 @@
     g.save();
     g.globalAlpha = 1;
     g.setLineDash([]);
-    g.fillStyle = 'rgba(0,0,0,0.6)';
+    g.fillStyle = tok('overlay-bg');
     g.fillRect(x0 - dpr, y - th - dpr, len + 2 * dpr, th + 2 * dpr);
-    g.fillStyle = '#fff';
+    g.fillStyle = tok('overlay-mark');
     g.fillRect(x0, y - th, len, th);
     g.font = `600 ${Math.round(11 * dpr)}px system-ui, sans-serif`;
     g.textAlign = 'center';
     g.textBaseline = 'bottom';
     g.lineWidth = 3 * dpr;
-    g.strokeStyle = 'rgba(0,0,0,0.7)';
+    g.strokeStyle = tok('overlay-shadow');
     g.strokeText(label, x0 + len / 2, y - th - 3 * dpr);
     g.fillText(label, x0 + len / 2, y - th - 3 * dpr);
     g.restore();
@@ -260,9 +264,9 @@
 
   // ---- curves (spectra) ----
   function curvePalette(light) {
-    return light
-      ? { text: '#555', lw: 1.2, emFill: 'rgba(0,120,255,0.12)', emEdge: null, dichroic: '#888', exfilter: '#777', qe: '#bbb', laserW: 2, laserEdge: '#111' }
-      : { text: '#cfd6df', lw: 1.7, emFill: 'rgba(110,180,255,0.26)', emEdge: 'rgba(150,205,255,0.9)', dichroic: '#f2f2f2', exfilter: '#ffcf70', qe: '#a3b1c4', laserW: 3, laserEdge: '#ffffff' };
+    const edge = tok('panel-em-edge');
+    return { text: tok('panel-curve-text'), lw: light ? 1.2 : 1.7, emFill: tok('panel-em-fill'), emEdge: /,\s*0\)$/.test(edge) ? null : edge,
+      dichroic: tok('panel-dichroic'), exfilter: tok('panel-exfilter'), qe: tok('panel-qe'), laserW: light ? 2 : 3, laserEdge: tok('panel-laser-edge') };
   }
   function seriesStyle(s, P, light) {
     if (s.role === 'emfilter') return { fill: P.emFill, stroke: P.emEdge };
@@ -447,6 +451,7 @@
     if (parent) parent.append(e);
     return e;
   }
+  // design:allow -- the objectives' magnification colour code (ISO 8038 / DIN 58887), not the theme
   const MAG_COLOUR = [[100, '#f2f2f2'], [60, '#2d6fd6'], [40, '#7cc6f2'], [20, '#3fae4a'], [10, '#f2d03f'], [5, '#e08a2c'], [0, '#d9443a']];
   function clip(t, n) { t = String(t || ''); return t.length > n ? t.slice(0, Math.max(1, n - 1)) + '…' : t; }
   // the panels a part belongs to (data-for): its station and the one that also shows it
@@ -470,8 +475,7 @@
   const MIN_SCALE = 0.75;   // the smallest scale the lying drawing is shown at (else it stands up)
   function drawSchematic(box, v, opts) {
     const light = !!opts.light, big = !!opts.big, detail = big;
-    const ink = light ? '#5d6672' : '#9aa6b6', fillC = light ? '#e9ecf0' : '#1e2733', text = light ? '#222' : '#dde3ea',
-      muted = light ? '#69727e' : '#8f9aa8';
+    const ink = tok('panel-ink'), fillC = tok('panel-fill'), text = tok('panel-text'), muted = tok('panel-muted');
     const width = box.clientWidth || (box.parentElement && box.parentElement.clientWidth) || 800;
     box.textContent = '';
     box.classList.add('pSchem');
@@ -609,8 +613,8 @@
         el('circle', Object.assign({ cx, cy, r: 9 }, sh), g);
         for (let a = 0; a < 8; a++) { const r = a * Math.PI / 4; el('line', { x1: cx + 12 * Math.cos(r), y1: cy + 12 * Math.sin(r), x2: cx + 16 * Math.cos(r), y2: cy + 16 * Math.sin(r), stroke: ink, 'stroke-width': 1.2 }, g); }
       } else if (e.kind === 'sample') {
-        box4(g, s0, -12, -2, -62 * q, 62 * q, { fill: light ? '#cfe8de' : '#24483f', stroke: light ? '#7aa79a' : '#3b7465' });
-        box4(g, s0, -2, 2, -72 * q, 72 * q, { fill: light ? '#dfe9f2' : '#2b3b4d', stroke: ink, 'stroke-width': 0.8 });   // the coverslip
+        box4(g, s0, -12, -2, -62 * q, 62 * q, { fill: tok('panel-sample-fill'), stroke: tok('panel-sample-stroke') });
+        box4(g, s0, -2, 2, -72 * q, 72 * q, { fill: tok('panel-glass'), stroke: ink, 'stroke-width': 0.8 });   // the coverslip
       } else if (e.kind === 'objective') {
         // an objective pointing at the sample: the front lens, the nose, the barrel with its magnification's colour ring
         const mag = parseFloat(e.label) || 100, ring = MAG_COLOUR.find(m => mag >= m[0])[1];
@@ -619,11 +623,11 @@
         box4(g, s0, -3, 1, -26, 26, { fill: ring, stroke: ink, 'stroke-width': 0.6 });
         for (let k = -20; k <= 20; k += 5) el('path', { d: line([[s0 + 12, k], [s0 + 20, k]]), stroke: ink, 'stroke-width': 0.7, 'stroke-opacity': 0.7 }, g);
         const [ax, ay] = P(s0 - 19, -10), [bx, by] = P(s0 - 25, 0), [cx2, cy2] = P(s0 - 19, 10);
-        el('path', { d: `M${ax} ${ay} Q${bx} ${by} ${cx2} ${cy2}`, fill: light ? '#bfd8ef' : '#5b84ad', stroke: ink, 'stroke-width': 0.8 }, g);
+        el('path', { d: `M${ax} ${ay} Q${bx} ${by} ${cx2} ${cy2}`, fill: tok('panel-lens'), stroke: ink, 'stroke-width': 0.8 }, g);
       } else if (e.kind === 'bfp') {
         el('path', { d: line([[s0, -58 * q], [s0, 58 * q]]), stroke: ink, 'stroke-width': 1.2, 'stroke-dasharray': '4 3' }, g);
       } else if (e.kind === 'dichroic') {
-        el('path', { d: line([[s0 - MUp, -MUp], [s0 + MDown, MDown]]), stroke: light ? '#7f9bb4' : '#b9d2ea', 'stroke-width': 4, 'stroke-linecap': 'round' }, g);
+        el('path', { d: line([[s0 - MUp, -MUp], [s0 + MDown, MDown]]), stroke: tok('panel-mirror'), 'stroke-width': 4, 'stroke-linecap': 'round' }, g);
       } else if (e.kind === 'emfilter') {
         box4(g, s0, -4, 4, -40 * q, 40 * q, { fill: ink, 'fill-opacity': 0.75 });
       } else if (e.kind === 'camera') {

@@ -56,7 +56,7 @@ void InSiliScopeHub::LoadTargetDye(int s, bool modeMayChange)
    {
       if (modeChanged)
          ApplyModeGain();
-      ApplyLightPreset("Auto");
+      ApplyLightPreset("Auto", false);   // (the lasers and filters; not the BFP position)
    }
    for (int i = 0; i < 3; ++i)
       Notify(prefix + "-readout-" + std::to_string(i));
@@ -133,7 +133,7 @@ void InSiliScopeHub::TargetModeChanged(int s)
    LoadTargetDye(s, true);
 }
 
-void InSiliScopeHub::ApplyLightPreset(const std::string& id)
+void InSiliScopeHub::ApplyLightPreset(const std::string& id, bool geometry)
 {
    const std::vector<int>& lines = sim::LaserLines();
    if (id == "Auto")
@@ -146,7 +146,8 @@ void InSiliScopeHub::ApplyLightPreset(const std::string& id)
          return;
       }
       state_.SetLight(id, q.lasers, q.excitationFilter, q.dichroic, q.emissionFilter);
-      state_.SetOption("illum-bfp", q.bfpPosition);   // the geometry: DNA-PAINT HILO, the nanorulers TIRF, else epi
+      if (geometry)
+         state_.SetOption("illum-bfp", q.bfpPosition);   // the geometry: DNA-PAINT HILO, the nanorulers TIRF, else epi
    }
    else
    {
@@ -155,8 +156,9 @@ void InSiliScopeHub::ApplyLightPreset(const std::string& id)
          return;
       state_.SetLight(id, std::vector<double>(q->lasers, q->lasers + lines.size()),
                       q->excitationFilter ? q->excitationFilter : "None", q->dichroic, q->emissionFilter);
-      state_.SetOption("illum-bfp",
-                       sim::ScopePresetBfpPosition(isc::BuildScopeSpec(state_, 0, 0, 0, 0, 1), q->bfpPosition));
+      if (geometry)
+         state_.SetOption("illum-bfp",
+                          sim::ScopePresetBfpPosition(isc::BuildScopeSpec(state_, 0, 0, 0, 0, 1), q->bfpPosition));
    }
    for (size_t l = 0; l < lines.size(); ++l)
       Notify("laser-" + std::to_string(lines[l]));

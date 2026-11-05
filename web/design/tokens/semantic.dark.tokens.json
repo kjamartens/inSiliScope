@@ -1,0 +1,77 @@
+{
+  "$description": "Semantic tokens, theme Dark (the default): what each colour is for. Every component uses these (as CSS custom properties --color-...). semantic.light.tokens.json has the same names. The world view, the live image and their overlays stay dark in every theme (colour fidelity).",
+  "color": {
+    "$type": "color",
+    "bg": {
+      "app": { "$value": "{color.neutral.950}", "$description": "Behind the panels (the Microscope view's background)." },
+      "canvas": { "$value": "#05070a", "$description": "Behind images and the world view: dark in every theme." }
+    },
+    "surface": {
+      "default": { "$value": "{color.neutral.900}", "$description": "Bars, columns, panels." },
+      "raised": { "$value": "{color.neutral.850}", "$description": "Pop-overs, the menu, tooltips, dialogs." },
+      "hover": { "$value": "{color.neutral.800}" }
+    },
+    "border": {
+      "default": { "$value": "{color.neutral.750}", "$description": "Separators and panel outlines (decorative)." },
+      "strong": { "$value": "{color.neutral.650}" }
+    },
+    "input": {
+      "bg": { "$value": "{color.neutral.800}" },
+      "border": { "$value": "{color.neutral.500}", "$description": "Identifies a field: >= 3:1 against input.bg (WCAG 1.4.11)." }
+    },
+    "text": {
+      "default": { "$value": "{color.neutral.100}" },
+      "muted": { "$value": "{color.neutral.300}", "$description": "Labels, units, notes: >= 4.5:1 on the surfaces." }
+    },
+    "accent": {
+      "default": { "$value": "{accent.dark}", "$description": "The one highlight colour: selection, the active state, a changed setting, focus. Never decoration." },
+      "on": { "$value": "{color.neutral.1000}", "$description": "Text on a solid accent fill." }
+    },
+    "link": { "$value": "{color.blue.400}" },
+    "focus-ring": { "$value": "{accent.dark}" },
+    "guide": { "$value": "{color.neutral.700}", "$description": "The line beside a setting's sub-rows." },
+    "status": {
+      "live": { "$value": "{color.red.500}", "$description": "Live / Record: the buttons' outline and icon." },
+      "live-on": { "$value": "{color.red.700}", "$description": "Live / Record while running: the fill." },
+      "on-live": { "$value": "{color.neutral.0}" },
+      "ok": { "$value": "{color.green.400}" },
+      "warn": { "$value": "{color.yellow.400}" },
+      "error": { "$value": "{color.red.400}" }
+    },
+    "overlay": {
+      "$description": "Boxes over the world view and the images (dark in every theme).",
+      "bg": { "$value": "rgba(10,13,18,.78)" },
+      "bg-strong": { "$value": "rgba(10,13,18,.94)" },
+      "border": { "$value": "#2a2f37" },
+      "text": { "$value": "#dfe4ea" },
+      "text-muted": { "$value": "#8b939e" },
+      "frame": { "$value": "rgba(255,255,255,.55)", "$description": "An inset's outline (the zoom navigator)." },
+      "mark": { "$value": "#ffffff", "$description": "Marks drawn on an image: the scale bar, the zoomed part." },
+      "shadow": { "$value": "#000000", "$description": "The text shadow that keeps overlay text readable on an image." },
+      "control-bg": { "$value": "#1a1e24" },
+      "control-border": { "$value": "#333942" },
+      "scrim": { "$value": "rgba(0,0,0,.45)", "$description": "Behind a dialog." }
+    },
+    "panel": {
+      "$description": "The Microscope view's drawings (web/live/scope_panels.js).",
+      "ink": { "$value": "#9aa3b0" },
+      "fill": { "$value": "#1e232b" },
+      "text": { "$value": "{color.neutral.100}" },
+      "muted": { "$value": "#8f97a3" },
+      "line": { "$value": "rgba(255,255,255,0.85)", "$description": "An overlay line on an image (always on a dark image)." },
+      "evanescent": { "$value": "#77ccff" },
+      "curve-text": { "$value": "#cfd5dc" },
+      "dichroic": { "$value": "#f2f2f2" },
+      "exfilter": { "$value": "#ffcf70" },
+      "qe": { "$value": "#a6afbb" },
+      "em-fill": { "$value": "rgba(110,180,255,0.26)" },
+      "em-edge": { "$value": "rgba(150,205,255,0.9)" },
+      "laser-edge": { "$value": "#ffffff" },
+      "sample-fill": { "$value": "#24483f" },
+      "sample-stroke": { "$value": "#3b7465" },
+      "glass": { "$value": "#2b3b4d" },
+      "lens": { "$value": "#5b84ad" },
+      "mirror": { "$value": "#b9d2ea" }
+    }
+  }
+}
