@@ -29,8 +29,12 @@
   :root{--side-w:380px;--lab-w:var(--density-label-w);--lab-w-base:var(--density-label-w);--val-w:var(--density-value-w)}
   html,body{margin:0;padding:0;background:var(--color-bg-app);color:var(--color-text);font-family:var(--font-family-ui);overflow:hidden}
   /* Layout: the world view (left, with its View bar) | a splitter | the live microscope (right: the live camera with
-     its controls beside it, then every setting). --live-w: the right panel's width (33-62 % of the window, dragged; 50 % by default). */
-  #wrap{display:grid;grid-template-columns:minmax(0,1fr) 6px var(--live-w,50vw);height:100vh}
+     its controls under it, then the settings column). --live-w: the right panel's width with the settings open (33-62 %
+     of the window, dragged; 50 % by default); the live image takes it less the column (--set-w, at least 200 px) at
+     every fold, so folding the column (--set-cur) moves the image and gives the world view the room. */
+  #wrap{--set-w:340px;--set-cur:var(--set-w);display:grid;height:100vh;
+    grid-template-columns:minmax(0,1fr) 6px calc(max(var(--live-w,50vw) - var(--set-w),200px) + var(--set-cur))}
+  body:not(.mobile) #wrap.setShut{--set-cur:28px}
   #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
   #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--color-surface);border-bottom:1px solid var(--color-border);font-size:var(--font-size-body);flex-wrap:wrap}
   #viewBar h1{font-size:var(--font-size-title);margin:0 6px 0 0;white-space:nowrap}
@@ -111,8 +115,7 @@
   #lv_busy[hidden]{display:none}
   #lv_busy+#lv_info{margin-left:2px}
   #lv_info{flex:1 1 0;min-width:0;margin-left:4px;font-size:var(--font-size-caption);line-height:1.4;height:1.4em;color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--set-w,340px)}
-  #sideBody.setShut{grid-template-columns:minmax(0,1fr) 28px}
+  #sideBody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) var(--set-cur)}
   /* the settings column (right): a head with the fold button; folded, only a vertical tab at the edge */
   #setCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
   #setColHead{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) var(--space-2) var(--space-2) var(--space-5);
@@ -122,8 +125,8 @@
     align-items:flex-start;justify-content:center;cursor:pointer}
   #setTab span{writing-mode:vertical-rl;letter-spacing:.04em;font-weight:600}
   #setTab:hover{background:var(--color-surface-hover);color:var(--color-text)}
-  #sideBody.setShut #setCol>:not(#setTab){display:none}
-  #sideBody.setShut #setTab{display:flex}
+  body:not(.mobile) #wrap.setShut #setCol>:not(#setTab){display:none}
+  body:not(.mobile) #wrap.setShut #setTab{display:flex}
   #sideMain{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--color-border)}
   #sideMain>#liveCtl{flex:1}
   #liveView{position:relative;flex:none;width:100%;aspect-ratio:1;background:var(--color-bg-canvas);overflow:hidden}
@@ -1772,15 +1775,15 @@ menu.innerHTML = '<h4>Appearance</h4>' +
   '<div class="note"><a id="privacyLink" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/privacy/">Privacy</a>: anonymous usage counts, no cookies</div>';
 // the settings column folds to a tab at the right edge (remembered); a search or "Changed only" unfolds it
 function foldSettings(shut) {
-  $('sideBody').classList.toggle('setShut', shut);
+  $('wrap').classList.toggle('setShut', shut);
   $('setFold').setAttribute('aria-expanded', !shut); $('setTab').setAttribute('aria-expanded', !shut);
   store.set('setShut', shut ? '1' : '0');
-  window.dispatchEvent(new Event('resize'));   // the live image's square follows the width
+  window.dispatchEvent(new Event('resize'));   // the world view takes the width (the live image keeps its own)
 }
 $('setFold').addEventListener('click', () => foldSettings(true));
 $('setTab').addEventListener('click', () => foldSettings(false));
 for (const [id, ev] of [['setSearch', 'input'], ['setChanged', 'change']])
-  $(id).addEventListener(ev, () => { if ($('sideBody').classList.contains('setShut')) foldSettings(false); });
+  $(id).addEventListener(ev, () => { if ($('wrap').classList.contains('setShut')) foldSettings(false); });
 foldSettings(store.get('setShut', '0') === '1');
 function setLevel(v) {
   if (!LEVELS.includes(v)) v = 'basic';

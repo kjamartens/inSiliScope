@@ -27,7 +27,9 @@ splitter.addEventListener('pointerdown', e => {
   e.preventDefault();
   splitter.classList.add('drag');
   splitter.setPointerCapture(e.pointerId);
-  const move = ev => { setLiveFrac((innerWidth - ev.clientX) / innerWidth, true); resizeCanvas(); };
+  // the fraction is the panel's width with the settings open: a folded column adds back what it gave up
+  const shut = wrap.classList.contains('setShut') ? parseFloat(getComputedStyle(wrap).getPropertyValue('--set-w')) - $('setCol').getBoundingClientRect().width : 0;
+  const move = ev => { setLiveFrac((innerWidth - ev.clientX + shut) / innerWidth, true); resizeCanvas(); };
   const up = () => { splitter.classList.remove('drag'); splitter.removeEventListener('pointermove', move); splitter.removeEventListener('pointerup', up); resizeCanvas(); drawScale(); };
   splitter.addEventListener('pointermove', move); splitter.addEventListener('pointerup', up);
 });

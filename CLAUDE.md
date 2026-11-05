@@ -263,7 +263,8 @@ that finishes them.
   shows at the level, display, performance; the instrument's groups Light path, Objective & PSF, Camera are in the
   settings, section Instrument), and at the right edge the settings column `#setCol` (2026-11-05: `#panel` under the
   search `#sideTop` with "Changed only" `#setChanged`; its » `#setFold` folds it to a vertical tab `#setTab`, kept in
-  `isc.ui.setShut`, `foldSettings`; a search unfolds it; on a phone both are plain boxes again); the search highlights matching rows (`.opt.hit`, the column's too) and opens every group with a match; render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
+  `isc.ui.setShut`, `foldSettings`, class `setShut` on `#wrap`; the live image keeps its width, `--live-w` less `--set-w`, and the
+  world view takes the room; a search unfolds it; on a phone both are plain boxes again); the search highlights matching rows (`.opt.hit`, the column's too) and opens every group with a match; render paths/time/drift and the performance in an Expert-only box (`lv_perfBox`);
   **● Record** (2026-10-14): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
   `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames from the box's
   `lv_recT` start time, default 0 s (2026-11-03; not `mv_start-sec`, which live keeps), on the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
