@@ -250,7 +250,7 @@ that finishes them.
 - `web/live/` -- the viewer's **live microscope** (2026-10-13, layout A2: world view + View bar left, a draggable live
   panel right): `live.js` (splitter, View pop-over, the live loop on its own worker, started by itself once the engine is up (2026-10-22, `L.auto`, not counted;
   `?live=0` keeps it off: every browser test that drives Live loads the page with it): one `live` job per frame, at most one
-  in flight, paced to the exposure, paused while hidden; contrast with a live histogram (axes over the last 10 s),
+  in flight, paced to the exposure, paused while hidden; contrast on an upright level bar beside the stage (`#lv_sd`, `#lv_lvl`: grey scale, histogram with axes over the last 10 s, ◀ handles with numbers right-aligned in 5 digits; right-click `#lv_dispPop`),
   scale bar, info with the render path per label from `isc_live_paths`; the **performance** breakdown per frame from
   `isc_live_profile` / `isc_live_profile_json` (Timing.h phases collected per frame) plus the worker trip and display;
   layout (2026-10-14; 2026-11-05: `#liveBar` sits at the right end of `#topBar`, one bar across the window with the title

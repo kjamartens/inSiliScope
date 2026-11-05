@@ -22,7 +22,7 @@ A first tour, about five minutes:
    bleach where you look: move away and back and the place you imaged is dimmer than its fresh neighbours.
 3. **Focus and look closer.** The **Z** field (or Page Up / Page Down, or the wheel over the live image) moves the
    focus through the cells; the side view on the left shows the focal plane. **Ctrl + wheel** zooms into the live
-   image; **Display** sets the contrast over a live histogram. On a phone, the live image comes first with the sample as
+   image; **Display** sets the contrast on an upright level bar (the frame's histogram) beside the stage. On a phone, the live image comes first with the sample as
    an inset (tap it to swap them); two fingers up or down on the live image focus, a pinch zooms, and the **Focus** box
    has a ruler to swipe ([the viewer reference](try-viewer.md) has every gesture).
 4. **Switch the microscope.** In **Acquisition** (beside the live image), **Imaging mode** changes the experiment: dSTORM, DNA-PAINT, PALM,

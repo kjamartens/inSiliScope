@@ -270,10 +270,10 @@ function holdRepeat(btn, act) {
   new ResizeObserver(draw).observe(kcv);
   draw();
 }
-// ---- the right-click boxes: on the pad x, y and the XY step; on the focus wheel z and the Z step (a phone shows the Z
-// step under its ruler and opens none: a long press there is the wheel's)
+// ---- the right-click boxes: on the joystick x, y and the XY step; on the focus wheel z and the Z step; on the level bar
+// the white and black levels (a phone shows the Z step under its ruler and opens none: a long press there is the wheel's)
 {
-  const pops = [$('lv_xyPop'), $('lv_zPop')];
+  const pops = [$('lv_xyPop'), $('lv_zPop'), $('lv_dispPop')];
   const close = () => { for (const p of pops) p.hidden = true; };
   const open = (pop, ev) => {
     ev.preventDefault();
@@ -288,11 +288,12 @@ function holdRepeat(btn, act) {
     const o = pop.getBoundingClientRect(), w = o.width, h = o.height;
     pop.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) - o.left + 'px';
     pop.style.top = (y + 4 + h <= innerHeight - 4 ? y + 4 : Math.max(4, y - h - 4)) - o.top + 'px';
-    const f = pop.querySelector('[id$=Step]');
+    const f = pop.querySelector('[id$=Step]') || pop.querySelector('input');
     f.focus({ preventScroll: true }); f.select();
   };
   $('lv_joy').addEventListener('contextmenu', ev => open(pops[0], ev));
   $('mFocus').addEventListener('contextmenu', ev => open(pops[1], ev));
+  $('lv_lvl').addEventListener('contextmenu', ev => open(pops[2], ev));
   document.addEventListener('pointerdown', ev => { if (!pops.some(p => !p.hidden && p.contains(ev.target))) close(); }, true);
   for (const p of pops) p.addEventListener('keydown', ev => { if (ev.key === 'Escape' || ev.key === 'Enter') { ev.preventDefault(); ev.target.dispatchEvent(new Event('change', { bubbles: true })); close(); } });
 }
@@ -518,19 +519,23 @@ function draw(d) {
   requestDraw();
 }
 
-// ---- the live histogram: log counts, the display range over it ----
-// The axes move slowly: x spans the darkest to the brightest pixel of the frames of the last 10 s, y the tallest bar of
-// those frames, so a blink or a dim frame does not rescale it.
-const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128, HIST_KEEP_MS = 10000;
+// ---- the live histogram, upright (the display's level bar): log counts, the display range over it ----
+// The axes move slowly: the value axis spans the darkest to the brightest pixel of the frames of the last 10 s (dark at
+// the bottom), the count axis the tallest bar of those frames, so a blink or a dim frame does not rescale it. Beside
+// it the grey scale the range gives (#lv_lut) and a handle per level with its number (#lv_loTag, #lv_hiTag), kept
+// apart when the levels are close.
+const hc = $('lv_hist'), hg = hc.getContext('2d'), NB = 128, HIST_KEEP_MS = 10000, TAG_H = 12;
 let hist = null, hMin = 0, hMax = 1, hTop = 0;
 const hRecent = [];   // {t, mn, mx, top} per frame shown
 window.addEventListener('isc-theme', () => { if (L.frame) drawHist(); });   // the theme's colours (web/design/theme.js)
+new ResizeObserver(() => drawHist()).observe(hc);
 function drawHist(newFrame) {
   const fr = L.frame;
-  const W = Math.max(1, Math.round(hc.clientWidth * devicePixelRatio)), H = Math.round(56 * devicePixelRatio);
+  const W = Math.max(1, Math.round(hc.clientWidth * devicePixelRatio)), H = Math.max(1, Math.round(hc.clientHeight * devicePixelRatio));
   if (hc.width !== W || hc.height !== H) { hc.width = W; hc.height = H; }
   hg.clearRect(0, 0, W, H);
-  if (!fr) return;
+  $('lv_lvl').classList.toggle('empty', !fr);
+  if (!fr) { $('lv_lut').style.background = ''; return; }
   if (newFrame || !hist) {
     let mn = 65535, mx = 0;
     for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
@@ -545,41 +550,54 @@ function drawHist(newFrame) {
     hTop = Math.max(...hRecent.map(r => r.top));
   }
   const top = hTop;
-  const accent = iscTheme.tok('--color-accent'), muted = iscTheme.tok('--color-text-muted'), pad = 9 * devicePixelRatio, ph = H - pad;
-  const xOf = v => ((v - hMin) / (hMax - hMin)) * W;
-  // the display range (black .. white) as a shaded band, then the bars and the two markers
-  const xl = xOf(L.lo), xh = xOf(L.hi);
-  hg.fillStyle = muted; hg.globalAlpha = 0.12; hg.fillRect(Math.max(0, xl), 0, Math.max(1, Math.min(W, xh) - Math.max(0, xl)), ph);
+  const accent = iscTheme.tok('--color-accent'), muted = iscTheme.tok('--color-text-muted');
+  const frac = v => (v - hMin) / (hMax - hMin), yOf = v => H - frac(v) * H;
+  // the display range (black .. white) as a shaded band, then the bars (from the left) and the two markers
+  const yl = yOf(L.lo), yh = yOf(L.hi);
+  hg.fillStyle = muted; hg.globalAlpha = 0.12; hg.fillRect(0, Math.max(0, yh), W, Math.max(1, Math.min(H, yl) - Math.max(0, yh)));
   hg.globalAlpha = 1; hg.fillStyle = muted;
-  const bw = W / NB;
+  const bh = H / NB;
   for (let b = 0; b < NB; b++) {
-    const hh = top ? (hist[b] / top) * (ph - 2) : 0;
-    hg.fillRect(b * bw, ph - hh, Math.max(1, bw - 0.5), hh);
+    const ww = top ? (hist[b] / top) * (W - 2) : 0;
+    hg.fillRect(0, H - (b + 1) * bh, ww, Math.max(1, bh - 0.5));
   }
-  hg.strokeStyle = accent; hg.lineWidth = Math.max(1, devicePixelRatio);
-  for (const x of [xl, xh]) if (x >= -1 && x <= W + 1) { hg.beginPath(); hg.moveTo(x, 0); hg.lineTo(x, ph); hg.stroke(); }
-  hg.fillStyle = muted; hg.font = `${9 * devicePixelRatio}px system-ui, Segoe UI, sans-serif`; hg.textBaseline = 'bottom';
-  hg.textAlign = 'left'; hg.fillText(String(hMin), 1, H);
-  hg.textAlign = 'right'; hg.fillText(String(hMax) + ' ADU', W - 1, H);
+  hg.fillStyle = accent;
+  const lw = Math.max(1, Math.round(devicePixelRatio));
+  for (const y of [yl, yh]) if (y >= -1 && y <= H + 1) hg.fillRect(0, Math.round(y - lw / 2), W, lw);
+  // the grey scale shown: black below the black level, white above the white level
+  const pl = (100 * frac(L.lo)).toFixed(2), ph = (100 * frac(L.hi)).toFixed(2);
+  $('lv_lut').style.background = `linear-gradient(to top, #000 ${pl}%, #fff ${ph}%)`;   // design:allow (the image's own grey scale)
+  // the handles: centred on their levels, inside the bar, at least a handle's height apart
+  const Hc = hc.clientHeight, cl = v => Math.min(Hc, Math.max(0, Hc * (1 - frac(v))));
+  let tl = cl(L.lo) - TAG_H / 2, th = cl(L.hi) - TAG_H / 2;
+  if (tl - th < TAG_H) { const m = (tl + th) / 2; th = m - TAG_H / 2; tl = m + TAG_H / 2; }
+  th = Math.max(0, Math.min(Hc - 2 * TAG_H, th)); tl = Math.max(th + TAG_H, Math.min(Hc - TAG_H, tl));
+  const set = (id, top, v) => { const t = $(id); t.style.top = top.toFixed(1) + 'px'; t.lastChild.textContent = String(Math.round(v)); };
+  set('lv_loTag', tl, L.lo); set('lv_hiTag', th, L.hi);
 }
-// Dragging in the histogram moves the nearer marker (the display range by hand: auto off).
-hc.addEventListener('pointerdown', ev => {
-  if (!L.frame) return;
+// Dragging on the bar moves the nearer level, on a handle that handle's (the display range by hand: auto off).
+$('lv_lvl').addEventListener('pointerdown', ev => {
+  if (!L.frame || ev.button > 0) return;
   ev.preventDefault();
-  hc.setPointerCapture(ev.pointerId);
-  const r = hc.getBoundingClientRect(), valAt = e => Math.round(hMin + ((e.clientX - r.left) / r.width) * (hMax - hMin));
-  const which = Math.abs(valAt(ev) - L.lo) <= Math.abs(valAt(ev) - L.hi) ? 'lo' : 'hi';
+  const lvl = $('lv_lvl');
+  lvl.setPointerCapture(ev.pointerId);
+  const r = hc.getBoundingClientRect(), valAt = e => Math.round(hMin + (1 - (e.clientY - r.top) / r.height) * (hMax - hMin));
+  const tag = ev.target.closest('.tag');
+  const which = tag ? (tag.id === 'lv_loTag' ? 'lo' : 'hi') : Math.abs(valAt(ev) - L.lo) <= Math.abs(valAt(ev) - L.hi) ? 'lo' : 'hi';
+  const at = tag ? valAt(ev) - L[which] : 0;   // (a handle keeps its offset from the pointer)
   const move = e => {
-    const v = valAt(e);
+    const v = valAt(e) - at;
     if (which === 'lo') L.lo = Math.min(v, L.hi - 1); else L.hi = Math.max(v, L.lo + 1);
     $('lv_auto').checked = false;
     $('lv_lo').value = L.lo; $('lv_hi').value = L.hi;
     paint(); drawHist();
   };
-  const up = () => { hc.removeEventListener('pointermove', move); hc.removeEventListener('pointerup', up); };
-  move(ev);
-  hc.addEventListener('pointermove', move); hc.addEventListener('pointerup', up);
+  const up = () => { lvl.removeEventListener('pointermove', move); lvl.removeEventListener('pointerup', up); };
+  if (!tag) move(ev);
+  lvl.addEventListener('pointermove', move); lvl.addEventListener('pointerup', up);
 });
+// (the box's title folds it; a click on "auto" there only ticks it)
+$('lv_auto').closest('label').addEventListener('click', ev => ev.stopPropagation());
 function paint() {
   if (!L.frame) return;
   const w = L.w, h = L.h;

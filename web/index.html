@@ -142,18 +142,19 @@
   #sideMain>#liveCtl{flex:1}
   /* under the image: the acquisition controls | the instrument, two columns when there is room for them */
   #liveCtl{container-type:inline-size}
-  /* the boxes by the strip's width: one column (Live / Snap / Record first); from 520 px the stage with the display under
-     it at the left, the buttons and the acquisition at the right; from 780 px stage | buttons over display |
-     acquisition side by side (all in view under the largest image); the illumination and the instrument below */
-  #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "disp" "acq" "illum" "instr";
+  /* the boxes by the strip's width: one column (Live / Snap / Record first, then the stage and the display side by
+     side); from 520 px the stage and the display at the left, the buttons over the acquisition at the right; the
+     illumination and the instrument below */
+  #lv_cols{display:grid;grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "sd" "acq" "illum" "instr";
     gap:var(--space-3) var(--space-5);align-items:start}
-  #lv_acts{grid-area:acts} #lv_stageBox{grid-area:stage} #lv_dispBox{grid-area:disp} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
-  #lv_cols>.lc{border-top:0}
+  #lv_acts{grid-area:acts} #lv_sd{grid-area:sd} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
+  #lv_sd{display:flex;gap:var(--space-5);align-items:flex-start}
+  #lv_sd>.lc{flex:none}
+  #lv_cols>.lc,#lv_sd>.lc{border-top:0}
   /* tight at the top: under the largest image the strip is ~170 px high */
-  #lv_cols>.lc,#lv_cols>#lv_acts{padding-top:var(--space-2)}
+  #lv_cols>.lc,#lv_sd>.lc,#lv_cols>#lv_acts{padding-top:var(--space-2)}
   #sideMain>#liveCtl{padding-top:var(--space-1)}
-  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(300px) minmax(0,1fr);grid-template-areas:"stage acts" "stage acq" "disp acq" "illum instr"}}
-  @container (min-width:780px){#lv_cols{grid-template-columns:auto minmax(232px,.8fr) minmax(240px,1.2fr);grid-template-areas:"stage acts acq" "stage disp acq" "illum illum instr"}}
+  @container (min-width:520px){#lv_cols{grid-template-columns:fit-content(320px) minmax(0,1fr);grid-template-areas:"sd acts" "sd acq" "illum instr"}}
   .lvCol{display:flex;flex-direction:column;gap:6px;min-width:0}
   /* the handle on the image's lower edge spreads the controls over the image's lower 75 % (they fold back when the
      pointer leaves them for 0.1 s) */
@@ -350,14 +351,14 @@
   #mKnob{flex:none;height:40px;width:100%;cursor:ns-resize;touch-action:none;border-radius:var(--radius-sm);
     background:var(--color-input-bg);border:1px solid var(--color-input-border)}
   /* the right-click box */
-  #lv_stageBox .sf.popover{position:fixed;z-index:var(--z-popover);padding:var(--space-2) var(--space-3)}
-  #lv_stageBox .sf.popover[hidden]{display:none}
+  #lv_cols .sf.popover{position:fixed;z-index:var(--z-popover);padding:var(--space-2) var(--space-3)}
+  #lv_cols .sf.popover[hidden]{display:none}
   /* x, y and the two steps: a small table */
-  #lv_stageBox .sf{display:grid;grid-template-columns:auto 58px auto;gap:2px 4px;align-items:center}
-  #lv_stageBox .sf>div{display:contents}
-  #lv_stageBox .sf label{color:var(--color-text-muted);text-align:right;white-space:nowrap}
-  #lv_stageBox .sf input[type=number]{width:58px}
-  #lv_stageBox .sf .zrow{margin:0}
+  #lv_cols .sf{display:grid;grid-template-columns:auto 58px auto;gap:2px 4px;align-items:center}
+  #lv_cols .sf>div{display:contents}
+  #lv_cols .sf label{color:var(--color-text-muted);text-align:right;white-space:nowrap}
+  #lv_cols .sf input[type=number]{width:58px}
+  #lv_cols .sf .zrow{margin:0}
   #liveCtl .zrow input[type=number]{width:46px}
   #liveCtl .zrow #lv_z{width:70px}
   #liveCtl .zrow label{margin-left:4px}
@@ -374,7 +375,23 @@
   .cfg .lab label{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.2;color:var(--color-text-muted)}
   .cfg .lab label[data-tip]:hover{color:var(--color-accent)}
   #liveCtl .note{font-size:var(--font-size-caption);color:var(--color-text-muted)}
-  #lv_hist{display:block;width:100%;height:56px;margin-top:4px;cursor:ew-resize;touch-action:none}
+  /* the display's level bar: the grey scale shown, the histogram upright (dark at the bottom), and a ◀ handle per level
+     with its number; the handles touch the bar, the numbers are right-aligned in a column 5 digits wide (16-bit ADU),
+     so digits line up by place, nothing moves as a number grows or shrinks, and "auto" ends where they end */
+  #liveCtl #lv_dispBox>h5{padding-right:0}
+  #lv_dispBox>h5 .autoChip{margin-left:auto;display:inline-flex;align-items:center;padding:0 var(--space-2);border-radius:var(--radius-sm);
+    font-size:var(--font-size-caption);font-weight:normal;line-height:1.5;color:var(--color-text-muted);border:1px solid var(--color-border);cursor:pointer}
+  #lv_dispBox>h5 .autoChip:has(:checked){background:var(--color-accent);color:var(--color-accent-on);border-color:var(--color-accent)}
+  #lv_dispBox>h5 .autoChip:has(:focus-visible){outline:2px solid var(--color-focus-ring);outline-offset:1px}
+  #lv_dispBox>h5 .autoChip input{position:absolute;opacity:0;width:0;height:0;margin:0}
+  #lv_lvl{display:flex;gap:2px;height:88px;cursor:ns-resize;touch-action:none;user-select:none}
+  #lv_lut{width:8px;border-radius:2px}
+  #lv_hist{display:block;width:34px;height:100%;border-radius:var(--radius-sm);background:var(--color-input-bg)}
+  #lv_lvl .tags{position:relative;flex:1 0 auto;min-width:calc(5ch + 14px);font-size:var(--font-size-caption);font-variant-numeric:tabular-nums}
+  #lv_lvl .tag{position:absolute;left:0;right:0;display:flex;align-items:center;justify-content:space-between;gap:2px;line-height:12px;height:12px;color:var(--color-text);white-space:nowrap}
+  #lv_lvl .tag i{flex:none;width:0;height:0;border:4px solid transparent;border-left:0;border-right:6px solid var(--color-accent)}
+  #lv_lvl .tag b{font-weight:normal}
+  #lv_lvl.empty .tag{visibility:hidden}
   #panel{flex:1;overflow-y:auto;padding:4px 12px 12px;min-height:0}
   #side p.sub{font-size:var(--font-size-caption);color:var(--color-text-muted);margin:6px 0;line-height:1.4}
   #side p.sub a{color:var(--color-link)}
@@ -545,6 +562,8 @@
   body.mobile #lv_stageBox #lv_zPop{display:flex!important;position:static;justify-content:flex-end;padding:0;border:0;background:none;box-shadow:none}
   body.mobile #lv_stageBox #lv_zPop .zpos{display:none}
   /* on a phone the acquisition comes before the display */
+  body.mobile #lv_sd{display:contents}
+  body.mobile #lv_stageBox{grid-area:stage} body.mobile #lv_dispBox{grid-area:disp}
   body.mobile #lv_cols{grid-template-columns:minmax(0,1fr);grid-template-areas:"acts" "stage" "acq" "disp" "illum" "instr"}
   body.mobile #lv_stageBox .joy{display:none}
   body.mobile #lv_stageBox .stage{flex-direction:column;align-items:stretch;gap:var(--space-1)}
@@ -702,6 +721,8 @@
           <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
           <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
         </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button></div>
+      <!-- the stage and the display side by side -->
+      <div id="lv_sd">
       <div class="lc" id="lv_stageBox"><h5>Stage</h5>
         <div class="stage">
           <div class="joy" id="lv_joy" tabindex="0" role="application" aria-label="Move the stage in x and y: drag the knob, or the arrow keys (Shift: 10 steps)" title="Drag the knob: the further from the middle, the faster the stage moves; a click near an edge moves one step; arrow keys too; Shift: 10 steps, 10x as fast; right-click: the step and a typed position"><span class="ja n">▲</span><span class="ja s">▼</span><span class="ja w">◀</span><span class="ja e">▶</span><span class="jk"></span></div>
@@ -718,9 +739,13 @@
           </div>
         </div>
       </div>
-      <div class="lc" id="lv_dispBox"><h5>Display</h5>
-        <div class="crow"><label><input type="checkbox" id="lv_auto" checked> auto</label><input type="number" id="lv_lo" title="Black level (ADU)"><span>–</span><input type="number" id="lv_hi" title="White level (ADU)"></div>
-        <canvas id="lv_hist" height="56" title="The frame's histogram (log counts, minimum to maximum ADU) and the display range: drag a marker to set it by hand"></canvas>
+      <div class="lc" id="lv_dispBox"><h5>Display<label class="autoChip" title="Auto: the display range follows each frame (its darkest to its brightest pixel); a drag on the bar sets it by hand"><input type="checkbox" id="lv_auto" checked>auto</label></h5>
+        <div class="lvl" id="lv_lvl" title="The frame&#39;s histogram (log counts; the darkest pixel of the last 10 s at the bottom, the brightest at the top, in ADU), the grey scale shown, and the display range: drag a handle (or anywhere on the bar: the nearer one); right-click: type the levels"><div class="lut" id="lv_lut"></div><canvas id="lv_hist"></canvas><div class="tags"><span class="tag" id="lv_hiTag"><i></i><b></b></span><span class="tag" id="lv_loTag"><i></i><b></b></span></div></div>
+        <div id="lv_dispPop" class="popover sf" hidden role="dialog" aria-label="Display levels">
+          <div class="srow"><label for="lv_hi">White</label><input type="number" id="lv_hi" title="White level (ADU)"><span class="u">ADU</span></div>
+          <div class="srow"><label for="lv_lo">Black</label><input type="number" id="lv_lo" title="Black level (ADU)"><span class="u">ADU</span></div>
+        </div>
+      </div>
       </div>
       <div class="lc" id="lv_acqBox"><h5>Acquisition</h5><div class="cfg" id="cfgPanel"></div>
         <div class="cfg" id="lv_expRow"><span class="lab"><label for="lv_exp" data-tip="The camera's exposure time per frame; live frames come at most once per exposure. <code>Camera.Exposure</code>">Exposure</label></span><span class="expv"><input type="number" id="lv_exp" min="1" step="1"> ms</span></div>

@@ -20,7 +20,7 @@ const arg = k => { const a = process.argv.find(s => s.startsWith('--' + k)); ret
 const server = http.createServer((req, res) => {
   const f = path.join(ROOT, 'web', decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html');
   if (!f.startsWith(path.join(ROOT, 'web')) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.statusCode = 404; res.end(); return; }
-  res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : 'text/html');
+  res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html');   // (a stylesheet sent as text/html is dropped: web/design/tokens.css)
   res.end(fs.readFileSync(f));
 }).listen(0);
 
@@ -107,7 +107,7 @@ try {
   // in the middle); Shift + ↓ on it 10 steps; the readout shows the position; the focus wheel steps Z (a click above
   // its line one up, a 36 px drag up three up, a scroll notch down one down); a right-click opens the step box
   const st = await page.evaluate(() => ({ x0: view.cx, y0: view.cy, z0: +document.getElementById('mv_z').value,
-    order: [...document.querySelectorAll('#lv_cols .lc>h5')].map(h => h.textContent).slice(0, 3).join(',') }));
+    order: [...document.querySelectorAll('#lv_cols .lc>h5')].map(h => h.firstChild.textContent.trim()).slice(0, 3).join(',') }));
   const jb = await (await page.$('#lv_joy')).boundingBox(), jc = [jb.x + jb.width / 2, jb.y + jb.height / 2], R = jb.width / 2;
   const pos = () => page.evaluate(() => [view.cx, view.cy]);
   await page.mouse.click(jc[0] + 0.8 * R, jc[1]);
@@ -155,6 +155,26 @@ try {
   check(near(zb - za, 0.1) && near(zc - zb, 0.3) && near(zd - zc, -0.1) && zShown === zd.toFixed(2) && near(ze - zd, 0.1) && pop.open && pop.focus === 'lv_xyStep' && popShut && st.order === 'Stage,Display,Acquisition',
     `the focus wheel: click above +${(zb - za).toFixed(2)}, 36 px drag up +${(zc - zb).toFixed(2)}, a scroll notch down ${(zd - zc).toFixed(2)} µm, shown under it as "${zShown}", ▲ +${(ze - zd).toFixed(2)}; `
     + `right-click opens the step box (${JSON.stringify(pop)}), a click elsewhere shuts it; the boxes ${st.order}`);
+  // the display's level bar beside the stage: a drag near the top moves the white level up (auto off), the handles'
+  // numbers end where "auto" ends, whatever their digits; a right-click opens the levels box
+  const lv = await (await page.$('#lv_lvl')).boundingBox(), hb0 = await page.evaluate(() => [liveState.lo, liveState.hi]);
+  await page.mouse.move(lv.x + 20, lv.y + lv.height * 0.6); await page.mouse.down();
+  await page.mouse.move(lv.x + 20, lv.y + lv.height * 0.3, { steps: 4 }); await page.mouse.move(lv.x + 20, lv.y + 3, { steps: 4 }); await page.mouse.up();
+  const lvl = await page.evaluate(() => {
+    const R = e => e.getBoundingClientRect(), sd = R(document.getElementById('lv_stageBox')), dp = R(document.getElementById('lv_dispBox'));
+    const set = (lo, hi) => { const a = document.getElementById('lv_lo'), b = document.getElementById('lv_hi'); a.value = lo; b.value = hi; a.dispatchEvent(new Event('input')); };
+    const ends = () => [...document.querySelectorAll('#lv_lvl .tag b')].map(b => +R(b).right.toFixed(1));
+    const r = { lo: liveState.lo, hi: liveState.hi, auto: document.getElementById('lv_auto').checked, beside: Math.abs(dp.top - sd.top) < 2 && dp.left > sd.right,
+      chip: +R(document.querySelector('#lv_dispBox .autoChip')).right.toFixed(1), ends: [] };
+    for (const [lo, hi] of [[7, 950], [1700, 1760], [120, 65535]]) { set(lo, hi); r.ends.push(...ends()); }
+    const tags = [...document.querySelectorAll('#lv_lvl .tag')].map(t => R(t)); 
+    set(r.lo, r.hi); document.getElementById('lv_auto').checked = true; document.getElementById('lv_auto').dispatchEvent(new Event('change'));
+    return r; });
+  await page.click('#lv_lvl', { button: 'right' });
+  const lpop = await page.evaluate(() => ({ open: !document.getElementById('lv_dispPop').hidden, focus: document.activeElement.id }));
+  await page.mouse.click(5, 300);
+  check(lvl.beside && lvl.hi > hb0[1] && lvl.lo < hb0[1] && !lvl.auto && lvl.ends.every(e => Math.abs(e - lvl.chip) < 0.6) && lpop.open && lpop.focus === 'lv_hi',
+    `the level bar beside the stage: a drag to the top white ${hb0[1]} -> ${lvl.hi} (black ${lvl.lo}, auto off, beside: ${lvl.beside}); the numbers (1 to 5 digits) end at ${[...new Set(lvl.ends)]} px, "auto" at ${lvl.chip}; right-click opens the levels (${JSON.stringify(lpop)})`);
   // the handle spreads the controls over the image's lower 75 %; they fold back 0.1 s after the pointer leaves them
   await page.click('#ctlUp');
   await page.waitForTimeout(200);   // (the 0.1 s slide)

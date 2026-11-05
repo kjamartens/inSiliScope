@@ -89,10 +89,11 @@ through it step by step.
   not lit yet is fresh; moving away and back finds the dimmed place again. Brightfield frames take no fluorescence light. The drift walks on from frame
   to frame. A change of settings acts from the next frame on; a change that makes another world (seed, cell
   parameters, specimen) starts a fresh sample, and **↺** does so by hand. **Snap** takes one frame, **● Record** many (below). **Focus**: the Stage's focus wheel (▲ ▼, a drag, a scroll, a click), the arrows of the Z field in its right-click box (the only number field with arrows; the others take typing and the arrow keys), Page Up / Page Down or the
-  mouse wheel over the image step it by the step size (beside it on the same line). **Display**: auto contrast (0.1-99.9 % of the pixels) or a fixed
-  range, over a live histogram of the frame (log counts; its axes span the darkest to the brightest pixel and the
-  tallest bar of the last 10 s of frames, so they move slowly; drag in it to move the nearer end of the display
-  range). Live pauses while the page is hidden. The world view always outlines the camera's field (dashed white, "camera"), and the x-z
+  mouse wheel over the image step it by the step size (beside it on the same line). **Display** (beside the Stage): a level bar, upright: the grey scale
+  the image is shown in, the frame's histogram (log counts, dark at the bottom; its axes span the darkest to the
+  brightest pixel and the tallest bar of the last 10 s of frames, so they move slowly) and a ◀ handle per level with
+  its number (ADU). Drag a handle, or anywhere on the bar to move the nearer level; a right-click types them. **auto**
+  in its title (on by default) sets the range from each frame (0.1-99.9 % of the pixels); a drag turns it off. Live pauses while the page is hidden. The world view always outlines the camera's field (dashed white, "camera"), and the x-z
   view draws the **focal plane** across it, at the focus height in the sample's frame (a live drift moves both).
 - **Performance** (Settings › Simulation, at the Expert level): how each label was drawn (SMLM splat: every
   blink placed with the PSF; binned SMLM: the same blinks on a finer grid, one FFT convolution, many blinks at once;

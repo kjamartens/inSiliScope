@@ -20,7 +20,7 @@ const arg = k => { const a = process.argv.find(s => s.startsWith('--' + k)); ret
 const server = http.createServer((req, res) => {
   const f = path.join(ROOT, 'web', decodeURIComponent(req.url.split('?')[0]).replace(/^\/+/, '') || 'index.html');
   if (!f.startsWith(path.join(ROOT, 'web')) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.statusCode = 404; res.end(); return; }
-  res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : 'text/html');
+  res.setHeader('content-type', f.endsWith('.js') ? 'text/javascript' : f.endsWith('.css') ? 'text/css' : 'text/html');   // (a stylesheet sent as text/html is dropped: web/design/tokens.css)
   res.end(fs.readFileSync(f));
 }).listen(0);
 
