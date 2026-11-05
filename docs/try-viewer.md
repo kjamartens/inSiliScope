@@ -24,7 +24,7 @@ through it step by step.
   Microscope view gets the room; remembered in your browser), and a click
   on the tab, or typing a search, opens it again. The search box highlights every line that matches (at the current
   level), opens their groups and hides the rest of the settings. The divider between the
-  two halves drags (the microscope takes half the window at first, a third to 62 % by dragging; remembered in your
+  two halves drags (the microscope takes half the window at first, a third to 72 % by dragging; remembered in your
   browser).
 - **Microscope view.** The **Sample | Microscope** switch in the title bar lays the microscope over the left half:
   on top the **Overview**, a drawing of the light path, lying down (the sample, the objective with its back focal plane just behind it, the dichroic with

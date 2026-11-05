@@ -12,9 +12,9 @@
 const $ = id => document.getElementById(id);
 const store = uiKit.store;
 
-// ---- splitter: the right panel's width, 33-62 % of the window (50 % by default) ----
+// ---- splitter: the right panel's width, 33-72 % of the window (50 % by default) ----
 const wrap = $('wrap'), splitter = $('splitter');
-const LIVE_MIN = 0.33, LIVE_MAX = 0.62;
+const LIVE_MIN = 0.33, LIVE_MAX = 0.72;
 function setLiveFrac(f, save) {
   f = Math.max(LIVE_MIN, Math.min(LIVE_MAX, f));
   wrap.style.setProperty('--live-w', (100 * f).toFixed(2) + 'vw');

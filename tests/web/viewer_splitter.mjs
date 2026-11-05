@@ -15,7 +15,7 @@ await runViewer('viewer splitter', { watchdogSec: 120, viewport: { width: 1300, 
   await page.evaluate(() => { const el = document.getElementById('mv_specimen'); el.value = '1';
     el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
   await page.waitForFunction(() => +document.getElementById('hud').dataset.rulers > 0, null, { timeout: 60000 });
-  // drag the splitter to the left: a wide live panel (62 %, the maximum)
+  // drag the splitter to the left: a wide live panel (69 %; the maximum is 72 %)
   const b = await (await page.$('#splitter')).boundingBox();
   await page.mouse.move(b.x + 3, b.y + 300); await page.mouse.down();
   await page.mouse.move(400, b.y + 300, { steps: 5 }); await page.mouse.up();
