@@ -154,7 +154,7 @@
   #lv_acts{grid-area:acts} #lv_sd{grid-area:sd} #lv_acqBox{grid-area:acq} #lv_colIllum{grid-area:illum} #lv_instrHost{grid-area:instr}
   #lv_sd{display:flex;flex-wrap:wrap;gap:var(--space-3) var(--space-5);align-items:flex-start}
   #lv_sd>.lc{flex:none}
-  /* the Setup box takes what the column leaves beside the stage and the display (its contents add no width: the
+  /* the Info box takes what the column leaves beside the stage and the display (its contents add no width: the
      column stays the Illumination's); narrow, its rows are values alone (the names in their tooltips) */
   #lv_sd>#lv_statBox{flex:1 1 0;min-width:96px;container-type:inline-size}
   /* first (left of the stage); in a strip too narrow for the three, last, so it wraps under the stage and the display */
@@ -388,7 +388,7 @@
      with its number; the handles touch the bar, the numbers are right-aligned in a column 5 digits wide (16-bit ADU),
      so digits line up by place, nothing moves as a number grows or shrinks, and "auto" ends where they end */
   #liveCtl #lv_dispBox>h5{padding-right:0}
-  /* the Setup box: the lasers as buttons (on: the line's colour), four short rows, and a line only when something is
+  /* the Info box: the lasers as buttons (on: the line's colour), four short rows, and a line only when something is
      off (its colour the severity's; a click lists each with what to do) */
   #lv_statBox .chips{display:flex;flex-wrap:wrap;gap:var(--space-1);margin-bottom:var(--space-2)}
   #lv_statBox .chip{min-width:0;padding:0 var(--space-2);height:20px;border-radius:var(--radius-sm);font-size:var(--font-size-caption);
@@ -768,7 +768,7 @@
         </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button><span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span><div id="lv_info"></div></div>
       <!-- the setup, the stage and the display side by side -->
       <div id="lv_sd">
-      <div class="lc" id="lv_statBox"><h5>Setup</h5>
+      <div class="lc" id="lv_statBox"><h5>Info</h5>
         <div class="chips" id="lv_laserChips" role="group" aria-label="Lasers: a click turns a line on or off"></div>
         <div class="facts" id="lv_facts"></div>
         <button type="button" id="lv_warn" hidden aria-haspopup="dialog" aria-expanded="false"></button>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// The live strip's Setup box (beside the stage and the display, #lv_statBox): the lasers as buttons (a click turns a
+// The live strip's Info box (beside the stage and the display, #lv_statBox): the lasers as buttons (a click turns a
 // line off, or on again at its last power), the setup in four short rows (labels, light, optics, camera), and a line
 // that shows only when something is off -- the most severe first; a click on it lists each with what to do.
 //
@@ -7,7 +7,7 @@
 // cli/scope_setup.cpp ViewerSetupJson: the lines on, the excitation filter's T, the regime and depth per line, each
 // label's spectra and detected fraction), packCache and cameraRectUm (the cells under the camera), and live.js's
 // self.liveState (the frame, its time, an error).
-// The checks (docs/try-viewer.md "Setup"): live failed; no light; nothing labelled; a label no laser excites; a label
+// The checks (docs/try-viewer.md "Info"): live failed; no light; nothing labelled; a label no laser excites; a label
 // whose light the filters block; saturated pixels; the focus below the coverslip, above the cells, off the nanorulers
 // or the beads on the glass, above the TIRF light; no cell in view; a laser that excites no label; slow frames.
 // (Drift is left out: the user's choice.)

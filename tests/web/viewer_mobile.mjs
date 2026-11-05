@@ -76,7 +76,7 @@ try {
   const lie = await page.evaluate(() => { const R = id => document.getElementById(id).getBoundingClientRect(), h = R('lv_hist'), l = R('lv_loTag');
     return { wide: h.width > 2 * h.height, under: l.top >= h.bottom - 1 }; });
   check(order[0] < order[1] && order[1] < order[2] && order[2] < order[3] && lie.wide && lie.under,
-    `the boxes under the stage: Stage, Setup, Acquisition, Display (tops ${order.map(Math.round)}); the level bar lies down (${JSON.stringify(lie)})`);
+    `the boxes under the stage: Stage, Info, Acquisition, Display (tops ${order.map(Math.round)}); the level bar lies down (${JSON.stringify(lie)})`);
   const k = await rect('#mKnob'), z0 = await z();
   await touch([[k.x + k.w * 0.7, k.y + k.h / 2, k.x + k.w * 0.7 - 60, k.y + k.h / 2]], 12, 60);
   const z1 = await z();
