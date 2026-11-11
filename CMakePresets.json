@@ -21,6 +21,6 @@
     { "name": "msvc", "configurePreset": "msvc", "configuration": "Release" },
     { "name": "wasm", "configurePreset": "wasm" },
     { "name": "msvc-cli", "displayName": "Only insiliscope_cli (no ctest checks)", "configurePreset": "msvc", "configuration": "Release", "targets": ["insiliscope_cli"] },
-    { "name": "wasm-viewer", "displayName": "Only the viewer module, the webSMLM block and voxelize.html's module (no WASM tests)", "configurePreset": "wasm", "targets": ["insiliscope_scope_web", "insiliscope_block", "insiliscope_voxelize"] }
+    { "name": "wasm-viewer", "displayName": "Only the viewer module, the webSMLM block and voxelize.html's module (no WASM tests)", "configurePreset": "wasm", "targets": ["insiliscope_scope_web", "insiliscope_scope_mt", "insiliscope_block", "insiliscope_voxelize"] }
   ]
 }

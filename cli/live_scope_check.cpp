@@ -138,6 +138,9 @@ int main()
    // (CarryRunningImages, in the process-wide movie cache that both sessions share) round in another order, which
    // moves a Poisson draw by one electron in a few pixels (also on the frame-by-frame drift path). So: >= 99.5 % of
    // the pixels identical, the rest within one electron (4 ADU at 0.25 e-/ADU), the next live frame bit for bit.
+   // A stepping pattern's WideField label (2026-11-11): live frames come from each state's kept bleach basis
+   // (WidefieldScene::RenderFrameProgressive), a recording renders each state exactly, so they agree within the basis'
+   // tolerance: the largest difference within 4 ADU + 1e-3 of the mean, the means within 1e-4.
    const int nRec = 8;
    for (const char* mode : { "", "mt-mode=DNA-PAINT", "drift-xy-nm-per-sqrt-sec=20",
                              "sim-type=SIM2D illum-bfp=0.5 mt-mode=WideField" })
@@ -180,7 +183,11 @@ int main()
                     "%.0f ms); the next live frame after it identical: %s",
                     *mode ? mode : "dSTORM", nRec, seq.size() ? 100.0 * same / seq.size() : 0.0, recMs, seqMs,
                     nextOne.adu == nextBatch.adu ? "yes" : "no");
-      Check(rok && rec.size() == seq.size() && same >= 0.995 * seq.size() && maxDiff <= 4 && nextOne.adu == nextBatch.adu &&
+      const bool pattern = std::string(mode).find("sim-type") != std::string::npos;
+      const double meanSeq = sumSeq / std::max<size_t>(1, seq.size()), meanRec = sumRec / std::max<size_t>(1, rec.size());
+      const bool close = pattern ? maxDiff <= 4 + 1e-3 * meanSeq && std::fabs(meanSeq - meanRec) <= 1e-4 * meanSeq
+                                 : same >= 0.995 * seq.size() && maxDiff <= 4;
+      Check(rok && rec.size() == seq.size() && close && nextOne.adu == nextBatch.adu &&
             std::fabs(ri.tSec - 0.3) < 1e-9 && std::fabs(nextBatch.info.tSec - (0.3 + 0.1 * nRec)) < 1e-9, msg);
       if (!rok) std::printf("      (%s)\n", err.c_str());
    }

@@ -2271,6 +2271,9 @@ struct MovieCache
    BrightfieldScene brightfield;
    // Mean-field scenes by population (structure x 4 + state).
    std::map<int, std::unique_ptr<MeanFieldSlot>> meanField;
+   // MapEntriesFor's entries by key, shared by the slots (a stepping pattern's state scenes ask for the same ones), the
+   // most recently made last (kSharedEntries kept).
+   std::vector<std::pair<std::vector<double>, std::shared_ptr<const MapEntries>>> sharedEntries;
    bool live = false;   // the movie is a live frame (CarryRunningImages)
 #if !defined(__EMSCRIPTEN__)
    // Dye counts from dye indexes (DyeIndex): each spans the rect asked grown by kDyeIndexPadUm, so the FOV's slab, a
@@ -2874,6 +2877,8 @@ struct MeanFieldNode
    // A stepping pattern's state drawn in fewer of the movie's frames than a bleach basis has images: each of its frames
    // made alone at its own weights (WidefieldScene::RenderExact; BuildMeanFieldNode).
    bool perFrame = false;
+   // A live frame of a stepping pattern's state: WidefieldScene::RenderFrameProgressive (BuildMeanFieldNode).
+   bool progressive = false;
    // AnchorMeanField: the scene's images go to the FOV shifted by these (grid cells).
    bool shifted = false;
    double shiftX = 0, shiftY = 0;
@@ -2895,6 +2900,10 @@ struct MapEntries
    std::vector<double> bounds;
    std::shared_ptr<const std::vector<float>> rates;
    double decay0 = 0;
+   // The map changes with height (zDep): the bands hold for [tqSec, tqSec + 2 span], the next window's entries are
+   // those of tqSec + span (a live state's next basis is made ahead for them, 2026-11-11).
+   bool zDep = false;
+   double tqSec = 0.0;
    size_t Count() const { return a.size(); }
    const double* Bounds(size_t i) const { return nBounds ? &bounds[i * nBounds] : nullptr; }
 };
@@ -3293,6 +3302,20 @@ struct ExcitePlaneFactor : WidefieldPlaneFactor
                                              : ex.PlaneMean(x, y, z0, z1, pitchUm, shares));
       const double dm = ex.DepthMean(z0, z1, shares), zc = std::max(0.0, (z0 + z1) / 2);
       return static_cast<float>(std::min(ex.F(), ex.F() * ex.Lateral(x, y, zc) * dm));
+   }
+   // A state's pattern: the plane's parts once (Excitation::PreparePlaneMean; = At bit for bit). LatticeSIM3D's
+   // cells took 2/3 of a live WideField frame (2026-11-11).
+   void AtCells(long k, double z0, double z1, const double* x, const double* y, size_t n, float* out) const override
+   {
+      if (ex.Clipped() || !ex.Patterned() || cycleMean)
+      {
+         WidefieldPlaneFactor::AtCells(k, z0, z1, x, y, n, out);
+         return;
+      }
+      Excitation::PlaneMeanPrep prep;
+      ex.PreparePlaneMean(z0, z1, pitchUm, shares, prep);
+      for (size_t i = 0; i < n; ++i)
+         out[i] = static_cast<float>(ex.PlaneMeanAt(x[i] + offX, y[i] + offY, prep));
    }
 };
 
@@ -3746,6 +3769,13 @@ constexpr double kWindowAliveMin = 1e-4;
 // A rate population's bleach basis holds this long (s) before it is rebuilt (its Chebyshev terms,
 // WidefieldScene::SetWeightRates: few under a slow bleach; every term is an image to make at each refocus).
 constexpr double kBasisSpanSec = 4.0;
+// A live frame of a stepping pattern's state (MeanFieldNode::progressive): its basis and its map entries' window hold
+// this long (2026-11-11). Each state's next basis is made a part per frame ahead of its window (RenderFrameProgressive,
+// PrepareNext), so a longer window is fewer parts to make; at 4 s, under a map that changes with height, the 9 states
+// were making their next bases all the time (SIM2D WideField 256 px, native one thread: 700 ms a frame against 270 ms
+// before), at 20 s 112 ms (steady 40 ms), at 40 s fewer still but its bands, judged over 80 s, moved the frames by
+// 0.3 % rms from the 4 s ones (20 s: within the bands' 1 %).
+constexpr double kLiveStateSpanSec = 20.0;
 // A stepping pattern's state scene makes no bleach basis for a movie that draws it in fewer frames than this (each such
 // frame one image at its own weights, WidefieldScene::RenderExact): a basis is ~12 images (the Chebyshev terms of a
 // 4 s span; 2026-11-03: a 20-frame SIM2D Record of a WideField label made 9 of them, 108 images of 149 plane FFTs
@@ -3802,7 +3832,8 @@ static double MapLatticeUm(const ClockMapView& m, int st)
 // each grid cell's stencil between them) and, when the map changes with height, the dye planes' heights in bands.
 static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, const Population& p,
                                                        const WidefieldGridSpec& gr, MeanFieldSlot& slot, double t0Sec,
-                                                       double spanSec, double expSec)
+                                                       double spanSec, double expSec, MovieCache* shared = nullptr,
+                                                       bool store = true)
 {
    const double T = MapLatticeUm(m, p.structure);
    auto X = [&](unsigned i) { return gr.x0Um + (i + 0.5) * gr.pitchUm; };
@@ -3872,8 +3903,22 @@ static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, co
       TimingLog("fl.mean-field-entries-reused", 0.0);
       return slot.ent;
    }
+   if (shared)
+      for (auto& kv : shared->sharedEntries)
+         if (kv.first == key)
+         {
+            TimingLog("fl.mean-field-entries-shared", 0.0);
+            if (store)
+            {
+               slot.entKey = key;
+               slot.ent = kv.second;
+            }
+            return kv.second;
+         }
    const auto t0 = TimingClock::now();
    auto E = std::make_shared<MapEntries>();
+   E->zDep = zDep;
+   E->tqSec = Tq;
    E->ntx = ntx;
    E->nty = nty;
    const MapClock& mc = m.s[static_cast<size_t>(st)];
@@ -3984,9 +4029,19 @@ static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, co
    char b[96];
    std::snprintf(b, sizeof b, "%zu entries, %zu bands", n, E->nb);
    TimingLog("fl.mean-field-entries", TimingSince(t0), b);
-   slot.entKey.swap(key);
-   slot.ent = E;
-   return slot.ent;
+   if (shared)
+   {
+      constexpr size_t kSharedEntries = 4;
+      shared->sharedEntries.emplace_back(key, E);
+      if (shared->sharedEntries.size() > kSharedEntries)
+         shared->sharedEntries.erase(shared->sharedEntries.begin());
+   }
+   if (store)
+   {
+      slot.entKey.swap(key);
+      slot.ent = E;
+   }
+   return E;
 }
 
 // A host's map over a population (2026-10-15; the mean-field switch and the windows query): on a kSurveyStepUm raster
@@ -4274,7 +4329,11 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // A varying pattern: between a state's movies the dyes were lit by the other states (a live producer's frames step
    // through them), so the state's bleach basis no longer holds them: a movie at another first frame makes a new one
    // (one image; the first frame left the plane factor's key on 2026-10-31, and with it this reset).
-   if (varies && !p.meanLight && (!slot.frame0Set || slot.frame0 != S.frame0))
+   // Live (one frame per movie, no drift, not fresh-basis): the state keeps its basis across the cycles and makes the
+   // next one an image per frame (WidefieldScene::RenderFrameProgressive, 2026-11-11: SIM2D WideField 256 px live
+   // ~270 -> ~130 ms a frame natively, one thread; frames within the basis' tolerance of the exact ones).
+   nd.progressive = varies && !p.meanLight && S.N == 1 && !shifts && !S.freshBasis;
+   if (varies && !p.meanLight && !nd.progressive && (!slot.frame0Set || slot.frame0 != S.frame0))
       slot.scene.ForgetBleachBasis();
    slot.frame0 = S.frame0;
    slot.frame0Set = true;
@@ -4287,9 +4346,32 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
       // RateWeightedFrame; the same everywhere: one decay).
       auto tW = TimingClock::now();
       const WidefieldGridSpec& gr = slot.scene.Grid();
-      p.ent = MapEntriesFor(*map, p, gr, slot, S.t0Sec, std::max(kBasisSpanSec, S.N * S.expSec), S.expSec);
+      const double spanSec = nd.progressive ? kLiveStateSpanSec : std::max(kBasisSpanSec, S.N * S.expSec);
+      p.ent = MapEntriesFor(*map, p, gr, slot, S.t0Sec, spanSec, S.expSec, &cache);
       const MapEntries& E = *p.ent;
       const MapClock& mc = map->s[static_cast<size_t>(p.structure)];
+      // Each entry's photons per dye in the frame at tSec (PopulationPhotons, an entry like the one before it: its
+      // value).
+      auto weightsAt = [&](const MapEntries& En, double tSec, std::vector<float>& wb) {
+         const size_t n = En.Count();
+         wb.assign(n, 0.0f);
+         double la = std::numeric_limits<double>::quiet_NaN(), lb = la;
+         float lv = 0.0f;
+         for (size_t i = 0; i < n; ++i)
+         {
+            const double* bd = En.Bounds(i);
+            if (!(En.a[i] == la && En.b[i] == lb && (!bd || std::equal(bd, bd + En.nBounds, En.Bounds(i - 1)))))
+            {
+               lv = static_cast<float>(PopulationPhotons(mc, p.lam, p.rate, En.a[i], En.b[i], bd, tSec, S.expSec));
+               la = En.a[i];
+               lb = En.b[i];
+            }
+            wb[i] = lv;
+         }
+      };
+      // A live state's window changed to the one its next basis was made for: that basis (no pause).
+      if (nd.progressive && p.state != ISC_STATE_BLINK)
+         slot.scene.AdoptPrepared(E.edges, slot.cellMap, E.rates, spanSec, E.tqSec);
       slot.scene.SetWeightBands(E.edges);
       slot.scene.SetWeightMap(slot.cellMap);
       nd.sceneZ = zStage;
@@ -4301,25 +4383,25 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
       }
       else
       {
-         const size_t n = E.Count();
-         p.wb0.assign(n, 0.0f);
-         double la = std::numeric_limits<double>::quiet_NaN(), lb = la;
-         float lv = 0.0f;
-         for (size_t i = 0; i < n; ++i)
-         {
-            const double* bd = E.Bounds(i);
-            if (!(E.a[i] == la && E.b[i] == lb && (!bd || std::equal(bd, bd + E.nBounds, E.Bounds(i - 1)))))
-            {
-               lv = static_cast<float>(PopulationPhotons(mc, p.lam, p.rate, E.a[i], E.b[i], bd, S.t0Sec, S.expSec));
-               la = E.a[i];
-               lb = E.b[i];
-            }
-            p.wb0[i] = lv;
-         }
+         weightsAt(E, S.t0Sec, p.wb0);
          p.rates = E.rates;
          p.decay = E.decay0;
          // The basis holds kBasisSpanSec, or the movie: its Chebyshev terms in the rates.
-         slot.scene.SetWeightRates(p.rates, std::max(kBasisSpanSec, S.N * S.expSec));
+         slot.scene.SetWeightRates(p.rates, spanSec);
+         // A live state under a map that changes with height: from half its window on, the next window's entries and
+         // their weights at its start, for the scene's next basis (made a part per frame, taken at the change).
+         slot.scene.SetWindowed(nd.progressive && E.zDep);
+         if (nd.progressive && E.zDep && S.t0Sec >= E.tqSec + 0.5 * spanSec)
+         {
+            const double tNext = E.tqSec + spanSec;
+            auto En = MapEntriesFor(*map, p, gr, slot, tNext, spanSec, S.expSec, &cache, false);
+            if (En->zDep && En->tqSec == tNext && !slot.scene.Prepared(En->edges, slot.cellMap, En->rates, tNext))
+            {
+               std::vector<float> wbNext;
+               weightsAt(*En, tNext, wbNext);
+               slot.scene.PrepareNext(En->edges, slot.cellMap, En->rates, spanSec, wbNext, tNext);
+            }
+         }
          // Several frames (or the GPU's images): the whole basis at once, anchored at frame 0 -- a frame it holds
          // renders from its images, one it does not anchors a new one --, unless the scene's holds frame 0 already (a
          // host's next movie at the same pose).
@@ -4383,6 +4465,8 @@ void FluorescenceMovie::Impl::WeightedImage(Population& p, size_t j, std::vector
       if (nd.patternState == StateOf(0))
          nd.slot->scene.RenderExact(p.wb0, img);
    }
+   else if (nd.progressive)
+      nd.slot->scene.RenderFrameProgressive(p.wb0, img);
    else
       nd.slot->scene.RenderFrame(p.wb0, img);
 }

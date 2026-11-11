@@ -1092,6 +1092,53 @@ float WidefieldScene::CellValue(const Channel& c, long k, uint32_t cell, float c
    return v * planeFactor_->At(k, k * dz, (k + 1) * dz, x, y);
 }
 
+void WidefieldScene::CellValues(const Channel& c, long k, const std::vector<uint32_t>& cells,
+                                const std::vector<float>& counts, std::vector<float>& vals) const
+{
+   vals.resize(cells.size());
+   if (!planeFactor_)
+   {
+      for (size_t i = 0; i < cells.size(); ++i)
+         vals[i] = CellValue(c, k, cells[i], counts[i]);
+      return;
+   }
+   // CellValue's count x weight per cell, then the plane factor at the cells where it is not 0, all at once.
+   size_t nc = dD_.size();
+   if (c.mapped)
+      nc = weightMap_->count;
+   size_t band = 0;
+   if (c.weight.size() > nc && nc > 0)
+   {
+      const double zc = (k + 0.5) * rect_.zPlaneUm;
+      band = nc * static_cast<size_t>(std::upper_bound(weightBands_.begin(), weightBands_.end(), zc) - weightBands_.begin());
+   }
+   const WidefieldGridSpec& g = rect_;
+   thread_local std::vector<double> xs, ys;
+   thread_local std::vector<uint32_t> at;
+   thread_local std::vector<float> f;
+   xs.clear();
+   ys.clear();
+   at.clear();
+   for (size_t i = 0; i < cells.size(); ++i)
+   {
+      const uint32_t cell = cells[i];
+      const size_t wi = (c.mapped ? weightMap_->tile[cell] : cell) + band;
+      const float w = c.mapped ? MappedWeight(c, cell, band, c.weight[wi]) : c.weight[wi];
+      const float v = counts[i] * w;
+      vals[i] = v;
+      if (v == 0.0f)
+         continue;
+      at.push_back(static_cast<uint32_t>(i));
+      xs.push_back((g.ix0 + static_cast<long>(cell % g.nx) + 0.5) * g.pitchUm - axisX_);
+      ys.push_back((g.iy0 + static_cast<long>(cell / g.nx) + 0.5) * g.pitchUm - axisY_);
+   }
+   f.resize(at.size());
+   const double dz = g.zPlaneUm;
+   planeFactor_->AtCells(k, k * dz, (k + 1) * dz, xs.data(), ys.data(), at.size(), f.data());
+   for (size_t m = 0; m < at.size(); ++m)
+      vals[at[m]] = vals[at[m]] * f[m];
+}
+
 bool WidefieldScene::Update(SampleSource& src, const IlluminationPattern& pattern, const WidefieldSceneSpec& spec,
                             const WidefieldPsf& psf, std::string& err)
 {
@@ -1186,7 +1233,8 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
       const int oldR = R_;
       const auto tFft = TimingClock::now();
       SetupFft(psf, spec.kernelCapUm, samePsf);
-      TimingLog("wf.scene.setup-fft", TimingSince(tFft));
+      TimingLog("wf.scene.setup-fft", TimingSince(tFft),
+                (std::to_string(nx_) + " x " + std::to_string(ny_) + ", levels " + std::to_string(levels_)).c_str());
       fftChanged = rectChanged || !samePsf || nx_ != oldX || ny_ != oldY || R_ != oldR ||
                    spec.psfVersion != kernelsVersion_;
       if (fftChanged)
@@ -1229,7 +1277,9 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    {
       const auto tRefocus = TimingClock::now();
       Refocus(psf);
-      TimingLog("wf.scene.refocus", TimingSince(tRefocus));
+      TimingLog("wf.scene.refocus", TimingSince(tRefocus),
+                ("planes per level " + std::to_string(plan_.perLevel[0]) + " / " + std::to_string(plan_.perLevel[1]) + " / " +
+                 std::to_string(plan_.perLevel[2])).c_str());
    }
    return true;
 }
@@ -1457,6 +1507,9 @@ WidefieldScene::FocusPlan WidefieldScene::PlanFocus(const WidefieldPsf& psf, dou
    return plan;
 }
 
+// Timing only: the cells' values' time in PlaneSpectrum, summed over threads (wf.cell-values).
+static std::atomic<long long> cellValueNs_{0}, planeFftNs_{0};
+
 void WidefieldScene::PlaneSpectrum(const Channel& c, long k, const WidefieldSparsePlane& pl, int level,
                                    std::vector<cfloat>& out) const
 {
@@ -1464,13 +1517,15 @@ void WidefieldScene::PlaneSpectrum(const Channel& c, long k, const WidefieldSpar
    const std::vector<uint32_t>& cells = pl.cell[c.pop];
    const std::vector<float>& counts = pl.count[c.pop];
    // Each cell's value (the plane factor's, once per cell).
-   std::vector<float> vals(cells.size());
+   std::vector<float> vals;
    bool any = false;
+   const bool timed = TimingEnabled();
+   const auto tV = timed ? TimingClock::now() : TimingClock::time_point();
+   CellValues(c, k, cells, counts, vals);
    for (size_t i = 0; i < cells.size(); ++i)
-   {
-      vals[i] = CellValue(c, k, cells[i], counts[i]);
       any = any || vals[i] != 0.0f;
-   }
+   if (timed)
+      cellValueNs_.fetch_add(static_cast<long long>(1e9 * TimingSince(tV)), std::memory_order_relaxed);
    if (!any)
    {
       out.clear(); // nothing to add
@@ -1488,7 +1543,10 @@ void WidefieldScene::PlaneSpectrum(const Channel& c, long k, const WidefieldSpar
          buf.assign(n, 0.0f);
       for (size_t i = 0; i < cells.size(); ++i)
          buf[cells[i]] = vals[i];
+      const auto tF = timed ? TimingClock::now() : TimingClock::time_point();
       fft.Forward(buf.data(), g.nx, g.ny, g.nx, out.data(), true);
+      if (timed)
+         planeFftNs_.fetch_add(static_cast<long long>(1e9 * TimingSince(tF)), std::memory_order_relaxed);
       for (size_t i = 0; i < cells.size(); ++i)
          buf[cells[i]] = 0.0f;
       return;
@@ -1731,7 +1789,13 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
       }
    }
    if (stream)
+   {
       TimingLog("wf.plane-spectra-streamed", streamSec, std::to_string(streamMade).c_str());
+      // The cells' values (count x weight x plane factor) in them, summed over the threads.
+      TimingLog("wf.cell-values", 1e-9 * static_cast<double>(cellValueNs_.exchange(0, std::memory_order_relaxed)));
+      TimingLog("wf.plane-ffts", 1e-9 * static_cast<double>(planeFftNs_.exchange(0, std::memory_order_relaxed)),
+                (std::to_string(nx_) + " x " + std::to_string(ny_)).c_str());
+   }
    if (!any)
       return;
    const unsigned nx = nx_, ny = ny_, W = nx / 2 + 1;
@@ -1878,9 +1942,11 @@ bool WidefieldScene::JobFor(const FocusPlan& plan, const std::vector<const Chann
                jp.key = kk;
                const std::vector<uint32_t>& cells = pl.cell[c->pop];
                const std::vector<float>& counts = pl.count[c->pop];
+               std::vector<float> vals;
+               CellValues(*c, d.k, cells, counts, vals);
                for (size_t i = 0; i < cells.size(); ++i)
                {
-                  const float v = CellValue(*c, d.k, cells[i], counts[i]);
+                  const float v = vals[i];
                   if (v == 0.0f)
                      continue;
                   jp.cells.push_back(cells[i]);
@@ -2366,6 +2432,236 @@ void WidefieldScene::RenderExact(const std::vector<float>& wb, std::vector<float
       a = AnchorCoefficients();
    }
    images_.Render(a, cam);
+}
+
+void WidefieldScene::SwapBasis(BasisParts& b)
+{
+   std::swap(bleach_, b.bleach);
+   std::swap(groupDose_, b.groupDose);
+   std::swap(cellChannel_, b.cellChannel);
+   std::swap(channelMax_, b.channelMax);
+   std::swap(bleachValid_, b.valid);
+   std::swap(cheb_, b.cheb);
+   std::swap(doseMax_, b.doseMax);
+   std::swap(wbRef_, b.wbRef);
+   std::swap(lwRef_, b.lwRef);
+   std::swap(chebRef_, b.chebRef);
+   std::swap(wbRefMax_, b.wbRefMax);
+   std::swap(spanTau_, b.spanTau);
+   std::swap(rateBinMax_, b.rateBinMax);
+   std::swap(basisRates_, b.basisRates);
+   std::swap(images_.bleach, b.images);
+}
+
+double WidefieldScene::ChebTau(const std::vector<float>& wb) const
+{
+   if (!bleachValid_ || !cheb_ || chebRef_ >= wb.size() || chebRef_ >= wbRef_.size() || !(wbRef_[chebRef_] > 0.0f))
+      return -1.0;
+   const double r = static_cast<double>(wb[chebRef_]) / wbRef_[chebRef_];
+   return r > 0.0 ? -std::log(r) * doseMax_ / RateOf(chebRef_) : -1.0;
+}
+
+void WidefieldScene::StartPending(const std::vector<float>& wb)
+{
+   // BuildBleachChannels on an empty basis swapped in (it reads the scene's rates, map and doses), then swapped out.
+   const unsigned long long serial = basisSerial_;
+   pending_ = Pending();
+   SwapBasis(pending_.b);
+   BuildBleachChannels(wb, false);
+   bleachValid_ = true;
+   SwapBasis(pending_.b);
+   basisSerial_ = serial;   // (the basis in use is still the one its DecayAnchors read)
+   pending_.b.images.assign(pending_.b.bleach.size(), std::vector<float>());
+   pending_.active = true;
+   pending_.inputs = basisInputs_;
+   pending_.focus = focusSerial_;
+}
+
+void WidefieldScene::MakePendingImage()
+{
+   if (!pending_.active || pending_.made >= pending_.b.bleach.size())
+      return;
+   const auto t0 = TimingClock::now();
+   const size_t j = pending_.made;
+   if (pending_.prepared)
+      SwapPreparedInputs();
+   SwapBasis(pending_.b);
+   if (haveSpec_ && psf_)
+      ChannelImage(bleach_[j], plan_, images_.bleach[j], nullptr);
+   SwapBasis(pending_.b);
+   if (pending_.prepared)
+      SwapPreparedInputs();
+   ++pending_.made;
+   TimingLog("wf.basis-progressive", TimingSince(t0),
+             (std::to_string(pending_.made) + " / " + std::to_string(pending_.b.bleach.size())).c_str());
+}
+
+void WidefieldScene::AdoptPending()
+{
+   TimingLog("wf.basis-progressive-adopt", 0.0, (std::to_string(pending_.b.bleach.size()) + " terms, span tau " +
+                                                std::to_string(pending_.b.spanTau)).c_str());
+   for (Channel& c : bleach_)
+      DropChannel(c);
+   SwapBasis(pending_.b);
+   pending_ = Pending();
+   ++basisSerial_;
+   ++imagesVersion_;
+}
+
+void WidefieldScene::RenderOneOff(const std::vector<float>& wb, bool fromPending, std::vector<float>& cam)
+{
+   if (fromPending)
+   {
+      // The pending basis at its anchor: its first image alone (AnchorCoefficients: 1, 0, 0, ...).
+      std::vector<double> a(pending_.b.bleach.size(), 0.0);
+      if (!a.empty())
+         a[0] = 1.0;
+      if (!pending_.b.cheb)
+         std::fill(a.begin(), a.end(), 1.0);
+      std::swap(images_.bleach, pending_.b.images);
+      images_.Render(a, cam);
+      std::swap(images_.bleach, pending_.b.images);
+      return;
+   }
+   // RenderExact's frame (SetBleachWeights(wb, true): its channel images, AnchorCoefficients) on a basis apart.
+   const auto t0 = TimingClock::now();
+   const unsigned long long serial = basisSerial_;
+   BasisParts one;
+   SwapBasis(one);
+   BuildBleachChannels(wb, true);
+   bleachValid_ = true;
+   images_.bleach.assign(bleach_.size(), std::vector<float>());
+   if (haveSpec_ && psf_)
+      for (size_t j = 0; j < bleach_.size(); ++j)
+         ChannelImage(bleach_[j], plan_, images_.bleach[j], nullptr);
+   images_.Render(AnchorCoefficients(), cam);
+   for (Channel& c : bleach_)
+      DropChannel(c);
+   SwapBasis(one);
+   basisSerial_ = serial;
+   TimingLog("wf.basis-single", TimingSince(t0), "one-off");
+}
+
+void WidefieldScene::SwapPreparedInputs()
+{
+   std::swap(weightBands_, pending_.bands);
+   std::swap(weightMap_, pending_.map);
+   std::swap(weightRates_, pending_.rates);
+   std::swap(rateTau_, pending_.rateTau);
+}
+
+bool WidefieldScene::Prepared(const std::vector<double>& edgesUm, const std::shared_ptr<const WidefieldWeightMap>& map,
+                              const std::shared_ptr<const std::vector<float>>& rates, double windowSec) const
+{
+   if (!pending_.active || !pending_.prepared || pending_.inputs != basisInputs_ || pending_.focus != focusSerial_ ||
+       pending_.windowSec != windowSec)
+      return false;
+   std::shared_ptr<const WidefieldWeightMap> m = map && !map->tile.empty() && map->count ? map : nullptr;
+   std::shared_ptr<const std::vector<float>> r = rates && !rates->empty() ? rates : nullptr;
+   return pending_.bands == edgesUm && (pending_.map == m || (m && pending_.map && *m == *pending_.map)) &&
+          (pending_.rates == r || (r && pending_.rates && *r == *pending_.rates));
+}
+
+void WidefieldScene::PrepareNext(const std::vector<double>& edgesUm, std::shared_ptr<const WidefieldWeightMap> map,
+                                 std::shared_ptr<const std::vector<float>> rates, double tauPerRate,
+                                 const std::vector<float>& wb, double windowSec)
+{
+   if (Prepared(edgesUm, map, rates, windowSec) || defer_ || accel_ || keepSpectra_ || asyncOn_)
+      return;
+   if (map && (map->tile.empty() || map->count == 0))
+      map.reset();
+   if (rates && rates->empty())
+      rates.reset();
+   // StartPending with the window's inputs in the scene's place (it resets pending_: the inputs are held aside).
+   std::vector<double> bands = edgesUm;
+   double tau = tauPerRate;
+   std::swap(weightBands_, bands);
+   std::swap(weightMap_, map);
+   std::swap(weightRates_, rates);
+   std::swap(rateTau_, tau);
+   StartPending(wb);
+   // The scene's own back; pending_ holds the window's.
+   std::swap(weightBands_, bands);
+   std::swap(weightMap_, map);
+   std::swap(weightRates_, rates);
+   std::swap(rateTau_, tau);
+   pending_.prepared = true;
+   pending_.bands = std::move(bands);
+   pending_.map = std::move(map);
+   pending_.rates = std::move(rates);
+   pending_.rateTau = tau;
+   pending_.windowSec = windowSec;
+   TimingLog("wf.basis-prepare", 0.0, (std::to_string(pending_.b.bleach.size()) + " terms").c_str());
+}
+
+bool WidefieldScene::AdoptPrepared(const std::vector<double>& edgesUm,
+                                   const std::shared_ptr<const WidefieldWeightMap>& map,
+                                   const std::shared_ptr<const std::vector<float>>& rates, double tauPerRate,
+                                   double windowSec)
+{
+   if (!Prepared(edgesUm, map, rates, windowSec) || pending_.rateTau != tauPerRate)
+      return false;
+   const auto t0 = TimingClock::now();
+   const size_t left = pending_.b.bleach.size() - pending_.made;
+   while (pending_.made < pending_.b.bleach.size())
+      MakePendingImage();
+   SwapPreparedInputs();   // the window's inputs are the scene's now (no InvalidateBleach: its basis comes with them)
+   AdoptPending();
+   TimingLog("wf.basis-prepared-taken", TimingSince(t0), (std::to_string(left) + " images left to make").c_str());
+   return true;
+}
+
+void WidefieldScene::RenderFrameProgressive(const std::vector<float>& wb, std::vector<float>& cam)
+{
+   lastFast_ = true;
+   if (defer_ || accel_ || keepSpectra_ || asyncOn_)
+   {
+      RenderFrame(wb, cam);   // (the hosts that make their images elsewhere)
+      return;
+   }
+   if (pending_.active && (pending_.inputs != basisInputs_ || pending_.focus != focusSerial_))
+   {
+      TimingLog("wf.basis-progressive-drop", 0.0, pending_.inputs != basisInputs_ ? "inputs" : "focus");
+      pending_ = Pending();   // (made for other inputs or another focus)
+   }
+   std::vector<double> a;
+   bool held = BleachCoefficients(wb, a);
+   if (!held && pending_.active && pending_.made == pending_.b.bleach.size())
+   {
+      AdoptPending();
+      held = BleachCoefficients(wb, a);
+   }
+   if (held)
+   {
+      // Late in the span: the successor, an image per frame.
+      if (!pending_.active && !windowed_ && cheb_ && spanTau_ > 0.0 && ChebTau(wb) > kPrebuildAt * spanTau_)
+         StartPending(wb);
+      MakePendingImage();
+      images_.Render(a, cam);
+      return;
+   }
+   lastFast_ = false;
+   if (!pending_.active)
+   {
+      // A new basis anchored here: a Chebyshev one's first image holds this frame; dose groups (disjoint channels) need
+      // all of theirs, made now (RenderFrame's new basis).
+      StartPending(wb);
+      if (pending_.b.cheb)
+      {
+         MakePendingImage();
+         RenderOneOff(wb, true, cam);
+         return;
+      }
+      while (pending_.made < pending_.b.bleach.size())
+         MakePendingImage();
+      AdoptPending();
+      if (!BleachCoefficients(wb, a))
+         a = AnchorCoefficients();
+      images_.Render(a, cam);
+      return;
+   }
+   MakePendingImage();
+   RenderOneOff(wb, false, cam);
 }
 
 void WidefieldScene::RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells,

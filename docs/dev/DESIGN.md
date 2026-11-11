@@ -150,6 +150,7 @@ All of them are styled in `web/index.html`'s `<style>` with tokens only.
 | Dialog | `iscSettings.dialog(html, onClose)` (`#setDlg`) | a choice or a long job (save, load) | a scrim (`--color-overlay-scrim`); Esc closes. Do not use `alert` or `confirm` in new code. |
 | Tooltip | `#tip` (settings names, `data-tip`), `.pTip` (drawings) | help, a value | same look; opens on hover and focus; never essential |
 | Overlay box | `#hud`, `#legend`, `#lv_play` | over the images | `--color-overlay-*`, dark in every theme |
+| Notice | `#threadNotice` (a warn icon, the text, ✕) | a lasting condition of the page itself (it runs on one thread) | fixed at the bottom centre, `--color-surface-raised` with a `--color-status-warn` border; ✕ hides it for the session; not for a setting's warnings (those are the Info box's) |
 
 ## 5. Settings: words and levels
 

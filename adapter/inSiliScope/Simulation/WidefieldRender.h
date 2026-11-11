@@ -411,6 +411,14 @@ class WidefieldPlaneFactor
 public:
    virtual ~WidefieldPlaneFactor() = default;
    virtual float At(long k, double z0Um, double z1Um, double xUm, double yUm) const = 0;
+   // At at n cells of plane k (2026-11-11; out[i] = At(k, z0, z1, x[i], y[i]) bit for bit): a factor that can make
+   // its plane's parts once overrides it.
+   virtual void AtCells(long k, double z0Um, double z1Um, const double* xUm, const double* yUm, size_t n,
+                        float* out) const
+   {
+      for (size_t i = 0; i < n; ++i)
+         out[i] = At(k, z0Um, z1Um, xUm[i], yUm[i]);
+   }
    std::vector<double> key;
 };
 
@@ -513,6 +521,29 @@ public:
    // One frame at exactly wb: the basis coefficients when wb fits, else a basis of wb alone (one image, never the full
    // basis): a structured pattern's state that a movie draws in a few frames only (2026-11-03). Adds to cam.
    void RenderExact(const std::vector<float>& wb, std::vector<float>& cam);
+   // A live frame of a structured pattern's state (2026-11-11; the host: one frame per movie, the state's scene kept
+   // across the pattern's cycles): RenderFrame without a pause. The basis in use renders every frame it holds; its
+   // successor is made one channel image per frame -- started at kPrebuildAt of the basis' span, or by a frame it no
+   // longer holds (that frame from the new basis' first image) --, and each frame neither holds is rendered at its
+   // own weights (RenderExact's image, the basis left alone). A function of the frames' requests (no thread), so the
+   // viewer's live frames stay reproducible; within the basis' tolerance of RenderExact (a few ADU).
+   void RenderFrameProgressive(const std::vector<float>& wb, std::vector<float>& cam);
+   // The next window's basis made ahead (2026-11-11; a host whose weight entries change at known times -- a live
+   // state's map that changes with height, its bands per window): PrepareNext starts it for that window's bands, map,
+   // rates and weights at its start (RenderFrameProgressive makes it an image per frame meanwhile; again with the same
+   // inputs: nothing), Prepared says whether it is the one being made, and AdoptPrepared, when the window has come
+   // (called before SetWeightBands / SetWeightMap / SetWeightRates with that window's), finishes and takes it: the
+   // inputs change without dropping the basis. Windowed: no basis is started late in its span (the next window's is).
+   void SetWindowed(bool on) { windowed_ = on; }
+   // windowSec: the window's start (the host's time): a basis is taken only when its window has begun (2026-11-11:
+   // the next window's entries can equal the current ones; taken at once, unmade, LatticeSIM3D stalled 3 s a state).
+   bool Prepared(const std::vector<double>& edgesUm, const std::shared_ptr<const WidefieldWeightMap>& map,
+                 const std::shared_ptr<const std::vector<float>>& rates, double windowSec) const;
+   void PrepareNext(const std::vector<double>& edgesUm, std::shared_ptr<const WidefieldWeightMap> map,
+                    std::shared_ptr<const std::vector<float>> rates, double tauPerRate, const std::vector<float>& wb,
+                    double windowSec);
+   bool AdoptPrepared(const std::vector<double>& edgesUm, const std::shared_ptr<const WidefieldWeightMap>& map,
+                      const std::shared_ptr<const std::vector<float>>& rates, double tauPerRate, double windowSec);
    // The same with the sample moved by (dxCells, dyCells) grid cells
    // (RenderShiftedImages; needs SetKeepSpectra, else unshifted).
    void RenderFrameShifted(const std::vector<float>& wb, double dxCells, double dyCells, std::vector<float>& cam);
@@ -636,6 +667,10 @@ private:
                       std::vector<cfloat>& out) const;
    // The weight of a channel's dyes in cell `cell` of plane k (counts x weight x the plane factor).
    float CellValue(const Channel& c, long k, uint32_t cell, float count) const;
+   // CellValue at every cell of a plane's list (vals[i] for cells[i]; = CellValue bit for bit, the plane factor's
+   // parts made once per plane).
+   void CellValues(const Channel& c, long k, const std::vector<uint32_t>& cells, const std::vector<float>& counts,
+                   std::vector<float>& vals) const;
    // A mapped channel's weight at grid cell `cell` between its entries (band: the band's first entry; w: its tile's).
    float MappedWeight(const Channel& c, uint32_t cell, size_t band, float w) const;
    void LogWeights(Channel& c) const;
@@ -769,6 +804,48 @@ private:
    bool FitBasis(const std::vector<float>& wb, std::vector<double>& a);
    // A Chebyshev basis with host rates: the decay (rate x time, at the largest rate) it was made to hold; else 0.
    double spanTau_ = 0.0;
+   // RenderFrameProgressive: a basis (its channels, their parameters and images) apart from the scene's, swapped in
+   // to build or to draw it (BuildBleachChannels, ChannelImage and MappedWeight read the scene's members).
+   struct BasisParts
+   {
+      std::vector<Channel> bleach;
+      std::vector<float> groupDose;
+      std::vector<int32_t> cellChannel;
+      std::vector<size_t> channelMax;
+      bool valid = false, cheb = false;
+      float doseMax = 0.0f;
+      std::vector<float> wbRef, lwRef;
+      size_t chebRef = 0;
+      double wbRefMax = 0.0, spanTau = 0.0;
+      std::vector<double> rateBinMax;
+      std::shared_ptr<const std::vector<float>> basisRates;
+      std::vector<std::vector<float>> images;
+   };
+   void SwapBasis(BasisParts& b);   // the scene's basis <-> b (images_.bleach <-> b.images)
+   struct Pending
+   {
+      BasisParts b;
+      size_t made = 0;
+      bool active = false;
+      unsigned long long inputs = 0, focus = 0;
+      // PrepareNext: the window's inputs it is made for (swapped in to make it).
+      bool prepared = false;
+      std::vector<double> bands;
+      std::shared_ptr<const WidefieldWeightMap> map;
+      std::shared_ptr<const std::vector<float>> rates;
+      double rateTau = 0.0, windowSec = 0.0;
+   };
+   Pending pending_;
+   bool windowed_ = false;
+   void SwapPreparedInputs();   // the scene's weight bands, map, rates <-> pending_'s (prepared)
+   // The decay (rate x time at the reference entry) of wb from the basis' anchor (BleachCoefficients' tau); -1: none.
+   double ChebTau(const std::vector<float>& wb) const;
+   void StartPending(const std::vector<float>& wb);
+   void MakePendingImage();
+   void AdoptPending();
+   // The frame of wb from a basis of wb alone (RenderExact's), the scene's basis untouched; or from the pending
+   // basis' first image (fromPending).
+   void RenderOneOff(const std::vector<float>& wb, bool fromPending, std::vector<float>& cam);
    void StartAsyncBasis(const std::vector<float>& wb);
    void TrimCache(unsigned long long keepStamp);
    // The bleach channels' images at the plan (the accelerator's, else the CPU's).

@@ -29,6 +29,11 @@ with advertisers. The Micro-Manager adapter, the command-line tool and the webSM
 A choice counts only when you make it: settings the viewer restores from your last visit, and the settings a preset
 changes, are not counted.
 
+On the viewer the counts are usually sent by the page itself rather than by Umami's script: to render on all your
+processor's cores, the viewer runs "cross-origin isolated" (a small service worker, `coi_sw.js`, adds two headers to
+the viewer page), and such a page may not load another site's script. It then sends the same page view and events
+directly to Umami's collection address. Nothing else changes: the same fixed data, the same opt-outs below.
+
 ## Why there is no cookie banner
 
 The EU rules behind cookie banners cover storing or reading information on your device. Umami stores nothing on it,

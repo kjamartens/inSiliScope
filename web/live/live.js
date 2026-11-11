@@ -314,7 +314,7 @@ L.stepZ = stepZ;
 function worker() {
   if (L.worker) return L.worker;
   if (!genWorkers.ok) return null;
-  L.worker = spawnGenWorker();
+  L.worker = spawnGenWorker({ mt: true });   // (the threaded module where the page is cross-origin isolated)
   L.worker.onmessage = e => onResult(e.data);
   // a failure here stops live only (the shared handler would move every worker to the main thread)
   L.worker.onerror = e => { e.preventDefault(); L.err = workerErrorText(e.message || 'the live worker failed'); L.pending = null; L.worker.terminate(); L.worker = null; L.worldKey = null; setLive(false); };

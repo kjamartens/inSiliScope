@@ -4,6 +4,7 @@
 #include "GroundTruth.h"
 #include "LiveScope.h"
 #include "MemoryReport.h"
+#include "Parallel.h"
 #include "ScopeMovie.h"
 #include "Timing.h"
 #include "WidefieldRender.h"
@@ -21,6 +22,8 @@
 #include <map>
 #include <memory>
 #include <string>
+
+namespace isc { void SetWorldThreads(int n); }   // (core/src/parallel.h: the core's thread count)
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
@@ -584,6 +587,15 @@ ISC_API void isc_bf_end(int32_t h) { g_bf.erase(h); }
 // isc_live_paths(): how the last frame's fluorescence was drawn (LiveFrameInfo::paths, a JSON array of strings).
 // isc_live_profile(1): collect the engine's timing phases (Timing.h) per frame; isc_live_profile_json() = the last
 // frame's (TimingProfileTake: {"seconds", "phases": {name: {count, totalMs, meanMs, maxMs}}}).
+// The threads every engine and core call may use (the threaded module; 0: all, up to 8): the viewer leaves some cores
+// to the computer and the page (2026-11-11). The plain module runs serially either way.
+ISC_API void isc_set_threads(int32_t n)
+{
+#if ISC_PARALLEL_THREADS
+   sim::ParallelThreadCap().store(n > 0 ? static_cast<unsigned>(n) : 0u);
+#endif
+   isc::SetWorldThreads(n > 0 ? n : 0);
+}
 static sim::LiveScope g_live;
 static std::vector<uint16_t> g_liveImage;
 static std::string g_livePaths = "[]", g_liveProfile = "{}";
