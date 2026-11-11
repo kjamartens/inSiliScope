@@ -3,6 +3,20 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## v0.1.0-rc20 (changes since v0.1.0-rc19)
+
+Faster live structured illumination with WideField labels, and a multithreaded viewer:
+
+- **The viewer renders on several cores.** On first visit the page installs a small service worker (`coi_sw.js`). It adds two headers to the viewer page only and reloads the page once. The page is then cross-origin isolated, and live runs a threaded build of the engine.
+  - Live uses half your logical cores less one, at most 8 (5 on a 12-thread CPU), so a core stays free for the computer and one for the page. `?threads=N` sets the number, `?threads=0` runs on one core.
+  - Frames are the same bit for bit as on one core.
+  - Where isolation is not possible (some private windows), a notice at the bottom of the window says the viewer runs on one thread.
+  - The usage counts are sent by the page itself there, since Umami's script cannot load (the same data; [privacy](docs/privacy.md)).
+- **Live SIM + WideField** keeps each pattern state's bleach basis across the cycles and makes the next one ahead, one image per frame, never a pause. Native, one thread, SIM2D at 256 px: about 270-400 ms a frame before, 112 ms now on average (40 ms steady). The first ~100 frames cost about twice as much while the bases are built. Live frames differ from a recording's exact ones within the basis's tolerance (a few ADU) **seed** (live only; `fresh-basis 1` keeps the old path).
+- **WideField dye planes are 100 nm by default** (`Renderer.WideFieldZPlaneNm`, `wf-plane-nm`; Quality Fast and Realistic; Exhaustive keeps 25 nm, the old default). Each plane is an FFT per image, so WideField frames are much faster (live SIM2D 2.3-2.6x). The photons move by 0.25-0.9 % rms, far below the shot noise. Under TIRF the planes stay at most a sixth of the light's decay depth (about 26 nm), whatever the setting. See [Dye plane thickness](docs/physics/optics.md#dye-plane-thickness) **seed** (WideField and mean-field images).
+- A pattern's light is made once per dye plane instead of once per cell (LatticeSIM3D about 40 % faster a frame; output unchanged).
+- Tools: `live_bench` (live frames timed, cli build), `tests/web/live_speed.mjs` (the viewer module under Node), `tools/fft_bench` (FFT libraries compared: no switch).
+
 ## v0.1.0-rc19 (changes since v0.1.0-rc18)
 
 Viewer redesign ([design doc](docs/dev/DESIGN.md)):
