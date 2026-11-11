@@ -86,6 +86,9 @@
     { "id": "wf-default", "title": "Widefield, mEGFP",
       "text": "mt-dye mEGFP (WideField mode, 70% of the sites) with its 488 nm preset: every dye emits at once, mean-field 3D PSF convolution over world-anchored z planes.",
       "options": {"npc-dye": "None", "mt-dye": "mEGFP", "light-preset": "auto", "frames": 20} },
+    { "id": "wf-plane-25", "title": "Widefield, 25 nm dye planes (Quality Exhaustive)",
+      "text": "wf-plane-nm 25 (Renderer.Quality Exhaustive, and the default until 2026-11-11; Fast and Realistic: 100): the dyes binned into planes a quarter as thick before the 3D PSF convolution, four times the planes' FFTs; the photons move by about 0.4 % rms.",
+      "options": {"npc-dye": "None", "mt-dye": "mEGFP", "light-preset": "auto", "wf-plane-nm": 25, "frames": 20} },
     { "id": "wf-bleaching", "title": "Widefield photobleaching",
       "text": "mEGFP with a 2000-photon budget (mt-dye.photon-budget) and 500 ms frames from t = 0: the image fades with the exact per-frame bleaching integral.",
       "options": {"npc-dye": "None", "mt-dye": "mEGFP", "light-preset": "auto", "mt-dye.photon-budget": 2000, "start-sec": 0, "exposure-ms": 500, "frames": 40} },
@@ -310,7 +313,8 @@
     { "title": "Render quality",
       "story": "A few switches trade accuracy for speed. At the defaults the difference should be invisible under the noise; that is how the defaults were chosen. Each panel is one of those switches turned all the way up (or down), with the time it takes per frame (this machine's cli, measured when the gallery was built).",
       "rows": [
-        {"panels": [["sr-default", "default (Realistic)"], ["sr-psf-exhaustive", "whole PSF per blink"], ["sr-blink-min-photons-0", "every dim blink"], ["sr-psf-interp", "nearest-grid placement"]], "shared": true, "show_time": true, "caption": "Four ways of drawing the same blinks."}
+        {"panels": [["sr-default", "default (Realistic)"], ["sr-psf-exhaustive", "whole PSF per blink"], ["sr-blink-min-photons-0", "every dim blink"], ["sr-psf-interp", "nearest-grid placement"]], "shared": true, "show_time": true, "caption": "Four ways of drawing the same blinks."},
+        {"panels": [["wf-default", "100 nm dye planes (default, Realistic)"], ["wf-plane-25", "25 nm dye planes (Exhaustive)"]], "shared": true, "show_time": true, "caption": "Widefield: four times thinner dye planes, four times the work, the same image under the noise (TIRF takes thin planes by itself)."}
       ] }
   ]
 }

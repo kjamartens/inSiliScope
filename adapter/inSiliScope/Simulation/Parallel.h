@@ -20,11 +20,19 @@
 
 #pragma once
 
+// Threads: native, and the viewer's threaded WASM module (Emscripten pthreads, 2026-11-11); the plain WASM module
+// runs every ParallelFor serially.
+#if !defined(__EMSCRIPTEN__) || defined(__EMSCRIPTEN_PTHREADS__)
+#define ISC_PARALLEL_THREADS 1
+#else
+#define ISC_PARALLEL_THREADS 0
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <vector>
-#if !defined(__EMSCRIPTEN__)
+#if ISC_PARALLEL_THREADS
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -47,7 +55,14 @@ inline std::atomic<unsigned long>& ParallelForSpawns()
    return n;
 }
 
-#if !defined(__EMSCRIPTEN__)
+#if ISC_PARALLEL_THREADS
+// A host's cap on the threads a call may use (0: none; the viewer's threaded module: isc_set_threads, 2026-11-11, so
+// live leaves cores to the computer and the page).
+inline std::atomic<unsigned>& ParallelThreadCap()
+{
+   static std::atomic<unsigned> cap{0};
+   return cap;
+}
 // The threads a call may use: the hardware's, or ISC_THREADS=n (ctest runs several test processes side by side).
 inline unsigned HardwareThreads()
 {
@@ -61,10 +76,15 @@ inline unsigned HardwareThreads()
 #pragma warning(pop)
 #endif
       const int cap = e ? std::atoi(e) : 0;
-      const unsigned hw = std::max(1u, std::thread::hardware_concurrency());
+      unsigned hw = std::max(1u, std::thread::hardware_concurrency());
+#if defined(__EMSCRIPTEN__)
+      // (the threaded viewer module: its pthread pool is made up front for kWasmThreads per pool, cli/CMakeLists.txt)
+      hw = std::min(hw, 8u);
+#endif
       return cap > 0 ? std::min(hw, (unsigned)cap) : hw;
    }();
-   return n;
+   const unsigned host = ParallelThreadCap().load(std::memory_order_relaxed);
+   return host > 0 ? std::min(n, host) : n;
 }
 
 class ParallelPool
@@ -195,7 +215,7 @@ class ParallelPool;
 template <class Fn>
 void ParallelFor(unsigned n, Fn fn)
 {
-#if defined(__EMSCRIPTEN__)
+#if !ISC_PARALLEL_THREADS
    for (unsigned i = 0; i < n; ++i)
       fn(i);
 #else
@@ -210,6 +230,12 @@ void ParallelFor(unsigned n, Fn fn)
    const std::function<void(unsigned)> f = [&fn](unsigned i) { fn(i); };
    if (SharedParallelPool().Run(n, T - 1, f))
       return;
+#if defined(__EMSCRIPTEN__)
+   // (WASM: a thread cannot be made while this one waits -- its worker comes from the event loop --: serially.)
+   for (unsigned i = 0; i < n; ++i)
+      fn(i);
+   return;
+#endif
    // The pool is busy (another thread's call): threads of this call's own.
    std::atomic<unsigned> next{0};
    auto worker = [&]() {
@@ -232,7 +258,7 @@ void ParallelFor(unsigned n, Fn fn)
 template <class Fn>
 void ParallelForOn(ParallelPool* pool, unsigned n, Fn fn)
 {
-#if defined(__EMSCRIPTEN__)
+#if !ISC_PARALLEL_THREADS
    (void)pool;
    for (unsigned i = 0; i < n; ++i)
       fn(i);

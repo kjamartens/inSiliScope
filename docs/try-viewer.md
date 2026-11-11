@@ -79,6 +79,13 @@ through it step by step.
   swipe goes further) or press − / + (held, they repeat). On the world view one finger pans; two fingers pinch to zoom,
   twist to turn the view, and moved up or down together they tilt it. A long press on a setting's name shows its help.
   The page starts at most two cell workers on a touch screen, to stay within a phone's memory.
+- **Threads.** Live renders on several of your processor's cores: half its logical cores less one (5 on a 12-thread
+  processor, at most 8), so one core stays free for the computer and one for the page; `?threads=N` sets the number. For that the page must be "cross-origin isolated":
+  on your first visit it installs a small service worker (`coi_sw.js`, which adds two headers to the viewer page and
+  touches nothing else) and reloads once. Where that is not possible (a private window in some browsers, or a browser
+  without service workers) the viewer runs on one core and says so in a box at the bottom of the window ("Running on
+  one thread..."; ✕ closes it for the session); a current Chrome, Edge or Firefox outside a private window runs
+  threaded. Both give the same frames, bit for bit. `?threads=0` in the address runs on one core on purpose.
 - **Live** starts by itself once the engine is up (the empty image shows "Starting..." until the first frame; it does
   not count as a press in the usage counts; `?live=0` in the address keeps it off) and renders
   one camera frame after the other at the view centre, at most one per exposure time (the line beside

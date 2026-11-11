@@ -547,6 +547,128 @@ double Excitation::PlaneMean(double x, double y, double z0, double z1, double ce
    return s;
 }
 
+void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const ExcitationShares& shares,
+                                  PlaneMeanPrep& p) const
+{
+   // Each value as PlaneMean / ComponentLateral / DampedCosMean make it (the same expressions): PlaneMeanAt then
+   // repeats only what depends on the cell.
+   p.ok = patterned_ && !clipped_;
+   p.comps.clear();
+   p.lines.clear();
+   if (!p.ok)
+      return;
+   const double a = std::max(0.0, z0), b = std::max(a, z1), zc = std::max(0.0, (z0 + z1) / 2);
+   p.flat = !(b > a);
+   p.ba = b - a;
+   const size_t N = state_.beams.size();
+   const size_t base = static_cast<size_t>(state_.light.angle) * N;
+   p.comps.resize(N);
+   p.env.assign(N, 0.0);
+   for (size_t j = 0; j < N; ++j)
+   {
+      const size_t cj = base + j < comps_.size() ? base + j : j;
+      const Component& c = comps_[cj];
+      PlaneMeanPrep::Comp& q = p.comps[j];
+      q.clipped = c.clipped;
+      q.env = &envs_[cj];
+      q.plain = c.azimuth == 0.0 && c.ox == 0.0 && c.oy == 0.0;
+      q.ox = c.ox;
+      q.oy = c.oy;
+      q.ca = std::cos(c.azimuth);
+      q.sa = std::sin(c.azimuth);
+      q.shift = (c.tirf ? 0.0 : zc - zp_) * c.tanS;
+      q.cosI = c.cosI;
+   }
+   for (const ExcitationLine& l : shares)
+   {
+      const Pattern* pat = PatternOf(l.nm);
+      if (!pat)
+         continue;
+      PlaneMeanPrep::Line line;
+      line.share = l.share;
+      for (const PatternTerm& t : pat->terms)
+      {
+         PlaneMeanPrep::Term q;
+         q.j = static_cast<size_t>(t.j);
+         q.l = static_cast<size_t>(t.l);
+         q.same = t.j == t.l;
+         q.amp = t.amp;
+         if (q.same)
+            q.dc = t.decayUm > 0 ? DampedCosMean(t.decayUm, 0.0, 0.0, a, b) : 1.0;
+         else
+         {
+            q.qx = t.qx;
+            q.qy = t.qy;
+            q.phase = t.phase;
+            const double sr = t.decayUm > 0 ? -1.0 / t.decayUm : 0.0;
+            if (p.flat)
+            {
+               q.ea = std::exp(sr * a);
+               q.kza = t.kz * a;
+            }
+            else
+            {
+               const std::complex<double> s(sr, t.kz);
+               if (std::abs(s) < 1e-12)
+                  q.integral = b - a;
+               else
+                  q.integral = (std::exp(s * b) - std::exp(s * a)) / s;
+            }
+            q.sinc = cellUm > 0;
+            if (q.sinc)
+               q.sincs = Sinc(t.qx * cellUm / 2) * Sinc(t.qy * cellUm / 2);
+         }
+         line.terms.push_back(q);
+      }
+      p.lines.push_back(std::move(line));
+   }
+}
+
+double Excitation::PlaneMeanAt(double x, double y, const PlaneMeanPrep& p) const
+{
+   const size_t N = p.comps.size();
+   double* env = p.env.data();
+   for (size_t j = 0; j < N; ++j)
+   {
+      const PlaneMeanPrep::Comp& c = p.comps[j];
+      const Envelope& e = *static_cast<const Envelope*>(c.env);
+      if (c.clipped)
+         env[j] = 0.0;
+      else if (c.plain)
+         env[j] = EnvelopeAt(e, (x - c.shift) * c.cosI, y);
+      else
+      {
+         const double dx = x - c.ox, dy = y - c.oy;
+         const double xr = dx * c.ca + dy * c.sa, yr = -dx * c.sa + dy * c.ca;
+         env[j] = EnvelopeAt(e, (xr - c.shift) * c.cosI, yr);
+      }
+   }
+   const std::complex<double> I(0.0, 1.0);
+   double s = 0.0;
+   for (const PlaneMeanPrep::Line& l : p.lines)
+   {
+      double v = 0.0;
+      for (const PlaneMeanPrep::Term& t : l.terms)
+      {
+         double e = t.same ? env[t.j] : std::sqrt(env[t.j] * env[t.l]);
+         if (!(e > 0))
+            continue;
+         if (t.same)
+            e *= t.dc;
+         else
+         {
+            const double theta = t.qx * x + t.qy * y + t.phase;
+            e *= p.flat ? t.ea * std::cos(theta + t.kza) : std::real(std::exp(I * theta) * t.integral) / p.ba;
+            if (t.sinc)
+               e *= t.sincs;
+         }
+         v += t.amp * e;
+      }
+      s += l.share * v;
+   }
+   return s;
+}
+
 double Excitation::Column(double x, double y, double H, const ExcitationShares& shares) const
 {
    if (clipped_ || !(H > 0.0))

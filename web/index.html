@@ -3,6 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// Threads (2026-11-11): the threaded module (insiliscope_module_mt.js) needs a cross-origin isolated page, which
+// coi_sw.js makes on a host that sets no headers. First visit: the worker is registered and the page reloads once to
+// be served through it (once per tab: sessionStorage); ?threads=0 keeps the single-threaded module. iscCoi.pending:
+// a reload is coming (the single-thread notice waits). iscCoi.nThreads: the threads live may use -- half the logical
+// cores less one (12 -> 5: most have two per core; at most 8), so a core is left to the computer and one to the page;
+// ?threads=N sets it.
+self.iscCoi = (() => {
+  const st = { isolated: !!self.crossOriginIsolated, pending: false, reason: '', threads: false, nThreads: 1 };
+  const q = new URLSearchParams(location.search).get('threads'), off = q === '0';
+  st.nThreads = q && +q > 0 ? Math.min(8, Math.floor(+q)) : Math.max(1, Math.min(8, Math.floor((navigator.hardwareConcurrency || 4) / 2) - 1));
+  st.threads = st.isolated && !off;
+  const KEY = 'isc.coi.reload';
+  const once = () => { try { if (sessionStorage.getItem(KEY)) return false; sessionStorage.setItem(KEY, '1'); return true; } catch (e) { return false; } };
+  if (st.isolated) { try { sessionStorage.removeItem(KEY); } catch (e) {} return st; }
+  const sw = navigator.serviceWorker;
+  if (off) st.reason = 'off';
+  else if (!self.isSecureContext || !sw) st.reason = 'no-service-worker';
+  if (st.reason) return st;
+  st.pending = true;
+  sw.register('coi_sw.js').then(() => sw.ready).then(() => {
+    if (once()) location.reload();
+    else { st.pending = false; st.reason = 'not-isolated'; self.dispatchEvent(new Event('isc-coi')); }
+  }).catch(() => { st.pending = false; st.reason = 'no-service-worker'; self.dispatchEvent(new Event('isc-coi')); });
+  return st;
+})();
+</script>
 <title>inSiliScope</title>
 <!-- Link previews (LinkedIn, X, Slack, ...): social.jpg is web/social.jpg, copied to the site root by tools/build_site.sh. -->
 <meta name="description" content="A simulated fluorescence microscope in your browser: synthetic cells and DNA-origami nanorulers in 3D, imaged live with realistic dyes, optics and camera noise (dSTORM, PALM, DNA-PAINT, widefield, brightfield). Also a Micro-Manager device adapter.">
@@ -407,6 +434,13 @@
     text-align:left;font-size:var(--font-size-caption);line-height:1.35;border-radius:var(--radius-sm);cursor:pointer;
     background:var(--color-surface);border:1px solid var(--sev-c);color:var(--color-text)}
   #lv_warn[hidden]{display:none}
+  /* The single-thread notice (iscCoi): a box over the bottom of the window, until closed. */
+  #threadNotice{position:fixed;left:50%;bottom:var(--space-3);transform:translateX(-50%);z-index:50;display:flex;align-items:flex-start;
+    gap:var(--space-2);max-width:min(560px,calc(100vw - 2 * var(--space-3)));padding:var(--space-2) var(--space-3);
+    font-size:var(--font-size-caption);line-height:1.35;border-radius:var(--radius-sm);background:var(--color-surface-raised);
+    border:1px solid var(--color-status-warn);color:var(--color-text)}
+  #threadNotice[hidden]{display:none}
+  #threadNotice .i{flex:none;color:var(--color-status-warn)}
   #lv_warn[data-sev=error]{--sev-c:var(--color-status-error)} #lv_warn[data-sev=warn]{--sev-c:var(--color-status-warn)}
   #lv_warn[data-sev=info]{--sev-c:var(--color-border-strong)}
   #lv_warn .i,#lv_warnPop .i{flex:none;color:var(--sev-c)}
@@ -835,6 +869,8 @@
 <script src="live/mm_config.js"></script>
 <script src="origami_designs.js"></script>
 <script src="insiliscope_module.js"></script>
+<!-- The threaded module (ISC_MODULE_MT_SRC) only on a cross-origin isolated page: the live worker runs it. -->
+<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js"><\/script>');</script>
 <script src="live/scope_panels.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="scene/core.js"></script>
@@ -4734,13 +4770,16 @@ function iscEngine(M) {
 function genWorkerMain() {
   // The first message is 'init' with the WebAssembly.Module the main thread compiled once (or null:
   // this worker decodes and compiles the module's own base64); jobs wait for the engine.
+  // (The threaded module's own threads run this same script -- Emscripten starts a pthread from its creator's script
+  // -- named em-pthread: the module answers their messages, not this.)
+  if (self.name === 'em-pthread') return;
   let start;
   const ready = new Promise(r => { start = r; });
   onmessage = e => {
     const d = e.data;
     if (d && d.type === 'init') {
       const opts = d.module ? { instantiateWasm(info, done) { WebAssembly.instantiate(d.module, info).then(inst => done(inst, d.module)); return {}; } } : {};
-      start(createInsiliscope(opts).then(M => iscEngine(M)));
+      start(createInsiliscope(opts).then(M => { if (d.threads && M._isc_set_threads) M._isc_set_threads(d.threads); return iscEngine(M); }));
       return;
     }
     ready.then(eng => Promise.resolve(eng.handle(d, m => postMessage(m)))).then(([out, transfer]) => {
@@ -4801,7 +4840,25 @@ const wasmModulePromise = (() => {
 function wasmModuleOptions(mod) {
   return mod ? { instantiateWasm(info, done) { WebAssembly.instantiate(mod, info).then(inst => done(inst, mod)); return {}; } } : {};
 }
-function spawnGenWorker() {
+// mt: the threaded module when the page has it (iscCoi; the live worker), else the plain one. Its threads run the
+// same Blob script (genWorkerMain stands aside in them).
+let genMtBlobUrl = null;
+const wasmMtModulePromise = (() => {
+  try {
+    const m = /data:application\/octet-stream;base64,([A-Za-z0-9+\/=]+)/.exec(self.ISC_MODULE_MT_SRC || '');
+    if (!m || !self.iscCoi.threads) return Promise.resolve(null);
+    const bin = atob(m[1]), bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return WebAssembly.compile(bytes).catch(() => null);
+  } catch (e) { return Promise.resolve(null); }
+})();
+function spawnGenWorker(opts = {}) {
+  if (opts.mt && genMtBlobUrl) {
+    const w = new Worker(genMtBlobUrl);
+    w.onerror = e => console.warn('the threaded worker failed:', e.message);
+    wasmMtModulePromise.then(mod => w.postMessage({ type: 'init', module: mod, threads: self.iscCoi.nThreads }));
+    return w;
+  }
   const w = new Worker(genBlobUrl);
   w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
   // The shared compiled module (a structured clone); a browser that cannot clone it gets null.
@@ -4816,6 +4873,9 @@ function initGenWorkers() {
       (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
       iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
     genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+    if (self.ISC_MODULE_MT_SRC && self.iscCoi.threads) {
+      genMtBlobUrl = URL.createObjectURL(new Blob([code.replace(self.ISC_MODULE_SRC, () => self.ISC_MODULE_MT_SRC)], { type: 'text/javascript' }));
+    }
     // (a touch screen: at most 2 cell workers, as each one holds its own WASM heap of >= 96 MB and a phone's tab is
     // stopped well below what a desktop's may use)
     const K = Math.max(1, Math.min(matchMedia('(pointer:coarse)').matches ? 2 : 6, (navigator.hardwareConcurrency || 4) - 2));
@@ -7722,5 +7782,21 @@ resizeCanvas();
 <script src="live/settings_file.js"></script>
 <script src="anim/editor.js"></script>
 <script src="live/persist.js"></script>
+<div id="threadNotice" role="status" hidden><span class="i" aria-hidden="true">&#9888;</span>
+  <span>Running on one thread, so live frames are slower. Reload the page, or use a current Chrome, Edge or Firefox
+  outside a private window.</span>
+  <button type="button" aria-label="Close" title="Close">&#10005;</button></div>
+<script>
+// The single-thread notice: the page is not cross-origin isolated (iscCoi), unless a reload is coming or it was closed
+// in this tab.
+(() => {
+  const box = document.getElementById('threadNotice'), KEY = 'isc.ui.threadNoticeShut';
+  const shut = () => { try { return sessionStorage.getItem(KEY) === '1'; } catch (e) { return false; } };
+  const show = () => { box.hidden = self.iscCoi.threads || self.crossOriginIsolated || self.iscCoi.pending || self.iscCoi.reason === 'off' || shut(); };
+  box.querySelector('button').onclick = () => { try { sessionStorage.setItem(KEY, '1'); } catch (e) {} box.hidden = true; };
+  self.addEventListener('isc-coi', show);
+  show();
+})();
+</script>
 </body>
 </html>

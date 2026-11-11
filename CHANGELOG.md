@@ -3,7 +3,50 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
-## Unreleased
+## v0.1.0-rc20 (changes since v0.1.0-rc19)
+
+Faster live structured illumination with WideField labels, and a multithreaded viewer:
+
+- **The viewer renders on several cores.** On first visit the page installs a small service worker (`coi_sw.js`). It adds two headers to the viewer page only and reloads the page once. The page is then cross-origin isolated, and live runs a threaded build of the engine.
+  - Live uses half your logical cores less one, at most 8 (5 on a 12-thread CPU), so a core stays free for the computer and one for the page. `?threads=N` sets the number, `?threads=0` runs on one core.
+  - Frames are the same bit for bit as on one core.
+  - Where isolation is not possible (some private windows), a notice at the bottom of the window says the viewer runs on one thread.
+  - The usage counts are sent by the page itself there, since Umami's script cannot load (the same data; [privacy](docs/privacy.md)).
+- **Live SIM + WideField** keeps each pattern state's bleach basis across the cycles and makes the next one ahead, one image per frame, never a pause. Native, one thread, SIM2D at 256 px: about 270-400 ms a frame before, 112 ms now on average (40 ms steady). The first ~100 frames cost about twice as much while the bases are built. Live frames differ from a recording's exact ones within the basis's tolerance (a few ADU) **seed** (live only; `fresh-basis 1` keeps the old path).
+- **WideField dye planes are 100 nm by default** (`Renderer.WideFieldZPlaneNm`, `wf-plane-nm`; Quality Fast and Realistic; Exhaustive keeps 25 nm, the old default). Each plane is an FFT per image, so WideField frames are much faster (live SIM2D 2.3-2.6x). The photons move by 0.25-0.9 % rms, far below the shot noise. Under TIRF the planes stay at most a sixth of the light's decay depth (about 26 nm), whatever the setting. See [Dye plane thickness](docs/physics/optics.md#dye-plane-thickness) **seed** (WideField and mean-field images).
+- A pattern's light is made once per dye plane instead of once per cell (LatticeSIM3D about 40 % faster a frame; output unchanged).
+- Tools: `live_bench` (live frames timed, cli build), `tests/web/live_speed.mjs` (the viewer module under Node), `tools/fft_bench` (FFT libraries compared: no switch).
+
+## v0.1.0-rc19 (changes since v0.1.0-rc18)
+
+Viewer redesign ([design doc](docs/dev/DESIGN.md)):
+
+- **Themes and design tokens:** Dark, Light or Follow system, plus a density setting (Comfortable / Compact), all in ☰. Colours and sizes come from one set of design tokens (`web/design/tokens/`).
+- **New layout:**
+  - **Acquire** sits under the live image: Live / Snap / Record, a stage joystick and focus wheel, the Info box, the display and Acquisition.
+  - **The instrument** (light path, objective & PSF, camera) sits in a second column. A handle spreads it over the image.
+  - **The settings** are in a column at the right edge that folds to a tab. It has one search and a "Changed only" filter.
+  - Each setting appears once, with a reset per row and per group.
+- **The display** is an upright level bar beside the stage, with a grey scale, a histogram and a handle per level. On a phone it lies down.
+- **The Info box** contains:
+  - laser on/off buttons;
+  - the setup in four rows: labels, light, optics, camera;
+  - warnings when something is off, each with what to do. It warns about no light, nothing labelled, a label no line excites or the filters block, saturation, the focus off the sample or above the TIRF light, no cell in view, and slow frames.
+- **The browser tab** is titled inSiliScope.
+
+Behaviour:
+
+- **The BFP position** (viewer and Micro-Manager) moves only by:
+  - its slider;
+  - the light preset (`Lasers.Preset`);
+  - Epi / HILO / TIRF;
+  - a pattern pick;
+  - a reset or a settings file.
+
+  A dye, mode (channel) or slide-dye pick, the imaging mode and a specimen switch now leave it as set. They used to apply the preset's position.
+- **Viewer, SIM at the BFP's centre:** with a SIM pattern on, a BFP position below 0.05 switches the pattern off (epi). Raising it to 0.05 or above brings the pattern back.
+
+Benchmarks and site:
 
 - Benchmarks: each Micro-Manager live case's rate is the median of three 1.5 s windows (one window let a single stall set the rate: rc18's mEGFP WideField dip at 10 and 50 ms was one, not a slowdown).
 - Site: a release's Benchmarks entry shows up again: the push that merges a release no longer deploys the site before the release does (rc18's entry was missing).

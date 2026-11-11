@@ -47,7 +47,12 @@ int WorldThreads()
       const int n = e ? std::atoi(e) : 0;
       return n > 0 ? (unsigned)n : 16u;
    }();
+#if defined(__EMSCRIPTEN__)
+   // (the threaded viewer module: its pthread pool is made up front, cli/CMakeLists.txt)
+   return (int)std::max(1u, std::min({std::thread::hardware_concurrency(), cap, 8u}));
+#else
    return (int)std::max(1u, std::min(std::thread::hardware_concurrency(), cap));
+#endif
 #endif
 }
 

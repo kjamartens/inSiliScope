@@ -52,3 +52,6 @@ gallery.zip
 claude_notes/
 # Local Claude Code settings (launch configurations etc.)
 .claude/
+
+# tools/fft_bench: the libraries under test, cloned locally (README.md there)
+tools/fft_bench/third_party/

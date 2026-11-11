@@ -145,7 +145,8 @@ that square.
 
 ## WideField imaging
 
-Dyes are binned per population into world-anchored z planes (`Renderer.WideFieldZPlaneNm`, default 25 nm) on a grid of
+Dyes are binned per population into world-anchored z planes (`Renderer.WideFieldZPlaneNm`, default 100 nm; see
+[Dye plane thickness](#dye-plane-thickness) below) on a grid of
 `Renderer.WideFieldUpscaling` (1-4) cells per pixel. Each dye plane is convolved with the PSF plane at its defocus (dye planes
 go to the two neighbouring PSF planes with linear weights, i.e. a linearly z-blended PSF), by FFT, then cropped and binned to
 camera pixels:
@@ -170,6 +171,34 @@ Implementation points that matter for accuracy and speed:
 How fine the grid and the z planes need to be:
 
 <!-- fig:wf-grid -->
+
+### Dye plane thickness
+
+Every dye plane is one FFT per frame image, so the plane thickness sets most of a WideField frame's cost: a 7 µm slab
+is 280 planes at 25 nm and 70 at 100 nm. Since 2026-11-11 the default (Quality Fast and Realistic) is **100 nm**;
+Quality Exhaustive keeps **25 nm**, the default before. A dye in a plane is drawn with the PSF at the plane's centre
+(its height is known to ±50 nm) and the light it gets is the exact mean over the plane, so a thicker plane blurs the
+image along z by much less than the PSF's own axial extent (~0.5-1 µm). Measured on the default cell field (mEGFP on
+the microtubules, 256 px, the photon images before the camera, 100 nm planes against 25 nm):
+
+| Illumination | rms difference | largest, on bright pixels | shot noise at the mean |
+|---|---|---|---|
+| Epi | 0.35 % | 1.6 % | 6.5 % |
+| HILO | 0.42 % | 1.5 % | 6.8 % |
+| HILO, focus 2 µm up | 0.25 % | 0.6 % | 6.8 % |
+| SIM2D | 0.39 % | 1.6 % | 10 % |
+| SIM3D | 0.91 % | 2.2 % | 15 % |
+| LatticeSIM3D | 0.82 % | 2.0 % | 40 % |
+| HILO, 40 nm pixel | 0.46 % | 2.5 % | 16 % |
+
+The difference is always far below the shot noise of the same pixels. A live SIM2D WideField frame takes about 2.3-2.6x
+less time (the dye planes' FFTs are most of it).
+
+**TIRF is the exception.** The evanescent light falls by \(e\) over its decay depth \(d\) (~100-200 nm), so within a
+100 nm plane the light changes by a factor of about two: TIRF at \(d\) = 154 nm with 100 nm planes is 3.7 % rms off
+(20 % on bright pixels), against 10 nm planes. Under TIRF the planes are therefore made no thicker than \(d/6\), whatever
+the setting (25 nm at \(d\) = 154 nm: 0.5 % rms). For 25 nm planes everywhere, choose Quality Exhaustive or set
+`Renderer.WideFieldZPlaneNm` (cli/viewer `wf-plane-nm`).
 
 WideField through focus:
 
@@ -229,6 +258,6 @@ BrightField through focus:
 
 ## Renderer.Quality: one knob for speed against precision
 
-Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets six of the knobs above together: the blink halo cut, the dimmest blink drawn, the PSF oversampling and its sample-spacing limit, the WideField grid and the BrightField quality; and, for fiducial beads, whether a clump of beads is drawn as one bead (Fast, Realistic) or bead by bead (Exhaustive; [Fiducial beads](../samples/fiducials.md)); and, under a structured pattern, whether dSTORM's initial-ON and PALM's pre-state dyes glow under the cycle's mean light (Fast, Realistic) or each frame's pattern (Exhaustive; [Structured illumination](dyes-and-light-path.md)). The three levels side by side on the three kinds of image:
+Micro-Manager's `Renderer.Quality` (`Fast`, `Realistic` (the default), `Exhaustive`) sets seven of the knobs above together: the blink halo cut, the dimmest blink drawn, the PSF oversampling and its sample-spacing limit, the WideField grid and its dye plane thickness (`Renderer.WideFieldZPlaneNm`: Fast and Realistic 100 nm, Exhaustive 25 nm; see [Dye plane thickness](#dye-plane-thickness)) and the BrightField quality; and, for fiducial beads, whether a clump of beads is drawn as one bead (Fast, Realistic) or bead by bead (Exhaustive; [Fiducial beads](../samples/fiducials.md)); and, under a structured pattern, whether dSTORM's initial-ON and PALM's pre-state dyes glow under the cycle's mean light (Fast, Realistic) or each frame's pattern (Exhaustive; [Structured illumination](dyes-and-light-path.md)). The three levels side by side on the three kinds of image:
 
 <!-- fig:quality-bundle -->

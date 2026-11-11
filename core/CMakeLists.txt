@@ -6,7 +6,7 @@ else()
   set(ISC_MATH_SRC src/jsmath_fdlibm.cpp)
 endif()
 
-add_library(insiliscope_core STATIC
+set(ISC_CORE_SRC
   src/blockstore.cpp
   src/capi.cpp
   src/cells.cpp
@@ -24,6 +24,7 @@ add_library(insiliscope_core STATIC
   src/params.cpp
   src/world.cpp
 )
+add_library(insiliscope_core STATIC ${ISC_CORE_SRC})
 target_include_directories(insiliscope_core PUBLIC include PRIVATE src)
 if(NOT EMSCRIPTEN)
   # src/parallel.cpp (serial under Emscripten without pthreads).
@@ -45,6 +46,13 @@ if(EMSCRIPTEN)
   # (ctest golden_vectors under Node). Needs a SIMD-capable browser (every
   # current one; Safari since 16.4), as the viewer module already did.
   target_compile_options(insiliscope_core PRIVATE -msimd128)
+  # The threaded viewer module's core (2026-11-11, cli/CMakeLists.txt insiliscope_scope_mt): the same code with
+  # pthreads (src/parallel.cpp's workers; the results do not depend on the thread count, world_checks Threads).
+  add_library(insiliscope_core_mt STATIC ${ISC_CORE_SRC})
+  target_include_directories(insiliscope_core_mt PUBLIC include PRIVATE src)
+  target_compile_options(insiliscope_core_mt PUBLIC -ffp-contract=off -fno-fast-math -Wall -pthread)
+  target_compile_options(insiliscope_core_mt PRIVATE -msimd128)
+  target_compile_definitions(insiliscope_core_mt PRIVATE $<TARGET_PROPERTY:insiliscope_core,COMPILE_DEFINITIONS>)
 endif()
 
 # WASM module: only the C ABI, for the viewer / webSMLM (and M0 size numbers).

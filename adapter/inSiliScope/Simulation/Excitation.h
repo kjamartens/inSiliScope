@@ -39,6 +39,7 @@
 #include "SimPattern.h"
 
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -176,6 +177,42 @@ public:
    // the envelopes at the plane's centre); MeanAt's the same (the mean field's channel 0: F x Lateral x DepthMean).
    double PlaneMean(double x, double y, double z0, double z1, double cellUm, const ExcitationShares& shares) const;
    double MeanPlaneMean(double x, double y, double z0, double z1, const ExcitationShares& shares) const;
+   // PlaneMean at many cells of one plane (2026-11-11): the parts the plane alone sets (the damped cosines' integrals,
+   // the sincs, the beams' rotations, the lines' patterns) made once by PreparePlaneMean, the rest per cell by
+   // PlaneMeanAt -- the same operations on the same values, so PlaneMeanAt = PlaneMean bit for bit. Patterned and not
+   // clipped only (prep.ok false: call PlaneMean).
+   struct PlaneMeanPrep
+   {
+      struct Comp
+      {
+         bool clipped = false, plain = false;   // plain: no azimuth, no offset (ComponentLateral's first branch)
+         const void* env = nullptr;             // its Envelope
+         double ox = 0, oy = 0, ca = 1, sa = 0, shift = 0, cosI = 1;
+      };
+      struct Term
+      {
+         size_t j = 0, l = 0;
+         bool same = false;
+         double amp = 0, dc = 1;                // same: the decay's mean (or 1)
+         double qx = 0, qy = 0, phase = 0;      // a fringe: theta = qx x + qy y + phase
+         double ea = 0, kza = 0;                // a fringe on a flat plane: exp(sr a) cos(theta + kz a)
+         std::complex<double> integral;         // a fringe on a plane: the integral of exp(s z) over [a, b]
+         bool sinc = false;
+         double sincs = 1;                      // the cell's two sincs' product
+      };
+      struct Line
+      {
+         double share = 0;
+         std::vector<Term> terms;
+      };
+      bool ok = false, flat = false;            // flat: !(b > a)
+      double ba = 0;                            // b - a
+      std::vector<Comp> comps;
+      std::vector<Line> lines;
+      mutable std::vector<double> env;          // per cell scratch
+   };
+   void PreparePlaneMean(double z0, double z1, double cellUm, const ExcitationShares& shares, PlaneMeanPrep& p) const;
+   double PlaneMeanAt(double x, double y, const PlaneMeanPrep& p) const;
    // The column integral of MeanAt over the chamber [0, H] um at (x, y) (the free imager's excitation).
    double Column(double x, double y, double H, const ExcitationShares& shares) const;
    // The free imagers' collected column at (x, y) (JS imagerColumnAt): every height's lit imager defocused onto the

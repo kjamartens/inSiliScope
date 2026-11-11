@@ -411,7 +411,7 @@ def wf_pipeline(ctx):
     return figure(body,
                   "How the WideField path for mEGFP (70 %% labelled, 488 nm) forms an image, focus %g µm above the "
                   "coverslip, 9.6 µm field. Rows: the labelled dyes in four 1 µm slabs (counts per pixel, one scale; "
-                  "the renderer itself bins them on 25 nm planes), the PSF at the slab's middle (a 1-photon emitter "
+                  "the renderer itself bins them on 100 nm planes, 25 nm under TIRF), the PSF at the slab's middle (a 1-photon emitter "
                   "on the camera, 3.1 µm across, each its own scale), and the slab's contribution to the image (one "
                   "scale: the slabs far from focus add a dim haze). Each slab image is the cli's: the difference of "
                   "two runs with z windows (`z-range-um`) one slab apart; the four add up to the movie's mean-field "
@@ -432,8 +432,8 @@ def wf_grid(ctx):
     frames = 20
     base = dict(SPOT, size=64, frames=frames, **typical("WideField"), **{"mt-label-pct": 10})
     mean_field = {"mean-field-density-per-um2": 0}
-    cases = [("Upscale 1, 25 nm planes (default)", 1, 25), ("Upscale 2", 2, 25), ("Upscale 3", 3, 25),
-             ("100 nm planes", 1, 100), ("50 nm planes", 1, 50), ("12.5 nm planes", 1, 12.5),
+    cases = [("Upscale 1, 100 nm planes (default)", 1, 100), ("Upscale 2", 2, 100), ("Upscale 3", 3, 100),
+             ("25 nm planes (Exhaustive)", 1, 25), ("50 nm planes", 1, 50), ("12.5 nm planes", 1, 12.5),
              ("Upscale 3, 12.5 nm planes (reference)", 3, 12.5)]
     ctx.cli(dict(base, prepare=1), tag="warm")   # the kernel, so each setup below is the grid's own
     out = {}

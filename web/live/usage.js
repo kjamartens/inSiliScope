@@ -7,6 +7,9 @@
 // A pick counts only when a person makes it (a trusted change event): restored settings, presets setting other controls
 // and Reset fire synthetic events, which are not counted. One summary of what was in use goes when the page closes.
 // The docs carry the same tag (overrides/partials/integrations/analytics/custom.html); keep the website id in step.
+// A cross-origin isolated viewer (2026-11-11: the threaded module, web/coi_sw.js) cannot load Umami's script: there the
+// page sends the same page view and events itself to Umami's collection endpoint (a CORS request, which isolation
+// allows); while a reload for isolation is coming (iscCoi.pending) nothing is sent, so a first visit counts once.
 (() => {
   const SITE = 'kjamartens.github.io', WEBSITE_ID = 'e83bad18-7e9d-4c4c-9fae-90f55826533e';
   const optedOut = () => {
@@ -30,9 +33,21 @@
   const framesBucket = n => bucket(n, [1, 10, 100, 1000, 10000]);
 
   const queue = [];
+  const direct = () => typeof self !== 'undefined' && self.crossOriginIsolated === true;
+  // What Umami's script sends (its /api/send payload): the page without its search and # parts, the referrer only
+  // from another site.
+  const post = extra => {
+    const ref = document.referrer && !document.referrer.startsWith(location.origin) ? document.referrer : '';
+    const payload = { website: WEBSITE_ID, hostname: location.hostname, language: navigator.language || '',
+      screen: `${screen.width}x${screen.height}`, title: document.title, url: location.pathname, referrer: ref, ...extra };
+    fetch('https://cloud.umami.is/api/send', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'event', payload }) }).catch(() => {});
+  };
+  let started = false;
   const send = (name, data) => {
     const d = clean(data);
-    if (window.umami && window.umami.track) window.umami.track(name, d); else queue.push([name, d]);
+    if (started && direct()) post({ name, data: d });
+    else if (window.umami && window.umami.track) window.umami.track(name, d); else queue.push([name, d]);
   };
   const USED = { live: 'live', record: 'recorded', 'save-tiff': 'saved', 'make-movie': 'movie' };
   const iscTrack = (name, data) => {
@@ -61,13 +76,23 @@
       level: level() };
   };
 
-  if (on) {
+  const start = () => {
+    started = true;
+    if (direct()) {
+      post({});   // the page view
+      for (const [n, d] of queue.splice(0)) post({ name: n, data: d });
+      return;
+    }
     const s = document.createElement('script');
     s.defer = true;
     s.src = 'https://cloud.umami.is/script.js';
     Object.assign(s.dataset, { websiteId: WEBSITE_ID, domains: SITE, doNotTrack: 'true', excludeSearch: 'true', excludeHash: 'true' });
     s.onload = () => { for (const [n, d] of queue.splice(0)) window.umami.track(n, d); };
     document.head.append(s);
+  };
+  if (on) {
+    if (self.iscCoi && self.iscCoi.pending) self.addEventListener('isc-coi', start, { once: true });
+    else start();
 
     document.addEventListener('change', ev => {
       const what = ev.isTrusted && pickOf(ev.target);

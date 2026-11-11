@@ -1080,7 +1080,27 @@ Off and no matrix).
   20-frame SIM2D Record of a WideField label made 9 bases of 12 images (+3 rebuilt), 144 images of 149 plane FFTs,
   20 s in the viewer's worker before its first frame; now its 20 frames' 20 images (the frames differ from the basis'
   by its approximation, <= 6e-5 of the peak in that test). Keeping the spectra instead would not have helped: each
-  basis image is its own channel's planes (the cache is per channel), streamed or kept the same FFTs. Known approximations
+  basis image is its own channel's planes (the cache is per channel), streamed or kept the same FFTs.
+  **Live frames of a state (2026-11-11).** A live producer renders one frame per movie, a new state each frame. Until
+  2026-11-11 a state scene dropped its bleach basis whenever its first frame changed (`ForgetBleachBasis`), only to
+  stay bit for bit with the single basis the old excitation key made: every live frame was one image, ~149 plane FFTs
+  (SIM2D WideField 256 px, one thread: ~270 ms). Now (`MeanFieldNode::progressive`: one frame, no drift, not
+  `fresh-basis`) a state keeps its basis across the cycles -- the kinetics run on the cycle mean, so a state's weights
+  move along the same bleach path whichever state lit them, and `BleachCoefficients`' fit (1e-5 of the largest weight)
+  says when they no longer do -- and renders a frame it holds from its images (`RenderFrameProgressive`). Its next
+  basis is made one channel image per frame, never all at once (a 5-12-image Chebyshev basis at once stalled 1-3 s a
+  state): from `kPrebuildAt` of its span, or, when a frame no longer fits, anchored at that frame (which renders from
+  the new basis' first image: its anchor); a frame neither basis holds is RenderExact's image, the basis left alone.
+  Under a light map that changes with height the weight entries come in windows (MapEntriesFor: bands judged over
+  [Tq, Tq + 2 span], new edges each window); a new layout drops every basis, so from half a window on each state makes
+  the next window's basis for that window's entries and weights (`PrepareNext`, the entries shared by the states,
+  `MovieCache::sharedEntries`) and takes it when the window begins (`AdoptPrepared`, keyed by the window's start: the
+  next window's entries may equal the current ones). Window `kLiveStateSpanSec` 20 s: at 4 s (the movies' span) the
+  states were making bases all the time and frames were slower than before; at 40 s the bands, judged over 80 s,
+  moved the frames 0.3 % rms. Native one thread, 35 s of SIM2D: ~270-400 -> 112 ms a frame (40 ms steady); the first
+  ~100 frames cost about two images while the bases are made. Frames within the basis' tolerance of the exact ones
+  (live_scope: a recording = one by one within 4 ADU + 1e-3 of the mean); `fresh-basis 1` keeps the old path.
+  Known approximations
   (documented): a dye's dose within a cycle is off by at most one frame's modulation; the DNA-PAINT imager background
   and the TIRF collected column use the cycle mean (the fringes blur over the defocused column); the beam set's
   components in the imager column share component 0's depth intervals; the pattern is read at the undrifted site; a

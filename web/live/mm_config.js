@@ -485,6 +485,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 0.0,
        "psf-oversampling": 8.0,
        "sim-frame-pattern-continuous": 1.0,
+       "wf-plane-nm": 25.0,
        "wf-upscale": 2.0
       }
      },
@@ -497,6 +498,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 30.0,
        "psf-oversampling": 4.0,
        "sim-frame-pattern-continuous": 0.0,
+       "wf-plane-nm": 100.0,
        "wf-upscale": 1.0
       }
      },
@@ -509,6 +511,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 15.0,
        "psf-oversampling": 6.0,
        "sim-frame-pattern-continuous": 0.0,
+       "wf-plane-nm": 100.0,
        "wf-upscale": 1.0
       }
      }
@@ -1089,6 +1092,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 0.0,
        "psf-oversampling": 8.0,
        "sim-frame-pattern-continuous": 1.0,
+       "wf-plane-nm": 25.0,
        "wf-upscale": 2.0
       }
      },
@@ -1101,6 +1105,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 30.0,
        "psf-oversampling": 4.0,
        "sim-frame-pattern-continuous": 0.0,
+       "wf-plane-nm": 100.0,
        "wf-upscale": 1.0
       }
      },
@@ -1113,6 +1118,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 15.0,
        "psf-oversampling": 6.0,
        "sim-frame-pattern-continuous": 0.0,
+       "wf-plane-nm": 100.0,
        "wf-upscale": 1.0
       }
      }
@@ -1694,6 +1700,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 0.0,
        "psf-oversampling": 8.0,
        "sim-frame-pattern-continuous": 1.0,
+       "wf-plane-nm": 25.0,
        "wf-upscale": 2.0
       }
      },
@@ -1706,6 +1713,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 30.0,
        "psf-oversampling": 4.0,
        "sim-frame-pattern-continuous": 0.0,
+       "wf-plane-nm": 100.0,
        "wf-upscale": 1.0
       }
      },
@@ -1718,6 +1726,7 @@ self.ISC_MM_CONFIG = {
        "psf-max-sample-nm": 15.0,
        "psf-oversampling": 6.0,
        "sim-frame-pattern-continuous": 0.0,
+       "wf-plane-nm": 100.0,
        "wf-upscale": 1.0
       }
      }

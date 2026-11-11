@@ -480,7 +480,7 @@ How the images are computed: quality, GPU, caches, numerics.
 | `PsfPupilSamples` | Expert | 0 | 0 .. 1024 | GibsonLanniZernike pupil samples per axis (0: as many as the kernel window needs; 64: webSMLM's, folds light back into a wide window). |
 | `PsfGeneratorJavaHome` | Expert |  |  | JRE/JDK root for the JVM PSF models (empty: auto-detect; read once per process). |
 | `WideFieldUpscaling` | Expert | 1 | 1 .. 4 | Mean-field grid cells per pixel (WideField-mode populations). |
-| `WideFieldZPlaneNm` | Expert | 25 | 5 .. 500 | Mean-field dye planes, nm apart. |
+| `WideFieldZPlaneNm` | Expert | 100 | 5 .. 500 | Mean-field dye planes, nm apart (Quality: Fast and Realistic 100, Exhaustive 25; under TIRF at most a sixth of the light's decay depth). |
 | `BrightFieldQuality` | Expert | 3 | 1 .. 4 | BrightField level 1-4 (sources, samples, slice step unless set below). |
 | `BrightFieldSources` | Expert | 0 | 0 .. 1024 | Condenser source points (0 = the quality's). |
 | `BrightFieldUpscaling` | Expert | 0 | 0 .. 8 | BrightField grid cells per pixel, a minimum (0 = the quality's). |
