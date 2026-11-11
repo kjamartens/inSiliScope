@@ -376,7 +376,7 @@ const OptionTable& Options()
          { "light-epi", -1, "Lasers shutter: 1 open, 0 closed, -1 = from modality (open in Fluorescence)" },
          { "light-trans", -1, "TransmittedLamp shutter: 1 open, 0 closed, -1 = from modality (open in BrightField). Both open: fluorescence + BrightField through one camera; none: dark frames" },
          { "wf-upscale", 1, "Renderer.WideFieldUpscaling: mean-field grid cells per pixel, per axis (1-4)" },
-         { "wf-plane-nm", 25, "Renderer.WideFieldZPlaneNm: mean-field dye plane thickness, nm" },
+         { "wf-plane-nm", 100, "Renderer.WideFieldZPlaneNm: mean-field dye plane thickness, nm (25 until 2026-11-11; under TIRF at most a sixth of the light's decay depth)" },
          { "wf-kernel-um", 7, "mean-field PSF kernel radius cap, um" },
          { "mean-field-density-per-um2", 20, "Renderer.MeanFieldDensityPerUm2: a continuous population (WideField dyes, pre states, dSTORM initial ON) renders mean-field above this many emitting dyes per um^2 of the focal slab, per dye below" },
          { "mean-field-slab-nm", 500, "Renderer.MeanFieldSlabNm: that slab's thickness around the focal plane" },
@@ -3776,6 +3776,8 @@ constexpr double kBasisSpanSec = 4.0;
 // before), at 20 s 112 ms (steady 40 ms), at 40 s fewer still but its bands, judged over 80 s, moved the frames by
 // 0.3 % rms from the 4 s ones (20 s: within the bands' 1 %).
 constexpr double kLiveStateSpanSec = 20.0;
+// Under TIRF a mean-field dye plane is at most the light's decay depth / this thick (BuildMeanFieldNode).
+constexpr double kTirfPlanesPerDecay = 6.0;
 // A stepping pattern's state scene makes no bleach basis for a movie that draws it in fewer frames than this (each such
 // frame one image at its own weights, WidefieldScene::RenderExact): a basis is ~12 images (the Chebyshev terms of a
 // 4 s span; 2026-11-03: a 20-frame SIM2D Record of a WideField label made 9 of them, 108 images of 149 plane FFTs
@@ -4179,6 +4181,26 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    ws.slabHalfUm = S.q.zHalfRangeUm;
    ws.grid.upscale = static_cast<int>(std::min(4.0, std::max(1.0, O("wf-upscale"))));
    ws.grid.zPlaneNm = std::min(500.0, std::max(5.0, O("wf-plane-nm")));
+   // TIRF: the light falls by e over its decay depth d (~100-200 nm), so a plane may not be thicker than d / 6 (a dye's
+   // plane stands for its height; 2026-11-11, TIRF at d = 154 nm against 10 nm planes: 25 nm 0.47 % rms, 50 nm 1.3 %,
+   // 100 nm 3.7 % (20 % on bright pixels); epi and HILO at 100 nm 0.4 %).
+   {
+      double dMin = 0.0;
+      for (int j = 0; j < S.excite.ComponentCount(); ++j)
+      {
+         const Excitation::Component& c = S.excite.ComponentAt(j);
+         if (!c.tirf || c.clipped)
+            continue;
+         for (const ExcitationLine& l : g.shares)
+         {
+            const double d = S.excite.ComponentDecayUm(j, l.nm);
+            if (d > 0.0 && (dMin == 0.0 || d < dMin))
+               dMin = d;
+         }
+      }
+      if (dMin > 0.0)
+         ws.grid.zPlaneNm = std::max(5.0, std::min(ws.grid.zPlaneNm, 1000.0 * dMin / kTirfPlanesPerDecay));
+   }
    // Drift: the frames are the image shifted, so the lit square and the grid
    // grow by the xy drift (the dyes it brings within the kernel's reach).
    ws.marginUm = 2.0 + DriftMarginUm(S);

@@ -409,6 +409,7 @@ bool PresetsJson(const std::string& path, std::string& err)
       j.KNum("blink-min-photons", q.minPhotons);
       j.KNum("fid-clumps-as-one", q.clumpsAsOne);
       j.KNum("sim-frame-pattern-continuous", q.framePattern);
+      j.KNum("wf-plane-nm", q.wfPlaneNm);
       j.Close('}');
    }
    j.Close(']');

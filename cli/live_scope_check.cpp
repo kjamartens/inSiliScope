@@ -35,8 +35,12 @@ ScopeSpec Spec(const std::string& extra)
 {
    ScopeSpec s;
    std::string err;
+   // (wf-plane-nm 25, not the default 100 since 2026-11-11: a recording and live frames judge the light map's height
+   // bands over different spans, and the bands' edges sit on the planes' boundaries; at 100 nm planes that moved the
+   // WideField frames by up to 0.2 % against each other, inside the planes' own approximation but over these checks'
+   // tolerances, which test the live session, not the plane thickness.)
    const std::string text = "size=32 exposure-ms=100 npc-dye=None mt-mode=dSTORM x=3 y=-2 z=0.5 illum-profile=FlatTop "
-                            "psf-kernel-half-width-nm=2500 " + extra;
+                            "psf-kernel-half-width-nm=2500 wf-plane-nm=25 " + extra;
    if (!ParseScopeSpec(text, s, err))
    {
       std::printf("FAIL  spec: %s\n", err.c_str());

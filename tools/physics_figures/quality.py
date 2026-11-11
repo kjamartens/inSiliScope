@@ -17,7 +17,7 @@ MODALITIES = [
 def quality_bundle(ctx):
     pr = load(ctx.cli({}, tag="presets", presets_json=True)["presets_json"])["quality"]
     names = [q["name"] for q in pr]
-    knobs = {q["name"]: {k: q[k] for k in ("bf-quality", "psf-oversampling", "psf-max-sample-nm", "wf-upscale", "psf-halo-cut", "blink-min-photons") if k in q} for q in pr}
+    knobs = {q["name"]: {k: q[k] for k in ("bf-quality", "psf-oversampling", "psf-max-sample-nm", "wf-upscale", "wf-plane-nm", "psf-halo-cut", "blink-min-photons") if k in q} for q in pr}
     body = []
     for mod, base, which in MODALITIES:
         tag = mod.split(":")[0]
@@ -41,11 +41,11 @@ def quality_bundle(ctx):
             rms = "-" if q == names[-1] else "%s %%" % sig(100 * float(np.sqrt(np.mean((a - ref) ** 2))) / (hi - lo), 2)
             cells.append("%s<br>%s" % (rms, secs((t[1] - t[0]) / base["frames"])))
         body.append(["rms difference (% of the range)<br>Render time per frame"] + cells)
-    head = ["`Renderer.Quality`"] + ["%s<br><small>bf %g, oversampling %g%s, wf %g, halo %s, min %g ph</small>" %
+    head = ["`Renderer.Quality`"] + ["%s<br><small>bf %g, oversampling %g%s, wf %g, planes %g nm, halo %s, min %g ph</small>" %
                                      (q, knobs[q]["bf-quality"], knobs[q]["psf-oversampling"],
                                       " (samples &le; %g nm apart)" % knobs[q]["psf-max-sample-nm"]
                                       if knobs[q].get("psf-max-sample-nm") else "",
-                                      knobs[q]["wf-upscale"],
+                                      knobs[q]["wf-upscale"], knobs[q].get("wf-plane-nm", 25),
                                       sig(knobs[q]["psf-halo-cut"], 1) if knobs[q]["psf-halo-cut"] else "0",
                                       knobs[q].get("blink-min-photons", 0))
                                      for q in names]
@@ -53,7 +53,7 @@ def quality_bundle(ctx):
         "\nThe one Micro-Manager knob for speed against precision, `Renderer.Quality`, sets these engine options " \
         "(the cli's preset table, `Simulation/RenderPresets.h`): the BrightField quality, the PSF oversampling and " \
         "its sample-spacing limit (which only lowers it at a small pixel), " \
-        "the mean-field grid and the blink halo cut. Photon images before the camera of the default label (SMLM), " \
+        "the mean-field grid and its dye plane thickness, and the blink halo cut. Photon images before the camera of the default label (SMLM), " \
         "mEGFP (WideField) and the lamp (BrightField), each against Exhaustive. Times on the build machine (%d " \
         "threads), per frame (averaged over 30 SMLM or 10 WideField and BrightField frames), without the setup; the " \
         "PSF kernel each oversampling needs costs once per session (computed or read from the disk cache), see the " \

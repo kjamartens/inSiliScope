@@ -57,8 +57,9 @@ SceneState::SceneState()
       8.0, 180.0, 53.5, 50.0, 12.0, 2000.0, 40.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField[i] = cellFieldDefaults[i];
-   // Mean-field grid: 1 cell/pixel, 25 nm dye planes (the cli/viewer's wf-upscale / wf-plane-nm).
-   const double wideFieldDefaults[WF_COUNT] = { 1.0, 25.0 };
+   // Mean-field grid: 1 cell/pixel, 100 nm dye planes (the cli/viewer's wf-upscale / wf-plane-nm; 25 nm until
+   // 2026-11-11, Quality Exhaustive; under TIRF the engine takes thinner ones, ScopeMovie.cpp kTirfPlanesPerDecay).
+   const double wideFieldDefaults[WF_COUNT] = { 1.0, 100.0 };
    for (int i = 0; i < WF_COUNT; ++i)
       wideField[i] = wideFieldDefaults[i];
    // Directed drift: off (speeds 0), random direction per seed, no wander, 60 s correlation time.

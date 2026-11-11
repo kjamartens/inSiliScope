@@ -1348,7 +1348,8 @@ std::vector<PropDef> BuildTable()
                 h.State().wideField[WF_UPSCALING].load() == q.wf && h.State().psfHaloCut.load() == q.halo &&
                 h.State().Option("blink-min-photons") == q.minPhotons &&
                 h.State().Option("fid-clumps-as-one") == q.clumpsAsOne &&
-                h.State().Option("sim-frame-pattern-continuous") == q.framePattern)
+                h.State().Option("sim-frame-pattern-continuous") == q.framePattern &&
+                h.State().wideField[WF_Z_PLANE_NM].load() == q.wfPlaneNm)
                return std::string(q.name);
          return std::string("Custom");
       };
@@ -1366,6 +1367,7 @@ std::vector<PropDef> BuildTable()
                h.State().SetOption("blink-min-photons", q.minPhotons);
                h.State().SetOption("fid-clumps-as-one", q.clumpsAsOne);
                h.State().SetOption("sim-frame-pattern-continuous", q.framePattern);
+               h.State().wideField[WF_Z_PLANE_NM] = q.wfPlaneNm;
                h.Notify("bf-quality");
                h.Notify("psf-oversampling");
                h.Notify("psf-max-sample-nm");
@@ -1374,6 +1376,7 @@ std::vector<PropDef> BuildTable()
                h.Notify("blink-min-photons");
                h.Notify("fid-clumps-as-one");
                h.Notify("sim-frame-pattern-continuous");
+               h.Notify("wf-plane-nm");
                return true;
             }
          return false;
@@ -1450,7 +1453,7 @@ std::vector<PropDef> BuildTable()
       ThenNumber(d, quality);
       add(d);
       add(Arr(R, "WideFieldZPlaneNm", Tier::Expert, "wf-plane-nm", &SceneState::wideField, WF_Z_PLANE_NM, 5, 500,
-              "Mean-field dye planes, nm apart."));
+              "Mean-field dye planes, nm apart (Quality: Fast and Realistic 100, Exhaustive 25; under TIRF at most a sixth of the light's decay depth)."));
       d = Arr(R, "BrightFieldQuality", Tier::Expert, "bf-quality", &SceneState::brightField, BF_QUALITY, 1, 4,
               "BrightField level 1-4 (sources, samples, slice step unless set below).", true);
       ThenNumber(d, quality);

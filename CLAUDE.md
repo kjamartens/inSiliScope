@@ -85,7 +85,9 @@ that finishes them.
   `#threadNotice`. Isolated, Umami's script cannot load: `usage.js` posts the same page view and events to its
   `/api/send` (CORS). Tools: `cli/live_bench.cpp` (target `live_bench`: live frames timed one by one, `--dump`, `--hash`),
   `tests/web/live_speed.mjs` (the viewer module under Node, `--mt <build js>`), `tools/fft_bench/` (FFT libraries:
-  no switch, README.md). New phases `wf.cell-values`, `wf.plane-ffts`, `wf.basis-progressive*`, `wf.basis-prepare`,
+  no switch, README.md). Dye planes 100 nm by default (Quality Fast and Realistic; Exhaustive 25; under TIRF
+d / 6): 0.25-0.9 % rms from 25 nm's, live SIM2D 2.3-2.6x faster; ctest live_scope pins 25 nm (the light map's bands
+on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases `wf.cell-values`, `wf.plane-ffts`, `wf.basis-progressive*`, `wf.basis-prepare`,
   `wf.basis-prepared-taken`, `fl.mean-field-entries-shared`.
 - `cli/` -- `insiliscope_cli` (headless TIFF movies) and
   the viewer's WASM module target, both on `adapter/inSiliScope/Simulation/ScopeMovie.*` (the
@@ -570,8 +572,9 @@ waits for it); a new pose's or new weights' basis is still made at once (the nex
 freed on a thread too (`Trash`: 1480 spectra took 0.23 s); `WidefieldAsyncBasisShutdown` joins both in the camera's
 `Shutdown`. Phases `wf.basis-async-start`, `wf.basis-async-take`, `wf.plane-spectra-async`.
 Phases `fl.dye-index`, `fl.dye-index-ahead`, `fl.dye-index-wait`, `wf.kernels`, `wf.plane-spectra`, `wf.accel-images`.
-`adapter_pixel_hash` reference: `tools/adapter_pixel_hash_ref.txt` (stored 2026-10-27 on `lamin_network`: TOTAL
-5a29ae84..., "TOTAL before pores" bf29b371...; the earlier references, TOTAL bf98d1ae... since the Gaussian beam default
+`adapter_pixel_hash` reference: `tools/adapter_pixel_hash_ref.txt` (stored 2026-11-11 on `sim-live-speed`: TOTAL
+38083c20..., "TOTAL before pores" 9ea3aad1...: the 100 nm dye planes moved `dstorm` and `mean-field`; before, stored
+2026-10-27 on `lamin_network`: TOTAL 5a29ae84..., "TOTAL before pores" bf29b371...; the earlier references, TOTAL bf98d1ae... since the Gaussian beam default
 of 2026-10-20 and before, are in this file's git history; which commit since then moved bf98d1ae is not known). Hash
 on a quiet machine: under heavy load a config's frames have differed from run to run (`defaults`, `dstorm`; open).
 
@@ -746,7 +749,8 @@ per-block heap allocation serialized 12 threads: 10x).
 
 **WideField modality (2026-09-27; since issue 16 the WideField label mode, rendered mean-field by the same
 `WidefieldScene`; the photophysics properties and the live bleach map below are history):** every labelled dye emits at once. Dyes are binned per population into world-anchored z planes (`General_WideFieldZPlaneNm`,
-default 25) on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (core ABI 5
+default 25; since 2026-11-11 `Renderer.WideFieldZPlaneNm` 100 nm, Quality Exhaustive 25, under TIRF at most the decay
+depth / 6 (`kTirfPlanesPerDecay`), docs/physics/optics.md "Dye plane thickness") on a grid of `General_WideFieldUpscaling` (1-4) cells per pixel (core ABI 5
 `isc_density3d_in_window`), each PSF plane is FFT-convolved (`Simulation/Fft2d`, CPU, multi-threaded),
 cropped and binned, then the usual background and `ApplyNoiseChain`. Physical units: excitation
 flux, extinction coefficient, QY, emitted-photon budget (`FluoParam_WideField*`); the bleach rate
