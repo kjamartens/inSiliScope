@@ -115,21 +115,34 @@ def laser_group(nm):
     return f"Laser {nm} nm (kW/cm2)"
 
 
-def channel_presets(tier, typical, modes):
+# The SIM channel (2026-11-12, the user's choice): WideField labels under a SIM2D pattern at BFP position 0.75, a 50 nm
+# pixel (the magnification after the objective that gives it with the startup objective and camera) and 100 ms frames.
+SIM_PATTERN, SIM_BFP, SIM_PIXEL_UM, SIM_EXPOSURE_MS = "SIM2D", 0.75, 0.05, 100
+
+
+def channel_presets(tier, typical, modes, info=None, camera=None):
     """Channel: one preset per mode with every target in it and its typical label (the cell field's microtubules and
     nuclear pores, the nanorulers' docking strands; lasers and filters follow the mounted specimen's labels: the Lasers'
-    Auto preset), BrightField, and
+    Auto preset), SIM (WideField labels under a SIM2D pattern), BrightField, and
     (Advanced, Expert) fluorescence + BrightField through the Multi Shutter. Every preset closes both shutters; the
-    autoshutter opens the Core-Shutter for each image."""
+    autoshutter opens the Core-Shutter for each image. Every preset but SIM turns the pattern off. The pattern comes
+    before the BFP position (a pattern pick sets the BFP to its type's radius)."""
     closed = [("Lasers", "State", "0"), ("TransmittedLamp", "State", "0")]
+    off = [("Lasers", "Pattern", "Off")]
     out = []
     order = [m for m in ("dSTORM", "PALM", "DNA-PAINT", "WideField") if m in modes]
     for mode in order:
-        out.append((f"{typical[mode]['dye']} {mode}", every_target(mode) + closed + [("Core", "Shutter", "Lasers")]))
-    out.append(("BrightField", closed + [("Core", "Shutter", "TransmittedLamp")]))
+        out.append((f"{typical[mode]['dye']} {mode}", every_target(mode) + off + closed + [("Core", "Shutter", "Lasers")]))
+    if "WideField" in modes and info and camera:
+        obj_mag = dict(info["objectives"])[info["defaultObjective"]]
+        relay = SENSOR_UM[camera] / (obj_mag * SIM_PIXEL_UM)
+        out.append(("SIM", every_target("WideField") + [("Lasers", "Pattern", SIM_PATTERN), ("Lasers", "BfpPosition", num(SIM_BFP)),
+                    ("EmissionPath", "EmissionMagnification", num(relay)), ("Camera", "Exposure", num(SIM_EXPOSURE_MS))]
+                    + closed + [("Core", "Shutter", "Lasers")]))
+    out.append(("BrightField", off + closed + [("Core", "Shutter", "TransmittedLamp")]))
     if tier != "Basic":
         out.append((f"{typical['WideField']['dye']} WideField + BrightField",
-                    every_target("WideField") + closed + [("Core", "Shutter", MULTI)]))
+                    every_target("WideField") + off + closed + [("Core", "Shutter", MULTI)]))
     return out
 
 
@@ -186,7 +199,7 @@ def build(tier, info, typical, cameras):
     w("")
 
     groups = []
-    channels = channel_presets(tier, typical, info["modes"])
+    channels = channel_presets(tier, typical, info["modes"], info, cameras[0])
     groups.append(("Channel", channels))
     groups.append(("Objective", [(preset_name(label), [("Objective", "Label", label)])
                                  for label, _ in info["objectives"]]))
@@ -209,7 +222,9 @@ def build(tier, info, typical, cameras):
     if tier != "Basic":
         startup += [(MULTI, "Physical Shutter 1", "Lasers"), (MULTI, "Physical Shutter 2", "TransmittedLamp")]
     first = dict(groups)
-    startup += dict(first["Channel"])[f"{typical[STARTUP_MODE]['dye']} {STARTUP_MODE}"]
+    # (the channel's settings but its Pattern Off: a fresh hub's already; set in the Startup it would move every
+    # group's viewer presets)
+    startup += [x for x in dict(first["Channel"])[f"{typical[STARTUP_MODE]['dye']} {STARTUP_MODE}"] if x[:2] != ("Lasers", "Pattern")]
     startup += dict(first["Objective"])[preset_name(info["defaultObjective"])]
     startup += dict(first["Aberrations"])[info["defaultAberrations"]]
     startup += dict(first["Camera"])[cameras[0]]
@@ -405,10 +420,14 @@ def viewer_presets(cfg_paths):
                 keys = sorted(own | {k for n in names for k, v in states[n].items()
                                      if v != fresh.get(k) or v != states[names[0]].get(k)})
                 keys = [k for k in keys if k not in MOUNT_EFFECTS.get(g, ())]
+                # a row only some of the group's presets set (the SIM channel's BFP position and magnification) goes
+                # into those alone: the others leave it as it is, in Micro-Manager as in the viewer
+                own_of = {n: {rows[(d, p)]["key"] for d, p, _ in settings[n] if (d, p) in rows} for n in names}
+                some = set.union(*own_of.values()) - set.intersection(*own_of.values())
                 presets = []
                 for n in names:
                     # an option the spec leaves out is at the engine's default (null; the specimen when it is 0)
-                    pr = {"name": n, "set": {k: states[n].get(k, fresh.get(k)) for k in keys}}
+                    pr = {"name": n, "set": {k: states[n].get(k, fresh.get(k)) for k in keys if k not in some or k in own_of[n]}}
                     # an Objective.ZernikePreset: the viewer's preset select, not the coefficients one by one
                     zp = [v for d, p, v in settings[n] if (d, p) == ("Objective", "ZernikePreset")]
                     if zp:
@@ -422,8 +441,15 @@ def viewer_presets(cfg_paths):
                     if shutter:
                         pr["light"] = LIGHT.get(shutter[0], "epi")
                     moved = {k for m in names for k, v in opt[m].items() if v != start_optics[k] or v != opt[names[0]][k]}
+                    some_opt = {OPTICS[r] for r in some if r in OPTICS}
+                    own_opt = {OPTICS[r] for r in own_of[n] if r in OPTICS}
+                    moved = {k for k in moved if k not in some_opt or k in own_opt}
                     if moved:
                         pr["optics"] = {k: opt[n][k] for k in sorted(moved)}
+                    # the exposure (an acquisition setting, not in "set"): a preset that sets it carries it
+                    exp = [v for d, p, v in settings[n] if (d, p) == ("Camera", "Exposure")]
+                    if exp:
+                        pr["exposureMs"] = float(exp[0])
                     presets.append(pr)
                 groups.append({"name": g, "presets": presets})
             core.setConfig("System", "Startup")

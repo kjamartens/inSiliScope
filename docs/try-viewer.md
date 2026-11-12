@@ -14,23 +14,23 @@ through it step by step.
   a drag then pans within the image instead of moving the stage, and a click on the inset shows the whole image again. Its display
   options (layers, look, tilt and rotation, z clip) are under **View ▾** in the info box at its top left, which lists
   one item per line where the view is (seed, centre, scale, tilt) and what is still loading; View ▾ opens the options
-  in the same box. One bar runs across the top of the window: the name and the Sample | Microscope switch at the left,
-  and Basic / Advanced / Expert and ☰ at the right end. The microscope is on the right: the live camera image, always
-  square, and below it at the same width the controls you use while imaging: a row with ▶ Live / Snap / ● Record / ↺
+  in the same box. One bar runs across the top of the window: ☰ and the save / load icons, then the Sample | Microscope
+  switch at the left, the name in the middle, and Basic / Advanced / Expert at the right end. The microscope is on the right: the live camera image, always
+  square, and below it at the same width the controls you use while imaging: a row with ▶ Live / Snap / ● Record / ↺ (it stays at the top while the controls under it scroll)
   and at its right end one short line with the frame rate and the time per frame (its tooltip adds the image size,
   the pixel size and a recording's message), then the **Stage** (a joystick: drag its knob and the field of view moves that way, faster the
   further you pull, and stops when you let go; a click near its edge moves one step, the arrow keys on it too; with
   Shift 10 steps, a drag 10 times as fast; beside it the focus wheel: ▲ ▼ at its ends, drag it or scroll over it (up =
   focus up), or click above or below its line; the focus height (µm) under it; a right-click on the joystick or the
   wheel opens a small box for the step and a typed position), the **Display** and the
-  **Acquisition** (imaging mode, illumination, drift, quality, exposure). Under a large image they sit side by side,
+  **Acquisition** (specimen, imaging mode, illumination, drift, quality, exposure). Under a large image they sit side by side,
   so all of them stay in view; below them the lasers and the
   BFP position, and the instrument (**Light path**, **Objective & PSF**, **Camera**). The small ▲ on the image's lower
   edge (a click, or the pointer resting on it) spreads these controls over the lower three quarters of the image; they fold back a tenth of a second after the
-  pointer leaves them (or on ▼ or Esc). At the right edge, down to the bottom of the window, the **Settings** column:
+  pointer leaves them (or on ▼ or Esc). At the right edge, down to the bottom of the window, the **Settings** column (the specimen's settings):
   the sample, its preparation and, from the Advanced level, the **Simulation** (performance, image formation), with
   a search box on top. Its
-  » folds it to a narrow **« Show settings** tab at the right edge (the image keeps its size and moves right; the Sample or
+  ⇥ folds it to a narrow **Show specimen settings** tab at the right edge (the image keeps its size and moves right; the Sample or
   Microscope view gets the room; remembered in your browser), and a click
   on the tab, or typing a search, opens it again. The search box highlights every line that matches (at the current
   level), opens their groups and hides the rest of the settings. The divider between the
@@ -102,11 +102,11 @@ through it step by step.
   its number (ADU). Drag a handle, or anywhere on the bar to move the nearer level; a right-click types them. **auto**
   in its title (on by default) sets the range from each frame (0.1-99.9 % of the pixels); a drag turns it off. **Info**
   (left of the Stage): a button per laser line (lit in the line's colour when on; a click turns it off, or on again at
-  its last power; at the Basic level the lines the labels use, and any line that is on), the setup in four rows
-  (the labels' modes, the light's regime (Epi, HILO or TIRF; a HILO beam reaching over 100 µm deep counts as Epi; the depth in its
+  its last power; at the Basic level the lines the labels use, and any line that is on), the setup in four rows of one
+  line each (the labels' modes, the light's regime (Epi, HILO or TIRF; a HILO beam reaching over 100 µm deep counts as Epi; the depth in its
   tooltip), the NA and pixel size, the exposure; each row's tooltip
-  has the details), and a line that shows only when something looks off, the most serious first; a click on it lists
-  each with what to do. It checks: live failed; all lasers off, or none reaching the sample; nothing labelled; a label
+  has the details), and a warning line (its room kept when all is well, so nothing under the box moves): one warning's
+  text, or several by short names side by side, the most serious first; a click on it lists each with what to do. It checks: live failed; all lasers off, or none reaching the sample; nothing labelled; a label
   no laser excites, or only weakly; a label whose light the filters block; saturated pixels; the focus below the
   coverslip, above the cells, off the nanorulers or the beads, or above the TIRF light; no cell in view; a laser line
   that excites no label; frames slower than the exposure. Live pauses while the page is hidden. The world view always outlines the camera's field (dashed white, "camera"), and the x-z
@@ -151,9 +151,11 @@ through it step by step.
 - **Acquisition** (in the controls column): the config groups of the adapter's Micro-Manager configurations
   (`inSiliScope_Basic.cfg` at the Basic level, `_Advanced.cfg` at Advanced, `_Expert.cfg` at Expert): Imaging mode (the
   configurations' Channel group, its presets named by the mode alone, without the dye they also pick: dSTORM,
-  DNA-PAINT, PALM, WideField, BrightField, and in Advanced WideField + BrightField), Illumination, Drift and Quality,
-  then the exposure. Each setting has one place: the groups the settings already have a control for are not repeated
-  here (Specimen: Sample › Specimen; Camera: the Camera group; Aberrations: Objective & PSF; the BFP position:
+  DNA-PAINT, PALM, WideField, SIM (the WideField labels under a SIM2D pattern at BFP position 0.75, 50 nm pixels, 100 ms
+  frames; any other mode turns the pattern off and leaves the rest), BrightField, and in Advanced WideField +
+  BrightField), Illumination, Drift and Quality,
+  then the exposure; first of all the **Specimen** (the configurations' Specimen group, `SampleHolder`). Each setting has one place: the groups the settings already have a control for are not repeated
+  here (Camera: the Camera group; Aberrations: Objective & PSF; the BFP position:
   Illumination), the Objective preset is the first row of Objective & PSF, and the laser-power groups are
   the lasers' sliders in Illumination. A preset sets what the adapter sets for it (made by `tools/gen_mm_configs.py` with the configurations, from
   the adapter itself, so the two stay the same). The select shows the preset the settings are at, or "—" once a
@@ -173,23 +175,23 @@ through it step by step.
   default carries a thin bar at its left and a ↺ that puts it back (a double-click on its name does the same); a
   group's title counts its changed settings and has a ↺ for them all. The search at the top looks through every
   setting in the Settings column; **Changed only** beside it shows just the settings that differ from their defaults.
-- **Basic / Advanced / Expert** at the right end of the top bar (with the ☰ menu) choose which settings show, the same tiers as the Micro-Manager
+- **Basic / Advanced / Expert** at the right end of the top bar choose which settings show, the same tiers as the Micro-Manager
   adapter's properties (each setting at the tier of the property that sets it, taken from the adapter when the
   configurations are made; a setting Micro-Manager does not have keeps the viewer's own level; Basic at first). A note says how many
   hidden settings differ from their defaults. The ☰ menu's **Appearance** sets the theme (Dark, the default; Light; or
   System, following your computer's setting; the world view and the live image stay dark in every theme) and the
-  density (Comfortable or Compact); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all to defaults** puts every setting back, those beside the image too. Every setting, the level, the
+  density (Comfortable or Compact); **Expand all** / **Collapse all** open or fold every box (the controls column's too), and **Reset all** puts every setting back, those beside the image too. Every setting, the level, the
   theme and the density are remembered in your browser across reloads, and so are the position in the sample and the zoom of the world
   view (Reset all forgets them, and puts the panel and x-z view sizes back).
-- **Save and load settings.** The first section of the ☰ menu (and the two small icons beside Basic / Advanced /
-  Expert, a disk to save and a folder to load; not on a phone) keeps a setup as a file, `<name>.isc.json`, in parts that can be mixed: the
+- **Save and load settings.** The first section of the ☰ menu (and the two small icons beside it, a disk to save
+  and a folder to load; not on a phone) keeps a setup as a file, `<name>.isc.json`, in parts that can be mixed: the
   **Instrument** (objective, PSF and aberrations, camera and its noise, pixel size, the beam's shape, custom laser
   lines and filter edges), the **Settings** (laser powers, the filters in place, the BFP position, the light paths,
   camera size, render quality), the **Sample** (specimen, seed, cells or nanorulers, every target's label and dye,
   custom dyes, beads, the medium), the **Measurement** (stage position, focus, exposure, drift, and the sample's light
   history: every live frame that lit it) and, unticked by default, the **View** (the world view's camera, layers and
-  colours, the settings level, theme and density). Each row shows where the part came from, a short id of its values (the same
-  values, the same id; "edited" once they moved) and a one-line summary. **Save…** asks for a name and the parts;
+  colours, the settings level, theme and density). Each row shows where the part came from ("edited" once its values moved); its tooltip
+  adds a one-line summary and a short id of its values (the same values, the same id). **Save…** asks for a name and the parts;
   **Load…** (or a `.isc.json` dropped on the page) lists the file's parts and replaces only the ticked ones: another
   lab's instrument with your sample, or your instrument with someone's sample. Loading a sample leaves the lasers as
   they are; a loaded measurement replays its light history, so the next live frame is the one the saved session would
@@ -200,7 +202,7 @@ through it step by step.
   cookies: [Privacy](privacy.md) lists what is counted and how to turn it off.
   A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the
   mouse wheel, one step per notch.
-- **Specimen** (Sample): **Cell field**, **Nanorulers**, **Bead sample** or **Fluorescent Slide** ([Samples](samples/index.md); the bead sample
+- **Specimen** (Acquisition): **Cell field**, **Nanorulers**, **Bead sample** or **Fluorescent Slide** ([Samples](samples/index.md); the bead sample
   is a bare coverslip with only the fiducial beads: switching to it with no beads set puts 0.3 per µm² down in clumps
   (40 % aggregation), turns the 561 nm laser to 0.1 kW/cm² and the others off, draws the beads and opens the Fiducial
   beads group, where the diameter and the gel layer's thickness are Basic; the [fluorescent slide](samples/slide.md) is

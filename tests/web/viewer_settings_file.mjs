@@ -86,10 +86,10 @@ try {
   await idle(A);
   const logA = await A.evaluate(() => ({ runs: liveState.log.length, frames: liveState.log.reduce((a, r) => a + r.n, 0), t: liveState.t }));
   // Save through the dialog
-  const bar = await A.evaluate(() => { const ids = [...document.getElementById('liveBar').children].map(e => e.id), i = ids.indexOf('setIcons');
-    return { order: ids[i - 1] + ',' + ids[i + 1], icons: document.querySelectorAll('#setIcons button svg').length, first: document.getElementById('menu').firstElementChild.id }; });
-  check(bar.order === 'levelSeg,menuBtn' && bar.icons === 2 && bar.first === 'menuSetup',
-    `two icons between the settings level and ☰ (${bar.order}, ${bar.icons} icons), save / load the first section of ☰ (${bar.first})`);
+  const bar = await A.evaluate(() => { const ids = [...document.getElementById('barTools').children].map(e => e.id);
+    return { order: ids.join(','), icons: document.querySelectorAll('#setIcons button svg').length, first: document.getElementById('menu').firstElementChild.id }; });
+  check(bar.order === 'menuBtn,menu,setIcons' && bar.icons === 2 && bar.first === 'menuSetup',
+    `☰ then the two icons at the top bar's left (${bar.order}, ${bar.icons} icons), save / load the first section of ☰ (${bar.first})`);
   await A.evaluate(() => document.getElementById('setIcoSave').click());
   await A.evaluate(() => { document.getElementById('setName').value = 'session A'; });
   const [dl] = await Promise.all([A.waitForEvent('download'), A.evaluate(() => document.getElementById('setGo').click())]);

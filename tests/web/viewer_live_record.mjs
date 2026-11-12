@@ -223,7 +223,7 @@ try {
     const on = [...document.querySelectorAll('#lv_laserChips .chip.on')].map(c => c.dataset.nm);
     r.before = ids();
     for (const nm of on) chip(nm).click();
-    r.dark = await until(() => ids()[0] === 'nolight' && !$('lv_warn').hidden && $('lv_warn').dataset.sev === 'error');
+    r.dark = await until(() => ids()[0] === 'nolight' && !$('lv_warn').disabled && $('lv_warn').dataset.sev === 'error');
     $('lv_warn').click();
     r.list = !$('lv_warnPop').hidden && /Click a laser above/.test($('lv_warnPop').textContent);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
@@ -232,7 +232,7 @@ try {
     r.lit = await until(() => !ids().includes('nolight'));
     const z = $('mv_z'), z0 = z.value;
     z.value = -1; z.dispatchEvent(new Event('change', { bubbles: true }));
-    r.below = await until(() => ids().includes('below') && /below the coverslip/.test($('lv_warn').textContent));
+    r.below = await until(() => ids().includes('below') && /below the coverslip/.test($('lv_warn').title));
     z.value = z0; z.dispatchEvent(new Event('change', { bubbles: true }));
     r.after = await until(() => !ids().includes('below'));
     return r;

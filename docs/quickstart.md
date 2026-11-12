@@ -100,7 +100,9 @@ older builds refuse the DLL.
    (`Lasers.Preset` `Auto`: the presets of the labelled targets combined). The cell field has two targets, imaged
    together: the microtubules (`CellField.Microtubules_*`, ATTO 655 DNA-PAINT at 640 nm) and the nuclear pores
    (`CellField.NuclearPores_*`, Cy3B DNA-PAINT at 561 nm, through a multi-band filter set); the nanorulers have one,
-   `Nanorulers.Docking_*`. Each target has its own mode (`_Mode`) and label (`_Label`: Typical, the other dyes with
+   `Nanorulers.Docking_*`. The `SIM` channel images the WideField labels under a SIM2D pattern (`Lasers.Pattern`) at
+   BFP position 0.75, with 50 nm pixels (`EmissionPath.EmissionMagnification` 1.3 with the Kinetix22 at 100x) and 100 ms
+   frames; the other channels turn the pattern off. Each target has its own mode (`_Mode`) and label (`_Label`: Typical, the other dyes with
    data for that mode, or None to leave it unlabelled); custom dyes are `Fluorophores.Dye1..3_*` (Expert). In DNA-PAINT,
    `CellField.Microtubules_ImagerNanoMol` / `Nanorulers.Docking_ImagerNanoMol` (Advanced: the imager concentration in
    the buffer, default 1 nM for the microtubules, 20 nM for the nanorulers) sets how many sites blink per frame: binding events per site per second = k<sub>on</sub>

@@ -27,7 +27,8 @@ yourself.
 4. Press **Live**: you see the cell field at the coverslip, 0.5 um above it. Move the XY stage to go elsewhere in the
    field, the Z stage to focus (its position is the focal plane's height above the coverslip).
 5. Pick a **Channel** (the label mode and its dye: `AF647 dSTORM`, `mEos3.2 PALM`, `ATTO655 DNA-PAINT`,
-   `mEGFP WideField`, `BrightField`), an **Illumination** (Epi / HILO / TIRF) and a **Quality** (Fast / Realistic /
+   `mEGFP WideField`, `SIM`: WideField labels under a SIM2D pattern at BFP position 0.75 with 50 nm pixels and 100 ms
+   frames, `BrightField`), an **Illumination** (Epi / HILO / TIRF) and a **Quality** (Fast / Realistic /
    Exhaustive). The **Specimen** group mounts the nanorulers instead of the cells.
 6. Acquire as with a real microscope: snaps, live, sequences and hardware z stacks. Imaging bleaches where you look.
 
