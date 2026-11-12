@@ -199,7 +199,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 0.0,
        "ruler-dye": -1.0,
        "ruler-mode": 0.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -222,7 +224,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
        "ruler-mode": 2.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -237,17 +241,43 @@ self.ISC_MM_CONFIG = {
        "laser-488": 0.0,
        "laser-561": 1.0,
        "laser-640": 1.0,
-       "mt-dye": -1.0,
        "mt-label-pct": 70.0,
-       "mt-mode": 2.0,
-       "npc-dye": -1.0,
        "npc-label-pct": 60.0,
-       "npc-mode": 2.0,
-       "ruler-dye": -1.0,
-       "ruler-mode": 2.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "trans"
+     },
+     {
+      "name": "SIM",
+      "set": {
+       "blink-min-photons": 50.0,
+       "dichroic": 2.0,
+       "em-filter": 2.0,
+       "fid-clumps-as-one": 1.0,
+       "illum-bfp": 0.75,
+       "laser-405": 0.0,
+       "laser-488": 0.01,
+       "laser-561": 0.0,
+       "laser-640": 0.0,
+       "mt-dye": -1.0,
+       "mt-label-pct": 70.0,
+       "mt-mode": 3.0,
+       "npc-dye": -1.0,
+       "npc-label-pct": 100.0,
+       "npc-mode": 3.0,
+       "ruler-dye": -1.0,
+       "ruler-mode": 3.0,
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": 0.0,
+       "sim-type": 1.0
+      },
+      "light": "epi",
+      "optics": {
+       "emissionMag": 1.3
+      },
+      "exposureMs": 100.0
      },
      {
       "name": "mEGFP WideField",
@@ -268,7 +298,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
        "ruler-mode": 3.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -291,7 +323,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 1.0,
        "ruler-dye": -1.0,
        "ruler-mode": 1.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      }
@@ -783,7 +817,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 0.0,
        "ruler-dye": -1.0,
        "ruler-mode": 0.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -806,7 +842,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
        "ruler-mode": 2.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -821,17 +859,43 @@ self.ISC_MM_CONFIG = {
        "laser-488": 0.0,
        "laser-561": 1.0,
        "laser-640": 1.0,
-       "mt-dye": -1.0,
        "mt-label-pct": 70.0,
-       "mt-mode": 2.0,
-       "npc-dye": -1.0,
        "npc-label-pct": 60.0,
-       "npc-mode": 2.0,
-       "ruler-dye": -1.0,
-       "ruler-mode": 2.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "trans"
+     },
+     {
+      "name": "SIM",
+      "set": {
+       "blink-min-photons": 50.0,
+       "dichroic": 2.0,
+       "em-filter": 2.0,
+       "fid-clumps-as-one": 1.0,
+       "illum-bfp": 0.75,
+       "laser-405": 0.0,
+       "laser-488": 0.01,
+       "laser-561": 0.0,
+       "laser-640": 0.0,
+       "mt-dye": -1.0,
+       "mt-label-pct": 70.0,
+       "mt-mode": 3.0,
+       "npc-dye": -1.0,
+       "npc-label-pct": 100.0,
+       "npc-mode": 3.0,
+       "ruler-dye": -1.0,
+       "ruler-mode": 3.0,
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": 0.0,
+       "sim-type": 1.0
+      },
+      "light": "epi",
+      "optics": {
+       "emissionMag": 1.3
+      },
+      "exposureMs": 100.0
      },
      {
       "name": "mEGFP WideField",
@@ -852,7 +916,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
        "ruler-mode": 3.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -875,7 +941,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
        "ruler-mode": 3.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "both"
      },
@@ -898,7 +966,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 1.0,
        "ruler-dye": -1.0,
        "ruler-mode": 1.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      }
@@ -1391,7 +1461,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 0.0,
        "ruler-dye": -1.0,
        "ruler-mode": 0.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -1414,7 +1486,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 2.0,
        "ruler-dye": -1.0,
        "ruler-mode": 2.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -1429,17 +1503,43 @@ self.ISC_MM_CONFIG = {
        "laser-488": 0.0,
        "laser-561": 1.0,
        "laser-640": 1.0,
-       "mt-dye": -1.0,
        "mt-label-pct": 70.0,
-       "mt-mode": 2.0,
-       "npc-dye": -1.0,
        "npc-label-pct": 60.0,
-       "npc-mode": 2.0,
-       "ruler-dye": -1.0,
-       "ruler-mode": 2.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "trans"
+     },
+     {
+      "name": "SIM",
+      "set": {
+       "blink-min-photons": 50.0,
+       "dichroic": 2.0,
+       "em-filter": 2.0,
+       "fid-clumps-as-one": 1.0,
+       "illum-bfp": 0.75,
+       "laser-405": 0.0,
+       "laser-488": 0.01,
+       "laser-561": 0.0,
+       "laser-640": 0.0,
+       "mt-dye": -1.0,
+       "mt-label-pct": 70.0,
+       "mt-mode": 3.0,
+       "npc-dye": -1.0,
+       "npc-label-pct": 100.0,
+       "npc-mode": 3.0,
+       "ruler-dye": -1.0,
+       "ruler-mode": 3.0,
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": 0.0,
+       "sim-type": 1.0
+      },
+      "light": "epi",
+      "optics": {
+       "emissionMag": 1.3
+      },
+      "exposureMs": 100.0
      },
      {
       "name": "mEGFP WideField",
@@ -1460,7 +1560,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
        "ruler-mode": 3.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      },
@@ -1483,7 +1585,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 3.0,
        "ruler-dye": -1.0,
        "ruler-mode": 3.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "both"
      },
@@ -1506,7 +1610,9 @@ self.ISC_MM_CONFIG = {
        "npc-mode": 1.0,
        "ruler-dye": -1.0,
        "ruler-mode": 1.0,
-       "sim-frame-pattern-continuous": 0.0
+       "sim-frame-pattern-continuous": 0.0,
+       "sim-polarization": null,
+       "sim-type": 0.0
       },
       "light": "epi"
      }

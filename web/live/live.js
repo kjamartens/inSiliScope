@@ -359,17 +359,28 @@ function onResult(d) {
   L.engine = d.engine;
   L.paths = d.paths || null;
   L.perf = { roundMs: L.ms, workerMs: d.workerMs, profile: d.profile || null, memory: d.memory || null };
-  const due = L.lastShown + exposureSec() * 1000, now = performance.now();
+  // Live is paced to the exposure on an absolute schedule (2026-11-12): each frame is due one exposure after the last
+  // one's due time (not after it was shown: the timer's lateness and the drawing added up, 50 ms gave 16 fps), and the
+  // next frame is asked for just early enough (its round trip) to arrive by its due time, before this one is drawn, so
+  // the worker renders while the page draws (10 ms with ~7 ms frames gave 56 fps: drawing and rendering in series).
+  L.trip = L.trip ? 0.8 * L.trip + 0.2 * L.ms : L.ms;
+  const now = performance.now(), due = L.on && L.nextDue ? L.nextDue : now;
   L.perf.waitMs = L.on ? Math.max(0, due - now) : 0;
   const show = () => {
-    const t = performance.now();
+    const t = performance.now(), exp = exposureSec() * 1000;
     if (L.lastShown) L.fps = 0.8 * L.fps + 0.2 * (1000 / Math.max(1, t - L.lastShown));
     L.lastShown = t;
     L.frames++;
+    // the next due time: one exposure after this one's; behind by more than that (frames slower than the exposure),
+    // from now (no burst to catch up)
+    L.nextDue = Math.max(due + exp, t);
+    if (REC.on) { draw(d); showPerf(); recNext(); return; }
+    clearTimeout(L.reqTimer);
+    const ask = () => { if (L.on && !document.hidden && !REC.on) request(); };
+    const askIn = L.nextDue - t - L.trip - 2;   // (2 ms for the message's way)
+    if (askIn <= 0) ask(); else L.reqTimer = setTimeout(ask, askIn);
     draw(d);
     showPerf();
-    if (REC.on) recNext();
-    else if (L.on && !document.hidden) request();
   };
   if (L.on && now < due) setTimeout(show, due - now); else show();
 }
@@ -498,10 +509,22 @@ function autoRange(fr) {
   const lo = s[Math.floor(s.length * 0.001)], hi = Math.max(lo + 1, s[Math.min(s.length - 1, Math.floor(s.length * 0.999))]);
   return [lo, hi];
 }
+// A frame is taken at once; its pixels go to the canvases at the display's next refresh (requestAnimationFrame, the
+// newest frame when several came in between). Drawn straight from the worker's message, Chrome's 2D-canvas rate
+// limiter held the page ~150-180 ms for the GPU several times a second (frames faster than the screen: 10 ms
+// exposures ran at ~20 fps, 2026-11-12).
 function draw(d) {
   L.frame = d.frames; L.w = d.w; L.h = d.h; L.spec = d.spec || L.pendingSpec || '';
   $('lv_idle').style.display = 'none';
+  L.newFrame = true;
+  if (!L.drawRaf) L.drawRaf = requestAnimationFrame(drawNow);
+}
+function drawNow() {
+  L.drawRaf = 0;
+  if (!L.newFrame || !L.frame) return;
+  L.newFrame = false;
   if ($('lv_auto').checked) {
+    const d = { frames: L.frame };
     const [lo, hi] = autoRange(d.frames);
     // a little smoothing so the display does not flicker with the blinks
     L.lo = L.frames > 1 && L.hiSet ? Math.round(0.7 * L.lo + 0.3 * lo) : lo;
@@ -516,7 +539,10 @@ function draw(d) {
   if (L.perf) { L.perf.paintMs = t1 - t0; L.perf.histMs = performance.now() - t1; }
   showInfo();
   drawScale();
-  requestDraw();
+  // the world view shows the live frame only through the drift (the camera's field and the focal plane move with it):
+  // redrawn when that moved, not after every frame (a world view drawn per frame held Firefox's page ~240 ms each)
+  const dr = L.drift || [0, 0, 0], wd = L.worldDrift;
+  if (!wd || Math.abs(dr[0] - wd[0]) + Math.abs(dr[1] - wd[1]) + Math.abs(dr[2] - wd[2]) > 1) { L.worldDrift = dr.slice(); requestDraw(); }
 }
 
 // ---- the live histogram, upright (the display's level bar): log counts, the display range over it ----
@@ -1270,7 +1296,8 @@ function syncButtons() {
 function setLive(on) {
   L.on = on;
   syncButtons();
-  if (on) { closePlayer(); L.lastShown = 0; L.fps = 0; REC.msg = ''; request(); }
+  clearTimeout(L.reqTimer);
+  if (on) { closePlayer(); L.lastShown = 0; L.nextDue = 0; L.fps = 0; L.worldDrift = null; REC.msg = ''; request(); }
 }
 $('lv_live').addEventListener('click', () => { setLive(!L.on); if (L.on) iscTrack('live'); });
 // Live starts by itself once the engine is up (not counted as a pick), unless the user pressed Live, Snap or Record
@@ -1287,6 +1314,8 @@ if (L.auto) {
 }
 $('lv_fresh').addEventListener('click', () => { L.worldKey = null; L.t = 0; if (!L.on && L.frame) request(); });
 $('lv_snap').addEventListener('click', () => { iscTrack('snap'); if (L.on) setLive(false); closePlayer(); L.lastShown = 0; REC.msg = ''; request(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && L.on && !L.pending) request(); });
+// a new exposure takes effect at the next frame (a long one's request is not waited for)
+$('mv_exposure-ms').addEventListener('change', () => { if (L.on && !L.pending && !REC.on) { clearTimeout(L.reqTimer); L.nextDue = 0; request(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && L.on && !L.pending) { L.nextDue = 0; request(); } });
 window.liveRedraw = () => { paint(); drawScale(); };
 })();

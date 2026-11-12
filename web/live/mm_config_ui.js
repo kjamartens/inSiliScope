@@ -69,9 +69,10 @@ const fire = el => { el.dispatchEvent(new Event('input', { bubbles: true })); el
 const FOLLOW = new Set(['camera-type', 'em-gain', 'qe-curve']);
 const follows = (k, set) => FOLLOW.has(k) && set['camera-preset'] !== undefined;
 // Labels first (picking a dye or mode loads its light preset and labelling), the light path and numbers after.
-const order = k => (/-mode$/.test(k) ? 0 : /-dye$/.test(k) ? 1 : /^specimen$|^camera-preset$/.test(k) ? 2 : 3);
+// The pattern before the BFP position (a pattern pick sets the BFP to its type's radius).
+const order = k => (/-mode$/.test(k) ? 0 : /-dye$/.test(k) ? 1 : /^specimen$|^camera-preset$|^sim-type$/.test(k) ? 2 : 3);
 // (The Imaging mode's (Channel) presets carry no BFP position: a dye or mode pick leaves it in Micro-Manager too,
-// 2026-11-05.)
+// 2026-11-05; but SIM's: it sets the pattern, the BFP position, the magnification and the exposure, 2026-11-12.)
 function apply(preset) {
   const set = preset.set || {}, missing = [];
   for (const k of Object.keys(set).sort((a, b) => order(a) - order(b))) {
@@ -91,6 +92,7 @@ function apply(preset) {
     takeCameraMag(preset.optics);
     setPixelSize(opticsNow());
   }
+  if (preset.exposureMs && $('mv_exposure-ms') && +$('mv_exposure-ms').value !== preset.exposureMs) { $('mv_exposure-ms').value = preset.exposureMs; fire($('mv_exposure-ms')); }
   if (set['camera-preset'] !== undefined && $('qeFlat') && $('qeFlat').checked) { $('qeFlat').checked = false; fire($('qeFlat')); }
   if (preset.light) {
     delete extra['light-epi']; delete extra['light-trans'];
@@ -119,6 +121,7 @@ function pruneExtra() { if (engine) for (const k in extra) if (!engine.has(k) &&
 // control, or an extra a preset set (else the engine's default).
 function matches(preset) {
   const set = preset.set || {};
+  if (preset.exposureMs && $('mv_exposure-ms') && Math.abs(+$('mv_exposure-ms').value - preset.exposureMs) > 1e-6) return false;
   for (const k in set) {
     const el = $('mv_' + k), v = valueOf(k, set);
     if (follows(k, set) && +(el ? el.value : k in extra ? extra[k] : -1) === -1) continue;
@@ -155,6 +158,21 @@ function markCurrent() {
 // (a re-render empties the grid).
 const expCells = $('lv_expRow') ? [...$('lv_expRow').children] : [];
 if ($('lv_expRow')) $('lv_expRow').remove();
+// The Specimen select (the settings' mv_specimen, Micro-Manager's SampleHolder / config group Specimen) sits first in
+// this grid too: what is under the objective is part of the acquisition. Its settings row goes.
+const specCells = (() => {
+  const sel = $('mv_specimen'), row = sel && sel.closest('.opt');
+  if (!sel) return [];
+  const lab = document.createElement('span'), name = document.createElement('label');
+  lab.className = 'lab';
+  name.htmlFor = 'mv_specimen';
+  name.textContent = 'Specimen';
+  const tipSrc = row && row.querySelector('[data-tip]');
+  name.dataset.tip = tipSrc ? tipSrc.dataset.tip : 'The mounted specimen. <code>SampleHolder</code>';
+  lab.append(name);
+  if (row) row.remove();
+  return [lab, sel];
+})();
 function render() {
   const tier = { advanced: 'Advanced', expert: 'Expert' }[document.body.dataset.level] || 'Basic';
   const T = CFG[tier] || CFG.Basic;
@@ -162,6 +180,7 @@ function render() {
   host.innerHTML = '';
   for (const id of new Set(Object.values(HOME))) if ($(id)) $(id).innerHTML = '';
   rows = [];
+  host.append(...specCells);   // first: the specimen
   const first = ['Channel', 'Illumination', 'Drift', 'Quality'];
   const groups = T.groups.slice().sort((a, b) => ((first.indexOf(a.name) + 1 || 99) - (first.indexOf(b.name) + 1 || 99)));
   for (const g of groups) {

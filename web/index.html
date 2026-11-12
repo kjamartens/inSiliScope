@@ -64,11 +64,12 @@ self.iscCoi = (() => {
   body:not(.mobile) #wrap.setShut{--set-cur:28px}
   #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
   /* the top strip: the title bar takes the room, the status bar (info, level, file icons, menu) sits at the right end */
-  #topBar{grid-column:1/-1;display:flex;align-items:stretch;min-width:0;background:var(--color-surface);border-bottom:1px solid var(--color-border)}
+  #topBar{grid-column:1/-1;position:relative;display:flex;align-items:stretch;min-width:0;background:var(--color-surface);border-bottom:1px solid var(--color-border)}
   #topBar>#viewBar{flex:1 1 0;min-width:0;border-bottom:0}
   #topBar>#liveBar{flex:0 1 auto;border-bottom:0}
   #viewBar{display:flex;align-items:center;gap:6px;padding:4px 8px;min-height:34px;box-sizing:border-box;background:var(--color-surface);border-bottom:1px solid var(--color-border);font-size:var(--font-size-body);flex-wrap:wrap}
-  #viewBar h1{font-size:var(--font-size-title);margin:0 6px 0 0;white-space:nowrap}
+  #viewBar h1{font-size:var(--font-size-title);margin:0;white-space:nowrap;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:auto}
+  #barTools{position:relative;display:flex;align-items:center;gap:2px;flex:none}
   #viewBar a.back{font-size:var(--font-size-caption);color:var(--color-link);text-decoration:none;white-space:nowrap}
   #viewBar #mmLink{margin-right:20px}
   #viewBar .tagline{flex:1 1 0;font-size:var(--font-size-caption);color:var(--color-text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -132,12 +133,15 @@ self.iscCoi = (() => {
      end, giving way first (in the bar on a phone) */
   #lv_acts{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-top:var(--density-pad)}
   #lv_acts>*{flex:none}
+  /* the acquisition buttons stay at the top of the controls while they scroll */
+  #lv_cols>#lv_acts{position:sticky;top:calc(-1 * var(--space-1));z-index:2;background:var(--color-surface);margin-top:calc(-1 * var(--space-1));padding-bottom:var(--space-1)}
   #lv_acts>#lv_busy{margin-left:auto}
   #lv_acts>#lv_info{flex:1 1 0;text-align:right}
   #lv_acts>#lv_busy:not([hidden])+#lv_info{flex:0 1 auto}
   #liveBar>#lv_acts{margin:0;flex-wrap:nowrap}
   /* the strip is at the window's foot: the Record box opens upwards there */
-  #lv_cols #lv_recPop{top:auto;bottom:calc(100% + 4px)}
+  /* under the buttons: above them it was cut off by the controls' scroll box (the row stays at its top) */
+  #lv_cols #lv_recPop{top:calc(100% + 4px);bottom:auto;z-index:var(--z-popover)}
   /* only the info line gives way (it takes the room left, from a zero basis): a long text or a busy marker never
      squeezes or moves the buttons; Record keeps one width as its text turns into the frame count */
   #liveBar>:not(#lv_info,#lv_busy){flex:none}
@@ -158,12 +162,14 @@ self.iscCoi = (() => {
   #setCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
   #setColHead{display:flex;align-items:center;justify-content:space-between;padding:var(--space-2) var(--space-2) var(--space-2) var(--space-5);
     border-bottom:1px solid var(--color-border);font-weight:600;color:var(--color-text)}
-  #setFold{height:22px;width:26px;padding:0;line-height:1}
+  #setFold{height:22px;width:26px;padding:0;line-height:0;display:inline-flex;align-items:center;justify-content:center;
+    border:1px solid var(--color-border-strong);background:var(--color-surface-raised);color:var(--color-accent)}
+  #setFold:hover,#setFold:focus-visible{background:var(--color-accent);border-color:var(--color-accent);color:var(--color-accent-on)}
   #setStrip{display:none;flex:1;width:28px;flex-direction:column;align-items:center;padding:var(--space-2) 0;box-sizing:border-box;
     border-left:2px solid var(--color-accent);background:var(--color-surface)}
   #setTab{display:flex;flex-direction:column;align-items:center;gap:var(--space-3);width:22px;padding:var(--space-3) 0;
     border:1px solid var(--color-border-strong);border-radius:var(--radius-md);background:var(--color-surface-raised);color:var(--color-text);cursor:pointer}
-  #setTab .chev{color:var(--color-accent);font-size:var(--font-size-title);line-height:1;font-weight:600}
+  #setTab .chev{color:var(--color-accent);line-height:0}
   #setTab span:not(.chev){writing-mode:vertical-rl;letter-spacing:.04em;font-weight:600}
   #setTab:hover,#setTab:focus-visible{background:var(--color-accent);border-color:var(--color-accent);color:var(--color-accent-on)}
   #setTab:hover .chev,#setTab:focus-visible .chev{color:var(--color-accent-on)}
@@ -428,12 +434,19 @@ self.iscCoi = (() => {
   #lv_statBox .facts .f{display:contents}
   #lv_statBox .facts .k{color:var(--color-text-muted)}
   @container (max-width:180px){#lv_statBox .facts{grid-template-columns:minmax(0,1fr)} #lv_statBox .facts .k{display:none}}
-  #lv_statBox .facts .v{overflow-wrap:anywhere}
-  #lv_statBox .facts .v>span{white-space:nowrap}
-  #lv_warn{display:flex;align-items:flex-start;gap:var(--space-1);width:100%;margin-top:var(--space-2);padding:var(--space-1) var(--space-2);
+  #lv_statBox .facts .v{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}   /* one line each: nothing under the box moves */
+  #lv_statBox .chips{min-height:20px}
+  /* the warning line: always there (one line high, so nothing under it moves), empty when all is well; one warning's
+     text, or several short names side by side */
+  #lv_warn{display:flex;align-items:center;gap:var(--space-1);width:100%;height:calc(1.35em + 2 * var(--space-1) + 2px);box-sizing:border-box;
+    margin-top:var(--space-2);padding:var(--space-1) var(--space-2);overflow:hidden;white-space:nowrap;
     text-align:left;font-size:var(--font-size-caption);line-height:1.35;border-radius:var(--radius-sm);cursor:pointer;
     background:var(--color-surface);border:1px solid var(--sev-c);color:var(--color-text)}
-  #lv_warn[hidden]{display:none}
+  #lv_warn.none{visibility:hidden;cursor:default}
+  #lv_warn .w1{display:inline-flex;align-items:center;gap:3px;min-width:0;flex:0 1 auto}
+  #lv_warn .w1+.w1{padding-left:var(--space-2);border-left:1px solid var(--color-border)}
+  #lv_warn .w1[data-sev=error]{--sev-c:var(--color-status-error)} #lv_warn .w1[data-sev=warn]{--sev-c:var(--color-status-warn)}
+  #lv_warn .w1[data-sev=info]{--sev-c:var(--color-text-muted)}
   /* The single-thread notice (iscCoi): a box over the bottom of the window, until closed. */
   #threadNotice{position:fixed;left:50%;bottom:var(--space-3);transform:translateX(-50%);z-index:50;display:flex;align-items:flex-start;
     gap:var(--space-2);max-width:min(560px,calc(100vw - 2 * var(--space-3)));padding:var(--space-2) var(--space-3);
@@ -444,8 +457,8 @@ self.iscCoi = (() => {
   #lv_warn[data-sev=error]{--sev-c:var(--color-status-error)} #lv_warn[data-sev=warn]{--sev-c:var(--color-status-warn)}
   #lv_warn[data-sev=info]{--sev-c:var(--color-border-strong)}
   #lv_warn .i,#lv_warnPop .i{flex:none;color:var(--sev-c)}
-  #lv_warn .t{flex:1 1 auto}
-  #lv_warn .n{flex:none;color:var(--color-text-muted)}
+  #lv_warn .t{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  #lv_warn.icons .t{display:none}
   #lv_warnPop{position:fixed;z-index:var(--z-popover);width:min(320px,calc(100vw - 16px));padding:var(--space-2) var(--space-3);font-size:var(--font-size-caption)}
   #lv_warnPop .w+.w{border-top:1px solid var(--color-border);margin-top:var(--space-2);padding-top:var(--space-2)}
   #lv_warnPop .w[data-sev=error]{--sev-c:var(--color-status-error)} #lv_warnPop .w[data-sev=warn]{--sev-c:var(--color-status-warn)}
@@ -493,15 +506,19 @@ self.iscCoi = (() => {
     box-shadow:var(--shadow-raised);z-index:var(--z-popover)}
   /* hamburger menu */
   #menuBtn{font-size:var(--font-size-icon);line-height:1;padding:3px 8px}
-  #menu{display:none;position:absolute;right:8px;top:100%;margin-top:4px;min-width:230px;max-height:calc(100vh - 60px);overflow-y:auto;padding:var(--space-2) var(--space-5) var(--space-4)}
+  #menu{display:none;position:absolute;left:0;top:100%;margin-top:4px;min-width:230px;max-height:calc(100vh - 60px);overflow-y:auto;padding:var(--space-2) var(--space-5) var(--space-4)}
   #menu.open{display:block}
   #menu h4{margin:var(--space-5) 0 var(--space-2);padding-top:var(--space-3);border-top:1px solid var(--color-border);font-size:var(--font-size-caption);font-weight:600;color:var(--color-text-muted)}
   #menu>h4:first-child,#menu>div:first-child>h4:first-child{margin-top:var(--space-2);padding-top:0;border-top:0}
+  #menu{width:300px;box-sizing:border-box}
   #menu .seg{margin:var(--space-1) 0}
+  #menu .mrow{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:center;gap:var(--space-3)}
+  #menu .mrow>span{font-size:var(--font-size-caption);color:var(--color-text-muted)}
+  #menu .mrow .seg{display:flex}
   #menu .seg button{flex:1}
   #menu label{display:block;margin:3px 0;cursor:pointer}
   #menu .btns{display:flex;gap:6px;margin-top:8px}
-  #menu .btns button{flex:1;padding:3px 6px}
+  #menu .btns button{flex:1;padding:3px 6px;white-space:nowrap}
   #menu .note{font-size:var(--font-size-caption);color:var(--color-text-muted);margin-top:6px}
   /* Sections and groups (docs/dev/DESIGN.md "Groups"): a section is a heading over a line; a group is the one level
      that folds: its whole title row is the button (a caret, the title, the count of changed settings and a reset when
@@ -613,7 +630,8 @@ self.iscCoi = (() => {
   body.mobile{--fs:14px;--lab-w:112px;--lab-w-base:112px;--val-w:60px}
   body.mobile #wrap{display:block;height:auto}
   body.mobile #splitter{display:none}
-  body.mobile #viewBar .tagline,body.mobile #viewBar .sp{display:none}
+  body.mobile #viewBar .sp{display:none}
+  body.mobile #viewBar h1{position:static;transform:none}
   body.mobile #viewBar{justify-content:space-between;gap:10px}
   body.mobile #viewBar #mmLink{margin:0 0 0 auto}
   body.mobile #viewBar a.back{font-size:var(--font-size-body)}
@@ -655,7 +673,7 @@ self.iscCoi = (() => {
   body.mobile #liveBar{flex-wrap:wrap;row-gap:4px;border-top:1px solid var(--color-border)}
   body.mobile #liveBar>button,body.mobile #lv_acts>button,body.mobile #lv_recWrap>button{padding:6px 10px}
   body.mobile #lv_live{width:84px}
-  body.mobile #menuBtn{order:1;margin-left:auto;font-size:var(--font-size-icon)}
+  body.mobile #menuBtn{font-size:var(--font-size-icon)}
   body.mobile #liveBar::after{content:'';order:1;flex-basis:100%;height:0}
   body.mobile :is(#lv_busy,#lv_info,#levelSeg){order:2}
   body.mobile #lv_info{flex:1 1 0;margin-left:0}
@@ -745,17 +763,16 @@ self.iscCoi = (() => {
   <!-- One strip across the window: the title bar (left) and the status bar (right) -->
   <div id="topBar">
   <div id="viewBar">
-    <h1>inSiliScope</h1>
-    <span class="tagline" title="Synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; the live camera on the right starts by itself (■ Stop stops it).">a simulated fluorescence microscope &middot; drag, zoom, Shift-drag to tilt</span>
-    <span class="sp"></span>
+    <div id="barTools"><button id="menuBtn" title="Settings: save / load, appearance, reset, tools, about" aria-haspopup="true" aria-expanded="false">☰</button>
+      <div id="menu" class="popover" role="menu"></div></div>
     <div id="leftSeg" class="seg" role="radiogroup" aria-label="Left view" title="What the left view shows: the sample (the world view) or the microscope (the overview, the illumination profile, the PSF, the back focal plane, the spectral info)"><button data-left="sample" role="radio" class="on" aria-checked="true">Sample</button><button data-left="scope" role="radio" aria-checked="false">Microscope</button></div>
+    <h1 title="A simulated fluorescence microscope: synthetic cells and DNA-origami nanorulers, imaged live with realistic dyes, optics and camera noise. Drag to pan, wheel to zoom, Shift-drag to tilt; the live camera on the right starts by itself (■ Stop stops it).">inSiliScope</h1>
+    <span class="sp"></span>
     <a id="mmLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="micro-manager" href="https://kjamartens.github.io/inSiliScope/docs/micro-manager/" title="The Micro-Manager adapter: download and getting started">Micro-Manager &rarr;</a>
     <a id="docsLink" class="back" target="_top" data-umami-event="link" data-umami-event-to="docs" href="https://kjamartens.github.io/inSiliScope/docs/" title="Documentation: quickstart, samples, physics, gallery">Docs &rarr;</a>
   </div>
     <div id="liveBar">
       <div id="levelSeg" class="seg" role="radiogroup" aria-label="Settings level" title="Which settings show: the tiers of the Micro-Manager adapter's properties (Basic, Advanced, Expert); settings Micro-Manager does not have keep the viewer's own level"><button data-level="basic" role="radio">Basic</button><button data-level="advanced" role="radio">Advanced</button><button data-level="expert" role="radio">Expert</button></div>
-      <button id="menuBtn" title="Options and style" aria-haspopup="true" aria-expanded="false">☰</button>
-      <div id="menu" class="popover" role="menu"></div>
     </div>
   </div>
   <div id="worldCol">
@@ -805,7 +822,7 @@ self.iscCoi = (() => {
       <div class="lc" id="lv_statBox"><h5>Info</h5>
         <div class="chips" id="lv_laserChips" role="group" aria-label="Lasers: a click turns a line on or off"></div>
         <div class="facts" id="lv_facts"></div>
-        <button type="button" id="lv_warn" hidden aria-haspopup="dialog" aria-expanded="false"></button>
+        <button type="button" id="lv_warn" class="none" disabled aria-haspopup="dialog" aria-expanded="false"></button>
         <div id="lv_warnPop" class="popover" hidden role="dialog" aria-label="What to check"></div>
       </div>
       <div class="lc" id="lv_stageBox"><h5>Stage</h5>
@@ -843,7 +860,7 @@ self.iscCoi = (() => {
     </div>
     <!-- The settings (Sample, Sample preparation, Instrument) in a column at the right that folds to a tab at the edge -->
     <div id="setCol">
-      <div id="setColHead"><span>Settings</span><button id="setFold" type="button" title="Fold the settings to a tab at the right edge (the live image moves right, the view on the left gets the room)" aria-label="Fold the settings" aria-expanded="true">»</button></div>
+      <div id="setColHead"><span>Settings</span><button id="setFold" type="button" title="Fold the specimen settings to a tab at the right edge (the live image moves right, the view on the left gets the room)" aria-label="Fold the specimen settings" aria-expanded="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 3v10M5.5 8h8M10.5 5l3 3-3 3"/></svg></button></div>
       <div id="sideTop">
         <div class="bar">
           <input type="search" id="setSearch" placeholder="Search settings" aria-label="Search settings">
@@ -854,12 +871,13 @@ self.iscCoi = (() => {
     <!-- Filled from UI_GROUPS by the uiSchema script below (same element ids as the main script reads). -->
       <div id="panel"></div>
       <div id="animPanel" hidden></div>
-          <div id="setStrip"><button id="setTab" type="button" title="Show the settings" aria-label="Show the settings" aria-expanded="false"><span class="chev" aria-hidden="true">«</span><span>Show settings</span></button></div>
+          <div id="setStrip"><button id="setTab" type="button" title="Show the specimen settings" aria-label="Show the specimen settings" aria-expanded="false"><span class="chev" aria-hidden="true"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 3v10M10.5 8h-8M5.5 5l-3 3 3 3"/></svg></span><span>Show specimen settings</span></button></div>
     </div>
     </div>
   </div>
 </div>
 
+<script src="build_info.js"></script>
 <script src="live/mobile.js"></script>
 <script src="live/usage.js"></script>
 <!-- usage.js missing (an ad-blocker): the buttons call iscTrack all the same. -->
@@ -1629,6 +1647,7 @@ const UI_GROUPS = [
       <a href="https://github.com/kjamartens/inSiliScope" target="_blank" rel="noopener">Source (BSD-3-Clause)</a> &middot;
       <a href="https://github.com/kjamartens/inSiliScope/issues" target="_blank" rel="noopener">Report a problem</a>.
       Dye spectra from <a href="https://www.fpbase.org" target="_blank" rel="noopener">FPbase</a> (CC BY-SA 4.0).</p>` },
+    { kind: 'html', html: '<p class="sub" id="aboutBuild"></p>' },   // (the build: filled with the ☰ menu's About line)
   ] },
 ];
 
@@ -1978,18 +1997,26 @@ const menu = $('menu'), menuBtn = $('menuBtn');
 // Settings, Tools, About
 const segOf = (name, opts, label) => `<div class="seg" role="radiogroup" aria-label="${label}" data-seg="${name}">` +
   opts.map(([v, t, tip]) => `<button type="button" role="radio" data-v="${v}" title="${tip}">${t}</button>`).join('') + '</div>';
+// the build: the release and commit the site was deployed from (build_info.js, written by tools/build_site.sh), else the
+// module's VERSION (a local checkout)
+const buildLine = (() => {
+  const b = self.ISC_BUILD, rel = b && b.release ? b.release : self.ISC_VERSION ? 'v' + self.ISC_VERSION : '';
+  const sha = b && b.commit ? b.commit : '';
+  return 'inSiliScope ' + (rel || '(local)') + (sha ? ` · <a href="https://github.com/kjamartens/inSiliScope/commit/${sha}" target="_blank" rel="noopener" title="The commit this viewer was built from${b.date ? ' (' + b.date + ')' : ''}">${sha.slice(0, 7)}</a>` : b ? '' : ' · local build');
+})();
+if ($('aboutBuild')) $('aboutBuild').innerHTML = 'This viewer: ' + buildLine;
 menu.innerHTML = '<h4>Appearance</h4>' +
-  segOf('theme', [['dark', 'Dark', 'Dark panels (the default: images are judged best against a dark, neutral surround)'],
-    ['light', 'Light', 'Light panels; the world view and the live image stay dark'], ['system', 'System', 'Follow the system’s light or dark setting']], 'Theme') +
-  segOf('density', [['comfortable', 'Comfortable', 'More room between the settings'], ['compact', 'Compact', 'More settings on the screen']], 'Density') +
-  '<label title="The Settings / Animation tabs: the animation editor (beta)"><input type="checkbox" id="showAnimPane"> Show the animation pane (beta)</label>' +
+  '<div class="mrow"><span>Theme</span>' + segOf('theme', [['dark', 'Dark', 'Dark panels (the default: images are judged best against a dark, neutral surround)'],
+    ['light', 'Light', 'Light panels; the world view and the live image stay dark'], ['system', 'System', 'Follow the system’s light or dark setting']], 'Theme') + '</div>' +
+  '<div class="mrow"><span>Density</span>' + segOf('density', [['comfortable', 'Comfortable', 'More room between the settings'], ['compact', 'Compact', 'More settings on the screen']], 'Density') + '</div>' +
+  '<label title="The Settings / Animation tabs: the animation editor (beta)"><input type="checkbox" id="showAnimPane"> Animation pane (beta)</label>' +
   '<h4>Settings</h4>' +
-  '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button></div>' +
-  '<div class="btns"><button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all to defaults</button></div>' +
+  '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button>' +
+  '<button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all</button></div>' +
   '<div class="note" id="advNote"></div>' +
-  '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground-truth table to a density stack at any voxel size">Voxelize ground truth ↗</a>: a ground-truth table to a stack</div>' +
+  '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground-truth table to a density stack at any voxel size">Voxelize ground truth ↗</a></div>' +
   '<h4>About</h4>' +
-  (self.ISC_VERSION ? `<div class="note">inSiliScope ${self.ISC_VERSION}</div>` : '') +
+  `<div class="note" id="buildInfo">${buildLine}</div>` +
   '<div class="note"><a id="privacyLink" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/privacy/">Privacy</a>: anonymous usage counts, no cookies</div>';
 // the settings column folds to a tab at the right edge (remembered); a search or "Changed only" unfolds it
 function foldSettings(shut) {

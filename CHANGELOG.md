@@ -3,6 +3,24 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## v0.1.0-rc20-hotfix1 (changes since v0.1.0-rc20)
+
+Viewer fixes and a SIM imaging mode:
+
+- **Live keeps up with the exposure.** It was slower than one frame per exposure: 50 ms gave about 16 fps, 10 ms about 20 fps even with 10 ms frames.
+  - The canvases are drawn at the display's refresh. Drawn straight from the worker's message, Chrome's canvas rate limiter held the page ~150-280 ms several times a second.
+  - Frames follow an absolute schedule (each due one exposure after the last one's due time), and the next one is asked for just early enough to arrive by then.
+  - The world view is redrawn after a live frame only when the drift moved it (in Firefox each redraw held the page ~240 ms).
+  - Measured, 64 px at 10 ms: Chrome 19 -> 76 fps, Firefox 96 fps; at 50 ms: 20 fps.
+- **SIM imaging mode** (Micro-Manager Channel group and the viewer's Imaging mode): the WideField labels under a SIM2D pattern at BFP position 0.75, 50 nm pixels (`EmissionPath.EmissionMagnification` 1.3 with the Kinetix22 at 100x) and 100 ms frames. The other modes turn the pattern off and leave the rest.
+- **Layout:**
+  - The top bar: ☰, save and load, then Sample | Microscope at the left; the name centred; the settings level at the right.
+  - The Specimen select is the first row of Acquisition.
+  - Live / Snap / Record stay at the top of the controls while they scroll.
+  - The Info box keeps one line per row and room for its warning line, so nothing under it moves; several warnings show side by side by short names.
+  - The settings column's tab reads "Show specimen settings"; its fold button is an arrow-to-bar icon in the accent colour.
+  - The ☰ menu is tidier, and About names the release and commit the site was built from (`build_info.js`, written by `tools/build_site.sh`).
+
 ## v0.1.0-rc20 (changes since v0.1.0-rc19)
 
 Faster live structured illumination with WideField labels, and a multithreaded viewer:

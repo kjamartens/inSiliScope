@@ -262,11 +262,11 @@ async function applyFile(file, parts) {
 // ---- the menu's section: each part's source, id and summary ----
 const source = (() => { try { return JSON.parse(store.get('setup', '{}')) || {}; } catch (e) { return {}; } })();
 function setSource(p, name, id) { source[p] = { name, id }; store.set('setup', JSON.stringify(source)); }
-// The ☰ menu's first section: a row per part, Save... / Load...; two icons beside the settings level do the same.
+// The ☰ menu's first section: a row per part, Save... / Load...; two icons beside ☰ do the same.
 const menu = $('menu'), menuBtn = $('menuBtn');
 const sec = document.createElement('div');
 sec.id = 'menuSetup';
-sec.innerHTML = '<h4 title="A setup in five parts, each saved and loaded on its own; a .isc.json dropped on the page loads too">Save / load settings</h4>' +
+sec.innerHTML = '<h4 title="A setup in five parts, each saved and loaded on its own; a .isc.json dropped on the page loads too">Settings file</h4>' +
   '<div id="lv_setupRows"></div><div class="btns"><button id="lv_setSave" title="Save the setup (or some of its parts) as a .isc.json file">Save…</button>' +
   '<button id="lv_setLoad" title="Load a .isc.json file: all of it, or some of its parts over what is here">Load…</button></div>';
 menu.prepend(sec);
@@ -279,17 +279,16 @@ const icons = document.createElement('div');
 icons.id = 'setIcons';
 icons.innerHTML = ['save', 'load'].map(k => `<button id="setIco${k === 'save' ? 'Save' : 'Load'}" title="${k === 'save' ? 'Save settings… (a .isc.json file of the setup or some of its parts)' : 'Load settings… (a .isc.json file, all of it or some of its parts)'}" ` +
   `aria-label="${k === 'save' ? 'Save settings' : 'Load settings'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">${ICON[k]}</svg></button>`).join('');
-menuBtn.before(icons);
+$('menu').after(icons);   // the top bar's left end: ☰, save, load
 const closeMenu = () => { menu.classList.remove('open'); menuBtn.setAttribute('aria-expanded', 'false'); };
 const css = document.createElement('style');
 css.textContent = `
-  #menuSetup{width:300px;max-width:100%} #menuSetup h4{margin-top:0}
+  #menuSetup{max-width:100%} #menuSetup h4{margin-top:0}
   #setIcons{display:flex;gap:2px;flex:none} #setIcons button{padding:3px 5px;line-height:0}
   body.mobile #setIcons{display:none}   /* (no room in the phone's bar: ☰ has Save / Load) */
-  #lv_setupRows{display:grid;grid-template-columns:auto 1fr auto;gap:1px 6px;font-size:var(--font-size-caption);align-items:baseline}
+  #lv_setupRows{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px var(--space-3);font-size:var(--font-size-caption);align-items:baseline}
   #lv_setupRows .p{color:var(--color-text-muted)} #lv_setupRows .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #lv_setupRows .i{font-family:var(--font-family-mono);color:var(--color-text-muted)} #lv_setupRows .i.ed::after{content:' edited';color:var(--color-accent)}
-  #lv_setupRows .s{grid-column:1/-1;color:var(--color-text-muted);font-size:var(--font-size-caption);margin:-1px 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #lv_setupRows .n.ed::after{content:' · edited';color:var(--color-accent)}
   #setDlg{position:fixed;inset:0;z-index:var(--z-dialog);background:var(--color-overlay-scrim);display:flex;align-items:center;justify-content:center}
   #setDlg[hidden]{display:none}
   #setDlg .box{background:var(--color-surface);color:var(--color-text);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:12px 14px;width:min(560px,calc(100vw - 32px));
@@ -309,9 +308,9 @@ function showSetup() {
     const id = idOf(now.values[p]), s = source[p], edited = s && s.id !== id;
     const name = s ? s.name : p === 'view' ? 'this browser' : 'defaults';
     const sum = summary(p, now.values[p], now.viewer[p], p === 'measurement' ? historyOut() : null);
-    rows.push(`<span class="p" title="${esc(HELP[p])}">${TITLE[p]}</span><span class="n" title="${esc(name)}">${esc(name)}</span>` +
-      `<span class="i${edited ? ' ed' : ''}" title="A short id of this part's values: the same values, the same id${edited ? '; changed since it was loaded or saved' : ''}">${id}</span>` +
-      `<span class="s" title="${esc(sum)}">${esc(sum)}</span>`);
+    // one line per part: where its values came from (a file's name, the defaults); the summary and the values' short id
+    // in the tooltip
+    rows.push(`<span class="p" title="${esc(HELP[p])}">${TITLE[p]}</span><span class="n${edited ? ' ed' : ''}" title="${esc(name + ' · ' + sum + ' · id ' + id + (edited ? ' (changed since loaded or saved)' : ''))}">${esc(name)}</span>`);
   }
   $('lv_setupRows').innerHTML = rows.join('');
 }

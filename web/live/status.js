@@ -141,13 +141,18 @@ function drawFacts() {
 }
 
 // ---- the checks ----
+// a warning's short name, for the line when several show side by side (the whole text in the list and the tooltip)
+const SHORT_OF = { live: 'Live failed', nolight: 'No light', nolabel: 'No label', unexcited: 'Not excited', weak: 'Weak excitation',
+  blocked: 'Emission blocked', unused: 'Unused line', tirf: 'Above TIRF', below: 'Below glass', rulers: 'Out of focus', beads: 'Out of focus',
+  nocell: 'No cell', above: 'Above cells', saturated: 'Saturated', slow: 'Slow frames' };
+const SHORT = (id, text) => { const [k, x] = id.split(':'); return k === 'unused' ? x + ' nm unused' : SHORT_OF[k] || text; };
 const SEV = { error: 0, warn: 1, info: 2 };
 // a line exciting a dye at under 5 % of its peak absorption does not count; under 20 % it is weak (the library's
 // spectra are not all scaled to a peak of 1: relAt divides by the peak)
 const EX_MIN = 0.05, EX_WEAK = 0.2;
 function checks() {
   const W = [];
-  const add = (id, sev, text, fix) => W.push({ id, sev, text, fix });
+  const add = (id, sev, text, fix) => W.push({ id, sev, text, fix, short: SHORT(id, text) });
   if (L.err) add('live', 'error', 'Live failed', `${L.err}. A smaller image (Image size) or fewer labels need less memory; reload the page if it keeps failing.`);
   const z = +$('mv_z').value, sp = specimen();
   if (S && !BF()) {
@@ -223,13 +228,20 @@ const ICON = { error: '✕', warn: '⚠', info: 'ℹ' };
 function drawWarnings() {
   warnings = checks();
   box.dataset.warnings = warnings.map(w => w.id).join(' ');
-  if (!warnings.length) { warnBtn.hidden = true; pop.hidden = true; return; }
+  // the line keeps its room when all is well (nothing under it moves): empty, not clickable
+  warnBtn.classList.toggle('none', !warnings.length);
+  warnBtn.disabled = !warnings.length;
+  if (!warnings.length) { warnBtn.innerHTML = ''; warnBtn.removeAttribute('data-sev'); warnBtn.title = ''; pop.hidden = true; return; }
   const w = warnings[0];
-  warnBtn.hidden = false;
   warnBtn.dataset.sev = w.sev;
-  const html = `<span class="i">${ICON[w.sev]}</span><span class="t">${esc(w.text)}</span>` + (warnings.length > 1 ? `<span class="n">+${warnings.length - 1}</span>` : '');
+  // one: its text on one line; several: their short names side by side, each in its severity's colour
+  const html = warnings.length === 1 ? `<span class="w1" data-sev="${w.sev}"><span class="i">${ICON[w.sev]}</span><span class="t">${esc(w.text)}</span></span>`
+    : warnings.map(x => `<span class="w1" data-sev="${x.sev}" title="${esc(x.text)}"><span class="i">${ICON[x.sev]}</span><span class="t">${esc(x.short)}</span></span>`).join('');
   if (warnBtn.innerHTML !== html) warnBtn.innerHTML = html;
-  warnBtn.title = 'Click: what to do';
+  // several that do not fit side by side: their icons alone (the names in the tooltip and the list)
+  warnBtn.classList.remove('icons');
+  if (warnings.length > 1 && [...warnBtn.querySelectorAll('.t')].some(t => t.scrollWidth > t.clientWidth + 1)) warnBtn.classList.add('icons');
+  warnBtn.title = warnings.map(x => x.text).join('\n') + '\nClick: what to do';
   if (!pop.hidden) drawList();
 }
 function drawList() {
