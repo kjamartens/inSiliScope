@@ -245,8 +245,8 @@ Upcoming ideas:
   110-450 ms (a still frame ~4 ms), and 3-7 s where the pores fall under the per-dye limit by the nucleus edge (2.1 M
   unused microtubule windows fetched every frame there); DNA-PAINT moves 60-150 ms. Plan: [x] core ABI 20
   `isc_continuous_in_map_masked` (the structures whose populations need windows; the ground truth's dye list all),
-  core `Density3dInWindow` skips blocks outside its mask, [x] dye counts of a moved rect from the last count of its
-  size (less the strips left, plus those entered: the same number), [x] WideField kernel spectra kept across a rect
+  core `Density3dInWindow` skips blocks outside its mask, [x] dye counts of a moved box from the last count of its
+  size (less the strips and z slabs left, plus those entered: the same number; also a focus step), [x] WideField kernel spectra kept across a rect
   move (they depend on the FFT shape, R, levels and PSF only), [x] `LiveScope::Prefetch` / `isc_live_prefetch` (the
   adapter's PrefetchScope; not called by the viewer: in WASM it re-walks every block per call, ~250 ms over its budget), [x] checks:
   `world_checks` (masked = unmasked filtered, masked counts), ctest `live_scope` (a moving WideField sequence across

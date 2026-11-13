@@ -2564,10 +2564,10 @@ struct MovieCache
                else
                   seen = true;
             }
-         if (!seen)
+         // (seen at other heights: the slabs between, when near; else, a focus scrub, the column below)
+         const long n = CountRect(x0, y0, x1, y1, zLo, zHi, mask, !seen);
+         if (n != -2)
          {
-            float one = 0;
-            const long n = CountRect(x0, y0, x1, y1, zLo, zHi, mask);
             if (n >= 0)
             {
                if (slabCounts.size() >= 4 * kSlabColumns)
@@ -2612,50 +2612,73 @@ struct MovieCache
       return true;
    }
 #endif
-   // A rect's dye count (2026-11-13): from a kept count of the same size, z range and mask nearby, that count less the
-   // strips the rect left plus those it entered (the core's filter is half-open, x0 <= x < x1, so the strips share
-   // edges and each dye counts once: the same number; a live stage move counted its whole rect again, 40-300 ms in the
-   // viewer's WASM); else the core over the whole rect. -1 on a core failure.
-   long CountRect(double x0, double y0, double x1, double y1, double zLo, double zHi, int mask)
+   // A box's dye count (2026-11-13): from a kept count of the same rect size and mask nearby (moved in x and y by less
+   // than half the rect, its z bounds by less than half its z range, or the same infinite ones), that count less the
+   // strips and slabs the box left plus those it entered: the core's filter is half-open (x0 <= x < x1, zLo <= z < zHi),
+   // so the pieces share their edges and each dye counts once -- the same number. A live stage move counted its whole
+   // rect again (40-300 ms in the viewer's WASM), a first focus step there built a column of every dye's height
+   // (~0.8 s for 5 M dyes). Else (none nearby) the core over the whole box when whole, or -2. -1 on a core failure.
+   long CountRect(double x0, double y0, double x1, double y1, double zLo, double zHi, int mask, bool whole = true)
    {
       float one = 0;
-      auto core = [&](double a0, double b0, double a1, double b1) -> long {
-         if (!(a1 > a0) || !(b1 > b0))
+      auto core = [&](double a0, double b0, double a1, double b1, double zl, double zh) -> long {
+         if (!(a1 > a0) || !(b1 > b0) || !(zh > zl))
             return 0;
-         return source.Density3d(a0, b0, a1, b1, zLo, zHi, 1, 1, 1, mask, &one);
+         return source.Density3d(a0, b0, a1, b1, zl, zh, 1, 1, 1, mask, &one);
       };
       const double w = x1 - x0, h = y1 - y0;
+      const bool zFinite = std::isfinite(zLo) && std::isfinite(zHi);
       const SlabCount* best = nullptr;
-      // past half the rect, the strips cost about what the rect does
-      double bestMove = ScopeShortcuts() ? 0.5 * std::min(w, h) : 0.0;
-      for (const SlabCount& c : slabCounts)
-         if (c.version == dyeVersion && c.mask == mask && c.box[4] == zLo && c.box[5] == zHi &&
-             c.box[2] - c.box[0] == w && c.box[3] - c.box[1] == h)
+      double bestCost = 2.0;   // the moves as fractions of their limits
+      if (ScopeShortcuts())
+         for (const SlabCount& c : slabCounts)
          {
-            const double mv = std::fabs(c.box[0] - x0) + std::fabs(c.box[1] - y0);
-            if (mv < bestMove)
-               best = &c, bestMove = mv;
+            if (c.version != dyeVersion || c.mask != mask || c.box[2] - c.box[0] != w || c.box[3] - c.box[1] != h)
+               continue;
+            const double mv = (std::fabs(c.box[0] - x0) + std::fabs(c.box[1] - y0)) / (0.5 * std::min(w, h));
+            double mz = 0.0;
+            if (c.box[4] != zLo || c.box[5] != zHi)
+            {
+               if (!zFinite || !std::isfinite(c.box[4]) || !std::isfinite(c.box[5]))
+                  continue;
+               const double half = 0.5 * std::min(zHi - zLo, c.box[5] - c.box[4]);
+               if (!(std::fabs(c.box[4] - zLo) < half && std::fabs(c.box[5] - zHi) < half))
+                  continue;
+               mz = (std::fabs(c.box[4] - zLo) + std::fabs(c.box[5] - zHi)) / half;
+            }
+            if (mv < 1.0 && mv + mz < bestCost)
+               best = &c, bestCost = mv + mz;
          }
       if (!best)
-         return core(x0, y0, x1, y1);
+         return whole ? core(x0, y0, x1, y1, zLo, zHi) : -2;
       const double cx0 = best->box[0], cy0 = best->box[1], cx1 = best->box[2], cy1 = best->box[3];
+      const double cLo = best->box[4], cHi = best->box[5];
       long n = best->n;
-      // x first ([x0, x1) x [cy0, cy1)), then y.
+      // x first ([x0, x1) x [cy0, cy1) at the kept z bounds), then y, then the z bounds over the new rect.
       long a, r;
       if (x0 >= cx0)
-         r = core(cx0, cy0, x0, cy1), a = core(cx1, cy0, x1, cy1);
+         r = core(cx0, cy0, x0, cy1, cLo, cHi), a = core(cx1, cy0, x1, cy1, cLo, cHi);
       else
-         a = core(x0, cy0, cx0, cy1), r = core(x1, cy0, cx1, cy1);
+         a = core(x0, cy0, cx0, cy1, cLo, cHi), r = core(x1, cy0, cx1, cy1, cLo, cHi);
       if (a < 0 || r < 0)
          return -1;
       n += a - r;
       if (y0 >= cy0)
-         r = core(x0, cy0, x1, y0), a = core(x0, cy1, x1, y1);
+         r = core(x0, cy0, x1, y0, cLo, cHi), a = core(x0, cy1, x1, y1, cLo, cHi);
       else
-         a = core(x0, y0, x1, cy0), r = core(x0, y1, x1, cy1);
+         a = core(x0, y0, x1, cy0, cLo, cHi), r = core(x0, y1, x1, cy1, cLo, cHi);
       if (a < 0 || r < 0)
          return -1;
       n += a - r;
+      if (zLo != cLo || zHi != cHi)
+      {
+         // [zLo, zHi) = [cLo, cHi) + [zLo, cLo) - [cLo, zLo) + [cHi, zHi) - [zHi, cHi) (one of each pair empty)
+         const long a0 = core(x0, y0, x1, y1, zLo, cLo), r0 = core(x0, y0, x1, y1, cLo, zLo);
+         const long a1 = core(x0, y0, x1, y1, cHi, zHi), r1 = core(x0, y0, x1, y1, zHi, cHi);
+         if (a0 < 0 || r0 < 0 || a1 < 0 || r1 < 0)
+            return -1;
+         n += a0 - r0 + a1 - r1;
+      }
       return n;
    }
    // Live: the per-dye populations' running images by population (structure x

@@ -268,7 +268,7 @@ int main()
                std::to_string(stack.size()) + " pixels within 4 ADU)");
    }
 
-   // A moving FOV (2026-11-13): the stage steps 0.5 um in x and y over WideField microtubules (mean-field) beside
+   // A moving FOV (2026-11-13): the stage steps 0.5 um in x and y (and the focus 0.1 um up) over WideField microtubules (mean-field) beside
    // sparsely labelled pores (per dye in every frame). The moving shortcuts (SetScopeShortcuts: a moved rect's counts
    // from the strips left and entered, the kernel spectra kept, only the pores' windows fetched) and the spare time's
    // prefetch (LiveScope::Prefetch) leave every frame the same, bit for bit.
@@ -277,13 +277,13 @@ int main()
          ScopeSpec s;
          std::string err;
          char pos[64];
-         std::snprintf(pos, sizeof pos, "x=%.2f y=%.2f ", 14.8 + 0.5 * k, -6.0 + 0.5 * (k % 3));
-         ParseScopeSpec(std::string("size=48 exposure-ms=50 z=0.5 mt-dye=-1 mt-mode=WideField npc-dye=-1 "
+         std::snprintf(pos, sizeof pos, "x=%.2f y=%.2f z=%.2f ", 14.8 + 0.5 * (k / 2), -6.0 + 0.5 * (k % 3), 0.5 + 0.1 * k);
+         ParseScopeSpec(std::string("size=48 exposure-ms=50 mt-dye=-1 mt-mode=WideField npc-dye=-1 "
                                     "npc-mode=WideField npc-label-pct=3 laser-488=0.01 dichroic=2 em-filter=2 "
                                     "psf-kernel-half-width-nm=2500 ") + pos, s, err);
          return s;
       };
-      const int kSteps = 6;
+      const int kSteps = 8;
       auto run = [&](bool shortcuts, bool prefetch, std::vector<std::vector<uint16_t>>& out, std::string& paths) {
          SetScopeShortcuts(shortcuts);
          LiveScope mv;

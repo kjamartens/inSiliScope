@@ -1435,9 +1435,12 @@ mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
   all). By the nucleus edge every live frame had fetched the microtubules' 2.1 M windows and used none (native
   0.6-2.8 s, the viewer 1-3 s a frame there; now ~10 ms). `Density3dInWindow` skips blocks outside its mask too.
   Goldens and `ISC_WORLD_VERSION` unchanged; the viewer's ABI check reads 20; the webSMLM block's `abiVersion` 20.
-- **Dye counts of a moved rect** (`MovieCache::CountRect`): from a kept count of the same size, z range and mask within
-  half the rect, that count less the strips left plus the strips entered (the core's filter is half-open, so the same
-  number); else the core over the rect. A live move counted its whole rect again (40-300 ms in the viewer).
+- **Dye counts of a moved box** (`MovieCache::CountRect`): from a kept count of the same rect size and mask, moved by
+  less than half the rect in x and y and its z bounds by less than half the z range (or the same infinite ones), that
+  count less the strips and slabs left plus those entered (the core's filter is half-open, so the same number); else
+  the core over the box. A live move counted its whole rect again (40-300 ms in the viewer); the viewer's first focus
+  step built a column of every dye's height (`SlabColumn`, ~0.8 s for 5 M dyes: WideField's first focus step 1251 ->
+  83 ms, later steps ~70 -> ~57 ms). The column is still made where no kept count is near (a jump in focus).
 - **WideField kernel spectra kept across a rect move** (`WidefieldScene::Finish`): they depend on the FFT shape, R, the
   levels and the PSF's version only; they were made again at every move (55-140 ms in the viewer).
 - `SetScopeShortcuts(false)` (with `SetWidefieldKernelsPerRect(true)`) takes the old path: whole-rect counts, kernels

@@ -91,8 +91,9 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   `wf.basis-prepared-taken`, `fl.mean-field-entries-shared`.
 - **Live stage moves (2026-11-13, branch `live-move-speed`, spec/PORT.md 30):** every frame bit for bit; core ABI 20
   `isc_continuous_in_map_masked` (the per-dye windows of the structures that need them; the ground truth's dye list
-  all), `Density3dInWindow` skips blocks outside its mask; a moved rect's dye counts from the last count of its size
-  (`MovieCache::CountRect`: less the strips left, plus those entered); WideField kernel spectra kept across a rect move;
+  all), `Density3dInWindow` skips blocks outside its mask; a moved box's dye counts from the last count of its size
+  (`MovieCache::CountRect`: less the strips and z slabs left, plus those entered; the viewer's first focus step no longer
+  builds a column of every dye's height, 1.25 s -> 83 ms); WideField kernel spectra kept across a rect move;
   `SetScopeShortcuts(false)` = the old path (ctest `live_scope` compares both on a moving FOV). `isc_live_prefetch` =
   `LiveScope::Prefetch` (the adapter's `PrefetchScope`) exists, but the viewer does not call it: under a light map the
   core re-walks every block per call, ~250 ms in single-thread WASM against a ~50 ms budget (live fell to 3-4 fps). Benches: `live_bench` / `tests/web/live_speed.mjs`
