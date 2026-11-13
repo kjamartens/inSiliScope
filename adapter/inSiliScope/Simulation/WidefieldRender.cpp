@@ -1716,28 +1716,35 @@ void WidefieldScene::TrimCache(unsigned long long keepStamp)
 void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img,
                                   std::vector<cfloat>* keep) const
 {
-   if (keep)
-      keep->clear();
-   const unsigned u = static_cast<unsigned>(std::max(1, spec_.grid.upscale));
-   const unsigned cw = spec_.width * u, ch = spec_.height * u;
-   img.assign(static_cast<size_t>(cw) * ch, 0.0f);
-   std::vector<cfloat> S[kLevels];
-   bool any = false;
+   ChannelJob job;
+   ChannelImageStep(c, plan, job, std::numeric_limits<size_t>::max());
+   ChannelImageFinish(job, img, keep);
+}
+
+bool WidefieldScene::ChannelImageStep(const Channel& c, const FocusPlan& plan, ChannelJob& job, size_t maxPlanes) const
+{
    // Streaming: the plan's spectra a batch at a time (made, added, dropped); the sums take the planes in plan order per
-   // bin either way, so a batch boundary changes no bit.
+   // bin either way, so a batch boundary -- also one between two calls (2026-11-13: a live basis made a few planes per
+   // frame) -- changes no bit.
    const bool stream = Streaming();
    const size_t kStreamBatch = 32;
    double streamSec = 0.0;
-   size_t streamMade = 0;
-   for (int L = 0; L < levels_; ++L)
+   size_t streamMade = 0, budget = maxPlanes;
+   for (; job.L < levels_; ++job.L, job.q = 0)
    {
+      const int L = job.L;
       std::vector<const FocusPlan::Dep*> all;
       for (const FocusPlan::Dep& d : plan.deps)
          if (d.level == L)
             all.push_back(&d);
-      for (size_t q0 = 0; q0 < all.size(); q0 += stream ? kStreamBatch : all.size())
+      while (job.q < all.size())
       {
-         const size_t q1 = stream ? std::min(all.size(), q0 + kStreamBatch) : all.size();
+         if (budget == 0)
+            break;
+         const size_t q0 = job.q;
+         const size_t q1 = std::min({ all.size(), q0 + (stream ? kStreamBatch : all.size()), q0 + budget });
+         budget -= q1 - q0;
+         job.q = q1;
          std::vector<const FocusPlan::Dep*> deps;
          std::vector<const std::vector<cfloat>*> specs;
          std::vector<std::vector<cfloat>> made(stream ? q1 - q0 : 0);
@@ -1757,27 +1764,28 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
          for (size_t i = q0; i < q1; ++i)
          {
             const FocusPlan::Dep& d = *all[i];
-            const std::vector<cfloat>* a = CachedSpectrum(c, d.k, L);
-            if (!a && stream)
-               a = &made[i - q0];
-            if (!a || a->empty())
+            const std::vector<cfloat>* sp = CachedSpectrum(c, d.k, L);
+            if (!sp && stream)
+               sp = &made[i - q0];
+            if (!sp || sp->empty())
                continue;
             deps.push_back(&d);
-            specs.push_back(a);
+            specs.push_back(sp);
          }
          if (deps.empty())
             continue;
-         any = true;
+         job.any = true;
          const RealFft2d& fft = fft_[L];
          const unsigned W = fft.SpecW(), rows = fft.Ny();
-         if (S[L].empty())
-            S[L].assign(fft.SpecSize(), cfloat(0.0f, 0.0f));
+         std::vector<cfloat>& SL = job.S[L];
+         if (SL.empty())
+            SL.assign(fft.SpecSize(), cfloat(0.0f, 0.0f));
          // Rows of the spectrum in parallel; planes in plan order per bin.
          const unsigned B = 8;
          ParallelForOn(pool_, (rows + B - 1) / B, [&](unsigned blk) {
             const unsigned r0 = blk * B, r1 = std::min(rows, r0 + B);
             const size_t b0 = static_cast<size_t>(r0) * W, b1 = static_cast<size_t>(r1) * W;
-            float* s = reinterpret_cast<float*>(S[L].data());
+            float* s = reinterpret_cast<float*>(SL.data());
             for (size_t j = 0; j < deps.size(); ++j)
             {
                const FocusPlan::Dep& d = *deps[j];
@@ -1800,6 +1808,8 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
             }
          });
       }
+      if (job.q < all.size())
+         break;   // (the budget spent within this level)
    }
    if (stream)
    {
@@ -1809,7 +1819,37 @@ void WidefieldScene::ChannelImage(const Channel& c, const FocusPlan& plan, std::
       TimingLog("wf.plane-ffts", 1e-9 * static_cast<double>(planeFftNs_.exchange(0, std::memory_order_relaxed)),
                 (std::to_string(nx_) + " x " + std::to_string(ny_)).c_str());
    }
-   if (!any)
+   return job.L >= levels_;
+}
+
+void WidefieldScene::FillStepSpectra(const Channel& c, const FocusPlan& plan, const ChannelJob& job, size_t maxPlanes)
+{
+   // The planes ChannelImageStep(c, plan, job, maxPlanes) takes: from (job.L, job.q) in level order, up to maxPlanes.
+   FocusPlan sub;
+   size_t budget = maxPlanes;
+   for (int L = job.L; L < levels_ && budget > 0; ++L)
+   {
+      std::vector<const FocusPlan::Dep*> all;
+      for (const FocusPlan::Dep& d : plan.deps)
+         if (d.level == L)
+            all.push_back(&d);
+      const size_t start = L == job.L ? job.q : 0;
+      for (size_t q = start; q < all.size() && budget > 0; ++q, --budget)
+         sub.deps.push_back(*all[q]);
+   }
+   if (!sub.deps.empty())
+      FillSpectra({ &c }, { &sub });
+}
+
+void WidefieldScene::ChannelImageFinish(ChannelJob& job, std::vector<float>& img, std::vector<cfloat>* keep) const
+{
+   if (keep)
+      keep->clear();
+   const unsigned u = static_cast<unsigned>(std::max(1, spec_.grid.upscale));
+   const unsigned cw = spec_.width * u, ch = spec_.height * u;
+   img.assign(static_cast<size_t>(cw) * ch, 0.0f);
+   std::vector<cfloat>* S = job.S;
+   if (!job.any)
       return;
    const unsigned nx = nx_, ny = ny_, W = nx / 2 + 1;
    if (S[0].empty())
@@ -2490,7 +2530,7 @@ void WidefieldScene::StartPending(const std::vector<float>& wb)
    pending_.focus = focusSerial_;
 }
 
-void WidefieldScene::MakePendingImage()
+void WidefieldScene::MakePendingImage(size_t maxPlanes)
 {
    if (!pending_.active || pending_.made >= pending_.b.bleach.size())
       return;
@@ -2499,11 +2539,29 @@ void WidefieldScene::MakePendingImage()
    if (pending_.prepared)
       SwapPreparedInputs();
    SwapBasis(pending_.b);
+   bool done = true;
    if (haveSpec_ && psf_)
-      ChannelImage(bleach_[j], plan_, images_.bleach[j], nullptr);
+   {
+      // (The image's partial sums kept between calls: a few planes per frame, the same bits as one call. A scene that
+      // keeps its spectra makes those of the planes this step adds first.)
+      if (!Streaming())
+         FillStepSpectra(bleach_[j], plan_, pending_.job, maxPlanes);
+      done = ChannelImageStep(bleach_[j], plan_, pending_.job, maxPlanes);
+      if (done)
+      {
+         ChannelImageFinish(pending_.job, images_.bleach[j], nullptr);
+         pending_.job = ChannelJob();
+      }
+   }
    SwapBasis(pending_.b);
    if (pending_.prepared)
       SwapPreparedInputs();
+   if (!done)
+   {
+      TimingLog("wf.basis-progressive", TimingSince(t0),
+                (std::to_string(pending_.made) + " / " + std::to_string(pending_.b.bleach.size()) + ", part").c_str());
+      return;
+   }
    ++pending_.made;
    TimingLog("wf.basis-progressive", TimingSince(t0),
              (std::to_string(pending_.made) + " / " + std::to_string(pending_.b.bleach.size())).c_str());
@@ -2639,6 +2697,15 @@ void WidefieldScene::RenderFrameProgressive(const std::vector<float>& wb, std::v
    }
    std::vector<double> a;
    bool held = BleachCoefficients(wb, a);
+   if (successorOnly_ && !held && !(pending_.active && pending_.made == pending_.b.bleach.size()))
+   {
+      // (A plain scene: the basis ended before its successor was made, or another pose or weights: RenderFrame's new
+      // basis at once, the partial successor dropped.)
+      pending_ = Pending();
+      lastFast_ = false;
+      RenderFrame(wb, cam);
+      return;
+   }
    if (!held && pending_.active && pending_.made == pending_.b.bleach.size())
    {
       AdoptPending();
@@ -2646,10 +2713,12 @@ void WidefieldScene::RenderFrameProgressive(const std::vector<float>& wb, std::v
    }
    if (held)
    {
-      // Late in the span: the successor, an image per frame.
+      // Late in the span: the successor, an image per frame (a stepping pattern's windowed state, whose frames are few),
+      // or kPendingPlanesPerFrame of its planes per frame (2026-11-13: an image per frame was ~100 ms each of a plain
+      // WideField's frames, the whole basis at once ~170 ms every ~14 s).
       if (!pending_.active && !windowed_ && cheb_ && spanTau_ > 0.0 && ChebTau(wb) > kPrebuildAt * spanTau_)
          StartPending(wb);
-      MakePendingImage();
+      MakePendingImage(windowed_ ? std::numeric_limits<size_t>::max() : kPendingPlanesPerFrame);
       images_.Render(a, cam);
       return;
    }

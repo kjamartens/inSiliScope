@@ -4511,7 +4511,11 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // Live (one frame per movie, no drift, not fresh-basis): the state keeps its basis across the cycles and makes the
    // next one an image per frame (WidefieldScene::RenderFrameProgressive, 2026-11-11: SIM2D WideField 256 px live
    // ~270 -> ~130 ms a frame natively, one thread; frames within the basis' tolerance of the exact ones).
-   nd.progressive = varies && !p.meanLight && S.N == 1 && !shifts && !S.freshBasis;
+   // 2026-11-13: also a plain live scene (no pattern; not the adapter's, whose async basis makes the next one on a
+   // thread): its successor made a few planes per frame (WidefieldScene::SetSuccessorOnly), not ~100-170 ms at once.
+   const bool plainLive = !varies && cache.live && !g_liveAsyncBasis.load();
+   nd.progressive = (varies || plainLive) && !p.meanLight && S.N == 1 && !shifts && !S.freshBasis;
+   slot.scene.SetSuccessorOnly(nd.progressive && !varies);
    if (varies && !p.meanLight && !nd.progressive && (!slot.frame0Set || slot.frame0 != S.frame0))
       slot.scene.ForgetBleachBasis();
    slot.frame0 = S.frame0;
@@ -4525,7 +4529,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
       // RateWeightedFrame; the same everywhere: one decay).
       auto tW = TimingClock::now();
       const WidefieldGridSpec& gr = slot.scene.Grid();
-      const double spanSec = nd.progressive ? kLiveStateSpanSec : std::max(kBasisSpanSec, S.N * S.expSec);
+      const double spanSec = nd.progressive && varies ? kLiveStateSpanSec : std::max(kBasisSpanSec, S.N * S.expSec);
       p.ent = MapEntriesFor(*map, p, gr, slot, S.t0Sec, spanSec, S.expSec, &cache);
       const MapEntries& E = *p.ent;
       const MapClock& mc = map->s[static_cast<size_t>(p.structure)];
@@ -4549,7 +4553,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
          }
       };
       // A live state's window changed to the one its next basis was made for: that basis (no pause).
-      if (nd.progressive && p.state != ISC_STATE_BLINK)
+      if (nd.progressive && varies && p.state != ISC_STATE_BLINK)
          slot.scene.AdoptPrepared(E.edges, slot.cellMap, E.rates, spanSec, E.tqSec);
       slot.scene.SetWeightBands(E.edges);
       slot.scene.SetWeightMap(slot.cellMap);
@@ -4569,8 +4573,8 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
          slot.scene.SetWeightRates(p.rates, spanSec);
          // A live state under a map that changes with height: from half its window on, the next window's entries and
          // their weights at its start, for the scene's next basis (made a part per frame, taken at the change).
-         slot.scene.SetWindowed(nd.progressive && E.zDep);
-         if (nd.progressive && E.zDep && S.t0Sec >= E.tqSec + 0.5 * spanSec)
+         slot.scene.SetWindowed(nd.progressive && varies && E.zDep);
+         if (nd.progressive && varies && E.zDep && S.t0Sec >= E.tqSec + 0.5 * spanSec)
          {
             const double tNext = E.tqSec + spanSec;
             auto En = MapEntriesFor(*map, p, gr, slot, tNext, spanSec, S.expSec, &cache, false);

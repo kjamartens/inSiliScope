@@ -1448,6 +1448,17 @@ mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
   or focus step builds a new light map, so every tile x height band's clock pair, ~160 k, again: 80-250 ms with
   threads, growing with the focus height under HILO), and a pore population that falls to per dye under a pattern
   (every frame re-splats every dye: ~1.1 s a frame by the nucleus edge).
+- **A plain live WideField scene's next bleach basis made ahead** (2026-11-13; `WidefieldScene::SetSuccessorOnly`, set
+  for a live frame (`MovieCache::live`) without a pattern, one frame, no drift, not `fresh-basis`, and not under the
+  adapter's async basis (`SetLiveAsyncBasis`: MM keeps its thread)): RenderFrameProgressive draws as RenderFrame does
+  (a basis that no longer holds -- a new pose, new weights -- a new one at once), and past `kPrebuildAt` of a Chebyshev
+  basis' span it makes the successor `kPendingPlanesPerFrame` (8) planes a frame (`ChannelImageStep` /
+  `ChannelImageFinish`: ChannelImage in parts, the same bits; `FillStepSpectra`: the planes' spectra into the scene's
+  cache first, so the adopted basis keeps them, as one made at once does), adopted where the old one ends. The frames
+  are today's bit for bit up to the first adoption, then within the basis' tolerance (128 px WideField, 400 frames:
+  7e-5 of the signal rms, at most 4 ADU). Native one thread: the frame where a basis ended 170 ms -> at most 36 ms,
+  steps of 5-8 ms over ~20 frames, the same total work. Not under a SIM pattern's windowed states (their frames are
+  few: they keep an image per frame).
 - **WideField kernel spectra kept across a rect move** (`WidefieldScene::Finish`): they depend on the FFT shape, R, the
   levels and the PSF's version only; they were made again at every move (55-140 ms in the viewer).
 - `SetScopeShortcuts(false)` (with `SetWidefieldKernelsPerRect(true)`) takes the old path: whole-rect counts, kernels

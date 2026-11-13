@@ -94,7 +94,10 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   all), `Density3dInWindow` skips blocks outside its mask; a moved box's dye counts from the last count of its size
   (`MovieCache::CountRect`: less the strips and z slabs left, plus those entered; the viewer's first focus step no longer
   builds a column of every dye's height, 1.25 s -> 83 ms); a moved rect's height column (WASM, the survey under HILO)
-  from the last one's, less the strips left, plus those entered (`MovedColumn`; SIM stage moves ~400 -> ~200 ms); WideField kernel spectra kept across a rect move;
+  from the last one's, less the strips left, plus those entered (`MovedColumn`; SIM stage moves ~400 -> ~200 ms); a
+  plain live WideField scene makes its next bleach basis ahead, 8 planes a frame (`SetSuccessorOnly`,
+  `ChannelImageStep` / `ChannelImageFinish` / `FillStepSpectra`; not MM's async basis, not SIM's windowed states; frames
+  bit for bit until the first adoption, then within ~1e-4: no ~170 ms frame every ~14 s); WideField kernel spectra kept across a rect move;
   `SetScopeShortcuts(false)` = the old path (ctest `live_scope` compares both on a moving FOV). `isc_live_prefetch` =
   `LiveScope::Prefetch` (the adapter's `PrefetchScope`) exists, but the viewer does not call it: under a light map the
   core re-walks every block per call, ~250 ms in single-thread WASM against a ~50 ms budget (live fell to 3-4 fps). Benches: `live_bench` / `tests/web/live_speed.mjs`

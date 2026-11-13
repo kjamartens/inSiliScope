@@ -32,6 +32,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -534,6 +535,10 @@ public:
    // inputs: nothing), Prepared says whether it is the one being made, and AdoptPrepared, when the window has come
    // (called before SetWeightBands / SetWeightMap / SetWeightRates with that window's), finishes and takes it: the
    // inputs change without dropping the basis. Windowed: no basis is started late in its span (the next window's is).
+   // A plain live scene (no pattern, 2026-11-13): RenderFrameProgressive draws as RenderFrame does (a basis that no
+   // longer holds: a new one at once) and only makes the successor ahead, kPendingPlanesPerFrame planes a frame while
+   // the basis holds (past kPrebuildAt of its span), its spectra kept: no ~100-170 ms frame where a basis ends.
+   void SetSuccessorOnly(bool on) { successorOnly_ = on; }
    void SetWindowed(bool on) { windowed_ = on; }
    // windowSec: the window's start (the host's time): a basis is taken only when its window has begun (2026-11-11:
    // the next window's entries can equal the current ones; taken at once, unmade, LatticeSIM3D stalled 3 s a state).
@@ -679,6 +684,23 @@ private:
    // channel has no light).
    void ChannelImage(const Channel& c, const FocusPlan& plan, std::vector<float>& img,
                      std::vector<cfloat>* keep = nullptr) const;
+   // ChannelImage in parts (2026-11-13): up to maxPlanes of the plan's planes into the job's spectra per call, true when
+   // every plane is in; then ChannelImageFinish (the coarse bands, the shift, the inverse FFT). The same bits as one
+   // ChannelImage.
+   struct ChannelJob
+   {
+      int L = 0;
+      size_t q = 0;
+      bool any = false;
+      std::vector<cfloat> S[kLevels];
+   };
+   bool ChannelImageStep(const Channel& c, const FocusPlan& plan, ChannelJob& job, size_t maxPlanes) const;
+   void ChannelImageFinish(ChannelJob& job, std::vector<float>& img, std::vector<cfloat>* keep) const;
+   // A live basis' planes made per frame while it is held (MakePendingImage's budget, not under a windowed state).
+   static constexpr size_t kPendingPlanesPerFrame = 8;
+   // The next maxPlanes planes ChannelImageStep would add for c into the spectrum cache (FillSpectra), so a step of a
+   // scene that keeps its spectra (not Streaming) finds them all.
+   void FillStepSpectra(const Channel& c, const FocusPlan& plan, const ChannelJob& job, size_t maxPlanes);
    // The CPU's images make their spectra as they go (SetStreamSpectra, no spectra kept).
    bool Streaming() const { return stream_ && !keepSpectra_; }
    void ImagesFor(const FocusPlan& plan, WidefieldImages& out) const;
@@ -834,6 +856,7 @@ private:
       std::shared_ptr<const WidefieldWeightMap> map;
       std::shared_ptr<const std::vector<float>> rates;
       double rateTau = 0.0, windowSec = 0.0;
+      ChannelJob job;   // the image being made, between calls
    };
    Pending pending_;
    bool windowed_ = false;
@@ -841,7 +864,8 @@ private:
    // The decay (rate x time at the reference entry) of wb from the basis' anchor (BleachCoefficients' tau); -1: none.
    double ChebTau(const std::vector<float>& wb) const;
    void StartPending(const std::vector<float>& wb);
-   void MakePendingImage();
+   void MakePendingImage(size_t maxPlanes = std::numeric_limits<size_t>::max());   // (whole: the image done now)
+   bool successorOnly_ = false;
    void AdoptPending();
    // The frame of wb from a basis of wb alone (RenderExact's), the scene's basis untouched; or from the pending
    // basis' first image (fromPending).
