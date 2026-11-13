@@ -81,6 +81,9 @@ constexpr double kLightLatticeErr = 1e-3;    // the most a footprint's bilinear 
 constexpr double kLightPoseTolUm = 0.025;    // a record keeps its first frame's pose while a frame stays this close
 constexpr double kLightReach = 1e-4;         // a footprint reaches out to this fraction of its peak (0 beyond)
 constexpr double kLightDepthStepUm = 0.005;  // TIRF's depth tables
+// A DOSE structure's map folds each chapter's closed records into its merged grid (one term per component, 2026-11-13;
+// false: a term per record, as before -- the same doses up to the additions' order).
+constexpr bool kLightFoldDose = true;
 constexpr int kLightRecent = 16;             // recent records kept apart; past it the oldest kLightMergeBatch merge
 constexpr int kLightMergeBatch = 8;
 constexpr double kLightRecentSec = 30.0;     // ... and those that ended longer ago, once the oldest is twice as old

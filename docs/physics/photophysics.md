@@ -109,7 +109,9 @@ The adapter remembers what light every place of the sample has had. The sample's
 light (its kind, its power, where the beam sat), and each record is added, at the beam's exact place, to maps of the
 dose per place. A HILO sheet's height is recorded on the mean-field dye planes' grid (`wf-plane-nm`, 100 nm by default,
 25 nm at Quality Exhaustive): focus positions within half a plane of one level share its records, so a fine focus scrub
-or a drift in height does not start a new record every frame (each one costs every later frame time). Every dye is read at the dose at its own place and height, smooth in all three directions: the bleached
+or a drift in height does not start a new record every frame. For dyes that bleach (dSTORM, WideField) the map sums
+each kind of light's recent records into one grid on the same nodes, so a long focus scrub does not make every later
+frame slower. Every dye is read at the dose at its own place and height, smooth in all three directions: the bleached
 area has the beam's soft edge, after TIRF the dyes higher in a cell are still fresh, and a HILO sheet bleaches its own
 inclined slab. This holds for every mode and however the dyes are drawn (blinks, a mean field, dye by dye). It replaced
 (2026-10-16) a history that counted the beam in two levels per 0.25 µm tile and 12 height bands, with which blinking

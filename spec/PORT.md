@@ -1456,6 +1456,12 @@ mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
   frames up to 2.8e-3 (SIM) / 1.3e-4 (WideField) of the signal rms off where foci merge. On-grid 0.1 um steps still make
   a record each (SIM focus steps ~200-400 ms threaded; bounded at kLightRecent records). Tried first: keeping each
   place's dose sum across maps -- every grid of a new map differs (72 of 72 terms), nothing to reuse.
+- **A DOSE map folds the closed records** (`LightHistory::Build`'s `foldedGrid`, `kLightFoldDose`, 2026-11-13): per
+  chapter and component one grid, the merged G plus each lit closed record's footprint x mag x dt node by node, one
+  term; the open record stays the rate. The doses are the separate terms' sum up to rounding order (ctest
+  `history_check`: every dose and the core's per-dye reads within the old tolerances; its term counts now one per
+  component). SIM focus steps of 0.1 um (on the plane grid), viewer module: the frames bit for bit the same as before
+  (46 of 46), single thread 1.0 -> 3.7 s growing per step before, ~1.0 s flat after; threaded 200-400 -> 108-165 ms.
 - **A plain live WideField scene's next bleach basis made ahead** (2026-11-13; `WidefieldScene::SetSuccessorOnly`, set
   for a live frame (`MovieCache::live`) without a pattern, one frame, no drift, not `fresh-basis`, and not under the
   adapter's async basis (`SetLiveAsyncBasis`: MM keeps its thread)): RenderFrameProgressive draws as RenderFrame does

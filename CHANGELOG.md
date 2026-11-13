@@ -11,6 +11,9 @@ Versions follow semver; while 0.x, any release may change the output for a given
     fetched and unused); now ~1 s once, then ~5 ms.
   - WideField focus steps: the first 1.25 s -> 83 ms, later ones ~70 -> ~57 ms.
   - SIM imaging mode stage moves: ~400-450 -> ~160-230 ms.
+  - SIM focus steps: 200-400 -> 110-165 ms (threaded viewer), no longer slower the longer you scrub: the light
+    history's map sums each kind of light's recent records into one grid for dyes that bleach (dSTORM, WideField), one
+    term per beam instead of one per beam and focus position visited. Frames unchanged.
   - A fine focus scrub under HILO (SIM and WideField): the light history records the sheet's height on the dye planes'
     grid (100 nm, or 25 nm at Exhaustive quality), so focus positions between two levels share one record. SIM2D
     0.02 um steps 1.4 -> 0.8 s a frame (single-thread viewer). **Frames change** where foci merge (SIM up to 0.3 %,

@@ -843,6 +843,72 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
       gridOf[k] = idx;
       return idx;
    };
+   // A chapter's component with its closed records folded in (2026-11-13; DOSE: only the dose counts, not when each
+   // record's light came): its merged G plus each lit record's footprint x mag x dt, node by node, in time order -- the
+   // sum of the separate terms (G's and each record's) up to the additions' order, as one grid. The records stay apart
+   // in the history (PALM's activation steps). -1: nothing there.
+   auto foldedGrid = [&](size_t ci, int cj, size_t rb, size_t re) -> int32_t {
+      const Chapter& c = *chs[ci];
+      const SparseGrid* grid = static_cast<size_t>(cj) < c.grids.size() && !c.grids[static_cast<size_t>(cj)].Empty()
+                                  ? &c.grids[static_cast<size_t>(cj)] : nullptr;
+      long ea = 0, eb = -1, fa = 0, fb = -1;
+      bool any = false;
+      auto cover = [&](long i0, long j0, long i1, long j1) {
+         if (!any)
+         {
+            ea = i0, eb = i1, fa = j0, fb = j1;
+            any = true;
+            return;
+         }
+         ea = std::min(ea, i0), eb = std::max(eb, i1), fa = std::min(fa, j0), fb = std::max(fb, j1);
+      };
+      if (grid)
+         cover(grid->i0, grid->j0, grid->i1, grid->j1);
+      std::vector<std::pair<const Footprint*, double>> recs;
+      for (size_t k = rb; k < re; ++k)
+      {
+         const Record& r = *closed[k];
+         if (!r.lit || static_cast<size_t>(cj) >= r.fps.size() || !r.fps[static_cast<size_t>(cj)])
+            continue;
+         const Footprint& f = *r.fps[static_cast<size_t>(cj)];
+         if (!f.nx || !f.ny)
+            continue;
+         recs.push_back({ &f, r.mag * (r.t1 - r.t0) });
+         cover(f.i0, f.j0, f.i0 + f.nx - 1, f.j0 + f.ny - 1);
+      }
+      if (!any)
+         return -1;
+      long ia, ja, ib, jb;
+      nodeRect(c, cj, ia, ja, ib, jb);
+      ia = std::max(ia, ea);
+      ja = std::max(ja, fa);
+      ib = std::min(ib, eb);
+      jb = std::min(jb, fb);
+      if (!(ib >= ia && jb >= ja))
+         return -1;
+      MapGrid gr;
+      gr.x0 = NodeAt(ia, c.h);
+      gr.y0 = NodeAt(ja, c.h);
+      gr.h = c.h;
+      gr.nx = static_cast<int32_t>(ib - ia + 1);
+      gr.ny = static_cast<int32_t>(jb - ja + 1);
+      gr.v.assign(static_cast<size_t>(gr.nx) * gr.ny, 0.0);
+      for (long j = ja; j <= jb; ++j)
+         for (long i = ia; i <= ib; ++i)
+         {
+            double v = grid ? grid->G(i, j) : 0.0;
+            for (const auto& fr : recs)
+            {
+               const Footprint& f = *fr.first;
+               if (i >= f.i0 && i < f.i0 + f.nx && j >= f.j0 && j < f.j0 + f.ny)
+                  v += fr.second * f.v[static_cast<size_t>(j - f.j0) * f.nx + static_cast<size_t>(i - f.i0)];
+            }
+            gr.v[static_cast<size_t>(j - ja) * gr.nx + static_cast<size_t>(i - ia)] = v;
+         }
+      const int32_t idx = static_cast<int32_t>(m.grids.size());
+      m.grids.push_back(std::move(gr));
+      return idx;
+   };
    // TIRF's depth factor of a structure's main (or pre) state in a chapter's component (and its square), on
    // kLightDepthStepUm.
    std::map<std::pair<std::pair<const void*, int>, int>, int32_t> depthOf;
@@ -955,6 +1021,25 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
          {
             const bool counts = epochOf[ci] >= 0;
             const int nc = static_cast<int>(chs[ci]->comps.size());
+            if (counts && kLightFoldDose)
+            {
+               // One term per component: the merged grid and the closed records folded (a SIM focus scrub had made
+               // 6 terms per focus visited, ~100 in every later map's every tile x band).
+               size_t re = ri;
+               while (re < closed.size() && closed[re]->chapter == ci)
+                  ++re;
+               for (int cj = 0; cj < nc; ++cj)
+               {
+                  const int32_t gi = foldedGrid(ci, cj, ri, re);
+                  if (gi >= 0)
+                  {
+                     mc.total.push_back(term(ci, cj, gi, 1.0));
+                     termEpoch.push_back(epochOf[ci]);
+                  }
+               }
+               ri = re;
+               continue;
+            }
             if (counts)
                for (int cj = 0; cj < nc; ++cj)
                {

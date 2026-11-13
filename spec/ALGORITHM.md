@@ -1164,7 +1164,11 @@ movie, by the same builder from the movie's own past. No levels, z bands, clock 
   0.25 um lattice it read 2-3 % off between nodes) -- in its own sheared coordinates u = x - z tan theta_s (HILO: the
   footprint at height z is the pivot plane's moved along x). The footprint is the profile at the nodes, out to 1e-4 of
   its peak, evaluated at the record's exact pose. The 16 most recent records stay apart (PALM's steps; past 16 the
-  oldest 8 merge, or those over 30 s old), totals exact. A map is built only when a record, chapter or label changes
+  oldest 8 merge, or those over 30 s old), totals exact. A DOSE structure's map (dSTORM, WideField, also under SIM)
+  folds each chapter's closed records into its merged grid at map time, one term per component (`kLightFoldDose`,
+  2026-11-13): the same nodes, so the same doses up to the additions' order; the history keeps them apart for PALM.
+  Before, each record was a term of every later map (6 per focus visited under SIM2D HILO: ~100 terms at every tile x
+  height band of the mean field's entries). A map is built only when a record, chapter or label changes
   (256 px HILO: 4 ms; a 60 s stage drag: fold 0.6 ms per frame, 27 MB held; ctest `history_check`).
 - **cli and viewer movies** (no host history) get a map from the same builder: the past = `start-sec` at the movie's
   light and pose, then the movie, over the query box +- 2 um. An MM frame reproduced with `insiliscope_cli --spec`

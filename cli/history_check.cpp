@@ -325,8 +325,10 @@ void Dose(IscWorld* w, const char* name, const std::string& geo, const std::vect
                                  "reach; most %.3f s); map %.1f ms",
                                  static_cast<double>(n), worst, top, ms));
    if (pattern)
-      Check(L.ex->Patterned() && L.ex->ComponentCount() > 1 && c.total.size() >= 2 * static_cast<size_t>(L.ex->ComponentCount()),
-            std::string(name) + Fmt(": a beam set's %.0f components, a term per component and record (%.0f terms)",
+      // (2026-11-13: a DOSE map folds a chapter's closed records into its grid: a term per component, kLightFoldDose.)
+      Check(L.ex->Patterned() && L.ex->ComponentCount() > 1 &&
+               c.total.size() == (kLightFoldDose ? 1 : 2) * static_cast<size_t>(L.ex->ComponentCount()),
+            std::string(name) + Fmt(": a beam set's %.0f components, a term per component (the records folded; %.0f terms)",
                                     static_cast<double>(L.ex->ComponentCount()), static_cast<double>(c.total.size())));
    // Between nodes: the bilinear error, at most kLightLatticeErr of each record's peak (their sum: scale).
    std::mt19937 rng(11);
