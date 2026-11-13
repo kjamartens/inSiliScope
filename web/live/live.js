@@ -12,24 +12,24 @@
 const $ = id => document.getElementById(id);
 const store = uiKit.store;
 
-// ---- splitter: the right panel's width, 33-72 % of the window (50 % by default) ----
+// ---- splitter: the right panel's width, 33-72 % of the window (41.6 % by default: 2026-11-13, the live image ~18 %
+// smaller than at 50 %, the world view gets the room) ----
 const wrap = $('wrap'), splitter = $('splitter');
 const LIVE_MIN = 0.33, LIVE_MAX = 0.72;
 function setLiveFrac(f, save) {
   f = Math.max(LIVE_MIN, Math.min(LIVE_MAX, f));
   wrap.style.setProperty('--live-w', (100 * f).toFixed(2) + 'vw');
-  if (save) store.set('liveWidth', f.toFixed(4));   // (was liveFrac, default 0.4: a new key so the new default shows)
+  if (save) store.set('livePanel', f.toFixed(4));   // (was liveWidth, default 0.5, and liveFrac, 0.4: a new key so the new default shows)
 }
-setLiveFrac(+store.get('liveWidth', '0.5') || 0.5, false);
+setLiveFrac(+store.get('livePanel', '0.416') || 0.416, false);
 resizeCanvas();   // the world view was measured at the default width (the main script ran first): measure it again
 splitter.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
   e.preventDefault();
   splitter.classList.add('drag');
   splitter.setPointerCapture(e.pointerId);
-  // the fraction is the panel's width with the settings open: a folded column adds back what it gave up
-  const shut = wrap.classList.contains('setShut') ? parseFloat(getComputedStyle(wrap).getPropertyValue('--set-w')) - $('setCol').getBoundingClientRect().width : 0;
-  const move = ev => { setLiveFrac((innerWidth - ev.clientX + shut) / innerWidth, true); resizeCanvas(); };
+  // (the panel's width is the same with the settings column open or folded)
+  const move = ev => { setLiveFrac((innerWidth - ev.clientX) / innerWidth, true); resizeCanvas(); };
   const up = () => { splitter.classList.remove('drag'); splitter.removeEventListener('pointermove', move); splitter.removeEventListener('pointerup', up); resizeCanvas(); drawScale(); };
   splitter.addEventListener('pointermove', move); splitter.addEventListener('pointerup', up);
 });

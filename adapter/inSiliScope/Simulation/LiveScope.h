@@ -76,6 +76,10 @@ public:
    bool Advance(const ScopeSpec& spec, long n, bool countLight, std::string& err);
    // A fresh sample: no light so far, no drift, time 0.
    void Reset();
+   // (2026-11-13) The idle time between frames spent warming the core's caches around the next frame's FOV (margin um,
+   // the whole z column first; at most about budgetMs), as the adapter's PrefetchScope: a later stage move there finds
+   // its dyes and schedules made. Changes no frame.
+   bool Prefetch(const ScopeSpec& spec, double marginUm, double budgetMs);
    double TimeSec() const { return tSec_; }
    const LightHistory& History() const { return history_; }
    // The sample's frame counter: the index the next frame takes in the frame program (every frame rendered or

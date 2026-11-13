@@ -1422,3 +1422,71 @@ C++ only; docs/ground-truth.md has the files.
   `vox::Deflate` (`vox_plane_deflated`; was the browser's CompressionStream: the same pixels, other bytes, a few %
   larger, ~15x slower) and reads the CSV as bytes (the same table bit for bit): 120 MB dyes.csv, 10 nm 2 channels,
   10.6 -> 1.1 s.
+
+## 30. Live stage moves (2026-11-13)
+
+A 1 um stage move in the viewer's live WideField (WASM, 128 px, the default view) cost 110-450 ms against ~4 ms for a
+still frame, and 3-7 s by the nucleus edge, where the pores fall under the per-dye limit while the microtubules stay
+mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
+
+- **ABI 20.** `isc_continuous_in_map_masked(w, rect, zMin, zMax, tMin, structMask, out, cap)`: the rows of
+  `isc_continuous_in_map` of the structures in the mask, in the same order, the other structures' dye blocks skipped
+  whole. `FluorescenceMovie::Begin` asks for the structures whose populations need windows (the ground truth's dye list:
+  all). By the nucleus edge every live frame had fetched the microtubules' 2.1 M windows and used none (native
+  0.6-2.8 s, the viewer 1-3 s a frame there; now ~10 ms). `Density3dInWindow` skips blocks outside its mask too.
+  Goldens and `ISC_WORLD_VERSION` unchanged; the viewer's ABI check reads 20; the webSMLM block's `abiVersion` 20.
+- **Dye counts of a moved box** (`MovieCache::CountRect`): from a kept count of the same rect size and mask, moved by
+  less than half the rect in x and y and its z bounds by less than half the z range (or the same infinite ones), that
+  count less the strips and slabs left plus those entered (the core's filter is half-open, so the same number); else
+  the core over the box. A live move counted its whole rect again (40-300 ms in the viewer); the viewer's first focus
+  step built a column of every dye's height (`SlabColumn`, ~0.8 s for 5 M dyes: WideField's first focus step 1251 ->
+  83 ms, later steps ~70 -> ~57 ms). The column is still made where no kept count is near (a jump in focus).
+- **The viewer's height columns of a moved rect** (`MovieCache::MovedColumn`, WASM; the survey's quantiles under a map
+  that changes with height, HILO): from a kept column of the same size within half the rect, its sorted heights less
+  the strips left plus the strips entered (merges: the same multiset). The SIM imaging mode's stage move (128 px, 50 nm,
+  threaded module): the survey ~220 -> ~50 ms, a move ~400-450 -> ~160-230 ms. Left there: `MapEntriesFor` (each move
+  or focus step builds a new light map, so every tile x height band's clock pair, ~160 k, again: 80-250 ms with
+  threads, growing with the focus height under HILO), and a pore population that falls to per dye under a pattern
+  (every frame re-splats every dye: ~1.1 s a frame by the nucleus edge).
+- **A record's HILO pivot on the dye planes' grid** (`LightPoseOf`, 2026-11-13; every host: viewer, cli, MM): rounded to
+  the nearest multiple of `wf-plane-nm` unless already on it (bit for bit there: the default z 0.5 um and 0.1 um steps
+  unchanged), so foci within half a plane share a record. Each focus had made a record, and under SIM each record is 6
+  terms of every later clock map, every tile x band of `MapEntriesFor`. A 0.02 um-per-frame focus scrub, viewer module
+  one thread: SIM2D 1437 -> 800 ms a frame (the last ten 2155 -> 1223), HILO WideField 195 -> 146 ms (max 685 -> 198);
+  frames up to 2.8e-3 (SIM) / 1.3e-4 (WideField) of the signal rms off where foci merge. On-grid 0.1 um steps still make
+  a record each (SIM focus steps ~200-400 ms threaded; bounded at kLightRecent records). Tried first: keeping each
+  place's dose sum across maps -- every grid of a new map differs (72 of 72 terms), nothing to reuse.
+- **A DOSE map folds the closed records** (`LightHistory::Build`'s `foldedGrid`, `kLightFoldDose`, 2026-11-13): per
+  chapter and component one grid, the merged G plus each lit closed record's footprint x mag x dt node by node, one
+  term; the open record stays the rate. The doses are the separate terms' sum up to rounding order (ctest
+  `history_check`: every dose and the core's per-dye reads within the old tolerances; its term counts now one per
+  component). SIM focus steps of 0.1 um (on the plane grid), viewer module: the frames bit for bit the same as before
+  (46 of 46), single thread 1.0 -> 3.7 s growing per step before, ~1.0 s flat after; threaded 200-400 -> 108-165 ms.
+- **A plain live WideField scene's next bleach basis made ahead** (2026-11-13; `WidefieldScene::SetSuccessorOnly`, set
+  for a live frame (`MovieCache::live`) without a pattern, one frame, no drift, not `fresh-basis`, and not under the
+  adapter's async basis (`SetLiveAsyncBasis`: MM keeps its thread)): RenderFrameProgressive draws as RenderFrame does
+  (a basis that no longer holds -- a new pose, new weights -- a new one at once), and past `kPrebuildAt` of a Chebyshev
+  basis' span it makes the successor `kPendingPlanesPerFrame` (8) planes a frame (`ChannelImageStep` /
+  `ChannelImageFinish`: ChannelImage in parts, the same bits; `FillStepSpectra`: the planes' spectra into the scene's
+  cache first, so the adopted basis keeps them, as one made at once does), adopted where the old one ends. The frames
+  are today's bit for bit up to the first adoption, then within the basis' tolerance (128 px WideField, 400 frames:
+  7e-5 of the signal rms, at most 4 ADU). Native one thread: the frame where a basis ended 170 ms -> at most 36 ms,
+  steps of 5-8 ms over ~20 frames, the same total work. Not under a SIM pattern's windowed states (their frames are
+  few: they keep an image per frame).
+- **WideField kernel spectra kept across a rect move** (`WidefieldScene::Finish`): they depend on the FFT shape, R, the
+  levels and the PSF's version only; they were made again at every move (55-140 ms in the viewer).
+- `SetScopeShortcuts(false)` (with `SetWidefieldKernelsPerRect(true)`) takes the old path: whole-rect counts, kernels
+  per rect, every structure's windows. ctest `live_scope` renders a moving WideField FOV (mean-field microtubules,
+  per-dye pores) both ways: the same frames.
+- **The spare time between live frames** (`LiveScope::Prefetch`, the module's `isc_live_prefetch(spec, marginUm,
+  budgetMs)`: the adapter's idle-time `PrefetchScope` for a `LiveScope`; changes no frame, ctest `live_scope`; phases
+  `prefetch.map`, `prefetch.core`). **The viewer does not call it** (wired in and taken out the same day): under a
+  light map the core's prefetch walks every block around the FOV on every call, ~6 ms natively but ~250 ms in the
+  single-thread WASM against a ~50 ms budget (it is checked per finished item), so the next frame waited and live fell
+  to 3-4 fps. Natively DNA-PAINT moves 35 -> 11 ms with it. A memo of the walked region (as `World::Prefetch` keeps
+  without a map) would be the way to bring it back.
+- Measured in the viewer's module under Node (`tests/web/live_speed.mjs --xstep 1`): WideField moves 110-250 -> 35-45
+  ms, the nucleus-edge move 3-4 s -> ~1 s, the frames after it ~1 s -> 5 ms. Native: `live_bench --xstep 1`.
+- Tried and dropped: the live mean-field anchor (`AnchorMeanField`) with a wider reach (no gain; frames 0.3-0.5 % rms
+  off), fewer dyes (1e-3 of the labelling: moves ~40 ms but no signal). Left: the next frame's bleach basis (~100 ms in
+  the viewer), a new row of dye tiles (~220 ms), the per-dye switch's splat sums (~520 ms once).

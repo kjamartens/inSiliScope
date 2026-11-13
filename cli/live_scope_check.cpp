@@ -6,7 +6,9 @@
 //   - two sessions with the same requests give the same frames, bit for bit; the noise differs frame to frame;
 //   - dSTORM's initial ON fades where the light has been and not elsewhere;
 //   - a recording (Frames: n frames at once) = the same frames one by one (within one electron in a few pixels);
-//   - a session replayed without rendering (Advance) gives the session's next frame, bit for bit.
+//   - a session replayed without rendering (Advance) gives the session's next frame, bit for bit;
+//   - a moving WideField FOV gives the same frames with the moving shortcuts (SetScopeShortcuts) as without, and with
+//     the spare time's prefetch (LiveScope::Prefetch) between frames, bit for bit.
 //
 //   live_scope_check     exit code 0 = all checks passed
 #include "LiveScope.h"
@@ -264,6 +266,48 @@ int main()
       Check(sok && same >= 0.995 * stack.size(),
             "9 frames at once step the pattern as 9 single frames do (" + std::to_string(same) + " of " +
                std::to_string(stack.size()) + " pixels within 4 ADU)");
+   }
+
+   // A moving FOV (2026-11-13): the stage steps 0.5 um in x and y (and the focus 0.1 um up) over WideField microtubules (mean-field) beside
+   // sparsely labelled pores (per dye in every frame). The moving shortcuts (SetScopeShortcuts: a moved rect's counts
+   // from the strips left and entered, the kernel spectra kept, only the pores' windows fetched) and the spare time's
+   // prefetch (LiveScope::Prefetch) leave every frame the same, bit for bit.
+   {
+      auto at = [](int k) {
+         ScopeSpec s;
+         std::string err;
+         char pos[64];
+         std::snprintf(pos, sizeof pos, "x=%.2f y=%.2f z=%.2f ", 14.8 + 0.5 * (k / 2), -6.0 + 0.5 * (k % 3), 0.5 + 0.1 * k);
+         ParseScopeSpec(std::string("size=48 exposure-ms=50 mt-dye=-1 mt-mode=WideField npc-dye=-1 "
+                                    "npc-mode=WideField npc-label-pct=3 laser-488=0.01 dichroic=2 em-filter=2 "
+                                    "psf-kernel-half-width-nm=2500 ") + pos, s, err);
+         return s;
+      };
+      const int kSteps = 8;
+      auto run = [&](bool shortcuts, bool prefetch, std::vector<std::vector<uint16_t>>& out, std::string& paths) {
+         SetScopeShortcuts(shortcuts);
+         LiveScope mv;
+         bool ok = true;
+         for (int k = 0; k < kSteps; k++)
+         {
+            const Shot s = Take(mv, at(k));
+            ok = ok && s.ok;
+            out.push_back(s.adu);
+            paths = s.info.paths;
+            if (prefetch)
+               mv.Prefetch(at(k), 3.0, 30.0);
+         }
+         SetScopeShortcuts(true);
+         return ok;
+      };
+      std::vector<std::vector<uint16_t>> on, off, pre;
+      std::string pathsOn, pathsOff, pathsPre;
+      const bool rok = run(true, false, on, pathsOn) && run(false, false, off, pathsOff) && run(true, true, pre, pathsPre);
+      const bool both = pathsOn.find("mean-field") != std::string::npos && pathsOn.find("per dye") != std::string::npos;
+      Check(rok && both && on == off,
+            "a moving WideField FOV: the shortcuts (strip counts, kept kernels, the per-dye structures' windows only) "
+            "give the frames of the whole-rect path, bit for bit (" + std::to_string(kSteps) + " poses; paths " + pathsOn + ")");
+      Check(rok && on == pre, "the spare time's prefetch around the FOV changes no frame");
    }
 
    std::printf("live_scope: %d failure(s), %.1f s\n", g_failures,

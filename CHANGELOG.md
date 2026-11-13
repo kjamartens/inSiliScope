@@ -3,6 +3,30 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## v0.1.0-rc21 (changes since v0.1.0-rc20-hotfix1)
+
+Live stage and focus moves without the lag, and a roomier live view:
+
+- **Stage moves in live are faster** (the viewer's WebAssembly, 128 px, a 1 um step; every frame the same as before):
+  - WideField: 110-250 -> 35-45 ms a move. By the nucleus edge, where the pores are drawn dye by dye beside the
+    mean-field microtubules, a move took 3-7 s and every frame after it ~1 s (the microtubules' 2.1 M dye windows were
+    fetched and unused); now ~1 s once, then ~5 ms.
+  - The SIM imaging mode: ~400-450 -> ~160-230 ms a move (threaded viewer).
+- **Focus steps in live are faster:**
+  - WideField: the first step 1.25 s -> 83 ms, later ones ~70 -> ~57 ms (every frame the same as before).
+  - SIM: 200-400 -> 110-165 ms a step (threaded viewer), no longer slower the longer you scrub: the light history's map
+    sums each kind of light's recent records into one grid for dyes that bleach (dSTORM, WideField), one term per
+    beam instead of one per beam and focus position visited. Frames unchanged.
+  - **seed** A fine focus scrub under HILO (SIM and WideField): the light history records the sheet's height on the dye
+    planes' grid (100 nm, or 25 nm at Exhaustive quality), so focus positions between two levels share one record.
+    SIM2D 0.02 um steps 1.4 -> 0.8 s a frame (single-thread viewer). Frames change where foci merge (SIM up to 0.3 %,
+    WideField 0.01 % of the signal); a focus on the grid (the default 0.5 um, 0.1 um steps) is unchanged.
+- **Live WideField no longer pauses every ~14 s** (~100-170 ms) when its bleaching approximation is renewed: the next
+  one is made a few planes per frame beforehand. Frames are within 1e-4 of the signal of before.
+- **Viewer layout:** the settings column starts folded at every launch, and folding it gives its room to the live
+  image (the world view keeps its size); the live panel takes 41.6 % of the window by default (was 50 %).
+- Core ABI 20 (`isc_continuous_in_map_masked`); the webSMLM block's ABI is 20 (sync it into webSMLM).
+
 ## v0.1.0-rc20-hotfix1 (changes since v0.1.0-rc20)
 
 Viewer fixes and a SIM imaging mode:

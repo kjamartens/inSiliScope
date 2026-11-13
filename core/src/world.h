@@ -239,8 +239,9 @@ public:
    void EventsInMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
                     std::vector<WorldEvent>& out);
    // The continuous windows ending after tMin (T), dye order per block, times in T, with each dye's clock.
+   // structMask: the structures asked for (bit s); the others' blocks are skipped.
    void ContinuousInMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
-                        std::vector<MapWindow>& out);
+                        std::vector<MapWindow>& out, uint32_t structMask = ~0u);
    // Prefetch for the map queries over [t0, t1) of T.
    bool PrefetchMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double t0, double t1,
                     double budgetMs);

@@ -3660,6 +3660,21 @@ void Run()
             x.insert(x.end(), { mw.e.x, mw.e.y, mw.e.z, mw.e.tOn, mw.e.tOff, mw.e.brightness, (double)mw.e.id,
                                 (double)mw.e.structure, (double)mw.e.state, mw.e.aux, mw.clock, mw.rate });
          Same(firstDiff(o, x), "C ABI: isc_continuous_in_map rows = World::ContinuousInMap");
+         // ABI 20: a structure mask = the unmasked rows of those structures, in order (each block skipped whole).
+         std::vector<int> present;
+         for (size_t i = 0; i + ISC_MAP_WINDOW_STRIDE <= o.size(); i += ISC_MAP_WINDOW_STRIDE)
+            if (std::find(present.begin(), present.end(), (int)o[i + 7]) == present.end()) present.push_back((int)o[i + 7]);
+         Check(!present.empty(), "C ABI: isc_continuous_in_map has windows", "none");
+         for (int32_t mask : { -1, 0, 1, 2, 3, 1 << present.front() }) {
+            const int32_t nm = isc_continuous_in_map_masked(cw, q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, 45, mask, nullptr, 0);
+            std::vector<double> om((size_t)std::max(0, nm) * ISC_MAP_WINDOW_STRIDE);
+            isc_continuous_in_map_masked(cw, q.x0, q.y0, q.x1, q.y1, q.zMin, q.zMax, 45, mask, om.data(), nm);
+            std::vector<double> xm;
+            for (size_t i = 0; i + ISC_MAP_WINDOW_STRIDE <= o.size(); i += ISC_MAP_WINDOW_STRIDE)
+               if ((mask >> (int)o[i + 7]) & 1)
+                  xm.insert(xm.end(), o.begin() + (std::ptrdiff_t)i, o.begin() + (std::ptrdiff_t)(i + ISC_MAP_WINDOW_STRIDE));
+            Same(firstDiff(om, xm), Fmt("C ABI: isc_continuous_in_map_masked(mask %d) = the unmasked rows of those structures", mask));
+         }
       }
       // Bad buffers: each refused, the map unchanged.
       std::vector<std::pair<const char*, std::vector<double>>> bad;

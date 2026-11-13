@@ -1398,13 +1398,17 @@ long World::Density3dInWindow(double x0, double y0, double x1, double y1, double
    const double sx = nx / (x1 - x0), sy = ny / (y1 - y0);
    const double sz = nz > 1 ? nz / (zMax - zMin) : 0.0;
    long total = 0;
-   ForEachDye(x0, y0, x1, y1, zMin, zMax, [&](const DyeBlock& b, const PackedDye& d) {
-      if (!((structureMask >> b.structure) & 1u)) return;
+   // (Blocks of a structure outside the mask skipped whole: the same dyes counted.)
+   ForEachDyeBlock(x0, y0, x1, y1, zMin, zMax, nullptr, nullptr, [&](DyeBlock& b) {
+      if (b.dyes.empty() || b.zHi < zMin || b.zLo >= zMax || !((structureMask >> b.structure) & 1u)) return;
+      for (const PackedDye& d : b.dyes) {
+      if (!(d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1)) continue;
       const int ix = std::min(nx - 1, (int)std::floor((d.x - x0) * sx));
       const int iy = std::min(ny - 1, (int)std::floor((d.y - y0) * sy));
       const int iz = nz > 1 ? std::min(nz - 1, (int)std::floor((d.z - zMin) * sz)) : 0;
       out[((size_t)iz * ny + iy) * nx + ix] += 1;
       total++;
+      }
    });
    return total;
 }
@@ -1992,7 +1996,7 @@ void World::EventsInMap(double x0, double y0, double x1, double y1, double zMin,
 }
 
 void World::ContinuousInMap(double x0, double y0, double x1, double y1, double zMin, double zMax, double tMin,
-                            std::vector<MapWindow>& out)
+                            std::vector<MapWindow>& out, uint32_t structMask)
 {
    if (!map_) {
       std::vector<WorldEvent> ev;
@@ -2002,7 +2006,7 @@ void World::ContinuousInMap(double x0, double y0, double x1, double y1, double z
    }
    PoolScope scope(pool_);
    auto visible = [&](const DyeBlock& b) {
-      return !b.dyes.empty() && !(b.zHi < zMin || b.zLo >= zMax) &&
+      return !b.dyes.empty() && ((structMask >> b.structure) & 1u) && !(b.zHi < zMin || b.zLo >= zMax) &&
              labels_[(size_t)b.structure].mode != LabelMode::DnaPaint;
    };
    auto in = [&](const PackedDye& d) { return d.z >= zMin && d.z < zMax && d.x >= x0 && d.x < x1 && d.y >= y0 && d.y < y1; };

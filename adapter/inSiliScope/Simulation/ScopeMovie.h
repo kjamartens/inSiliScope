@@ -300,6 +300,12 @@ void BackgroundMapPrefetchShutdown();
 // function of their requests (a session replayed = the same next frame). Hosts that unload call
 // WidefieldAsyncBasisShutdown (WidefieldRender.h).
 void SetLiveAsyncBasis(bool on);
+// The shortcuts a moving live FOV takes, each leaving every frame the same (2026-11-13): a moved rect's dye counts from
+// the last count of its size (strips left and entered), the WideField kernel spectra kept across a rect move, and the
+// per-dye windows fetched only for the structures that need them. On by default; off = the whole-rect counts, kernels
+// per rect and every structure's windows, as before (ctest live_scope compares the two).
+void SetScopeShortcuts(bool on);
+bool ScopeShortcuts();
 // Live dye counts: the dye index made ahead on a thread of its own (native builds); hosts that unload join it here.
 void DyeIndexPrefetchShutdown();
 class MemoryReport;

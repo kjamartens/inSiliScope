@@ -1887,6 +1887,8 @@ namespace {
 struct MapEntries;
 // SetLiveAsyncBasis.
 static std::atomic<bool> g_liveAsyncBasis{false};
+// SetScopeShortcuts.
+static std::atomic<bool> g_scopeShortcuts{true};
 
 struct MeanFieldSlot
 {
@@ -2401,7 +2403,7 @@ struct MovieCache
          if (!seen || IndexAhead(x0, y0, x1, y1))
          {
             float one = 0;
-            const long n = source.Density3d(x0, y0, x1, y1, zLo, zHi, 1, 1, 1, mask, &one);
+            const long n = CountRect(x0, y0, x1, y1, zLo, zHi, mask);
             if (n >= 0)
             {
                if (slabCounts.size() >= kSlabCounts)
@@ -2507,6 +2509,13 @@ struct MovieCache
       SlabColumn c;
       std::copy(rect, rect + 4, c.rect);
       c.version = dyeVersion;
+      if (MovedColumn(x0, y0, x1, y1, c))
+      {
+         if (slabColumns.size() >= kSlabColumns)
+            slabColumns.erase(slabColumns.begin());
+         slabColumns.push_back(std::move(c));
+         return &slabColumns.back();
+      }
       // In strips of kSlabStripUm (half-open in x as the core's filter, the boundaries shared, so each dye is in one
       // strip), keeping the heights only: a whole column's sites at once (5 doubles per dye, and the core's own copy)
       // took > 1 GB for the ~7 M dyes of a 48 um WideField field, past the viewer's 2 GB WASM heap (2026-10-16).
@@ -2531,6 +2540,85 @@ struct MovieCache
          slabColumns.erase(slabColumns.begin());
       slabColumns.push_back(std::move(c));
       return &slabColumns.back();
+   }
+   // A moved rect's column (2026-11-13) from a kept column of the same size within half of it: its heights less those of
+   // the strips the rect left, plus those of the strips it entered (the core's filter is half-open, so each dye is in
+   // one piece: the same sorted heights as a column made anew). A live SIM stage move in the viewer made the survey's
+   // column anew, ~220 ms. False (c untouched) when none is near, or on a core failure.
+   bool MovedColumn(double x0, double y0, double x1, double y1, SlabColumn& c)
+   {
+      if (!ScopeShortcuts())
+         return false;
+      const double w = x1 - x0, h = y1 - y0;
+      const SlabColumn* best = nullptr;
+      double bestMove = 1.0;
+      for (const SlabColumn& o : slabColumns)
+         if (o.version == dyeVersion && o.rect[2] - o.rect[0] == w && o.rect[3] - o.rect[1] == h)
+         {
+            const double mv = (std::fabs(o.rect[0] - x0) + std::fabs(o.rect[1] - y0)) / (0.5 * std::min(w, h));
+            if (mv < bestMove)
+               best = &o, bestMove = mv;
+         }
+      if (!best)
+         return false;
+      const double inf = std::numeric_limits<double>::infinity();
+      const double cx0 = best->rect[0], cy0 = best->rect[1], cx1 = best->rect[2], cy1 = best->rect[3];
+      std::vector<std::vector<double>> add, rem;
+      std::vector<double> rows;
+      auto take = [&](double a0, double b0, double a1, double b1, std::vector<std::vector<double>>& to) {
+         if (!(a1 > a0) || !(b1 > b0))
+            return true;
+         if (!source.Sites(a0, b0, a1, b1, -inf, inf, rows))
+            return false;
+         for (size_t i = 0; i + ISC_SITE_STRIDE <= rows.size(); i += ISC_SITE_STRIDE)
+         {
+            const size_t st = static_cast<size_t>(rows[i + 4]);
+            if (st >= to.size())
+               to.resize(st + 1);
+            to[st].push_back(rows[i + 2]);
+         }
+         return true;
+      };
+      // x first ([x0, x1) x [cy0, cy1)), then y.
+      bool ok = x0 >= cx0 ? take(cx0, cy0, x0, cy1, rem) && take(cx1, cy0, x1, cy1, add)
+                          : take(x0, cy0, cx0, cy1, add) && take(x1, cy0, cx1, cy1, rem);
+      ok = ok && (y0 >= cy0 ? take(x0, cy0, x1, y0, rem) && take(x0, cy1, x1, y1, add)
+                            : take(x0, y0, x1, cy0, add) && take(x0, y1, x1, cy1, rem));
+      if (!ok)
+         return false;
+      const size_t ns = std::max({ best->z.size(), add.size(), rem.size() });
+      c.z.assign(ns, {});
+      for (size_t st = 0; st < ns; ++st)
+      {
+         static const std::vector<double> none;
+         const std::vector<double>& old = st < best->z.size() ? best->z[st] : none;
+         std::vector<double> a = st < add.size() ? std::move(add[st]) : std::vector<double>();
+         std::vector<double> r = st < rem.size() ? std::move(rem[st]) : std::vector<double>();
+         std::sort(a.begin(), a.end());
+         std::sort(r.begin(), r.end());
+         // old less r (each removed height once), merged with a
+         std::vector<double> kept;
+         kept.reserve(old.size() + a.size());
+         size_t j = 0;
+         for (double v : old)
+         {
+            if (j < r.size() && r[j] == v)
+            {
+               ++j;
+               continue;
+            }
+            if (j < r.size() && r[j] < v)
+               return false;   // (a height left that the column lacks: make the column anew)
+            kept.push_back(v);
+         }
+         if (j != r.size())
+            return false;
+         c.z[st].resize(kept.size() + a.size());
+         std::merge(kept.begin(), kept.end(), a.begin(), a.end(), c.z[st].begin());
+      }
+      while (!c.z.empty() && c.z.back().empty() && c.z.size() > best->z.size())
+         c.z.pop_back();
+      return true;
    }
    // A rect without a column is counted by the core (Density3d, one bin: the same count), the box's count kept; asked
    // again at other heights (a focus scrub) it gets its column. So a single movie builds no column for a count it
@@ -2562,10 +2650,10 @@ struct MovieCache
                else
                   seen = true;
             }
-         if (!seen)
+         // (seen at other heights: the slabs between, when near; else, a focus scrub, the column below)
+         const long n = CountRect(x0, y0, x1, y1, zLo, zHi, mask, !seen);
+         if (n != -2)
          {
-            float one = 0;
-            const long n = source.Density3d(x0, y0, x1, y1, zLo, zHi, 1, 1, 1, mask, &one);
             if (n >= 0)
             {
                if (slabCounts.size() >= 4 * kSlabColumns)
@@ -2610,6 +2698,75 @@ struct MovieCache
       return true;
    }
 #endif
+   // A box's dye count (2026-11-13): from a kept count of the same rect size and mask nearby (moved in x and y by less
+   // than half the rect, its z bounds by less than half its z range, or the same infinite ones), that count less the
+   // strips and slabs the box left plus those it entered: the core's filter is half-open (x0 <= x < x1, zLo <= z < zHi),
+   // so the pieces share their edges and each dye counts once -- the same number. A live stage move counted its whole
+   // rect again (40-300 ms in the viewer's WASM), a first focus step there built a column of every dye's height
+   // (~0.8 s for 5 M dyes). Else (none nearby) the core over the whole box when whole, or -2. -1 on a core failure.
+   long CountRect(double x0, double y0, double x1, double y1, double zLo, double zHi, int mask, bool whole = true)
+   {
+      float one = 0;
+      auto core = [&](double a0, double b0, double a1, double b1, double zl, double zh) -> long {
+         if (!(a1 > a0) || !(b1 > b0) || !(zh > zl))
+            return 0;
+         return source.Density3d(a0, b0, a1, b1, zl, zh, 1, 1, 1, mask, &one);
+      };
+      const double w = x1 - x0, h = y1 - y0;
+      const bool zFinite = std::isfinite(zLo) && std::isfinite(zHi);
+      const SlabCount* best = nullptr;
+      double bestCost = 2.0;   // the moves as fractions of their limits
+      if (ScopeShortcuts())
+         for (const SlabCount& c : slabCounts)
+         {
+            if (c.version != dyeVersion || c.mask != mask || c.box[2] - c.box[0] != w || c.box[3] - c.box[1] != h)
+               continue;
+            const double mv = (std::fabs(c.box[0] - x0) + std::fabs(c.box[1] - y0)) / (0.5 * std::min(w, h));
+            double mz = 0.0;
+            if (c.box[4] != zLo || c.box[5] != zHi)
+            {
+               if (!zFinite || !std::isfinite(c.box[4]) || !std::isfinite(c.box[5]))
+                  continue;
+               const double half = 0.5 * std::min(zHi - zLo, c.box[5] - c.box[4]);
+               if (!(std::fabs(c.box[4] - zLo) < half && std::fabs(c.box[5] - zHi) < half))
+                  continue;
+               mz = (std::fabs(c.box[4] - zLo) + std::fabs(c.box[5] - zHi)) / half;
+            }
+            if (mv < 1.0 && mv + mz < bestCost)
+               best = &c, bestCost = mv + mz;
+         }
+      if (!best)
+         return whole ? core(x0, y0, x1, y1, zLo, zHi) : -2;
+      const double cx0 = best->box[0], cy0 = best->box[1], cx1 = best->box[2], cy1 = best->box[3];
+      const double cLo = best->box[4], cHi = best->box[5];
+      long n = best->n;
+      // x first ([x0, x1) x [cy0, cy1) at the kept z bounds), then y, then the z bounds over the new rect.
+      long a, r;
+      if (x0 >= cx0)
+         r = core(cx0, cy0, x0, cy1, cLo, cHi), a = core(cx1, cy0, x1, cy1, cLo, cHi);
+      else
+         a = core(x0, cy0, cx0, cy1, cLo, cHi), r = core(x1, cy0, cx1, cy1, cLo, cHi);
+      if (a < 0 || r < 0)
+         return -1;
+      n += a - r;
+      if (y0 >= cy0)
+         r = core(x0, cy0, x1, y0, cLo, cHi), a = core(x0, cy1, x1, y1, cLo, cHi);
+      else
+         a = core(x0, y0, x1, cy0, cLo, cHi), r = core(x0, y1, x1, cy1, cLo, cHi);
+      if (a < 0 || r < 0)
+         return -1;
+      n += a - r;
+      if (zLo != cLo || zHi != cHi)
+      {
+         // [zLo, zHi) = [cLo, cHi) + [zLo, cLo) - [cLo, zLo) + [cHi, zHi) - [zHi, cHi) (one of each pair empty)
+         const long a0 = core(x0, y0, x1, y1, zLo, cLo), r0 = core(x0, y0, x1, y1, cLo, zLo);
+         const long a1 = core(x0, y0, x1, y1, cHi, zHi), r1 = core(x0, y0, x1, y1, zHi, cHi);
+         if (a0 < 0 || r0 < 0 || a1 < 0 || r1 < 0)
+            return -1;
+         n += a0 - r0 + a1 - r1;
+      }
+      return n;
+   }
    // Live: the per-dye populations' running images by population (structure x
    // 4 + state), carried from one movie to the next at the same geometry
    // (FluorescenceMovie::CarryRunningImages): the image, its geometry key and
@@ -4029,7 +4186,7 @@ static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, co
          E->rates = r;
    }
    char b[96];
-   std::snprintf(b, sizeof b, "%zu entries, %zu bands", n, E->nb);
+   std::snprintf(b, sizeof b, "%zu entries, %zu bands, map %llu", n, E->nb, static_cast<unsigned long long>(m.serial));
    TimingLog("fl.mean-field-entries", TimingSince(t0), b);
    if (shared)
    {
@@ -4354,7 +4511,11 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // Live (one frame per movie, no drift, not fresh-basis): the state keeps its basis across the cycles and makes the
    // next one an image per frame (WidefieldScene::RenderFrameProgressive, 2026-11-11: SIM2D WideField 256 px live
    // ~270 -> ~130 ms a frame natively, one thread; frames within the basis' tolerance of the exact ones).
-   nd.progressive = varies && !p.meanLight && S.N == 1 && !shifts && !S.freshBasis;
+   // 2026-11-13: also a plain live scene (no pattern; not the adapter's, whose async basis makes the next one on a
+   // thread): its successor made a few planes per frame (WidefieldScene::SetSuccessorOnly), not ~100-170 ms at once.
+   const bool plainLive = !varies && cache.live && !g_liveAsyncBasis.load();
+   nd.progressive = (varies || plainLive) && !p.meanLight && S.N == 1 && !shifts && !S.freshBasis;
+   slot.scene.SetSuccessorOnly(nd.progressive && !varies);
    if (varies && !p.meanLight && !nd.progressive && (!slot.frame0Set || slot.frame0 != S.frame0))
       slot.scene.ForgetBleachBasis();
    slot.frame0 = S.frame0;
@@ -4368,7 +4529,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
       // RateWeightedFrame; the same everywhere: one decay).
       auto tW = TimingClock::now();
       const WidefieldGridSpec& gr = slot.scene.Grid();
-      const double spanSec = nd.progressive ? kLiveStateSpanSec : std::max(kBasisSpanSec, S.N * S.expSec);
+      const double spanSec = nd.progressive && varies ? kLiveStateSpanSec : std::max(kBasisSpanSec, S.N * S.expSec);
       p.ent = MapEntriesFor(*map, p, gr, slot, S.t0Sec, spanSec, S.expSec, &cache);
       const MapEntries& E = *p.ent;
       const MapClock& mc = map->s[static_cast<size_t>(p.structure)];
@@ -4392,7 +4553,7 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
          }
       };
       // A live state's window changed to the one its next basis was made for: that basis (no pause).
-      if (nd.progressive && p.state != ISC_STATE_BLINK)
+      if (nd.progressive && varies && p.state != ISC_STATE_BLINK)
          slot.scene.AdoptPrepared(E.edges, slot.cellMap, E.rates, spanSec, E.tqSec);
       slot.scene.SetWeightBands(E.edges);
       slot.scene.SetWeightMap(slot.cellMap);
@@ -4412,8 +4573,8 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
          slot.scene.SetWeightRates(p.rates, spanSec);
          // A live state under a map that changes with height: from half its window on, the next window's entries and
          // their weights at its start, for the scene's next basis (made a part per frame, taken at the change).
-         slot.scene.SetWindowed(nd.progressive && E.zDep);
-         if (nd.progressive && E.zDep && S.t0Sec >= E.tqSec + 0.5 * spanSec)
+         slot.scene.SetWindowed(nd.progressive && varies && E.zDep);
+         if (nd.progressive && varies && E.zDep && S.t0Sec >= E.tqSec + 0.5 * spanSec)
          {
             const double tNext = E.tqSec + spanSec;
             auto En = MapEntriesFor(*map, p, gr, slot, tNext, spanSec, S.expSec, &cache, false);
@@ -5018,6 +5179,17 @@ void BlendedBgSlice(const BgJob& job, std::vector<double>& im, std::vector<doubl
    }
 }
 } // namespace
+
+void SetScopeShortcuts(bool on)
+{
+   g_scopeShortcuts = on;
+   SetWidefieldKernelsPerRect(!on);
+}
+
+bool ScopeShortcuts()
+{
+   return g_scopeShortcuts.load();
+}
 
 void SetLiveAsyncBasis(bool on)
 {
@@ -5670,7 +5842,19 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          if (!haveWindows)
          {
             const auto tq = TimingClock::now();
-            const bool ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(S.q, windows, &windowClock);
+            // Only the structures whose populations need windows (2026-11-13: by the nucleus edge, where the pores fall
+            // under the per-dye limit, every live frame fetched the mean-field microtubules' 2.1 M windows and used none:
+            // 1-3 s a frame in the viewer); the ground truth's dye list reads every structure's.
+            int32_t mask = 0;
+            for (const Population& q : m.pops)
+               if (q.needWindows)
+                  mask |= int32_t(1) << q.structure;
+            if (const GroundTruth* gt = ActiveGroundTruth())
+               if (gt->dyeList)
+                  mask = -1;
+            if (!ScopeShortcuts())
+               mask = -1;
+            const bool ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(S.q, windows, &windowClock, mask);
             source.SetClockMap(nullptr);
             TimingLog("fl.windows-query", TimingSince(tq), std::to_string(windows.size()).c_str());
             if (!ok)
@@ -7548,12 +7732,16 @@ bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs, Ligh
    const double zLo = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm - S.q.zHalfRangeUm : -1e3;
    const double zHi = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm + S.q.zHalfRangeUm : 1e3;
    const double g = marginUm + kMapMarginUm;
+   const auto tMap = TimingClock::now();
    const std::shared_ptr<const ClockMapView> map =
       history->BuildMap(spec, *light, S.q.x0Um - g, S.q.y0Um - g, S.q.x1Um + g, S.q.y1Um + g, zLo, zHi, err);
+   TimingLog("prefetch.map", TimingSince(tMap));
    if (!map)
       return false;
+   const auto tCore = TimingClock::now();
    const bool ok = cache.source.SetClockMap(&map->buffer) && cache.source.Prefetch(S.q, marginUm, budgetMs, true);
    cache.source.SetClockMap(nullptr);
+   TimingLog("prefetch.core", TimingSince(tCore), (std::to_string(budgetMs) + " ms budget").c_str());
    return ok;
 }
 
