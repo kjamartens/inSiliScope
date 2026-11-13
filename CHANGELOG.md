@@ -11,6 +11,10 @@ Versions follow semver; while 0.x, any release may change the output for a given
     fetched and unused); now ~1 s once, then ~5 ms.
   - WideField focus steps: the first 1.25 s -> 83 ms, later ones ~70 -> ~57 ms.
   - SIM imaging mode stage moves: ~400-450 -> ~160-230 ms.
+  - A fine focus scrub under HILO (SIM and WideField): the light history records the sheet's height on the dye planes'
+    grid (100 nm, or 25 nm at Exhaustive quality), so focus positions between two levels share one record. SIM2D
+    0.02 um steps 1.4 -> 0.8 s a frame (single-thread viewer). **Frames change** where foci merge (SIM up to 0.3 %,
+    WideField 0.01 % of the signal); a focus on the grid is unchanged.
   - Live WideField no longer pauses every ~14 s (~100-170 ms) when its bleaching approximation is renewed: the next one
     is made a few planes per frame beforehand. Frames are within 1e-4 of the signal of before.
   - Core ABI 20 (`isc_continuous_in_map_masked`); the webSMLM block's ABI is 20.

@@ -160,7 +160,13 @@ LightPose LightPoseOf(const ScopeSpec& spec, const ExcitationSpec& g)
    // The engine's optical axis: the FOV centre pixel's centre ((W - 1) / 2 px from the FOV's corner).
    p.ax = x - W * um / 2 + (W - 1) / 2.0 * um;
    p.ay = y - H * um / 2 + (H - 1) / 2.0 * um;
-   p.pivot = g.pivotUm;
+   // The HILO pivot on the mean-field dye planes' height grid (2026-11-13: wf-plane-nm, 100 nm by default, 25 at
+   // Quality Exhaustive): foci within half a plane of a level share its records -- a focus scrub's small steps or a
+   // drift in z no longer starts a record (6 more clock-map terms a focus under SIM) at each frame. A focus on the grid
+   // keeps its pivot bit for bit.
+   const double dzUm = std::min(500.0, std::max(5.0, ScopeSpecGet(spec, "wf-plane-nm"))) / 1000.0;
+   const double level = std::round(g.pivotUm / dzUm) * dzUm;
+   p.pivot = std::fabs(g.pivotUm - level) > 1e-9 ? level : g.pivotUm;
    p.x0 = x - W * um / 2 - kLightLitMarginUm;
    p.x1 = x + W * um / 2 + kLightLitMarginUm;
    p.y0 = y - H * um / 2 - kLightLitMarginUm;

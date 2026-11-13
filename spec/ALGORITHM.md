@@ -1152,7 +1152,10 @@ movie, by the same builder from the movie's own past. No levels, z bands, clock 
   `TimeWhileIdle` = Running), and starts at the sample's first light (before it every dye is fresh and DNA-PAINT
   stationary: fresh-device stacks stay deterministic). **Records**: maximal intervals of one light -- chapter, magnitude
   (power at the sample over the chapter's reference), pose (the axis within 25 nm of the record's first frame, which it
-  keeps; a drifting stack's record holds its frames' poses weighted, so the history records the light the stack used);
+  keeps; the HILO pivot on the dye planes' height grid, `wf-plane-nm`, a focus on the grid as it is (2026-11-13): foci
+  within half a plane share a record, where each new focus had made a record -- under SIM 6 more terms in every later
+  map, a fine focus scrub's frames 1.4 -> 0.8 s in the viewer's single-thread module; the frames move by up to 1.3e-4 of
+  the signal rms in HILO WideField, 2.8e-3 under SIM2D, and not at all on the grid; a drifting stack's record holds its frames' poses weighted, so the history records the light the stack used);
   a frame costs O(1) (the open record grows). **Chapters**: maximal intervals of one kind of light -- the geometry but
   the HILO pivot, the kinetic env but the laser powers, the lines' power ratios at the sample. A chapter folds its
   closed records into sparse world-anchored grids (G = sum mag x footprint x dt; G2 = sum mag^2 footprint^2 dt, the

@@ -18,7 +18,8 @@
 //                Record: a maximal interval of one light -- its chapter, its
 //                magnitude (total power at the sample over the chapter's
 //                reference) and its pose (the optical axis within
-//                kLightPoseTolUm of its first frame's, which it keeps; a Flat
+//                kLightPoseTolUm of its first frame's, which it keeps; the
+//                HILO pivot on the wf-plane-nm grid, LightPoseOf; a Flat
 //                beam: the same field stop on the grid; a drifting movie's
 //                record holds its frames' poses, weighted) -- or of no light.
 //                Chapter: a maximal interval of one kind of light -- the

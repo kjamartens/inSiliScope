@@ -95,6 +95,8 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   (`MovieCache::CountRect`: less the strips and z slabs left, plus those entered; the viewer's first focus step no longer
   builds a column of every dye's height, 1.25 s -> 83 ms); a moved rect's height column (WASM, the survey under HILO)
   from the last one's, less the strips left, plus those entered (`MovedColumn`; SIM stage moves ~400 -> ~200 ms); a
+  record's HILO pivot snapped to the `wf-plane-nm` grid (`LightPoseOf`; on-grid foci bit for bit; foci within half a
+  plane share a record: a fine SIM focus scrub 1.4 -> 0.8 s a frame, frames up to 2.8e-3 off where they merge); a
   plain live WideField scene makes its next bleach basis ahead, 8 planes a frame (`SetSuccessorOnly`,
   `ChannelImageStep` / `ChannelImageFinish` / `FillStepSpectra`; not MM's async basis, not SIM's windowed states; frames
   bit for bit until the first adoption, then within ~1e-4: no ~170 ms frame every ~14 s); WideField kernel spectra kept across a rect move;

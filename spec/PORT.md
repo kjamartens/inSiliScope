@@ -1448,6 +1448,14 @@ mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
   or focus step builds a new light map, so every tile x height band's clock pair, ~160 k, again: 80-250 ms with
   threads, growing with the focus height under HILO), and a pore population that falls to per dye under a pattern
   (every frame re-splats every dye: ~1.1 s a frame by the nucleus edge).
+- **A record's HILO pivot on the dye planes' grid** (`LightPoseOf`, 2026-11-13; every host: viewer, cli, MM): rounded to
+  the nearest multiple of `wf-plane-nm` unless already on it (bit for bit there: the default z 0.5 um and 0.1 um steps
+  unchanged), so foci within half a plane share a record. Each focus had made a record, and under SIM each record is 6
+  terms of every later clock map, every tile x band of `MapEntriesFor`. A 0.02 um-per-frame focus scrub, viewer module
+  one thread: SIM2D 1437 -> 800 ms a frame (the last ten 2155 -> 1223), HILO WideField 195 -> 146 ms (max 685 -> 198);
+  frames up to 2.8e-3 (SIM) / 1.3e-4 (WideField) of the signal rms off where foci merge. On-grid 0.1 um steps still make
+  a record each (SIM focus steps ~200-400 ms threaded; bounded at kLightRecent records). Tried first: keeping each
+  place's dose sum across maps -- every grid of a new map differs (72 of 72 terms), nothing to reuse.
 - **A plain live WideField scene's next bleach basis made ahead** (2026-11-13; `WidefieldScene::SetSuccessorOnly`, set
   for a live frame (`MovieCache::live`) without a pattern, one frame, no drift, not `fresh-basis`, and not under the
   adapter's async basis (`SetLiveAsyncBasis`: MM keeps its thread)): RenderFrameProgressive draws as RenderFrame does
