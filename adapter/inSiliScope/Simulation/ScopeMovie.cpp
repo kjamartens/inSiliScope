@@ -7619,12 +7619,16 @@ bool PrefetchScope(const ScopeSpec& spec, double marginUm, double budgetMs, Ligh
    const double zLo = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm - S.q.zHalfRangeUm : -1e3;
    const double zHi = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm + S.q.zHalfRangeUm : 1e3;
    const double g = marginUm + kMapMarginUm;
+   const auto tMap = TimingClock::now();
    const std::shared_ptr<const ClockMapView> map =
       history->BuildMap(spec, *light, S.q.x0Um - g, S.q.y0Um - g, S.q.x1Um + g, S.q.y1Um + g, zLo, zHi, err);
+   TimingLog("prefetch.map", TimingSince(tMap));
    if (!map)
       return false;
+   const auto tCore = TimingClock::now();
    const bool ok = cache.source.SetClockMap(&map->buffer) && cache.source.Prefetch(S.q, marginUm, budgetMs, true);
    cache.source.SetClockMap(nullptr);
+   TimingLog("prefetch.core", TimingSince(tCore), (std::to_string(budgetMs) + " ms budget").c_str());
    return ok;
 }
 

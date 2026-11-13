@@ -4477,21 +4477,8 @@ function iscEngine(M) {
       if (d.profile && M._isc_memory_json) res.memory = JSON.parse(M.UTF8ToString(M._isc_memory_json()));
     }
     for (const ptr of [s, info, err]) M._free(ptr);
-    // The time until the next frame is asked for (d.prefetchMs, the page's pacing) spent warming the core's caches
-    // around this FOV (isc_live_prefetch = LiveScope::Prefetch, the adapter's idle-time PrefetchScope): a stage move
-    // there then finds its dyes and schedules made. After the frame is posted (a task of its own); changes no frame.
-    if (px >= 0 && nF === 1 && d.prefetchMs > 2 && M._isc_live_prefetch) {
-      setTimeout(() => {
-        const n2 = M.lengthBytesUTF8(d.spec) + 1, s2 = M._malloc(n2);
-        M.stringToUTF8(d.spec, s2, n2);
-        M._isc_live_prefetch(s2, LIVE_PREFETCH_UM, d.prefetchMs);
-        M._free(s2);
-      }, 0);
-    }
     return [res, res.frames ? [res.frames.buffer] : []];
   }
-  // How far around the FOV the live loop's spare time prepares the sample (um; the adapter's kCellFieldPrefetchMarginUm).
-  const LIVE_PREFETCH_UM = 3;
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {

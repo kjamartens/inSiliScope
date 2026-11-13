@@ -93,9 +93,9 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   `isc_continuous_in_map_masked` (the per-dye windows of the structures that need them; the ground truth's dye list
   all), `Density3dInWindow` skips blocks outside its mask; a moved rect's dye counts from the last count of its size
   (`MovieCache::CountRect`: less the strips left, plus those entered); WideField kernel spectra kept across a rect move;
-  `SetScopeShortcuts(false)` = the old path (ctest `live_scope` compares both on a moving FOV). The viewer's live loop
-  spends its spare time (`job.prefetchMs` in live.js, the live worker after posting a frame) on `isc_live_prefetch` =
-  `LiveScope::Prefetch` (the adapter's `PrefetchScope`, 3 um). Benches: `live_bench` / `tests/web/live_speed.mjs`
+  `SetScopeShortcuts(false)` = the old path (ctest `live_scope` compares both on a moving FOV). `isc_live_prefetch` =
+  `LiveScope::Prefetch` (the adapter's `PrefetchScope`) exists, but the viewer does not call it: under a light map the
+  core re-walks every block per call, ~250 ms in single-thread WASM against a ~50 ms budget (live fell to 3-4 fps). Benches: `live_bench` / `tests/web/live_speed.mjs`
   `--xstep um --xevery k --xfrom f --x0 um --pace ms --prefetch um` (`--slow ms`: a slow frame's phases). The viewer's
   WideField preset needs `mt-dye=-1 npc-dye=-1` in a bench spec (else ATTO655 / Cy3B under 488: no microtubules drawn).
 - `cli/` -- `insiliscope_cli` (headless TIFF movies) and

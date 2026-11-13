@@ -1444,12 +1444,14 @@ mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
   per rect, every structure's windows. ctest `live_scope` renders a moving WideField FOV (mean-field microtubules,
   per-dye pores) both ways: the same frames.
 - **The spare time between live frames** (`LiveScope::Prefetch`, the module's `isc_live_prefetch(spec, marginUm,
-  budgetMs)`): the adapter's idle-time `PrefetchScope` for the viewer: the live job carries `prefetchMs` (the exposure
-  less the frame's round trip and 8 ms, at most 250), and the live worker spends it after posting the frame preparing
-  3 um around the FOV. Changes no frame (ctest `live_scope`). DNA-PAINT moves natively 35 -> 11 ms.
-- Measured in the viewer's module under Node (`tests/web/live_speed.mjs --xstep 1 --pace 50 --prefetch 3`): WideField
-  moves 110-250 -> 35-45 ms, the nucleus-edge move 3-4 s -> ~1 s, the frames after it ~1 s -> 5 ms; DNA-PAINT at 100 ms
-  frames 60-150 -> 32-46 ms. Native: `live_bench --xstep 1 --pace 50 --prefetch 3`.
+  budgetMs)`: the adapter's idle-time `PrefetchScope` for a `LiveScope`; changes no frame, ctest `live_scope`; phases
+  `prefetch.map`, `prefetch.core`). **The viewer does not call it** (wired in and taken out the same day): under a
+  light map the core's prefetch walks every block around the FOV on every call, ~6 ms natively but ~250 ms in the
+  single-thread WASM against a ~50 ms budget (it is checked per finished item), so the next frame waited and live fell
+  to 3-4 fps. Natively DNA-PAINT moves 35 -> 11 ms with it. A memo of the walked region (as `World::Prefetch` keeps
+  without a map) would be the way to bring it back.
+- Measured in the viewer's module under Node (`tests/web/live_speed.mjs --xstep 1`): WideField moves 110-250 -> 35-45
+  ms, the nucleus-edge move 3-4 s -> ~1 s, the frames after it ~1 s -> 5 ms. Native: `live_bench --xstep 1`.
 - Tried and dropped: the live mean-field anchor (`AnchorMeanField`) with a wider reach (no gain; frames 0.3-0.5 % rms
   off), fewer dyes (1e-3 of the labelling: moves ~40 ms but no signal). Left: the next frame's bleach basis (~100 ms in
   the viewer), a new row of dye tiles (~220 ms), the per-dye switch's splat sums (~520 ms once).
