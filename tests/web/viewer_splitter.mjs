@@ -27,19 +27,20 @@ await runViewer('viewer splitter', { watchdogSec: 120, viewport: { width: 1300, 
   check(Math.abs(r.split.left - dragged.split.left) <= 1, `reloaded: the splitter where it was dragged (${r.split.left} px)`);
   check(r.cv.left + r.cv.w <= r.split.left + 1, `reloaded: the world canvas (${r.cv.w} px) ends at the splitter (${r.split.left} px)`);
   check(r.xz.w === 0 || r.xz.left + r.xz.w <= r.split.left + 1, `reloaded: the x-z canvas (${r.xz.w} px) ends at the splitter`);
-  // the settings column folded: the live image keeps its width (the world view takes the room); a drag then follows the
-  // pointer, and the image keeps that width when the column opens again
+  // the settings column (folded at launch, 2026-11-13) opened and folded: the splitter and the world view stay, the live
+  // image gives the column its room; a drag follows the pointer either way
   const live = () => page.evaluate(() => Math.round(document.getElementById('liveView').getBoundingClientRect().width));
   const w0 = await live();
-  await page.click('#setFold'); await page.waitForTimeout(300);
+  await page.click('#setTab'); await page.waitForTimeout(300);
   const f = await meas(), w1 = await live();
-  check(w1 === w0 && f.split.left > r.split.left + 250 && f.cv.w === f.host.w,
-    `folded: the live image ${w0} -> ${w1} px, the splitter ${r.split.left} -> ${f.split.left} px, the world canvas ${f.cv.w} px`);
+  check(w1 < w0 - 100 && f.split.left === r.split.left && f.cv.w === r.cv.w,
+    `opened: the live image ${w0} -> ${w1} px, the splitter at ${f.split.left} px, the world canvas ${f.cv.w} px (both as folded)`);
   const fb = await (await page.$('#splitter')).boundingBox();
   await page.mouse.move(fb.x + 3, fb.y + 300); await page.mouse.down();
   await page.mouse.move(900, fb.y + 300, { steps: 5 }); await page.mouse.up();
-  const g = await meas(), w2 = await live();
-  check(Math.abs(g.split.left + 6 - 900) <= 1, `folded drag: the panel starts at the pointer, as with the column open (${g.split.left} px)`);
-  await page.click('#setTab'); await page.waitForTimeout(300);
-  check(await live() === w2, `opened again: the live image keeps the dragged width (${w2} px)`);
+  const g = await meas();
+  check(Math.abs(g.split.left + 6 - 900) <= 1, `open drag: the panel starts at the pointer (${g.split.left} px)`);
+  await page.click('#setFold'); await page.waitForTimeout(300);
+  const h = await meas();
+  check(h.split.left === g.split.left && h.cv.w === g.cv.w, `folded again: the splitter and the world view stay (${h.split.left} px)`);
 });

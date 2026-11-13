@@ -30,8 +30,8 @@ through it step by step.
   pointer leaves them (or on ▼ or Esc). At the right edge, down to the bottom of the window, the **Settings** column (the specimen's settings):
   the sample, its preparation and, from the Advanced level, the **Simulation** (performance, image formation), with
   a search box on top. Its
-  ⇥ folds it to a narrow **Show specimen settings** tab at the right edge (the image keeps its size and moves right; the Sample or
-  Microscope view gets the room; remembered in your browser), and a click
+  ⇥ folds it to a narrow **Show specimen settings** tab at the right edge, as it starts (the live image gets the room;
+  the Sample or Microscope view keeps its size), and a click
   on the tab, or typing a search, opens it again. The search box highlights every line that matches (at the current
   level), opens their groups and hides the rest of the settings. The divider between the
   two halves drags (the microscope takes half the window at first, a third to 72 % by dragging; remembered in your

@@ -56,11 +56,12 @@ self.iscCoi = (() => {
   :root{--side-w:380px;--lab-w:var(--density-label-w);--lab-w-base:var(--density-label-w);--val-w:var(--density-value-w)}
   html,body{margin:0;padding:0;background:var(--color-bg-app);color:var(--color-text);font-family:var(--font-family-ui);overflow:hidden}
   /* Layout: the world view (left, with its View bar) | a splitter | the live microscope (right: the live camera with
-     its controls under it, then the settings column). --live-w: the right panel's width with the settings open (33-72 %
-     of the window, dragged; 50 % by default); the live image takes it less the column (--set-w, at least 200 px) at
-     every fold, so folding the column (--set-cur) moves the image and gives the world view the room. */
+     its controls under it, then the settings column). --live-w: the right panel's width (33-72 % of the window,
+     dragged; 50 % by default), the same with the column open or folded (2026-11-13): the live strip takes it less the
+     column (--set-cur: --set-w open, the 28 px tab folded), so folding the column gives the live image the room and the
+     world view keeps its size. */
   #wrap{--set-w:340px;--set-cur:var(--set-w);display:grid;height:100vh;grid-template-rows:auto minmax(0,1fr);
-    grid-template-columns:minmax(0,1fr) 6px calc(max(var(--live-w,50vw) - var(--set-w),200px) + var(--set-cur))}
+    grid-template-columns:minmax(0,1fr) 6px max(var(--live-w,50vw),calc(var(--set-w) + 200px))}
   body:not(.mobile) #wrap.setShut{--set-cur:28px}
   #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
   /* the top strip: the title bar takes the room, the status bar (info, level, file icons, menu) sits at the right end */
@@ -2018,18 +2019,18 @@ menu.innerHTML = '<h4>Appearance</h4>' +
   '<h4>About</h4>' +
   `<div class="note" id="buildInfo">${buildLine}</div>` +
   '<div class="note"><a id="privacyLink" target="_top" href="https://kjamartens.github.io/inSiliScope/docs/privacy/">Privacy</a>: anonymous usage counts, no cookies</div>';
-// the settings column folds to a tab at the right edge (remembered); a search or "Changed only" unfolds it
+// the settings column folds to a tab at the right edge, folded at every launch (2026-11-13: the room goes to the live
+// image; the world view keeps its size); its tab, a search or "Changed only" unfolds it
 function foldSettings(shut) {
   $('wrap').classList.toggle('setShut', shut);
   $('setFold').setAttribute('aria-expanded', !shut); $('setTab').setAttribute('aria-expanded', !shut);
-  store.set('setShut', shut ? '1' : '0');
-  window.dispatchEvent(new Event('resize'));   // the world view takes the width (the live image keeps its own)
+  window.dispatchEvent(new Event('resize'));   // the live image takes the width (the world view keeps its own)
 }
 $('setFold').addEventListener('click', () => foldSettings(true));
 $('setTab').addEventListener('click', () => foldSettings(false));
 for (const [id, ev] of [['setSearch', 'input'], ['setChanged', 'change']])
   $(id).addEventListener(ev, () => { if ($('wrap').classList.contains('setShut')) foldSettings(false); });
-foldSettings(store.get('setShut', '0') === '1');
+foldSettings(true);
 // The handle on the image's lower edge spreads the controls under it over the image (75 % of it), on a click or when the
 // pointer rests on it for 0.3 s; they fold back when
 // the pointer has left them (and the handle) for 0.1 s, on a second click or on Esc. Not while a select of theirs is

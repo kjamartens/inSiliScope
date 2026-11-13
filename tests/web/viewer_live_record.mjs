@@ -87,16 +87,18 @@ try {
   check(Math.abs(sq.w - sq.h) < 1 && Math.abs(sq.cw - sq.w) < 2 && Math.abs(sq.ctlBottom - sq.H) < 2 && Math.abs(sq.setRight - sq.W) < 2
     && Math.abs(sq.setBottom - sq.H) < 2 && Math.abs(sq.vbH - sq.lbH) < 1 && sq.illum && sq.search === 'setCol',
     `layout: the image square (${sq.w.toFixed(0)} px), the controls as wide and to the bottom, the settings column at the right edge with the search, the bars level (${sq.vbH.toFixed(0)}/${sq.lbH.toFixed(0)} px), illumination in the controls ${JSON.stringify(sq)}`);
-  // the settings column folds to a tab at the right edge (the image keeps its size and moves right) and opens again
-  await page.click('#setFold');
-  await page.waitForTimeout(300);
-  const shut = await layout();
+  // the settings column starts folded to a tab at the right edge (2026-11-13); it opens (the live image gives it the
+  // room, the panel starts where it did: the world view keeps its size) and folds again
   await page.click('#setTab');
   await page.waitForTimeout(300);
   const open = await layout();
-  check(shut.setW < 40 && Math.abs(shut.setRight - shut.W) < 2 && Math.abs(shut.w - sq.w) < 1 && Math.abs(shut.w - shut.h) < 1
-    && shut.liveLeft > sq.liveLeft + 250 && shut.barOver <= 0 && Math.abs(open.w - sq.w) < 1 && Math.abs(open.liveLeft - sq.liveLeft) < 1,
-    `the settings fold to a ${shut.setW.toFixed(0)} px tab (the image stays ${shut.w.toFixed(0)} px, moved ${(shut.liveLeft - sq.liveLeft).toFixed(0)} px right, the bar fits: overflow ${shut.barOver} px) and open again`);
+  await page.click('#setFold');
+  await page.waitForTimeout(300);
+  const shut = await layout();
+  check(sq.setW < 40 && open.setW > 200 && Math.abs(open.setRight - open.W) < 2 && Math.abs(open.liveLeft - sq.liveLeft) < 1
+    && open.w < sq.w - 100 && Math.abs(open.w - open.h) < 1 && open.barOver <= 0 && Math.abs(shut.w - sq.w) < 1
+    && Math.abs(shut.liveLeft - sq.liveLeft) < 1,
+    `the settings start as a ${sq.setW.toFixed(0)} px tab; opened (${open.setW.toFixed(0)} px) the image ${sq.w.toFixed(0)} -> ${open.w.toFixed(0)} px where it was (the bar fits: overflow ${open.barOver} px), folded again ${shut.w.toFixed(0)} px`);
   // where the groups sit: the instrument under the image beside the acquisition controls, the simulation's in the settings
   const where = await page.evaluate(() => Object.fromEntries(['illum', 'lightpath', 'objective', 'camera', 'perf', 'formation']
     .map(g => [g, document.querySelector(`details[data-group=${g}]`).closest('#lv_colIllum,#lv_instrHost,#panel').id])));
