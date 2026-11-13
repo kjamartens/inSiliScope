@@ -3,6 +3,8 @@
 //
 //   node tests/web/live_speed.mjs [--module web/insiliscope_module.js | --mt build/wasm/cli/insiliscope_scope_mt.js]
 //                                 [--frames 60] [--profile] [--hash] 'spec k=v ...'
+// --xstep um [--x0 um] [--xfrom f] [--xevery k]: the stage (x) still for f frames, then moves by um every k frames;
+// --slow ms: the engine's top phases of every frame slower than ms.
 // --mt: the threaded module's build output (Emscripten pthreads on Node's worker_threads; loaded from its file).
 //
 // Prints ms per frame (each, and means per tenth of the run), with --profile the engine's phases of the last frame
@@ -14,7 +16,7 @@ import { loadWasmScope } from '../parity/wasm_scope.mjs';
 
 const args = process.argv.slice(2);
 let modulePath = new URL('../../web/insiliscope_module.js', import.meta.url);
-let frames = 60, profile = false, hash = false, mt = null;
+let frames = 60, profile = false, hash = false, mt = null, xstep = 0, x0 = 0, xfrom = 0, xevery = 1, slowMs = 0, paceMs = 0, prefetchUm = 0;
 const spec = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--module') modulePath = args[++i];
@@ -22,21 +24,39 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--profile') profile = true;
   else if (args[i] === '--hash') hash = true;
   else if (args[i] === '--mt') mt = args[++i];
+  else if (args[i] === '--xstep') xstep = +args[++i];
+  else if (args[i] === '--x0') x0 = +args[++i];
+  else if (args[i] === '--xfrom') xfrom = +args[++i];
+  else if (args[i] === '--xevery') xevery = Math.max(1, +args[++i]);
+  else if (args[i] === '--slow') slowMs = +args[++i];
+  else if (args[i] === '--pace') paceMs = +args[++i];
+  else if (args[i] === '--prefetch') prefetchUm = +args[++i];
   else spec.push(args[i]);
 }
 const M = mt ? await createRequire(import.meta.url)(path.resolve(mt))()
   : (await loadWasmScope(readFileSync(modulePath, 'utf8'))).M;
 const str = s => { const n = M.lengthBytesUTF8(s) + 1, p = M._malloc(n); M.stringToUTF8(s, p, n); return p; };
-const sp = str(spec.join(' ')), info = M._malloc(32 * 8), err = M._malloc(1024);
-if (profile && M._isc_live_profile) M._isc_live_profile(1);
+let sp = str(spec.join(' '));
+const info = M._malloc(32 * 8), err = M._malloc(1024);
+if ((profile || slowMs) && M._isc_live_profile) M._isc_live_profile(1);
 const ms = [];
 for (let f = 0; f < frames; f++) {
+  if (xstep) {   // the stage: still for xfrom frames, then x moves by xstep every xevery frames
+    const k = f < xfrom ? 0 : 1 + Math.floor((f - xfrom) / xevery);
+    M._free(sp); sp = str(spec.join(' ') + ' x=' + (x0 + xstep * k));
+  }
   const t0 = performance.now();
   const n = M._isc_live_frame(sp, 1, info, err, 1024);
   const dt = performance.now() - t0;
   if (n < 0) { console.error('frame failed:', M.UTF8ToString(err)); process.exit(1); }
   ms.push(dt);
-  let line = `frame ${String(f).padStart(3)}  ${dt.toFixed(1).padStart(8)} ms`;
+  let pf = 0;
+  if (prefetchUm > 0 && paceMs > dt + 2) {   // a paced live loop's spare time spent warming around the FOV
+    const tp = performance.now();
+    M._isc_live_prefetch(sp, prefetchUm, paceMs - dt - 2);
+    pf = performance.now() - tp;
+  }
+  let line = `frame ${String(f).padStart(3)}  ${dt.toFixed(1).padStart(8)} ms  (prefetch ${pf.toFixed(1)} ms)`;
   if (hash) {
     const p = M._isc_live_image() >>> 0, px = new Uint16Array(M.HEAPU16.buffer, p, n);
     let h = 0x811c9dc5;
@@ -44,6 +64,11 @@ for (let f = 0; f < frames; f++) {
     line += '  ' + h.toString(16).padStart(8, '0');
   }
   console.log(line);
+  if (slowMs && dt > slowMs && M._isc_live_profile_json) {   // the phases of a slow frame
+    const j = JSON.parse(M.UTF8ToString(M._isc_live_profile_json()));
+    const rows = Object.entries(j.phases).filter(([, v]) => v.totalMs > 2).sort((a, b) => b[1].totalMs - a[1].totalMs);
+    console.log('     ' + rows.slice(0, 6).map(([k, v]) => `${k} ${v.totalMs.toFixed(0)}`).join(', '));
+  }
 }
 const tenth = Math.max(1, Math.floor(frames / 10)), parts = [];
 for (let i = 0; i < frames; i += tenth) {

@@ -1887,6 +1887,8 @@ namespace {
 struct MapEntries;
 // SetLiveAsyncBasis.
 static std::atomic<bool> g_liveAsyncBasis{false};
+// SetScopeShortcuts.
+static std::atomic<bool> g_scopeShortcuts{true};
 
 struct MeanFieldSlot
 {
@@ -2401,7 +2403,7 @@ struct MovieCache
          if (!seen || IndexAhead(x0, y0, x1, y1))
          {
             float one = 0;
-            const long n = source.Density3d(x0, y0, x1, y1, zLo, zHi, 1, 1, 1, mask, &one);
+            const long n = CountRect(x0, y0, x1, y1, zLo, zHi, mask);
             if (n >= 0)
             {
                if (slabCounts.size() >= kSlabCounts)
@@ -2565,7 +2567,7 @@ struct MovieCache
          if (!seen)
          {
             float one = 0;
-            const long n = source.Density3d(x0, y0, x1, y1, zLo, zHi, 1, 1, 1, mask, &one);
+            const long n = CountRect(x0, y0, x1, y1, zLo, zHi, mask);
             if (n >= 0)
             {
                if (slabCounts.size() >= 4 * kSlabColumns)
@@ -2610,6 +2612,52 @@ struct MovieCache
       return true;
    }
 #endif
+   // A rect's dye count (2026-11-13): from a kept count of the same size, z range and mask nearby, that count less the
+   // strips the rect left plus those it entered (the core's filter is half-open, x0 <= x < x1, so the strips share
+   // edges and each dye counts once: the same number; a live stage move counted its whole rect again, 40-300 ms in the
+   // viewer's WASM); else the core over the whole rect. -1 on a core failure.
+   long CountRect(double x0, double y0, double x1, double y1, double zLo, double zHi, int mask)
+   {
+      float one = 0;
+      auto core = [&](double a0, double b0, double a1, double b1) -> long {
+         if (!(a1 > a0) || !(b1 > b0))
+            return 0;
+         return source.Density3d(a0, b0, a1, b1, zLo, zHi, 1, 1, 1, mask, &one);
+      };
+      const double w = x1 - x0, h = y1 - y0;
+      const SlabCount* best = nullptr;
+      // past half the rect, the strips cost about what the rect does
+      double bestMove = ScopeShortcuts() ? 0.5 * std::min(w, h) : 0.0;
+      for (const SlabCount& c : slabCounts)
+         if (c.version == dyeVersion && c.mask == mask && c.box[4] == zLo && c.box[5] == zHi &&
+             c.box[2] - c.box[0] == w && c.box[3] - c.box[1] == h)
+         {
+            const double mv = std::fabs(c.box[0] - x0) + std::fabs(c.box[1] - y0);
+            if (mv < bestMove)
+               best = &c, bestMove = mv;
+         }
+      if (!best)
+         return core(x0, y0, x1, y1);
+      const double cx0 = best->box[0], cy0 = best->box[1], cx1 = best->box[2], cy1 = best->box[3];
+      long n = best->n;
+      // x first ([x0, x1) x [cy0, cy1)), then y.
+      long a, r;
+      if (x0 >= cx0)
+         r = core(cx0, cy0, x0, cy1), a = core(cx1, cy0, x1, cy1);
+      else
+         a = core(x0, cy0, cx0, cy1), r = core(x1, cy0, cx1, cy1);
+      if (a < 0 || r < 0)
+         return -1;
+      n += a - r;
+      if (y0 >= cy0)
+         r = core(x0, cy0, x1, y0), a = core(x0, cy1, x1, y1);
+      else
+         a = core(x0, y0, x1, cy0), r = core(x0, y1, x1, cy1);
+      if (a < 0 || r < 0)
+         return -1;
+      n += a - r;
+      return n;
+   }
    // Live: the per-dye populations' running images by population (structure x
    // 4 + state), carried from one movie to the next at the same geometry
    // (FluorescenceMovie::CarryRunningImages): the image, its geometry key and
@@ -5019,6 +5067,17 @@ void BlendedBgSlice(const BgJob& job, std::vector<double>& im, std::vector<doubl
 }
 } // namespace
 
+void SetScopeShortcuts(bool on)
+{
+   g_scopeShortcuts = on;
+   SetWidefieldKernelsPerRect(!on);
+}
+
+bool ScopeShortcuts()
+{
+   return g_scopeShortcuts.load();
+}
+
 void SetLiveAsyncBasis(bool on)
 {
    g_liveAsyncBasis = on;
@@ -5670,7 +5729,19 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          if (!haveWindows)
          {
             const auto tq = TimingClock::now();
-            const bool ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(S.q, windows, &windowClock);
+            // Only the structures whose populations need windows (2026-11-13: by the nucleus edge, where the pores fall
+            // under the per-dye limit, every live frame fetched the mean-field microtubules' 2.1 M windows and used none:
+            // 1-3 s a frame in the viewer); the ground truth's dye list reads every structure's.
+            int32_t mask = 0;
+            for (const Population& q : m.pops)
+               if (q.needWindows)
+                  mask |= int32_t(1) << q.structure;
+            if (const GroundTruth* gt = ActiveGroundTruth())
+               if (gt->dyeList)
+                  mask = -1;
+            if (!ScopeShortcuts())
+               mask = -1;
+            const bool ok = source.SetClockMap(&m.map->buffer) && source.ContinuousInMap(S.q, windows, &windowClock, mask);
             source.SetClockMap(nullptr);
             TimingLog("fl.windows-query", TimingSince(tq), std::to_string(windows.size()).c_str());
             if (!ok)

@@ -241,3 +241,17 @@ Upcoming ideas:
   `ground_truth`, `tests/web/gt_unit.mjs`, `zip_unit.mjs`, `viewer_save.mjs`. Measured: collecting it during a Record
   adds ~70 % (cli DNA-PAINT 128 px 200 frames 2.8 -> 4.8 s), so it is computed at Save. Next: [ ] multi-dimensional
   acquisitions (z planes, tiles) in `frames.csv`, [ ] the same from MM.
+- Live stage moves (2026-11-13, branch `live-move-speed`; viewer WASM, 128 px, a 1 um step): WideField moves cost
+  110-450 ms (a still frame ~4 ms), and 3-7 s where the pores fall under the per-dye limit by the nucleus edge (2.1 M
+  unused microtubule windows fetched every frame there); DNA-PAINT moves 60-150 ms. Plan: [x] core ABI 20
+  `isc_continuous_in_map_masked` (the structures whose populations need windows; the ground truth's dye list all),
+  core `Density3dInWindow` skips blocks outside its mask, [x] dye counts of a moved rect from the last count of its
+  size (less the strips left, plus those entered: the same number), [x] WideField kernel spectra kept across a rect
+  move (they depend on the FFT shape, R, levels and PSF only), [x] `LiveScope::Prefetch` / `isc_live_prefetch`: the
+  viewer's live loop spends its spare time preparing 3 um around the FOV (the adapter's PrefetchScope), [x] checks:
+  `world_checks` (masked = unmasked filtered, masked counts), ctest `live_scope` (a moving WideField sequence across
+  the per-dye switch = the same with every cache cleared before each frame; prefetch between frames changes no frame),
+  [x] docs (CLAUDE.md, CHANGELOG.md, spec/PORT.md 30), [ ] native + WASM ctest, the viewer module embedded, the viewer checked by hand.
+  Tried and dropped: a live mean-field anchor (`AnchorMeanField` with a wider reach: no gain, frames 0.3-0.5 % rms off);
+  fewer dyes (1e-3 of the labelling: moves ~40 ms, but no signal left). Next: [ ] the next frame's bleach basis
+  (~100 ms WASM), [ ] new dye-tile rows and the per-dye switch's splat sums made in the spare time too.

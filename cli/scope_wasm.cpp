@@ -762,6 +762,16 @@ ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* inf
 ISC_API const uint16_t* isc_live_image() { return g_liveImage.data(); }
 ISC_API const char* isc_live_paths() { return g_livePaths.c_str(); }
 ISC_API void isc_live_reset() { g_live.Reset(); }
+// The live loop's spare time (2026-11-13, web/live/live.js's job.prefetchMs): warm the core's caches around the spec's FOV (LiveScope::Prefetch). 1 when
+// the whole margin is done, else 0.
+ISC_API int32_t isc_live_prefetch(const char* spec, double marginUm, double budgetMs)
+{
+   std::string err;
+   sim::ScopeSpec s;
+   if (!sim::ParseScopeSpec(spec ? spec : "", s, err))
+      return 0;
+   return g_live.Prefetch(s, marginUm, budgetMs) ? 1 : 0;
+}
 // A saved session's light replayed (LiveScope::Advance: what isc_live_frames(spec, n, countLight) does to the sample,
 // without rendering). 0, or -1 (message in errOut). isc_live_time(): the sample's time (s since the world was made).
 ISC_API int32_t isc_live_advance(const char* spec, int32_t n, int32_t countLight, char* errOut, int32_t errCap)

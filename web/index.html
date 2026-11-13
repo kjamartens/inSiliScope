@@ -4235,7 +4235,7 @@ const ISC_ABI = 2, ISC_CELL_STRIDE = 14, ISC_SITE_STRIDE = 5;
 // Self-contained (it is stringified into the workers): one IscWorld per (seed,
 // core params); every answer is a pure function of those, the labels and the request.
 function iscEngine(M) {
-  if (M._isc_abi_version() !== 19) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 19');
+  if (M._isc_abi_version() !== 20) throw new Error('insiliscope core ABI ' + M._isc_abi_version() + ', viewer expects 20');
   const ISC_NUC_SLICES = 17, ISC_NUC_PTS = 48;   // nucleus rings per cell (drawNucleus, the x-z view)
   const nonCore = new Set();   // UI-only params the core does not know, learned on first use
   let world = 0, worldKey = '', buf = 0, bufBytes = 0, ints = 0;
@@ -4476,8 +4476,21 @@ function iscEngine(M) {
       if (d.profile && M._isc_memory_json) res.memory = JSON.parse(M.UTF8ToString(M._isc_memory_json()));
     }
     for (const ptr of [s, info, err]) M._free(ptr);
+    // The time until the next frame is asked for (d.prefetchMs, the page's pacing) spent warming the core's caches
+    // around this FOV (isc_live_prefetch = LiveScope::Prefetch, the adapter's idle-time PrefetchScope): a stage move
+    // there then finds its dyes and schedules made. After the frame is posted (a task of its own); changes no frame.
+    if (px >= 0 && nF === 1 && d.prefetchMs > 2 && M._isc_live_prefetch) {
+      setTimeout(() => {
+        const n2 = M.lengthBytesUTF8(d.spec) + 1, s2 = M._malloc(n2);
+        M.stringToUTF8(d.spec, s2, n2);
+        M._isc_live_prefetch(s2, LIVE_PREFETCH_UM, d.prefetchMs);
+        M._free(s2);
+      }, 0);
+    }
     return [res, res.frames ? [res.frames.buffer] : []];
   }
+  // How far around the FOV the live loop's spare time prepares the sample (um; the adapter's kCellFieldPrefetchMarginUm).
+  const LIVE_PREFETCH_UM = 3;
   return { handle };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {

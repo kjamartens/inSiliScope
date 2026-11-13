@@ -159,7 +159,8 @@ public:
    bool EventsInMap(const SampleQuery& q, std::vector<BlinkEvent>& out);
    // The continuous windows open after q.tSec (isc_continuous_in_map), mapped as Continuous maps them, and per window
    // its dye's clock and rate (two doubles each, appended to clockRate; nullptr: not wanted).
-   bool ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate);
+   bool ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate,
+                        int32_t structMask = -1);
 
    // Fluorescent-dye counts on an nx x ny x nz grid over [x0,x1) x [y0,y1) x
    // [zMin,zMax) (world um), out[(k*ny + iy)*nx + ix], of the structures in

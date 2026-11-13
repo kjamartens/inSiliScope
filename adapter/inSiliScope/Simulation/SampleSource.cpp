@@ -337,7 +337,8 @@ bool SampleSource::EventsInMap(const SampleQuery& q, std::vector<BlinkEvent>& ou
    }, out);
 }
 
-bool SampleSource::ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate)
+bool SampleSource::ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate,
+                                   int32_t structMask)
 {
    if (!world_ || !(q.frameSec > 0))
       return false;
@@ -348,8 +349,8 @@ bool SampleSource::ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>
    int32_t n;
    for (;;)
    {
-      n = isc_continuous_in_map(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec,
-                                buf_.empty() ? nullptr : buf_.data(), cap);
+      n = isc_continuous_in_map_masked(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, structMask,
+                                       buf_.empty() ? nullptr : buf_.data(), cap);
       if (n < 0)
          return false;
       if (n <= cap)

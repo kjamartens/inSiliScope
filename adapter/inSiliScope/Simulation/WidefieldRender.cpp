@@ -41,6 +41,13 @@
 
 namespace sim {
 
+// SetWidefieldKernelsPerRect.
+static std::atomic<bool> g_kernelsPerRect{false};
+void SetWidefieldKernelsPerRect(bool on)
+{
+   g_kernelsPerRect = on;
+}
+
 namespace {
 
 constexpr double kAvogadro = 6.02214076e23;
@@ -1230,14 +1237,20 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
    if (psfChanged || moved)
    {
       const unsigned oldX = nx_, oldY = ny_;
-      const int oldR = R_;
+      const int oldR = R_, oldLevels = levels_;
       const auto tFft = TimingClock::now();
       SetupFft(psf, spec.kernelCapUm, samePsf);
       TimingLog("wf.scene.setup-fft", TimingSince(tFft),
                 (std::to_string(nx_) + " x " + std::to_string(ny_) + ", levels " + std::to_string(levels_)).c_str());
       fftChanged = rectChanged || !samePsf || nx_ != oldX || ny_ != oldY || R_ != oldR ||
                    spec.psfVersion != kernelsVersion_;
-      if (fftChanged)
+      // The kernel spectra depend on the FFT shape, R, the levels and the PSF (its version) only, not on where the rect
+      // is: a stage move keeps them (2026-11-13; they were made again at every move, 55-140 ms in the viewer's WASM).
+      // SetWidefieldKernelsPerRect(true): made again on every rect change, as before (a check's reference).
+      const bool kernelsChanged = g_kernelsPerRect.load() ? fftChanged
+                                                           : (nx_ != oldX || ny_ != oldY || R_ != oldR ||
+                                                              levels_ != oldLevels || spec.psfVersion != kernelsVersion_);
+      if (kernelsChanged)
       {
          std::lock_guard<std::mutex> lk(kernels_->mutex);
          kernels_->map.clear();

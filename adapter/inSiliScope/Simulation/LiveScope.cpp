@@ -92,6 +92,17 @@ int LiveScope::Begin(const ScopeSpec& specIn, long n, bool countLight, Step& st,
    return 1;
 }
 
+bool LiveScope::Prefetch(const ScopeSpec& spec, double marginUm, double budgetMs)
+{
+   if (!haveWorld_ || !(budgetMs > 0))
+      return false;
+   Step st;
+   std::string err;
+   if (Begin(spec, 1, true, st, err) != 1)
+      return false;
+   return PrefetchScope(st.spec, marginUm, budgetMs, &history_, &st.light);
+}
+
 void LiveScope::Finish(const Step& st, long n)
 {
    noiseCounter_ += static_cast<uint32_t>(n);

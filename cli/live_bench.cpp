@@ -3,6 +3,7 @@
 //
 //   live_bench [--frames N] [--dump file.raw] [--hash] [--zstep um [--zevery k]] spec options...
 //                                                                           (e.g. size=256 sim-type=SIM2D ...)
+// --xstep um [--xevery k] [--xfrom f]: the stage (x) still for f frames, then moves by um every k frames (one way).
 // --zstep: the focus moves by um every k frames (default 1), up and back (a focus scrub).
 //
 // Prints ms per frame (each, then the mean over frames 1.. and over the last cycle-worth); --dump writes every frame's
@@ -26,8 +27,9 @@ int main(int argc, char** argv)
    long frames = 20;
    std::string dump, text;
    bool hash = false;
-   double zstep = 0.0, z0 = 0.5;
-   long zevery = 1;
+   double zstep = 0.0, z0 = 0.5, xstep = 0.0, x0 = 0.0;
+   long zevery = 1, xevery = 1, xfrom = 0;
+   double paceMs = 0, prefetchUm = 0;   // --pace ms: a frame period; --prefetch um: its idle time spent warming
    for (int i = 1; i < argc; ++i)
    {
       const std::string a = argv[i];
@@ -39,6 +41,18 @@ int main(int argc, char** argv)
          hash = true;
       else if (a == "--zstep" && i + 1 < argc)
          zstep = std::atof(argv[++i]);
+      else if (a == "--xstep" && i + 1 < argc)
+         xstep = std::atof(argv[++i]);
+      else if (a == "--xevery" && i + 1 < argc)
+         xevery = std::max(1L, std::atol(argv[++i]));
+      else if (a == "--pace" && i + 1 < argc)
+         paceMs = std::atof(argv[++i]);
+      else if (a == "--prefetch" && i + 1 < argc)
+         prefetchUm = std::atof(argv[++i]);
+      else if (a == "--x0" && i + 1 < argc)
+         x0 = std::atof(argv[++i]);
+      else if (a == "--xfrom" && i + 1 < argc)
+         xfrom = std::atol(argv[++i]);
       else if (a == "--zevery" && i + 1 < argc)
          zevery = std::max(1L, std::atol(argv[++i]));
       else
@@ -66,6 +80,13 @@ int main(int argc, char** argv)
          if (!ParseScopeSpec(text + " z=" + std::to_string(z), spec, err))
             return 2;
       }
+      if (xstep != 0.0)
+      {
+         // the stage: still for xfrom frames, then x moves by xstep every xevery frames (one way)
+         const long k = f < xfrom ? 0 : 1 + (f - xfrom) / xevery;
+         if (!ParseScopeSpec(text + " x=" + std::to_string(x0 + xstep * k), spec, err))
+            return 2;
+      }
       const auto t0 = std::chrono::steady_clock::now();
       if (!live.Frame(spec, true, adu, info, err))
       {
@@ -78,7 +99,15 @@ int main(int argc, char** argv)
       uint64_t h = 1469598103934665603ull;
       for (uint16_t v : adu)
          h = (h ^ v) * 1099511628211ull;
-      std::printf("frame %3ld  %8.1f ms", f, ms.back());
+      double pfMs = 0;
+      if (prefetchUm > 0 && paceMs > ms.back() + 2)
+      {
+         // the spare time of a paced live loop (the next frame's pose is this one's: the stage moves later)
+         const auto tp = std::chrono::steady_clock::now();
+         live.Prefetch(spec, prefetchUm, paceMs - ms.back() - 2);
+         pfMs = 1000.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - tp).count();
+      }
+      std::printf("frame %3ld  %8.1f ms  (prefetch %5.1f ms)", f, ms.back(), pfMs);
       if (hash)
          std::printf("  %016llx", static_cast<unsigned long long>(h));
       std::printf("\n");

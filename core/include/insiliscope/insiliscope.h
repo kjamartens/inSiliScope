@@ -45,7 +45,9 @@
  * fluorescent slide (specimen ISC_SPECIMEN_SLIDE 3: a uniform dye layer on the
  * coverslip, whose light is the host's; the world has no cells or dyes).
  * ABI 19: isc_dye_details_in_window (each dye's binding site and mean emission
- * dipole, for the ground truth); outputs unchanged.
+ * dipole, for the ground truth); outputs unchanged. ABI 20:
+ * isc_continuous_in_map_masked (the map's windows of some structures only);
+ * outputs unchanged.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -66,7 +68,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 19
+#define ISC_ABI_VERSION 20
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -396,6 +398,11 @@ ISC_API int32_t isc_events_in_map(IscWorld* w, double x0, double y0, double x1, 
 #define ISC_MAP_WINDOW_STRIDE 12
 ISC_API int32_t isc_continuous_in_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
                                       double zMax, double tMin, double* out, int32_t cap);
+/* ABI 20. isc_continuous_in_map for the structures in structMask (bit s, ISC_STRUCT_*) only: the same windows, in
+ * the same order, as isc_continuous_in_map's rows of those structures; the other structures' dye blocks are skipped
+ * whole (a host that renders one structure dye by dye beside others mean-field fetches only its windows). -1 = all. */
+ISC_API int32_t isc_continuous_in_map_masked(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
+                                             double zMax, double tMin, int32_t structMask, double* out, int32_t cap);
 
 /* ABI 14. isc_world_prefetch for the map queries over [t0, t1) of T. */
 ISC_API int32_t isc_world_prefetch_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,

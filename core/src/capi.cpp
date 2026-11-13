@@ -504,6 +504,21 @@ int32_t isc_events_in_map(IscWorld* w, double x0, double y0, double x1, double y
    }
 }
 
+int32_t isc_continuous_in_map_masked(IscWorld* w, double x0, double y0, double x1, double y1, double zMin,
+                                     double zMax, double tMin, int32_t structMask, double* out, int32_t cap)
+{
+   if (!w || BadRect(x0, y0, x1, y1) || std::isnan(tMin) || (cap > 0 && !out)) return -1;
+   try {
+      std::vector<isc::MapWindow> m;
+      w->w.ContinuousInMap(x0, y0, x1, y1, zMin, zMax, tMin, m, (uint32_t)structMask);
+      if (m.size() > (size_t)INT32_MAX) return -1;
+      for (size_t i = 0; i < m.size() && (int32_t)i < cap; i++) WriteWindowRow(m[i], out + i * ISC_MAP_WINDOW_STRIDE);
+      return (int32_t)m.size();
+   } catch (...) {
+      return -1;
+   }
+}
+
 int32_t isc_continuous_in_map(IscWorld* w, double x0, double y0, double x1, double y1, double zMin, double zMax,
                               double tMin, double* out, int32_t cap)
 {

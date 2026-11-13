@@ -3,6 +3,16 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## Next (changes since v0.1.0-rc20-hotfix1)
+
+- **Stage moves in live are faster** (the viewer's WASM, 128 px, a 1 um step; every frame the same as before):
+  - WideField: 110-250 ms -> 35-45 ms a move. By the nucleus edge, where the pores are drawn dye by dye beside the
+    mean-field microtubules, a move took 3-7 s and every frame after it ~1 s (the microtubules' 2.1 M dye windows were
+    fetched and unused); now ~1 s once, then ~5 ms.
+  - DNA-PAINT: 60-150 ms -> 32-46 ms a move at 100 ms frames: the viewer's live loop spends its spare time preparing
+    the sample 3 um around the field of view, as Micro-Manager's live mode does.
+  - Core ABI 20 (`isc_continuous_in_map_masked`); the webSMLM block's ABI is 20.
+
 ## v0.1.0-rc20-hotfix1 (changes since v0.1.0-rc20)
 
 Viewer fixes and a SIM imaging mode:

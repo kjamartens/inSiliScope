@@ -883,4 +883,8 @@ private:
    bool have_ = false;
 };
 
+// A stage move keeps a scene's kernel spectra (they depend on its FFT shape and PSF only); true makes them again on
+// every rect change, as before 2026-11-13 (the same frames: ctest live_scope's reference, SetScopeShortcuts).
+void SetWidefieldKernelsPerRect(bool on);
+
 } // namespace sim

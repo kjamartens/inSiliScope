@@ -1422,3 +1422,34 @@ C++ only; docs/ground-truth.md has the files.
   `vox::Deflate` (`vox_plane_deflated`; was the browser's CompressionStream: the same pixels, other bytes, a few %
   larger, ~15x slower) and reads the CSV as bytes (the same table bit for bit): 120 MB dyes.csv, 10 nm 2 channels,
   10.6 -> 1.1 s.
+
+## 30. Live stage moves (2026-11-13)
+
+A 1 um stage move in the viewer's live WideField (WASM, 128 px, the default view) cost 110-450 ms against ~4 ms for a
+still frame, and 3-7 s by the nucleus edge, where the pores fall under the per-dye limit while the microtubules stay
+mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
+
+- **ABI 20.** `isc_continuous_in_map_masked(w, rect, zMin, zMax, tMin, structMask, out, cap)`: the rows of
+  `isc_continuous_in_map` of the structures in the mask, in the same order, the other structures' dye blocks skipped
+  whole. `FluorescenceMovie::Begin` asks for the structures whose populations need windows (the ground truth's dye list:
+  all). By the nucleus edge every live frame had fetched the microtubules' 2.1 M windows and used none (native
+  0.6-2.8 s, the viewer 1-3 s a frame there; now ~10 ms). `Density3dInWindow` skips blocks outside its mask too.
+  Goldens and `ISC_WORLD_VERSION` unchanged; the viewer's ABI check reads 20; the webSMLM block's `abiVersion` 20.
+- **Dye counts of a moved rect** (`MovieCache::CountRect`): from a kept count of the same size, z range and mask within
+  half the rect, that count less the strips left plus the strips entered (the core's filter is half-open, so the same
+  number); else the core over the rect. A live move counted its whole rect again (40-300 ms in the viewer).
+- **WideField kernel spectra kept across a rect move** (`WidefieldScene::Finish`): they depend on the FFT shape, R, the
+  levels and the PSF's version only; they were made again at every move (55-140 ms in the viewer).
+- `SetScopeShortcuts(false)` (with `SetWidefieldKernelsPerRect(true)`) takes the old path: whole-rect counts, kernels
+  per rect, every structure's windows. ctest `live_scope` renders a moving WideField FOV (mean-field microtubules,
+  per-dye pores) both ways: the same frames.
+- **The spare time between live frames** (`LiveScope::Prefetch`, the module's `isc_live_prefetch(spec, marginUm,
+  budgetMs)`): the adapter's idle-time `PrefetchScope` for the viewer: the live job carries `prefetchMs` (the exposure
+  less the frame's round trip and 8 ms, at most 250), and the live worker spends it after posting the frame preparing
+  3 um around the FOV. Changes no frame (ctest `live_scope`). DNA-PAINT moves natively 35 -> 11 ms.
+- Measured in the viewer's module under Node (`tests/web/live_speed.mjs --xstep 1 --pace 50 --prefetch 3`): WideField
+  moves 110-250 -> 35-45 ms, the nucleus-edge move 3-4 s -> ~1 s, the frames after it ~1 s -> 5 ms; DNA-PAINT at 100 ms
+  frames 60-150 -> 32-46 ms. Native: `live_bench --xstep 1 --pace 50 --prefetch 3`.
+- Tried and dropped: the live mean-field anchor (`AnchorMeanField`) with a wider reach (no gain; frames 0.3-0.5 % rms
+  off), fewer dyes (1e-3 of the labelling: moves ~40 ms but no signal). Left: the next frame's bleach basis (~100 ms in
+  the viewer), a new row of dye tiles (~220 ms), the per-dye switch's splat sums (~520 ms once).

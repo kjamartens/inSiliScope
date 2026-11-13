@@ -335,6 +335,9 @@ function request(n) {
   if (reset) { L.worldKey = wk; L.t = 0; L.log = []; }
   if (n && !REC.log) REC.log = L.log.map(r => ({ ...r }));   // the light before the Record (its settings file)
   const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && expert() };
+  // Live: the worker spends the time until the next frame is due, less this one's round trip and a margin, preparing
+  // the sample around the FOV (isc_live_prefetch); capped so a slow guess never holds up the next frame much.
+  if (!n && L.on) job.prefetchMs = Math.min(LIVE_PREFETCH_MAX_MS, Math.max(0, exposureSec() * 1000 - (L.trip || 1e9) - 8));
   if (n) { job.n = n; job.rec = true; }
   L.pending = job;
   w.postMessage(job);
@@ -385,6 +388,7 @@ function onResult(d) {
   if (L.on && now < due) setTimeout(show, due - now); else show();
 }
 const exposureSec = () => Math.max(0.001, (+$('mv_exposure-ms').value || 50) / 1000);
+const LIVE_PREFETCH_MAX_MS = 250;
 
 // ---- the sample's light history: what has been done to it, saved with the measurement (web/live/settings_file.js) ----
 // Every frame the live sample took, as runs of one spec (L.log: {spec, n, lit}; a new world or a fresh sample starts it
