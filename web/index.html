@@ -57,11 +57,11 @@ self.iscCoi = (() => {
   html,body{margin:0;padding:0;background:var(--color-bg-app);color:var(--color-text);font-family:var(--font-family-ui);overflow:hidden}
   /* Layout: the world view (left, with its View bar) | a splitter | the live microscope (right: the live camera with
      its controls under it, then the settings column). --live-w: the right panel's width (33-72 % of the window,
-     dragged; 50 % by default), the same with the column open or folded (2026-11-13): the live strip takes it less the
+     dragged; 38 % by default, 2026-11-13: was 50 %), the same with the column open or folded (2026-11-13): the live strip takes it less the
      column (--set-cur: --set-w open, the 28 px tab folded), so folding the column gives the live image the room and the
      world view keeps its size. */
   #wrap{--set-w:340px;--set-cur:var(--set-w);display:grid;height:100vh;grid-template-rows:auto minmax(0,1fr);
-    grid-template-columns:minmax(0,1fr) 6px max(var(--live-w,50vw),calc(var(--set-w) + 200px))}
+    grid-template-columns:minmax(0,1fr) 6px max(var(--live-w,38vw),calc(var(--set-w) + 200px))}
   body:not(.mobile) #wrap.setShut{--set-cur:28px}
   #worldCol{display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
   /* the top strip: the title bar takes the room, the status bar (info, level, file icons, menu) sits at the right end */

@@ -12,15 +12,16 @@
 const $ = id => document.getElementById(id);
 const store = uiKit.store;
 
-// ---- splitter: the right panel's width, 33-72 % of the window (50 % by default) ----
+// ---- splitter: the right panel's width, 33-72 % of the window (38 % by default: 2026-11-13, the live image a quarter
+// smaller than at 50 %, the world view gets the room) ----
 const wrap = $('wrap'), splitter = $('splitter');
 const LIVE_MIN = 0.33, LIVE_MAX = 0.72;
 function setLiveFrac(f, save) {
   f = Math.max(LIVE_MIN, Math.min(LIVE_MAX, f));
   wrap.style.setProperty('--live-w', (100 * f).toFixed(2) + 'vw');
-  if (save) store.set('liveWidth', f.toFixed(4));   // (was liveFrac, default 0.4: a new key so the new default shows)
+  if (save) store.set('livePanel', f.toFixed(4));   // (was liveWidth, default 0.5, and liveFrac, 0.4: a new key so the new default shows)
 }
-setLiveFrac(+store.get('liveWidth', '0.5') || 0.5, false);
+setLiveFrac(+store.get('livePanel', '0.38') || 0.38, false);
 resizeCanvas();   // the world view was measured at the default width (the main script ran first): measure it again
 splitter.addEventListener('pointerdown', e => {
   if (e.button !== 0) return;
