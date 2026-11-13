@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: BSD-3-Clause
 // The splitter between the world view and the live panel: a width dragged there is kept over a reload, and the world
-// view's canvases (the view and the x-z side view) are measured at that width, not at the default 38 %. On a sample
+// view's canvases (the view and the x-z side view) are measured at that width, not at the default 41.6 %. On a sample
 // without cells (here the nanorulers) nothing else re-measures them after the load, so they used to spill under the
 // live panel and over the splitter.
 //   node tests/web/viewer_splitter.mjs [--channel=chrome] [--swiftshader]   (~13 s)
