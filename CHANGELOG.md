@@ -10,6 +10,7 @@ Versions follow semver; while 0.x, any release may change the output for a given
     mean-field microtubules, a move took 3-7 s and every frame after it ~1 s (the microtubules' 2.1 M dye windows were
     fetched and unused); now ~1 s once, then ~5 ms.
   - WideField focus steps: the first 1.25 s -> 83 ms, later ones ~70 -> ~57 ms.
+  - SIM imaging mode stage moves: ~400-450 -> ~160-230 ms.
   - Core ABI 20 (`isc_continuous_in_map_masked`); the webSMLM block's ABI is 20.
 
 ## v0.1.0-rc20-hotfix1 (changes since v0.1.0-rc20)

@@ -2509,6 +2509,13 @@ struct MovieCache
       SlabColumn c;
       std::copy(rect, rect + 4, c.rect);
       c.version = dyeVersion;
+      if (MovedColumn(x0, y0, x1, y1, c))
+      {
+         if (slabColumns.size() >= kSlabColumns)
+            slabColumns.erase(slabColumns.begin());
+         slabColumns.push_back(std::move(c));
+         return &slabColumns.back();
+      }
       // In strips of kSlabStripUm (half-open in x as the core's filter, the boundaries shared, so each dye is in one
       // strip), keeping the heights only: a whole column's sites at once (5 doubles per dye, and the core's own copy)
       // took > 1 GB for the ~7 M dyes of a 48 um WideField field, past the viewer's 2 GB WASM heap (2026-10-16).
@@ -2533,6 +2540,85 @@ struct MovieCache
          slabColumns.erase(slabColumns.begin());
       slabColumns.push_back(std::move(c));
       return &slabColumns.back();
+   }
+   // A moved rect's column (2026-11-13) from a kept column of the same size within half of it: its heights less those of
+   // the strips the rect left, plus those of the strips it entered (the core's filter is half-open, so each dye is in
+   // one piece: the same sorted heights as a column made anew). A live SIM stage move in the viewer made the survey's
+   // column anew, ~220 ms. False (c untouched) when none is near, or on a core failure.
+   bool MovedColumn(double x0, double y0, double x1, double y1, SlabColumn& c)
+   {
+      if (!ScopeShortcuts())
+         return false;
+      const double w = x1 - x0, h = y1 - y0;
+      const SlabColumn* best = nullptr;
+      double bestMove = 1.0;
+      for (const SlabColumn& o : slabColumns)
+         if (o.version == dyeVersion && o.rect[2] - o.rect[0] == w && o.rect[3] - o.rect[1] == h)
+         {
+            const double mv = (std::fabs(o.rect[0] - x0) + std::fabs(o.rect[1] - y0)) / (0.5 * std::min(w, h));
+            if (mv < bestMove)
+               best = &o, bestMove = mv;
+         }
+      if (!best)
+         return false;
+      const double inf = std::numeric_limits<double>::infinity();
+      const double cx0 = best->rect[0], cy0 = best->rect[1], cx1 = best->rect[2], cy1 = best->rect[3];
+      std::vector<std::vector<double>> add, rem;
+      std::vector<double> rows;
+      auto take = [&](double a0, double b0, double a1, double b1, std::vector<std::vector<double>>& to) {
+         if (!(a1 > a0) || !(b1 > b0))
+            return true;
+         if (!source.Sites(a0, b0, a1, b1, -inf, inf, rows))
+            return false;
+         for (size_t i = 0; i + ISC_SITE_STRIDE <= rows.size(); i += ISC_SITE_STRIDE)
+         {
+            const size_t st = static_cast<size_t>(rows[i + 4]);
+            if (st >= to.size())
+               to.resize(st + 1);
+            to[st].push_back(rows[i + 2]);
+         }
+         return true;
+      };
+      // x first ([x0, x1) x [cy0, cy1)), then y.
+      bool ok = x0 >= cx0 ? take(cx0, cy0, x0, cy1, rem) && take(cx1, cy0, x1, cy1, add)
+                          : take(x0, cy0, cx0, cy1, add) && take(x1, cy0, cx1, cy1, rem);
+      ok = ok && (y0 >= cy0 ? take(x0, cy0, x1, y0, rem) && take(x0, cy1, x1, y1, add)
+                            : take(x0, y0, x1, cy0, add) && take(x0, y1, x1, cy1, rem));
+      if (!ok)
+         return false;
+      const size_t ns = std::max({ best->z.size(), add.size(), rem.size() });
+      c.z.assign(ns, {});
+      for (size_t st = 0; st < ns; ++st)
+      {
+         static const std::vector<double> none;
+         const std::vector<double>& old = st < best->z.size() ? best->z[st] : none;
+         std::vector<double> a = st < add.size() ? std::move(add[st]) : std::vector<double>();
+         std::vector<double> r = st < rem.size() ? std::move(rem[st]) : std::vector<double>();
+         std::sort(a.begin(), a.end());
+         std::sort(r.begin(), r.end());
+         // old less r (each removed height once), merged with a
+         std::vector<double> kept;
+         kept.reserve(old.size() + a.size());
+         size_t j = 0;
+         for (double v : old)
+         {
+            if (j < r.size() && r[j] == v)
+            {
+               ++j;
+               continue;
+            }
+            if (j < r.size() && r[j] < v)
+               return false;   // (a height left that the column lacks: make the column anew)
+            kept.push_back(v);
+         }
+         if (j != r.size())
+            return false;
+         c.z[st].resize(kept.size() + a.size());
+         std::merge(kept.begin(), kept.end(), a.begin(), a.end(), c.z[st].begin());
+      }
+      while (!c.z.empty() && c.z.back().empty() && c.z.size() > best->z.size())
+         c.z.pop_back();
+      return true;
    }
    // A rect without a column is counted by the core (Density3d, one bin: the same count), the box's count kept; asked
    // again at other heights (a focus scrub) it gets its column. So a single movie builds no column for a count it
@@ -4100,7 +4186,7 @@ static std::shared_ptr<const MapEntries> MapEntriesFor(const ClockMapView& m, co
          E->rates = r;
    }
    char b[96];
-   std::snprintf(b, sizeof b, "%zu entries, %zu bands", n, E->nb);
+   std::snprintf(b, sizeof b, "%zu entries, %zu bands, map %llu", n, E->nb, static_cast<unsigned long long>(m.serial));
    TimingLog("fl.mean-field-entries", TimingSince(t0), b);
    if (shared)
    {

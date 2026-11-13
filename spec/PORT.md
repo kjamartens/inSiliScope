@@ -1441,6 +1441,13 @@ mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
   the core over the box. A live move counted its whole rect again (40-300 ms in the viewer); the viewer's first focus
   step built a column of every dye's height (`SlabColumn`, ~0.8 s for 5 M dyes: WideField's first focus step 1251 ->
   83 ms, later steps ~70 -> ~57 ms). The column is still made where no kept count is near (a jump in focus).
+- **The viewer's height columns of a moved rect** (`MovieCache::MovedColumn`, WASM; the survey's quantiles under a map
+  that changes with height, HILO): from a kept column of the same size within half the rect, its sorted heights less
+  the strips left plus the strips entered (merges: the same multiset). The SIM imaging mode's stage move (128 px, 50 nm,
+  threaded module): the survey ~220 -> ~50 ms, a move ~400-450 -> ~160-230 ms. Left there: `MapEntriesFor` (each move
+  or focus step builds a new light map, so every tile x height band's clock pair, ~160 k, again: 80-250 ms with
+  threads, growing with the focus height under HILO), and a pore population that falls to per dye under a pattern
+  (every frame re-splats every dye: ~1.1 s a frame by the nucleus edge).
 - **WideField kernel spectra kept across a rect move** (`WidefieldScene::Finish`): they depend on the FFT shape, R, the
   levels and the PSF's version only; they were made again at every move (55-140 ms in the viewer).
 - `SetScopeShortcuts(false)` (with `SetWidefieldKernelsPerRect(true)`) takes the old path: whole-rect counts, kernels
