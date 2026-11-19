@@ -226,6 +226,11 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_test(NAME cli_serve COMMAND ${CMAKE_COMMAND} -DCLI=$<TARGET_FILE:insiliscope_cli>
            -DDIR=${CMAKE_CURRENT_BINARY_DIR}/serve_check -P ${CMAKE_CURRENT_SOURCE_DIR}/serve_check.cmake)
 
+  # The TIFF writer (tiff_writer.h): classic and BigTIFF read back, the format from the expected size, a classic
+  # file past 4 GB refused (tiff_writer_check --big <dir> writes a real 4.7 GB one; not a test).
+  add_executable(tiff_writer_check tiff_writer_check.cpp)
+  add_test(NAME tiff_writer COMMAND tiff_writer_check ${CMAKE_CURRENT_BINARY_DIR})
+
   # BrightField: weak-phase-grating theory, empty field, determinism (spec/BRIGHTFIELD.md).
   add_executable(brightfield_check brightfield_check.cpp)
   target_link_libraries(brightfield_check PRIVATE insiliscope_sim)

@@ -430,7 +430,19 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   TIFF per position; a viewer file and its .cfg export give the same frames within a few ADU: the PSF kernel width;
   `tools/build_isc_render_exe.py` makes `dist/inSiliScope Render.exe`, PyInstaller one-file windowed, in the venv
   `build/isc_render_venv` (pyinstaller, pymmcore 12.5.0.75.0, numpy: a hidden import, pymmcore's C module needs it),
-  carrying the cli, the DLL, `mmgr_dal_Utilities.dll` and the VC++ runtime; ~15 s; the exe's frames = the script's bit for bit; a frames bar per position from the cli's `--progress 1`: `@@isc-frame k` as frame k is written, frames unchanged).
+  carrying the cli, the DLL, `mmgr_dal_Utilities.dll` and the VC++ runtime; ~15 s; the exe's frames = the script's bit for bit; a frames bar per position from the cli's `--progress 1`: `@@isc-frame k` as frame k is written, frames unchanged;
+  `--dist <dir>` builds beside a running exe). Large movies (2026-11-19): `cli/tiff_writer.h` writes 64-bit file
+  positions (Windows' `ftell` broke TIFFs past 2 GB: offsets 0xFFFFFFFF) and a BigTIFF when the movie's expected bytes
+  (`TiffWriter::Bytes`) pass 4 GB less 64 MB (`--bigtiff 1` forces it; Fiji with Bio-Formats, napari, tifffile read it,
+  plain ImageJ 1.54f does not), below it the classic file byte for byte; a classic page past 4 GB is refused, every page
+  flushed and checked (`error()` names the file, page, MB written, the system's reason); ctest `tiff_writer`
+  (`cli/tiff_writer_check.cpp`, 1 s; `--big <dir>` writes and reads a 4.7 GB one, 7 s on a compressed NTFS folder). The
+  cli: `--estimate 1` (`@@isc-estimate width= height= frames= file= bigtiff= memory= budget= ram= disk-free=`, then in
+  words), refuses a movie the disk cannot hold before rendering, makes `--gt-out`'s folder, says out of memory
+  (`RunCliGuarded`: `std::bad_alloc` -> exit 3, other exceptions exit 4). isc_render: the estimate before the first
+  position (disk: stop; memory over the budget: a question, `--yes`), `--gt` / Save ground truth (`<tif stem>_gt/`),
+  a cli that ends early reported with its exit code in words (`CRASHES`: 0xC0000409, 0xE06D7363, ...) and its last 12
+  lines, an unfinished movie renamed `_incomplete_<n>of<N>.tif` or removed with no frame, warnings / errors coloured.
 
 ## Rules for core (why each exists is in docs/dev/m0-feasibility.md)
 

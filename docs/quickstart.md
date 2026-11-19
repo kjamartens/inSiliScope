@@ -153,11 +153,23 @@ build/native/cli/insiliscope_cli --settings lab.isc.json:instrument --settings m
 later files and options override). When its measurement holds a light history, the CLI replays it and writes the live
 sample's next frames, the ones the viewer would take next.
 
+Large movies: `--estimate 1` prints what a movie would take and stops (its size, the TIFF's bytes, the memory estimate
+against this machine's budget, the free disk space). A movie that does not fit on the disk is refused before it
+renders; one over the memory budget renders with a warning. A TIFF past 4 GB is written as a **BigTIFF** (64-bit
+offsets; `--bigtiff 1` forces it): open it in Fiji with Bio-Formats, in napari or with tifffile, as plain ImageJ cannot.
+Below 4 GB the TIFF is the classic one. (Before 2026-11-19 a TIFF past 2 GB was written with broken offsets on
+Windows: only its first ~2 GB of frames could be read.)
+
 `python tools/isc_render.py` opens a small window on top of the CLI: open a viewer settings file (`.isc.json`) or a
 Micro-Manager configuration (`.cfg`: the shipped ones or the viewer's **Micro-Manager .cfg…**), type stage positions
 (`x y z` in um, one per line), the exposure, the number of frames and, if wanted, the start time, and **Render** writes
-one 16-bit TIFF stack per position into the output folder. With a file and `--pos "x y z"` (repeated) it runs without
-the window. A `.cfg` is read through Micro-Manager's core (it needs [pymmcore-plus](https://pymmcore-plus.github.io/pymmcore-plus/)
+one 16-bit TIFF stack per position into the output folder; **Save ground truth** adds a folder per position beside
+its TIFF (frames, localizations or dyes, density stacks: [the ground truth](ground-truth.md)). Before the first position
+it shows each movie's size, the disk space and the memory estimate: it stops when the movies do not fit on the disk and
+asks when the memory estimate is over what this PC can give. A render that fails is reported with the reason (the
+CLI's message, or how the program ended, e.g. out of memory, with its last lines); a movie it did not finish is kept as
+`<name>_incomplete_<n>of<N>.tif` (its first n frames, a readable TIFF). With a file and `--pos "x y z"` (repeated) it
+runs without the window (`--gt` for the ground truth, `--yes` to render over the memory budget). A `.cfg` is read through Micro-Manager's core (it needs [pymmcore-plus](https://pymmcore-plus.github.io/pymmcore-plus/)
 and the inSiliScope DLL; `--adapter-dir` names the DLL's folder), so its frames are the ones Micro-Manager's adapter
 would render from a fresh sample. `python tools/build_isc_render_exe.py` packs it into one Windows program,
 `dist/inSiliScope Render.exe` (~30 MB, with the CLI, the inSiliScope DLL, Micro-Manager's core and the C++ runtime):

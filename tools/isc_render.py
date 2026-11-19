@@ -5,11 +5,19 @@ Load a viewer settings file (<name>.isc.json, the viewer's Save settings) or a M
 shipped ones, or the viewer's Micro-Manager .cfg export), enter stage positions (x y z, um), the exposure and the number
 of frames, and each position becomes one 16-bit TIFF stack (ImageJ / Fiji / napari open it; the spec is in its
 description). The frames are insiliscope_cli's, = the viewer's "Make movie here" and Micro-Manager's precomputed frames.
+Ground truth (--gt): a folder per position beside its TIFF (frames.csv, localizations.csv or dyes.csv, density stacks;
+docs/ground-truth.md).
+
+Large movies: before the first position the cli says what a movie takes (--estimate 1): the TIFF's size against the
+free disk space (refused when the positions do not fit), the memory estimate against this machine's budget (a warning,
+then a question in the window). A TIFF past 4 GB is a BigTIFF (Fiji with Bio-Formats, napari, tifffile open it; plain
+ImageJ does not). A cli that fails or ends early is reported with its exit code in words and its last lines; a movie it
+did not finish is renamed <name>_incomplete_<n>of<N>.tif (its n frames are a readable TIFF), or removed with none.
 
   python tools/isc_render.py                          a window (or double-click dist/inSiliScope Render.exe;
                                                       a file dropped on the exe opens in it)
   python tools/isc_render.py <file> --pos "x y z" [--pos ...] [--exposure-ms 50] [--frames 100] [--start-sec s]
-                             [--out dir] [--cli path] [--adapter-dir dir]
+                             [--gt] [--out dir] [--cli path] [--adapter-dir dir] [--yes]
 
 A .isc.json goes to the cli as is (its measurement's light history replayed, as the viewer's live sample); a .cfg is
 loaded in Micro-Manager's core (pymmcore, the inSiliScope DLL), its Core-Shutter opened, and the spec the adapter
@@ -25,6 +33,7 @@ adapter into one Windows exe (dist/inSiliScope Render.exe) that opens the window
 """
 
 import argparse
+import collections
 import json
 import os
 import re
@@ -167,59 +176,204 @@ def out_name(folder, stem, k, pos):
 
 # ---- rendering: one served cli for every position (it keeps the world and the PSF between them) ----
 
-def render(setup, positions, exposure_ms, frames, start_sec, folder, cli, log=print, stop=None, on_frame=None):
-    """Renders each position into its TIFF; returns the files. log(text) per line; stop() True cancels between movies;
-    on_frame(position k, frames written) as each frame is written (0 when a position starts: its setup runs first)."""
+# How a process can end on Windows without saying why (its exit code as an unsigned 32-bit number), in words.
+CRASHES = {
+    0xC0000005: "an access violation: a bug in the program (please report it with the setup)",
+    0xC0000017: "out of memory",
+    0xC000012D: "out of memory (Windows' page file is full)",
+    0xC00000FD: "a stack overflow: a bug in the program",
+    0xC0000409: "a fatal error inside the program; with a large movie most often out of memory in one of its threads",
+    0xE06D7363: "an unhandled C++ exception; with a large movie most often out of memory",
+    3: "an abort; with a large movie most often out of memory in one of its threads",
+}
+# The cli's own exit codes (insiliscope_cli.cpp).
+CLI_CODES = {1: "an error, said above", 2: "an option it does not know, said above", 3: "out of memory, said above",
+             4: "an error, said above"}
+
+
+def describe_exit(code):
+    if code is None:
+        return "no exit code"
+    c = code & 0xFFFFFFFF
+    what = CRASHES.get(c) or (f"killed (signal {-code})" if code < 0 and os.name != "nt" else None)
+    return f"exit code {code if c < 0x10000 else hex(c)}" + (f": {what}" if what else "")
+
+
+class CliError(RuntimeError):
+    pass
+
+
+def gb(n):
+    return f"{n / 1e9:.2f} GB" if n >= 1e8 else f"{n / 1e6:.1f} MB"
+
+
+class Served:
+    """insiliscope_cli --serve: one command at a time, its frames and lines handed over, its end checked."""
+
+    def __init__(self, cli):
+        self.proc = subprocess.Popen([cli, "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace",
+                                     bufsize=1, creationflags=NO_WINDOW)
+        self.last = collections.deque(maxlen=12)   # its last lines, for a report
+
+    def run(self, args, on_line=None, on_frame=None):
+        """Runs one command; returns (exit code, {key: value} of an @@isc-estimate line). Raises CliError when the
+        process ends without answering."""
+        self.last.clear()
+        try:
+            self.proc.stdin.write("\t".join(args) + "\n")
+            self.proc.stdin.flush()
+        except OSError:
+            pass   # (it has ended: the read below says how)
+        est = {}
+        while True:
+            line = self.proc.stdout.readline()
+            if not line:
+                try:
+                    code = self.proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    code = None
+                tail = "\n".join("    " + x for x in self.last)
+                raise CliError(f"insiliscope_cli ended without finishing ({describe_exit(code)})" +
+                               (f". Its last lines:\n{tail}" if tail else ""))
+            m = re.match(r"@@isc-frame (\d+)", line)
+            if m:
+                if on_frame:
+                    on_frame(int(m.group(1)))
+                continue
+            m = re.match(r"@@isc-done (-?\d+)", line)
+            if m:
+                return int(m.group(1)), est
+            if line.startswith("@@isc-estimate "):
+                est = {k: float(v) for k, _, v in (w.partition("=") for w in line.split()[1:])}
+                continue
+            line = line.rstrip()
+            if line:
+                self.last.append(line)
+                if on_line:
+                    on_line(line)
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=10)
+        except Exception:
+            self.proc.kill()
+
+
+def preflight(est, n_positions, folder):
+    """What the movies take, in words: (lines to show, problem that stops it or None, warning to confirm or None)."""
+    w, h, frames = int(est.get("width", 0)), int(est.get("height", 0)), int(est.get("frames", 0))
+    file, free = est.get("file", 0), est.get("disk-free", -1)
+    mem, budget, ram = est.get("memory", -1), est.get("budget", 0), est.get("ram", 0)
+    lines = [f"Each movie: {w} x {h} px x {frames} frames = a {gb(file)} TIFF" +
+             (" (a BigTIFF, past 4 GB: open it in Fiji with Bio-Formats, napari or tifffile; plain ImageJ cannot)"
+              if est.get("bigtiff") else "")]
+    total = file * n_positions
+    if free >= 0:
+        lines.append(f"All {n_positions} position(s): {gb(total)}; {gb(free)} free in {folder}")
+    if mem >= 0 and budget > 0:
+        lines.append(f"Memory: ~{gb(mem)} estimated, of the {gb(budget)} a render may take here ({gb(ram)} RAM)")
+    stop = warn = None
+    if free >= 0 and total > free:
+        fit = int(free // file) if file > 0 else 0
+        stop = (f"Not enough disk space: the {n_positions} movie(s) need {gb(total)}, {gb(free)} are free in {folder}"
+                f" (room for {fit}). Choose another output folder, or fewer frames, positions or pixels.")
+    if mem > budget > 0:
+        warn = (f"The memory estimate, {gb(mem)}, is over the {gb(budget)} a render may take on this machine "
+                f"({gb(ram)} RAM): the render may fail or slow the PC down. A smaller field of view, fewer labelled "
+                f"structures or a lower Quality needs less.")
+    return lines, stop, warn
+
+
+def render(setup, positions, exposure_ms, frames, start_sec, folder, cli, log=print, stop=None, on_frame=None,
+           gt=False, confirm=None):
+    """Renders each position into its TIFF (and with gt its ground-truth folder); returns the files. log(text, kind)
+    per line (kind '', 'warn' or 'error'); stop() True cancels between movies; on_frame(position k, frames written) as
+    each frame is written (0 when a position starts: its setup runs first); confirm(text) -> bool asks before a render
+    over the memory budget (None: go on)."""
     Path(folder).mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"\.(isc\.json|cfg|json)$", "", Path(setup.path).name, flags=re.I)
-    proc = subprocess.Popen([cli, "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=NO_WINDOW)
+    cli_proc = Served(cli)
     files = []
+
+    def say(line, out=None):
+        kind = "warn" if line.startswith("warning:") else "error" if re.match(r"(error|cannot|not enough|out of memory)", line) else ""
+        log("    " + (line.replace(str(out.parent) + os.sep, "") if out else line), kind)
+
+    def position_args(pos, out):
+        args = setup.args() + ["--x", num(pos[0]), "--y", num(pos[1]), "--z", num(pos[2]),
+                               "--exposure-ms", num(exposure_ms), "--frames", str(int(frames)), "--out", str(out)]
+        if start_sec is not None:
+            args += ["--start-sec", num(start_sec)]
+        return args
+
     try:
+        # the pre-flight: the first position's sizes, memory and disk
+        code, est = cli_proc.run(position_args(positions[0], Path(folder) / "estimate.tif") + ["--estimate", "1"],
+                                 on_line=lambda line: None)
+        if code == 0 and est:
+            lines, problem, warn = preflight(est, len(positions), folder)
+            for line in lines:
+                log(line)
+            if problem:
+                raise CliError(problem)
+            if warn:
+                log("Warning: " + warn, "warn")
+                if confirm and not confirm(warn + "\n\nRender anyway?"):
+                    log("Not rendered.")
+                    return files
         for k, pos in enumerate(positions, 1):
             if stop and stop():
                 log("Stopped.")
                 break
             out = out_name(folder, stem, k, pos)
-            args = setup.args() + ["--x", num(pos[0]), "--y", num(pos[1]), "--z", num(pos[2]),
-                                   "--exposure-ms", num(exposure_ms), "--frames", str(int(frames)), "--out", str(out),
-                                   "--progress", "1"]
-            if start_sec is not None:
-                args += ["--start-sec", num(start_sec)]
+            args = position_args(pos, out) + ["--progress", "1"]
+            gt_dir = out.with_name(out.stem + "_gt")
+            if gt:
+                args += ["--gt-out", str(gt_dir)]
             log(f"[{k}/{len(positions)}] x {num(pos[0])}  y {num(pos[1])}  z {num(pos[2])} um ...")
             t = time.time()
+            done = {"n": 0}
             if on_frame:
                 on_frame(k, 0)
-            proc.stdin.write("\t".join(args) + "\n")
-            proc.stdin.flush()
-            code = None
-            while True:
-                line = proc.stdout.readline()
-                if not line:
-                    raise RuntimeError("insiliscope_cli stopped")
-                m = re.match(r"@@isc-frame (\d+)", line)
-                if m:
-                    if on_frame:
-                        on_frame(k, int(m.group(1)))
-                    continue
-                m = re.match(r"@@isc-done (-?\d+)", line)
-                if m:
-                    code = int(m.group(1))
-                    break
-                line = line.rstrip()
-                if line:
-                    log("    " + line.replace(str(out), out.name))
+
+            def frame(n):
+                done["n"] = n
+                if on_frame:
+                    on_frame(k, n)
+            try:
+                code, _ = cli_proc.run(args, on_line=lambda line: say(line, out), on_frame=frame)
+            except CliError:
+                keep_incomplete(out, done["n"], frames, log)
+                raise
             if code:
-                raise RuntimeError(f"insiliscope_cli failed (exit {code}) at position {k}")
+                keep_incomplete(out, done["n"], frames, log)
+                raise CliError(f"insiliscope_cli failed at position {k} ({describe_exit(code) if code > 4 else 'exit code ' + str(code)}"
+                               f"{': ' + CLI_CODES[code] if code in CLI_CODES else ''})")
             files.append(out)
-            log(f"    -> {out}  ({time.time() - t:.1f} s)")
+            size = out.stat().st_size if out.exists() else 0
+            log(f"    -> {out}  ({gb(size)}, {time.time() - t:.1f} s)" + (f"; ground truth in {gt_dir.name}" if gt else ""))
     finally:
-        try:
-            proc.stdin.close()
-            proc.wait(timeout=10)
-        except Exception:
-            proc.kill()
+        cli_proc.close()
     return files
+
+
+def keep_incomplete(out, n, frames, log):
+    """A movie the cli did not finish: renamed <name>_incomplete_<n>of<N>.tif (its n pages are a readable TIFF), or
+    removed when it has none."""
+    if not out.exists():
+        return
+    try:
+        if n <= 0:
+            out.unlink()
+            log(f"    {out.name}: removed (no frame was written)", "error")
+        else:
+            dst = out.with_name(f"{out.stem}_incomplete_{n}of{frames}.tif")
+            out.replace(dst)
+            log(f"    {out.name}: kept as {dst.name} (its first {n} frame(s); a readable TIFF)", "error")
+    except OSError as e:
+        log(f"    {out.name}: incomplete ({n} of {frames} frames; {e})", "error")
 
 
 # ---- the window ----
@@ -251,6 +405,7 @@ def gui(args):
     exp_var = tk.StringVar(value=num(args.exposure_ms) if args.exposure_ms else "50")
     frames_var = tk.StringVar(value=str(args.frames) if args.frames else "100")
     start_var = tk.StringVar(value=num(args.start_sec) if args.start_sec is not None else "")
+    gt_var = tk.BooleanVar(value=bool(args.gt))
 
     ttk.Label(f, text="Setup (.isc.json or .cfg)").grid(row=0, column=0, sticky="w")
     file_entry = ttk.Entry(f, textvariable=file_var)
@@ -271,6 +426,8 @@ def gui(args):
                                          ("Start time (s; blank = the file's)", start_var, 8)]):
         ttk.Label(g, text=label).grid(row=0, column=2 * i, sticky="w", padx=(0 if i == 0 else 12, 4))
         ttk.Entry(g, textvariable=var, width=w).grid(row=0, column=2 * i + 1)
+    ttk.Checkbutton(g, text="Save ground truth (a folder per position beside its TIFF: frames, localizations or dyes, "
+                             "density stacks)", variable=gt_var).grid(row=1, column=0, columnspan=6, sticky="w", pady=(6, 0))
 
     ttk.Label(f, text="Output folder").grid(row=4, column=0, sticky="w")
     ttk.Entry(f, textvariable=out_var).grid(row=4, column=1, sticky="ew", padx=4)
@@ -299,15 +456,23 @@ def gui(args):
 
     log_box = tk.Text(f, height=12, state="disabled", wrap="none")
     log_box.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(6, 0))
+    log_box.tag_configure("warn", foreground="#a15c00")
+    log_box.tag_configure("error", foreground="#c00000")
     f.rowconfigure(7, weight=1)
 
-    def log(text):
+    def log(text, kind=""):
         def put():
             log_box.configure(state="normal")
-            log_box.insert("end", text + "\n")
+            log_box.insert("end", text + "\n", kind or ())
             log_box.see("end")
             log_box.configure(state="disabled")
         root.after(0, put)
+
+    def confirm(text):   # (the render thread: asks on the window's thread and waits)
+        answer, ev = {}, threading.Event()
+        root.after(0, lambda: (answer.update(ok=messagebox.askyesno("inSiliScope render", text, icon="warning")), ev.set()))
+        ev.wait()
+        return answer.get("ok", False)
 
     def open_folder(p):
         if Path(p).is_dir():
@@ -376,8 +541,8 @@ def gui(args):
         prog_var.set("")
         clock = {"t": time.time()}
 
-        def step(text):
-            log(text)
+        def step(text, kind=""):
+            log(text, kind)
             if text.startswith("    -> "):
                 root.after(0, lambda: bar.configure(value=bar.cget("value") + 1))   # (step() wraps at the end)
 
@@ -398,11 +563,14 @@ def gui(args):
             t = time.time()
             try:
                 files = render(state["setup"], positions, exposure, frames, start_sec, out_var.get(), cli, step,
-                               lambda: state["stop"], frame)
+                               lambda: state["stop"], frame, gt=gt_var.get(), confirm=confirm)
                 root.after(0, lambda: prog_var.set(f"Done: {len(files)} file(s)"))
                 log(f"Done: {len(files)} file(s) in {time.time() - t:.1f} s.")
             except Exception as e:
-                log(f"Error: {e}")
+                log(f"Error: {e}", "error")
+                first = str(e).split("\n")[0]
+                root.after(0, lambda: (prog_var.set("Stopped by an error (see the log)"),
+                                       messagebox.showerror("inSiliScope render", first)))
             finally:
                 def idle():
                     state["busy"] = False
@@ -424,6 +592,8 @@ def main():
     ap.add_argument("--exposure-ms", type=float, help="frame exposure, ms (default: the file's)")
     ap.add_argument("--frames", type=int, help="frames per position (default 100)")
     ap.add_argument("--start-sec", type=float, help="simulated time of the first frame, s (default: the file's)")
+    ap.add_argument("--gt", action="store_true", help="also save the ground truth, a folder per position")
+    ap.add_argument("--yes", action="store_true", help="render even when the memory estimate is over the budget")
     ap.add_argument("--out", help="output folder (default: ~/inSiliScope renders)")
     ap.add_argument("--cli", help="insiliscope_cli to use")
     ap.add_argument("--adapter-dir", help="the folder with mmgr_dal_inSiliScope (for a .cfg)")
@@ -444,10 +614,22 @@ def main():
         def frame(k, i):
             if tty and i:
                 print(f"\r    frame {i} of {n}", end="\n" if i >= n else "", flush=True)
+
+        def log(text, kind=""):
+            print(text, file=sys.stderr if kind == "error" else sys.stdout, flush=True)
+
+        def confirm(text):
+            if args.yes:
+                return True
+            print("Not rendered (--yes renders anyway).", file=sys.stderr)
+            return False
         files = render(setup, [parse_positions(p)[0] for p in args.pos],
                        args.exposure_ms or setup.get("exposure-ms", 50), n, args.start_sec,
-                       args.out or str(Path.home() / "inSiliScope renders"), find_cli(args.cli), on_frame=frame)
+                       args.out or str(Path.home() / "inSiliScope renders"), find_cli(args.cli), log=log,
+                       on_frame=frame, gt=args.gt, confirm=confirm)
         print(f"Done: {len(files)} file(s) in {time.time() - t:.1f} s.")
+        if len(files) < len(args.pos):
+            sys.exit(1)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

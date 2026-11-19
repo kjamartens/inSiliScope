@@ -1,56 +1,162 @@
 // Little-endian baseline TIFF, one uncompressed grey page per frame: 16-bit
 // unsigned (the camera's ADU) or 32-bit float (the cli's diagnostic outputs,
 // scope_probes.h). LICENSE: BSD-3-Clause (see LICENSE at the repository root)
+//
+// Large files (2026-11-19): a classic TIFF's offsets are 32-bit, so it ends at 4 GB. A file expected past that
+// (the constructor's expectedBytes, TiffWriter::Bytes) is written as a BigTIFF (magic 43, 64-bit offsets: Fiji's
+// Bio-Formats, tifffile / napari read it; plain ImageJ 1.x does not, 1.54f checked); below it the classic file is byte for byte the old one. A
+// classic file that would pass 4 GB anyway is refused with a message, never written with wrapped offsets. File
+// positions are 64-bit (Windows' long is 32-bit: ftell stopped at 2 GB). Every page is flushed and checked, so a full
+// disk is reported at the page it hit (error()).
 #pragma once
 
+#include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
 class TiffWriter {
 public:
-   explicit TiffWriter(const std::string& path) : f_(std::fopen(path.c_str(), "wb")) {
-      if (f_) { const uint8_t hdr[8] = { 'I', 'I', 42, 0, 0, 0, 0, 0 }; std::fwrite(hdr, 1, 8, f_); prevIfdLink_ = 4; }
+   // The classic format's end: offsets are uint32.
+   static constexpr uint64_t kClassicLimit = 0xFFFFFFFFull;
+
+   // The bytes of a file of `pages` pages of w x h samples of `bytesPerSample`, with a description of descBytes on
+   // the first (an upper bound: BigTIFF's tags).
+   static uint64_t Bytes(uint64_t w, uint64_t h, uint64_t pages, uint64_t bytesPerSample, uint64_t descBytes) {
+      return 16 + pages * (w * h * bytesPerSample + 8 + 8 + 13 * 20 + 8) + descBytes + 2;
+   }
+
+   // expectedBytes: the file's expected size (Bytes); at or above the classic limit (less a 64 MB margin for
+   // descriptions and tags) the file is a BigTIFF. bigTiff forces it.
+   explicit TiffWriter(const std::string& path, uint64_t expectedBytes = 0, bool bigTiff = false)
+      : f_(std::fopen(path.c_str(), "wb")), path_(path),
+        big_(bigTiff || expectedBytes + (64ull << 20) >= kClassicLimit) {
+      if (!f_) { error_ = "cannot open " + path + " for writing: " + std::strerror(errno); return; }
+      if (big_) {
+         const uint8_t hdr[16] = { 'I', 'I', 43, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+         Put(hdr, 16);
+         prevIfdLink_ = 8;
+      } else {
+         const uint8_t hdr[8] = { 'I', 'I', 42, 0, 0, 0, 0, 0 };
+         Put(hdr, 8);
+         prevIfdLink_ = 4;
+      }
    }
    ~TiffWriter() { if (f_) std::fclose(f_); }
    TiffWriter(const TiffWriter&) = delete;
    TiffWriter& operator=(const TiffWriter&) = delete;
-   bool ok() const { return f_ != nullptr; }
+   bool ok() const { return f_ != nullptr && error_.empty(); }
+   bool big() const { return big_; }
+   uint64_t pages() const { return pages_; }
+   uint64_t bytes() const { return end_; }
+   // What went wrong (the file, the page, the system's reason), "" when nothing did.
+   const std::string& error() const { return error_; }
    bool Page(const std::vector<uint16_t>& px, uint32_t w, uint32_t h, const std::string& desc) {
       return Write(px.data(), 2, 1, w, h, desc);
    }
    bool Page(const std::vector<float>& px, uint32_t w, uint32_t h, const std::string& desc) {
       return Write(px.data(), 4, 3, w, h, desc);
    }
+   // Closes the file; false when the last bytes could not be written.
+   bool Close() {
+      if (!f_) return error_.empty();
+      const bool closed = std::fclose(f_) == 0;
+      f_ = nullptr;
+      if (!closed && error_.empty()) Fail("closing it");
+      return error_.empty();
+   }
 private:
+   static int64_t Tell64(std::FILE* f) {
+#ifdef _WIN32
+      return _ftelli64(f);
+#else
+      return static_cast<int64_t>(ftello(f));
+#endif
+   }
+   static int Seek64(std::FILE* f, int64_t at) {
+#ifdef _WIN32
+      return _fseeki64(f, at, SEEK_SET);
+#else
+      return fseeko(f, static_cast<off_t>(at), SEEK_SET);
+#endif
+   }
+   void Fail(const char* what) {
+      const int e = errno;
+      error_ = "cannot write " + path_ + " (" + what + ", page " + std::to_string(pages_ + 1) + ", " +
+               std::to_string(end_ / 1000000) + " MB written): " + (e ? std::strerror(e) : "write error");
+   }
+   void Put(const void* p, size_t n) {
+      if (!error_.empty()) return;
+      if (std::fwrite(p, 1, n, f_) != n) Fail("writing");
+      end_ += n;
+   }
+   template <class T> void PutLE(T v) { Put(&v, sizeof v); }   // (x86 / ARM / WebAssembly: little-endian)
+
    // bytes per sample 2 (uint16) or 4 (float32); sampleFormat 1 = unsigned, 3 = IEEE float.
    bool Write(const void* px, uint32_t bytes, uint16_t sampleFormat, uint32_t w, uint32_t h, const std::string& desc) {
-      const uint32_t dataOff = Tell();
-      std::fwrite(px, bytes, static_cast<size_t>(w) * h, f_);
-      uint32_t descOff = 0, descLen = 0;
-      if (!desc.empty()) { descOff = Tell(); descLen = (uint32_t)desc.size() + 1; std::fwrite(desc.c_str(), 1, descLen, f_); }
-      if (Tell() & 1) std::fputc(0, f_);
-      const uint32_t ifd = Tell();
-      struct E { uint16_t tag, type; uint32_t count, value; };
+      if (!ok()) return false;
+      const uint64_t pageBytes = static_cast<uint64_t>(w) * h * bytes;
+      const uint32_t descLen = desc.empty() ? 0 : static_cast<uint32_t>(desc.size()) + 1;
+      if (!big_ && end_ + pageBytes + descLen + 2 + 2 + 11 * 12 + 4 > kClassicLimit) {
+         error_ = "cannot write " + path_ + ": page " + std::to_string(pages_ + 1) + " would pass the 4 GB of a classic TIFF "
+                  "(the file was expected to be smaller; insiliscope_cli --bigtiff 1 writes a BigTIFF)";
+         return false;
+      }
+      const uint64_t dataOff = end_;
+      errno = 0;
+      Put(px, static_cast<size_t>(pageBytes));
+      uint64_t descOff = 0;
+      if (descLen) { descOff = end_; Put(desc.c_str(), descLen); }
+      if (end_ & 1) PutLE<uint8_t>(0);
+      const uint64_t ifd = end_;
+      struct E { uint16_t tag, type; uint32_t count; uint64_t value; };
+      const uint16_t offType = big_ ? 16 : 4;   // LONG8 / LONG
       std::vector<E> e = { { 256, 4, 1, w }, { 257, 4, 1, h }, { 258, 3, 1, bytes * 8 }, { 259, 3, 1, 1 }, { 262, 3, 1, 1 } };
       if (descLen) e.push_back({ 270, 2, descLen, descOff });
-      e.push_back({ 273, 4, 1, dataOff }); e.push_back({ 277, 3, 1, 1 }); e.push_back({ 278, 4, 1, h });
-      e.push_back({ 279, 4, 1, w * h * bytes });
+      e.push_back({ 273, offType, 1, dataOff }); e.push_back({ 277, 3, 1, 1 }); e.push_back({ 278, 4, 1, h });
+      e.push_back({ 279, offType, 1, pageBytes });
       if (sampleFormat != 1) e.push_back({ 339, 3, 1, sampleFormat });
-      const uint16_t n = (uint16_t)e.size();
-      std::fwrite(&n, 2, 1, f_);
-      for (const E& x : e) { std::fwrite(&x.tag, 2, 1, f_); std::fwrite(&x.type, 2, 1, f_); std::fwrite(&x.count, 4, 1, f_); std::fwrite(&x.value, 4, 1, f_); }
-      const uint32_t next = 0;
-      const long linkPos = (long)Tell();
-      std::fwrite(&next, 4, 1, f_);
-      std::fseek(f_, (long)prevIfdLink_, SEEK_SET);
-      std::fwrite(&ifd, 4, 1, f_);
-      std::fseek(f_, 0, SEEK_END);
-      prevIfdLink_ = (uint32_t)linkPos;
-      return !std::ferror(f_);
+      uint64_t linkPos = 0;
+      if (big_) {
+         PutLE<uint64_t>(e.size());
+         for (const E& x : e) {
+            PutLE(x.tag); PutLE(x.type); PutLE<uint64_t>(x.count);
+            // the value left-justified in 8 bytes; a description of up to 8 bytes in place (never: it holds the spec)
+            if (x.tag == 270 && descLen <= 8) { uint8_t v[8] = {}; std::memcpy(v, desc.c_str(), descLen); Put(v, 8); }
+            else if (x.type == 3) { PutLE<uint16_t>(static_cast<uint16_t>(x.value)); PutLE<uint16_t>(0); PutLE<uint32_t>(0); }
+            else if (x.type == 4) { PutLE<uint32_t>(static_cast<uint32_t>(x.value)); PutLE<uint32_t>(0); }
+            else PutLE<uint64_t>(x.value);
+         }
+         linkPos = end_;
+         PutLE<uint64_t>(0);
+      } else {
+         PutLE<uint16_t>(static_cast<uint16_t>(e.size()));
+         for (const E& x : e) {
+            PutLE(x.tag); PutLE(x.type); PutLE(x.count);
+            if (x.tag == 270 && descLen <= 4) { uint8_t v[4] = {}; std::memcpy(v, desc.c_str(), descLen); Put(v, 4); }
+            else PutLE<uint32_t>(static_cast<uint32_t>(x.value));   // (a SHORT left-justified: little-endian)
+         }
+         linkPos = end_;
+         PutLE<uint32_t>(0);
+      }
+      // the previous page's link to this one
+      if (!error_.empty()) return false;
+      if (Seek64(f_, static_cast<int64_t>(prevIfdLink_)) != 0) { Fail("seeking"); return false; }
+      const uint64_t keep = end_;
+      if (big_) PutLE<uint64_t>(ifd); else PutLE<uint32_t>(static_cast<uint32_t>(ifd));
+      end_ = keep;
+      if (std::fseek(f_, 0, SEEK_END) != 0) { Fail("seeking"); return false; }
+      if (std::fflush(f_) != 0) { Fail("writing"); return false; }   // a full disk shows here, at its page
+      prevIfdLink_ = linkPos;
+      if (!error_.empty()) return false;
+      if (std::ferror(f_)) { Fail("writing"); return false; }
+      ++pages_;
+      return true;
    }
-   uint32_t Tell() { return (uint32_t)std::ftell(f_); }
    std::FILE* f_;
-   uint32_t prevIfdLink_ = 4;
+   std::string path_, error_;
+   bool big_ = false;
+   uint64_t prevIfdLink_ = 4, end_ = 0, pages_ = 0;
 };

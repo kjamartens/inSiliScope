@@ -13,6 +13,7 @@
 // read-only views of the same movie for the docs' physics figures. --serve
 // runs many commands in one process (one per stdin line).
 #include "LiveScope.h"
+#include "MemoryBudget.h"
 #include "MemoryReport.h"
 #include "Excitation.h"
 #include "GroundTruth.h"
@@ -28,9 +29,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <new>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -89,6 +92,11 @@ void Usage()
                "\n"
                "  --progress 1           print '@@isc-frame <k>' as frame k (1, 2, ...) is written (a front end's\n"
                "                         progress bar; tools/isc_render.py)\n"
+               "  --estimate 1           print what the movie would take and stop: its size, the TIFF's bytes, the\n"
+               "                         memory estimate against this machine's budget, the free disk space\n"
+               "                         (a line '@@isc-estimate key=value ...' for a front end, then the same in words)\n"
+               "  --bigtiff 1            write a BigTIFF (64-bit offsets) even below 4 GB; a movie that will not fit\n"
+               "                         in a classic TIFF's 4 GB is a BigTIFF by itself\n"
                "  --serve                one command per stdin line (its arguments separated by tabs), each\n"
                "                         answered as a separate run would be, then a line '@@isc-done <exit code>';\n"
                "                         the process keeps its world and PSF kernel between commands\n");
@@ -118,6 +126,8 @@ int RunCli(int argc, char** argv)
    std::string historyBefore, gtOut;
    double gtMin = 300, gtVol[2] = { 10, 10 };
    bool progress = false;   // --progress 1: a line per frame written
+   bool estimate = false;   // --estimate 1: the sizes, memory and disk, no movie
+   bool bigTiff = false;    // --bigtiff 1: a BigTIFF below 4 GB too
    sim::ScopeSpec spec;
    settings::Loaded loaded;   // --settings: the files' light history
    for (int i = 1; i < argc; i++) {
@@ -131,6 +141,8 @@ int RunCli(int argc, char** argv)
       if (a == "--history-before" && i + 1 < argc) { historyBefore = argv[++i]; continue; }
       if (a == "--gt-out" && i + 1 < argc) { gtOut = argv[++i]; continue; }
       if (a == "--progress" && i + 1 < argc) { progress = std::atof(argv[++i]) != 0; continue; }
+      if (a == "--estimate" && i + 1 < argc) { estimate = std::atof(argv[++i]) != 0; continue; }
+      if (a == "--bigtiff" && i + 1 < argc) { bigTiff = std::atof(argv[++i]) != 0; continue; }
       if (a == "--gt-volume" && i + 1 < argc) {
          if (!ParseList(argv[++i], gtVol, 2)) { std::fprintf(stderr, "--gt-volume needs 2 comma-separated numbers\n"); return 2; }
          continue;
@@ -300,10 +312,80 @@ int RunCli(int argc, char** argv)
                   sim::ScopeSpecGet(spec, "disk-cache"));
       return 0;
    }
+   // What the movie will take (2026-11-19): its TIFF's bytes, the memory estimate (ScopeMovie.h) against this
+   // machine's budget (MemoryBudget.h), the free space where it goes.
+   unsigned W = 0, H = 0;
+   long frames = 0;
+   sim::ScopeMovieDims(spec, W, H, frames);
+   const uint64_t fileBytes = TiffWriter::Bytes(W, H, static_cast<uint64_t>(std::max(0L, frames)), 2, 1u << 16);
+   const long slots = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
+   const int inFlight = static_cast<int>(std::max(1L, std::min(frames, slots)));
+   std::error_code fsErr;
+   const std::filesystem::path outDir =
+      out.empty() ? std::filesystem::current_path(fsErr) : std::filesystem::absolute(std::filesystem::path(out), fsErr).parent_path();
+   const std::filesystem::space_info disk = std::filesystem::space(outDir, fsErr);
+   const double diskFree = fsErr ? -1.0 : static_cast<double>(disk.available);
+   const bool willBeBig = bigTiff || fileBytes + (64ull << 20) >= TiffWriter::kClassicLimit;
+   if (estimate) {
+      sim::ScopeMemoryEstimate e;
+      std::string eerr;
+      const double mem = sim::EstimateScopeMemory(spec, inFlight, e, eerr) ? e.Total() : -1.0;
+      const double budget = sim::MemoryBudgetBytes(), ram = sim::PhysicalMemoryBytes();
+      std::printf("@@isc-estimate width=%u height=%u frames=%ld file=%.0f bigtiff=%d memory=%.0f budget=%.0f ram=%.0f "
+                  "disk-free=%.0f\n", W, H, frames, static_cast<double>(fileBytes), willBeBig ? 1 : 0, mem, budget, ram, diskFree);
+      std::printf("%ux%u px x %ld frames: a %.2f GB TIFF%s\n", W, H, frames, fileBytes / 1e9,
+                  willBeBig ? " (a BigTIFF: past a classic TIFF's 4 GB)" : "");
+      if (mem >= 0)
+         std::printf("memory: ~%.2f GB estimated (%.4g dyes in %.0f um2, %d frames in flight) of a %.1f GB budget (%.1f GB RAM)\n",
+                     mem / 1e9, e.dyes, e.fieldUm2, inFlight, budget / 1e9, ram / 1e9);
+      else
+         std::printf("memory: no estimate (%s)\n", eerr.c_str());
+      if (diskFree >= 0) std::printf("disk: %.2f GB free in %s\n", diskFree / 1e9, outDir.string().c_str());
+      const std::string over = sim::ScopeMemoryRefusal(spec, inFlight);
+      if (!over.empty()) std::printf("warning: %s\n", over.c_str());
+      if (diskFree >= 0 && diskFree < static_cast<double>(fileBytes)) std::printf("warning: not enough disk space for the TIFF\n");
+      return 0;
+   }
    if (out.empty()) { Usage(); return 2; }
+   if (diskFree >= 0 && diskFree < static_cast<double>(fileBytes)) {
+      std::fprintf(stderr, "not enough disk space for %s: the movie (%ux%u px x %ld frames) needs %.2f GB, %.2f GB are free in %s\n",
+                   out.c_str(), W, H, frames, fileBytes / 1e9, diskFree / 1e9, outDir.string().c_str());
+      return 1;
+   }
+   {
+      // The memory estimate made before a render: printed with ISC_TIMING=1; a warning when it is over this machine's
+      // budget (the cli renders anyway: the adapter refuses).
+      const char* timing = std::getenv("ISC_TIMING");
+      if (timing && *timing && *timing != '0')
+      {
+         sim::ScopeMemoryEstimate e;
+         std::string eerr;
+         if (sim::EstimateScopeMemory(spec, inFlight, e, eerr))
+            std::printf("ISC_MEMORY estimate %.1f MB: base %.1f, kernels %.1f, dyes %.1f (%.4g dyes in %.0f um2), "
+                        "images %.1f (%d frames in flight), grids %.1f\n",
+                        e.Total() / 1e6, e.baseBytes / 1e6, e.kernelBytes / 1e6, e.dyeBytes / 1e6, e.dyes, e.fieldUm2,
+                        e.imageBytes / 1e6, inFlight, e.sceneBytes / 1e6);
+      }
+      const std::string over = sim::ScopeMemoryRefusal(spec, inFlight);
+      if (!over.empty())
+         std::fprintf(stderr, "warning: %s\n", over.c_str());
+   }
+   if (!gtOut.empty()) {
+      std::filesystem::create_directories(std::filesystem::path(gtOut), fsErr);   // (an error shows when its files are written)
+   }
 
-   TiffWriter tif(out);
-   if (!tif.ok()) { std::fprintf(stderr, "cannot write %s\n", out.c_str()); return 1; }
+   TiffWriter tif(out, fileBytes, bigTiff);
+   if (!tif.ok()) { std::fprintf(stderr, "%s\n", tif.error().c_str()); return 1; }
+   if (tif.big())
+      std::printf("%s: a BigTIFF (%.2f GB expected; open it in Fiji with Bio-Formats, napari or tifffile: plain ImageJ cannot)\n", out.c_str(), fileBytes / 1e9);
+   const auto writeFailed = [&]() {
+      std::fprintf(stderr, "%s\n", tif.error().empty() ? ("cannot write " + out).c_str() : tif.error().c_str());
+      std::error_code ec;
+      const std::filesystem::space_info now = std::filesystem::space(outDir, ec);
+      if (!ec) std::fprintf(stderr, "(%.2f GB free in %s now; the movie needs %.2f GB)\n", now.available / 1e9,
+                            outDir.string().c_str(), fileBytes / 1e9);
+      return 1;
+   };
    const auto written = [&](long f) {
       if (!progress) return;
       std::printf("@@isc-frame %ld\n", f + 1);
@@ -345,36 +427,15 @@ int RunCli(int argc, char** argv)
              if (writeOk) written(f);
              return writeOk;
           }, run, err)) {
-         std::fprintf(stderr, "%s\n", writeOk ? err.c_str() : "write error");
+         if (!writeOk) return writeFailed();
+         std::fprintf(stderr, "%s\n", err.c_str());
          return 1;
       }
+      if (!tif.Close()) return writeFailed();
       std::printf("%s: %ld frames %ux%u of the live sample at t = %.3f s after %zu runs of light (replay %.3f s), total %.3f s\n",
                   out.c_str(), run.frames, run.width, run.height, run.tFirst, run.before, run.replaySec,
                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
       return writeGt() ? 0 : 1;
-   }
-   {
-      // The memory estimate made before a render (ScopeMovie.h): printed with ISC_TIMING=1; a warning when it is over
-      // this machine's budget (the cli renders anyway: the adapter refuses).
-      unsigned W = 0, H = 0;
-      long frames = 0;
-      sim::ScopeMovieDims(spec, W, H, frames);
-      const long slots = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
-      const int inFlight = static_cast<int>(std::max(1L, std::min(frames, slots)));
-      const char* timing = std::getenv("ISC_TIMING");
-      if (timing && *timing && *timing != '0')
-      {
-         sim::ScopeMemoryEstimate e;
-         std::string eerr;
-         if (sim::EstimateScopeMemory(spec, inFlight, e, eerr))
-            std::printf("ISC_MEMORY estimate %.1f MB: base %.1f, kernels %.1f, dyes %.1f (%.4g dyes in %.0f um2), "
-                        "images %.1f (%d frames in flight), grids %.1f\n",
-                        e.Total() / 1e6, e.baseBytes / 1e6, e.kernelBytes / 1e6, e.dyeBytes / 1e6, e.dyes, e.fieldUm2,
-                        e.imageBytes / 1e6, inFlight, e.sceneBytes / 1e6);
-      }
-      const std::string over = sim::ScopeMemoryRefusal(spec, inFlight);
-      if (!over.empty())
-         std::fprintf(stderr, "warning: %s\n", over.c_str());
    }
    sim::ScopeMovieInfo info;
    std::string err;
@@ -384,8 +445,9 @@ int RunCli(int argc, char** argv)
       if (writeOk) written(f);
       return writeOk;
    }, info, err);
+   if (!writeOk) return writeFailed();
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
-   if (!writeOk) { std::fprintf(stderr, "write error\n"); return 1; }
+   if (!tif.Close()) return writeFailed();
    if (!writeGt()) return 1;
    if (sim::TimingPrinting()) {
       // What the caches hold after the movie (ISC_MEMORY lines).
@@ -439,6 +501,25 @@ int RunCli(int argc, char** argv)
    return 0;
 }
 
+// RunCli with what it throws said in words: an allocation that fails is "out of memory" with this machine's RAM and
+// what to change (2026-11-19; was an unhandled exception: the process gone without a word).
+int RunCliGuarded(int argc, char** argv)
+{
+   try {
+      return RunCli(argc, argv);
+   } catch (const std::bad_alloc&) {
+      std::fflush(stdout);
+      std::fprintf(stderr, "out of memory: the render needed more than this machine could give (%.1f GB of RAM). A smaller "
+                   "field of view, fewer labelled structures or a lower Quality needs less; --estimate 1 shows the estimate "
+                   "before a render\n", sim::PhysicalMemoryBytes() / 1e9);
+      return 3;
+   } catch (const std::exception& e) {
+      std::fflush(stdout);
+      std::fprintf(stderr, "error: %s\n", e.what());
+      return 4;
+   }
+}
+
 // --serve: many runs in one process (the docs' figure builder sends its cli
 // commands this way). Each stdin line is one command's arguments, separated by
 // tabs; it runs exactly as a separate process would, except that the movie
@@ -458,7 +539,7 @@ int Serve()
       std::vector<char*> argv;
       for (std::string& x : args) argv.push_back(&x[0]);
       argv.push_back(nullptr);
-      const int code = RunCli(static_cast<int>(args.size()), argv.data());
+      const int code = RunCliGuarded(static_cast<int>(args.size()), argv.data());
       std::fflush(stderr);
       std::printf("@@isc-done %d\n", code);
    }
@@ -470,5 +551,5 @@ int Serve()
 int main(int argc, char** argv)
 {
    if (argc == 2 && std::string(argv[1]) == "--serve") return Serve();
-   return RunCli(argc, argv);
+   return RunCliGuarded(argc, argv);
 }
