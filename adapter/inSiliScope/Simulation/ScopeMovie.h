@@ -50,11 +50,31 @@ const std::vector<ScopeOption>& ScopeMovieOptions();
 // (j = 0..27) sets Zernike coefficient j in waves, replacing the preset's.
 // "<prefix>-dye.<field>" (prefix mt) and "dye<N>.<field>" override a field
 // of a structure's dye or of slot N (DyeFieldNames()).
-using ScopeSpec = std::map<std::string, double>;
+// The text options (2026-11-19, ScopeTextOptions: bfp-maps, the BFP light maps' equations) ride beside the numbers in
+// `text`: a copy of a spec keeps them; a spec's text is "name=\"...\"" (ParseScopeSpec, ScopeSpecText).
+struct ScopeSpec : std::map<std::string, double>
+{
+   using std::map<std::string, double>::map;
+   ScopeSpec() = default;
+   std::map<std::string, std::string> text;
+};
 
 // False for a name that is neither a named option nor p.* / zern.*.
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value);
 double ScopeSpecGet(const ScopeSpec& spec, const char* name);
+// The text options: name, default, help (and their part, ScopeOptionPart). False for a name that is not one.
+struct ScopeTextOption
+{
+   const char* name;
+   const char* value;   // default
+   const char* help;
+};
+const std::vector<ScopeTextOption>& ScopeTextOptions();
+bool IsScopeTextOption(const std::string& name);
+bool ScopeSpecSetText(ScopeSpec& spec, const std::string& name, const std::string& value);
+std::string ScopeSpecGetText(const ScopeSpec& spec, const char* name);
+// A text value quoted for a spec's text ("..." with \" and \ escaped; newlines as the two characters \n).
+std::string ScopeQuoteText(const std::string& v);
 // The mounted specimen (the spec's 'specimen': its index in data/specimens.json; JS scopeSpecimen), its targets'
 // structure ids (ISC_STRUCT_*; only those labels render; JS mountedStructures) and the world's specimen params
 // (core params specimen + origami*: the origami-* options, p.<name> on top; JS scopeSpecimenParams).
@@ -85,7 +105,8 @@ const std::vector<std::string>* ScopeOptionNames(const std::string& name);
 // "host" (how this run works, not what it shows: disk-cache, prepare; never saved); nullptr for a name that is not an
 // option. Named options, p.* (sample), zern.* (instrument) and the dye field overrides (sample).
 const char* ScopeOptionPart(const std::string& name);
-// "k=v k=v ..." (spaces, commas or semicolons); false (with err) on a bad token.
+// "k=v k=v ..." (spaces, commas or semicolons; a text option k="..." with \" \\ \n escapes); false (with err) on
+// a bad token.
 bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err);
 
 struct ScopeMovieInfo

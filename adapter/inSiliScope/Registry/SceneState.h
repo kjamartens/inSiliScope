@@ -238,6 +238,10 @@ struct SceneState
    void ClearDyeEditsWithPrefix(const std::string& prefix);
    std::map<std::string, double> Options() const;
    std::map<std::string, double> DyeEdits() const;
+   // The engine's text options (sim::ScopeTextOptions: bfp-maps); empty = the option's default.
+   std::string TextOption(const std::string& option) const;
+   void SetTextOption(const std::string& option, const std::string& v);
+   std::map<std::string, std::string> TextOptions() const;
    // Each target's effective mode at its last dye load (index = sim::TargetAt; the labelling suggestion follows it, the
    // camera preset's gain follows the mounted specimen's first target: MountedMode).
    static constexpr int kMaxTargets = 8;
@@ -256,6 +260,7 @@ private:
    mutable std::mutex optionMutex_;
    std::map<std::string, double> options_;
    std::map<std::string, double> dyeEdits_;
+   std::map<std::string, std::string> textOptions_;
 };
 
 } // namespace isc

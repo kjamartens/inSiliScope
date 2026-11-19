@@ -45,6 +45,8 @@ void Usage()
                "options (default):\n");
    for (const sim::ScopeOption& o : sim::ScopeMovieOptions())
       std::printf("  --%-20s %-8g %s\n", o.name, o.value, o.help);
+   for (const sim::ScopeTextOption& o : sim::ScopeTextOptions())
+      std::printf("  --%-20s %-8s %s\n", o.name, "\"\"", o.help);
    std::printf("  --spec <file>          options from a file (name=value per line; Micro-Manager's Renderer\n"
                "                         WriteScopeSpecTo writes one), later options override\n"
                "  --settings <f.isc.json>[:part,...]  the parts of a settings file (the viewer's Save settings:\n"
@@ -199,6 +201,10 @@ int RunCli(int argc, char** argv)
          continue;
       }
       double v = 0.0;
+      if (a.compare(0, 2, "--") == 0 && i + 1 < argc && sim::IsScopeTextOption(a.substr(2))) {
+         sim::ScopeSpecSetText(spec, a.substr(2), argv[++i]);   // a text option (--bfp-maps "<equations>")
+         continue;
+      }
       if (a.compare(0, 2, "--") != 0 || i + 1 >= argc || !sim::ScopeOptionValue(a.substr(2), argv[i + 1], v) ||
           !sim::ScopeSpecSet(spec, a.substr(2), v)) {
          std::fprintf(stderr, "unknown or incomplete option %s\n\n", a.c_str());

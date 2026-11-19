@@ -141,6 +141,9 @@ ISC_API int32_t isc_scope_options(char* out, int32_t cap)
             names += (i ? "|" : "") + (*list)[i];
       s += std::string(o.name) + "\t" + v + "\t" + o.help + "\t" + sim::ScopeOptionPart(o.name) + "\t" + names + "\n";
    }
+   // The text options (bfp-maps): a sixth field "text"; their default is a string.
+   for (const sim::ScopeTextOption& o : sim::ScopeTextOptions())
+      s += std::string(o.name) + "\t" + o.value + "\t" + o.help + "\t" + sim::ScopeOptionPart(o.name) + "\t\ttext\n";
    if (out && cap > 0) {
       const size_t n = std::min(s.size(), static_cast<size_t>(cap - 1));
       std::memcpy(out, s.data(), n);

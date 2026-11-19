@@ -288,6 +288,7 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
       s[kv.first] = kv.second;
    for (const auto& kv : st.DyeEdits())
       s[kv.first] = kv.second;
+   s.text = st.TextOptions();
    // The excitation geometry: the engine's (the Lasers rows; illum-bfp always given, so a light preset in the
    // engine never picks it: Lasers.Preset sets it), with the medium's index (the critical angle).
    s["illum-bfp"] = st.Option("illum-bfp");
@@ -362,6 +363,8 @@ std::string ScopeSpecText(const sim::ScopeSpec& spec)
       std::snprintf(buf, sizeof(buf), "%.17g", kv.second);
       o << kv.first << '=' << buf << '\n';
    }
+   for (const auto& kv : spec.text)
+      o << kv.first << '=' << sim::ScopeQuoteText(kv.second) << '\n';
    return o.str();
 }
 

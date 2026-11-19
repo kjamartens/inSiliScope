@@ -36,6 +36,7 @@
 
 #pragma once
 
+#include "BfpField.h"
 #include "SimPattern.h"
 
 #include <cmath>
@@ -88,6 +89,10 @@ struct ExcitationSpec
    uint32_t seed = 0;            // the phase drift's seed
    double expSec = 0.05;         // ... and frame time
    long long frame = 0;          // the frame whose pattern this is (Excitation::SetFrame changes it)
+   // BFP light maps (BfpField.h, 2026-11-19): set, the light is the maps' (beams empty); mapsError: why they could
+   // not be made (the light is then none).
+   std::shared_ptr<const BfpLight> maps;
+   std::string mapsError;
 };
 
 class Excitation
@@ -100,8 +105,14 @@ public:
 
    // A beam set given (At is the frame's pattern; MeanAt the cycle mean); else the legacy single beam (At = MeanAt).
    bool Patterned() const { return patterned_; }
+   // BFP light maps (Spec().maps; Patterned too): At = the frame state's volume, MeanAt = the cycle mean's.
+   bool Mapped() const { return mapped_; }
+   const BfpLight* Maps() const { return spec_.maps.get(); }
+   int MapState() const { return mapState_; }
+   // The frame program's period (1 for the legacy beam).
+   int Period() const;
    // The pattern changes with the frame (a program of several frames, or a phase drift).
-   bool Varies() const { return patterned_ && spec_.beams.Varies(); }
+   bool Varies() const { return patterned_ && (mapped_ ? Period() > 1 : spec_.beams.Varies()); }
    // The frame whose pattern At gives (Patterned; the program's state and the phase drift at it); cheap (the terms
    // per line are recompiled, no grids).
    void SetFrame(long long frame);
@@ -151,6 +162,12 @@ public:
       bool tirf = false, clipped = false, flat = false;
       double decayScale = 0;        // DecayUm(nm) = decayScale x nm (TIRF), 0 otherwise
       int beam = -1;                // its beam in Spec().beams (-1: the legacy beam)
+      // BFP light maps: a plane of the cycle mean's volume (line, part, plane) with a tent in z between its
+      // neighbours' heights (the history's depth table, ComponentDepth: the tent x the line's share).
+      bool depthTable = false;
+      int mapLine = -1, mapPart = -1, mapPlane = -1;
+      double zLo = 0, zMid = 0, zHi = 0;   // absolute heights (um)
+      bool openBottom = false, openTop = false;
    };
    const Component& ComponentAt(int j) const { return comps_[static_cast<size_t>(j)]; }
    // Component j's footprint on the plane at height z (its envelope, no field factor), and its depth factors.
@@ -158,6 +175,8 @@ public:
    double ComponentDepth(int j, double z, const ExcitationShares& shares) const;
    double ComponentDepthMean(int j, double z0, double z1, const ExcitationShares& shares) const;
    double ComponentDecayUm(int j, double lambdaNm) const;
+   // The height above which a component's depth factor no longer changes (a map plane's tent; TIRF: none, -1).
+   double ComponentDepthTopUm(int j) const;
 
    // The in-plane profile at (x', y) um from the axis, peak 1 (the legacy beam's: the first component's).
    double ProfileAt(double xp, double y) const;
@@ -206,6 +225,11 @@ public:
          std::vector<Term> terms;
       };
       bool ok = false, flat = false;            // flat: !(b > a)
+      // BFP light maps: the plane's mean on a grid (bicubic).
+      bool mapped = false;
+      int sn = 0;
+      double sx0 = 0, sdx = 1;
+      std::vector<float> slice;
       double ba = 0;                            // b - a
       std::vector<Comp> comps;
       std::vector<Line> lines;
@@ -248,13 +272,23 @@ private:
    double EnvelopeAt(const Envelope& e, double xp, double y) const;
    void MakeLegacy(const ExcitationSpec& s);
    void MakePatterned(const ExcitationSpec& s);
+   void MakeMapped(const ExcitationSpec& s);
+   // The maps' light at (x, y, z) for the shares: the frame state's (mean false) or the cycle mean's.
+   double MapAt(double x, double y, double z, const ExcitationShares& shares, bool mean) const;
+   double MapPlaneMean(double x, double y, double z0, double z1, const ExcitationShares& shares, bool mean) const;
+   double MapShare(int line, const ExcitationShares& shares) const;
+   // The maps' imager light collected at (x, y) (the cycle mean, defocused by the collection rings).
+   double MappedCollected(double x, double y, double Hc, const std::vector<ImagerSource>& imagers,
+                          const CollectionRings& rings, const std::vector<double>& ds, double ratio, int nTirf,
+                          double small) const;
    void Compile();
 
    ExcitationSpec spec_;
    int profile_ = ILLUM_FLATTOP, regime_ = REGIME_EPI;
    double u_ = 0, uMax_ = 0, F_ = 1, cosI_ = 1, tanS_ = 0, nS_ = 1.337, nI_ = 1.518, na_ = 1.4, zp_ = 0;
    double fwhmUm_ = 1, sig_ = 1, r0_ = 1, edge_ = 1, flatTop0_ = 1, reachUm_ = 0;
-   bool clipped_ = false, tirf_ = false, uniform_ = false, tilted_ = false, patterned_ = false;
+   bool clipped_ = false, tirf_ = false, uniform_ = false, tilted_ = false, patterned_ = false, mapped_ = false;
+   int mapState_ = 0;
    // The frame's beam envelopes at a point (Patterned): env[j] for the state's beam j.
    void FrameEnvelopes(double x, double y, double z, std::vector<double>& env) const;
    std::vector<Component> comps_;

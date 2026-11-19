@@ -15,6 +15,9 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/LightPath.cpp
   ${ISC_SIM}/Excitation.cpp
   ${ISC_SIM}/SimPattern.cpp
+  ${ISC_SIM}/BfpExpr.cpp
+  ${ISC_SIM}/BfpMaps.cpp
+  ${ISC_SIM}/BfpField.cpp
   ${ISC_SIM}/LightHistory.cpp
   ${ISC_SIM}/Spectra.cpp
   ${ISC_SIM}/Fft2d.cpp
@@ -178,6 +181,9 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(sim_pattern_check sim_pattern_check.cpp)
   target_link_libraries(sim_pattern_check PRIVATE insiliscope_sim)
   add_test(NAME sim_pattern COMMAND sim_pattern_check)
+  add_executable(bfp_maps_check bfp_maps_check.cpp)
+  target_link_libraries(bfp_maps_check PRIVATE insiliscope_sim)
+  add_test(NAME bfp_maps COMMAND bfp_maps_check)
 
   # The exact light history (LightHistory.h): its folds and maps against independent sums, the core reading them.
   add_executable(history_check history_check.cpp)

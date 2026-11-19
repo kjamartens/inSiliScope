@@ -259,4 +259,26 @@ std::map<std::string, double> SceneState::DyeEdits() const
    return dyeEdits_;
 }
 
+std::string SceneState::TextOption(const std::string& option) const
+{
+   std::lock_guard<std::mutex> g(optionMutex_);
+   auto it = textOptions_.find(option);
+   return it != textOptions_.end() ? it->second : sim::ScopeSpecGetText(sim::ScopeSpec(), option.c_str());
+}
+
+void SceneState::SetTextOption(const std::string& option, const std::string& v)
+{
+   std::lock_guard<std::mutex> g(optionMutex_);
+   if (v.empty())
+      textOptions_.erase(option);
+   else
+      textOptions_[option] = v;
+}
+
+std::map<std::string, std::string> SceneState::TextOptions() const
+{
+   std::lock_guard<std::mutex> g(optionMutex_);
+   return textOptions_;
+}
+
 } // namespace isc

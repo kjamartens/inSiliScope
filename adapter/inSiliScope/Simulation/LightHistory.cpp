@@ -41,7 +41,8 @@ long NodeAtOrAbove(double v, double h) { return static_cast<long>(std::ceil(v / 
 long NodeAtOrBelow(double v, double h) { return static_cast<long>(std::floor(v / h - 0.5)); }
 long FloorDiv(long a, long b) { return a >= 0 ? a / b : -((-a + b - 1) / b); }
 
-bool FlatBeam(const Excitation& ex) { return ex.Spec().profile == ILLUM_FLAT; }
+// (The BFP light maps carry their own lateral shape: never the flat stop's nodes.)
+bool FlatBeam(const Excitation& ex) { return ex.Spec().profile == ILLUM_FLAT && !ex.Mapped(); }
 bool ShearedBeam(const Excitation& ex) { return !FlatBeam(ex) && ex.Tilted(); }
 // A pose's axis in the chapter's coordinates: u = x - z tan theta_s, where the beam's axis at the pivot plane is
 // ax - pivot tan theta_s.
@@ -130,6 +131,11 @@ bool MakeLightState(const ScopeSpec& spec, bool lightOn, LightState& out, std::s
    for (const LaserLine& l : out.lines)
       out.total += l.kWPerCm2;
    out.geo = ScopeExcitationSpec(spec);
+   if (!out.geo.mapsError.empty())
+   {
+      err = "BFP light maps: " + out.geo.mapsError;
+      return false;
+   }
    auto ex = std::make_shared<Excitation>(out.geo);
    out.ex = ex;
    out.lit = lightOn && out.total > 0 && !ex->Clipped();
@@ -139,6 +145,14 @@ bool MakeLightState(const ScopeSpec& spec, bool lightOn, LightState& out, std::s
    if (g.profile != ILLUM_FLAT)
       out.lightKey += ";fw" + Num(g.fwhmPct) + ";fov" + Num(g.fovSpanUm);
    out.lightKey += ScopeBeamMeanKey(g);   // a beam set: the components the kinetics run on (empty for one beam)
+   if (g.maps && g.maps->Propagating())
+   {
+      // Maps: the light's planes are the focus's (a propagating volume is kept relative to it): a focus on another
+      // 0.1 um step is another chapter.
+      char b[48];
+      std::snprintf(b, sizeof b, ";zf%.1f", std::round(g.pivotUm * 10.0) / 10.0);
+      out.lightKey += b;
+   }
    for (const LaserLine& l : out.lines)
    {
       char b[64];
@@ -913,7 +927,8 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
    // kLightDepthStepUm.
    std::map<std::pair<std::pair<const void*, int>, int>, int32_t> depthOf;
    auto depthFor = [&](const Chapter& c, int cj, int st, bool sq, bool pre = false) -> int32_t {
-      if (!c.lit || !c.ex->ComponentAt(cj).tirf)
+      const Excitation::Component& kc = c.ex->ComponentAt(cj);
+      if (!c.lit || (!kc.tirf && !kc.depthTable))
          return -1;
       const auto k = std::make_pair(std::make_pair(static_cast<const void*>(&c.comps[static_cast<size_t>(cj)]), st),
                                     (sq ? 1 : 0) + (pre ? 2 : 0));
@@ -931,7 +946,9 @@ std::shared_ptr<const ClockMapView> LightHistory::Build(const ScopeSpec& cur, co
       MapDepth d;
       d.z0 = 0;
       d.dz = kLightDepthStepUm;
-      const double top = std::max(kLightDepthStepUm, std::min(std::max(z1, 0.0), 30.0 * dMax));
+      // TIRF: 30 decay lengths; a map plane's tent: to its upper end (then its last value carries on).
+      const double top = std::max(kLightDepthStepUm, std::min(std::max(z1, 0.0) + kLightDepthStepUm,
+                                                              kc.depthTable ? c.ex->ComponentDepthTopUm(cj) : 30.0 * dMax));
       const size_t n = static_cast<size_t>(std::ceil(top / d.dz)) + 1;
       for (size_t i = 0; i < n; ++i)
       {

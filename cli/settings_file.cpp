@@ -255,6 +255,15 @@ bool ReadText(const std::string& text, const std::vector<std::string>& partsIn, 
             double v = 0;
             if (kv.second.type == Json::Null)
                continue;
+            if (sim::IsScopeTextOption(kv.first))
+            {
+               // A text option (bfp-maps): its string as given.
+               if (kv.second.type != Json::String)
+                  out.warnings.push_back(name + "." + kv.first + ": not text (left out)");
+               else
+                  sim::ScopeSpecSetText(out.spec, kv.first, kv.second.str);
+               continue;
+            }
             if (!OptionNumber(kv.first, kv.second, v) || !sim::ScopeSpecSet(out.spec, kv.first, v))
                out.warnings.push_back(name + "." + kv.first + ": not an option of this engine (left out)");
             else if (sim::ScopeOptionPart(kv.first) && name != sim::ScopeOptionPart(kv.first))
@@ -289,6 +298,14 @@ bool ReadText(const std::string& text, const std::vector<std::string>& partsIn, 
             for (const auto& kv : set->obj)
             {
                double v = 0;
+               if (sim::IsScopeTextOption(kv.first))
+               {
+                  if (kv.second.type == Json::Null)
+                     cur.text.erase(kv.first);
+                  else if (kv.second.type == Json::String)
+                     cur.text[kv.first] = kv.second.str;
+                  continue;
+               }
                if (kv.second.type == Json::Null) { cur.erase(kv.first); continue; }
                if (!OptionNumber(kv.first, kv.second, v) || !sim::ScopeSpecSet(cur, kv.first, v))
                {
@@ -329,6 +346,12 @@ sim::ScopeSpec RunSpec(const Loaded& s, size_t i)
       const char* part = sim::ScopeOptionPart(kv.first);
       if (part && !std::strcmp(part, "sample"))
          spec[kv.first] = kv.second;
+   }
+   for (const auto& kv : s.spec.text)
+   {
+      const char* part = sim::ScopeOptionPart(kv.first);
+      if (part && !std::strcmp(part, "sample"))
+         spec.text[kv.first] = kv.second;
    }
    // A recorded run: its mean-field bleach basis its own, as the viewer's Record made it (fresh-basis).
    if (s.recordFrom >= 0 && static_cast<long>(i) >= s.recordFrom)
