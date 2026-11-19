@@ -427,7 +427,10 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   `gen_mm_configs.py`, `gen_property_reference.py`, `psf_parity_check/`, `isc_render.py` (2026-11-19: a tkinter
   window / command line over `insiliscope_cli --serve`: a `.isc.json` (`--settings`) or a `.cfg` (loaded in pymmcore-plus,
   Core-Shutter opened, `Renderer.WriteScopeSpecTo` -> `--spec`), positions x y z, exposure, frames, start time -> one
-  TIFF per position; a viewer file and its .cfg export give the same frames within a few ADU: the PSF kernel width).
+  TIFF per position; a viewer file and its .cfg export give the same frames within a few ADU: the PSF kernel width;
+  `tools/build_isc_render_exe.py` makes `dist/inSiliScope Render.exe`, PyInstaller one-file windowed, in the venv
+  `build/isc_render_venv` (pyinstaller, pymmcore 12.5.0.75.0, numpy: a hidden import, pymmcore's C module needs it),
+  carrying the cli, the DLL, `mmgr_dal_Utilities.dll` and the VC++ runtime; ~15 s; the exe's frames = the script's bit for bit).
 
 ## Rules for core (why each exists is in docs/dev/m0-feasibility.md)
 

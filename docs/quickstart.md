@@ -159,7 +159,9 @@ Micro-Manager configuration (`.cfg`: the shipped ones or the viewer's **Micro-Ma
 one 16-bit TIFF stack per position into the output folder. With a file and `--pos "x y z"` (repeated) it runs without
 the window. A `.cfg` is read through Micro-Manager's core (it needs [pymmcore-plus](https://pymmcore-plus.github.io/pymmcore-plus/)
 and the inSiliScope DLL; `--adapter-dir` names the DLL's folder), so its frames are the ones Micro-Manager's adapter
-would render from a fresh sample.
+would render from a fresh sample. `python tools/build_isc_render_exe.py` packs it into one Windows program,
+`dist/inSiliScope Render.exe` (~30 MB, with the CLI, the inSiliScope DLL, Micro-Manager's core and the C++ runtime):
+double-click it, or drop a setup file on it. It holds the GPL-3.0 DLL, so the exe is GPL-3.0 as a whole.
 
 With `--drift-xy-speed-nm-per-sec` / `--drift-z-speed-nm-per-sec` the sample drifts (mean speeds; see `--help` for
 the direction, its wander and the random-walk jitter `--drift-xy-nm-per-sqrt-sec`) and the CLI writes the true drift per

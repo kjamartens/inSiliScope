@@ -6,17 +6,22 @@ shipped ones, or the viewer's Micro-Manager .cfg export), enter stage positions 
 of frames, and each position becomes one 16-bit TIFF stack (ImageJ / Fiji / napari open it; the spec is in its
 description). The frames are insiliscope_cli's, = the viewer's "Make movie here" and Micro-Manager's precomputed frames.
 
-  python tools/isc_render.py                          a window
+  python tools/isc_render.py                          a window (or double-click dist/inSiliScope Render.exe;
+                                                      a file dropped on the exe opens in it)
   python tools/isc_render.py <file> --pos "x y z" [--pos ...] [--exposure-ms 50] [--frames 100] [--start-sec s]
                              [--out dir] [--cli path] [--adapter-dir dir]
 
 A .isc.json goes to the cli as is (its measurement's light history replayed, as the viewer's live sample); a .cfg is
-loaded in Micro-Manager's core (pymmcore-plus, the inSiliScope DLL), its Core-Shutter opened, and the spec the adapter
+loaded in Micro-Manager's core (pymmcore, the inSiliScope DLL), its Core-Shutter opened, and the spec the adapter
 writes (Renderer.WriteScopeSpecTo) goes to the cli. Positions, exposure, frames and the start time replace the file's;
 a blank start time keeps the file's (a viewer file's live sample: 60 s; Micro-Manager's spec: 0 s, a fresh sample).
 
-Finds the cli at --cli, $ISC_CLI, next to this script, or the build trees (build/msvc/cli/Release, build/native/cli);
-the DLL (only for a .cfg) at --adapter-dir, $ADAPTER_DIR, the build tree or C:/Program Files/Micro-Manager-2.0.
+Finds the cli at --cli, $ISC_CLI, inside the exe, next to this script or the exe, or the build trees
+(build/msvc/cli/Release, build/native/cli); the DLL (only for a .cfg) at --adapter-dir, $ADAPTER_DIR, inside the exe,
+next to it, the build tree or C:/Program Files/Micro-Manager-2.0.
+
+tools/build_isc_render_exe.py packs this script, insiliscope_cli, the inSiliScope DLL and Micro-Manager's Utilities
+adapter into one Windows exe (dist/inSiliScope Render.exe) that opens the window on a double-click.
 """
 
 import argparse
@@ -32,14 +37,20 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
+FROZEN = getattr(sys, "frozen", False)                          # the exe (PyInstaller)
+BUNDLE = Path(getattr(sys, "_MEIPASS", HERE))                   # what the exe carries
+EXE_DIR = Path(sys.executable).resolve().parent if FROZEN else HERE
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0                 # (CREATE_NO_WINDOW: no console flashing up per cli)
+if sys.stdout is None:   # (a windowed exe has no console)
+    sys.stdout = sys.stderr = open(os.devnull, "w")
 
 
 # ---- finding the programs ----
 
 def find_cli(given=None):
     exe = "insiliscope_cli.exe" if os.name == "nt" else "insiliscope_cli"
-    for c in [given, os.environ.get("ISC_CLI"), HERE / exe, ROOT / "build" / "msvc" / "cli" / "Release" / exe,
-              ROOT / "build" / "native" / "cli" / exe]:
+    for c in [given, os.environ.get("ISC_CLI"), BUNDLE / "bin" / exe, EXE_DIR / exe, HERE / exe,
+              ROOT / "build" / "msvc" / "cli" / "Release" / exe, ROOT / "build" / "native" / "cli" / exe]:
         if c and Path(c).is_file():
             return str(c)
     raise FileNotFoundError("insiliscope_cli not found: build it (cmake --build --preset msvc-cli) or give --cli")
@@ -48,20 +59,21 @@ def find_cli(given=None):
 def adapter_dirs(given=None):
     """Folders that may hold mmgr_dal_inSiliScope (first found wins), then Micro-Manager's own adapters."""
     out = []
-    for c in [given, os.environ.get("ADAPTER_DIR"), ROOT / "adapter" / "inSiliScope" / "build" / "Release" / "x64",
-              Path(r"C:\Program Files\Micro-Manager-2.0")]:
+    for c in [given, os.environ.get("ADAPTER_DIR"), BUNDLE / "adapters", EXE_DIR,
+              ROOT / "adapter" / "inSiliScope" / "build" / "Release" / "x64", Path(r"C:\Program Files\Micro-Manager-2.0")]:
         if c and any(Path(c).glob("mmgr_dal_inSiliScope*")):
             out.append(str(c))
             break
     if not out:
         raise FileNotFoundError("mmgr_dal_inSiliScope not found: give --adapter-dir (the folder with the DLL)")
-    try:   # the Utilities adapter (the Multi Shutter of the configurations): pymmcore-plus's Micro-Manager
-        from pymmcore_plus import find_micromanager
-        mm = find_micromanager()
-        if mm and mm not in out:
-            out.append(mm)
-    except Exception:
-        pass
+    if not any(Path(out[0]).glob("mmgr_dal_Utilities*")):
+        try:   # the Utilities adapter (the Multi Shutter of the configurations): pymmcore-plus's Micro-Manager
+            from pymmcore_plus import find_micromanager
+            mm = find_micromanager()
+            if mm and mm not in out:
+                out.append(mm)
+        except Exception:
+            pass
     return out
 
 
@@ -86,11 +98,9 @@ class Setup:
                 self.values.update((d.get("parts", {}).get(p) or {}).get("values", {}))
 
     def _from_cfg(self, adapter_dir, log):
-        import logging
-        logging.disable(logging.CRITICAL)   # (pymmcore-plus's log rotation complains while another process holds it)
-        from pymmcore_plus import CMMCorePlus
+        import pymmcore   # (Micro-Manager's core; pymmcore-plus installs it)
         t = time.time()
-        core = CMMCorePlus()
+        core = pymmcore.CMMCore()
         core.setDeviceAdapterSearchPaths(adapter_dirs(adapter_dir))
         core.loadSystemConfiguration(self.path)
         light = core.getShutterDevice()
@@ -162,7 +172,7 @@ def render(setup, positions, exposure_ms, frames, start_sec, folder, cli, log=pr
     Path(folder).mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"\.(isc\.json|cfg|json)$", "", Path(setup.path).name, flags=re.I)
     proc = subprocess.Popen([cli, "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, encoding="utf-8", errors="replace", bufsize=1)
+                            text=True, encoding="utf-8", errors="replace", bufsize=1, creationflags=NO_WINDOW)
     files = []
     try:
         for k, pos in enumerate(positions, 1):
@@ -234,7 +244,9 @@ def gui(args):
     start_var = tk.StringVar(value=num(args.start_sec) if args.start_sec is not None else "")
 
     ttk.Label(f, text="Setup (.isc.json or .cfg)").grid(row=0, column=0, sticky="w")
-    ttk.Entry(f, textvariable=file_var).grid(row=0, column=1, sticky="ew", padx=4)
+    file_entry = ttk.Entry(f, textvariable=file_var)
+    file_entry.grid(row=0, column=1, sticky="ew", padx=4)
+    file_entry.bind("<Return>", lambda e: load(file_var.get().strip().strip('"')))
     ttk.Button(f, text="Open…", command=lambda: pick()).grid(row=0, column=2)
     info = ttk.Label(f, text="", foreground="gray", wraplength=int(640 * scale))
     info.grid(row=1, column=1, columnspan=2, sticky="w", padx=4)
@@ -326,8 +338,8 @@ def gui(args):
         if state["busy"]:
             return
         try:
-            if not state["setup"] or state["setup"].path != str(Path(file_var.get()).resolve()):
-                raise ValueError("open a setup first")
+            if not state["setup"] or state["setup"].path != str(Path(file_var.get().strip().strip('"')).resolve()):
+                raise ValueError("open a setup first (Open…, or Enter in its box)")
             positions = parse_positions(pos_box.get("1.0", "end"))
             exposure = float(exp_var.get())
             frames = int(frames_var.get())
@@ -384,13 +396,20 @@ def main():
     args = ap.parse_args()
     if args.gui or not args.file or not args.pos:
         return gui(args)
-    setup = Setup(args.file, args.adapter_dir)
+    try:
+        setup = Setup(args.file, args.adapter_dir)
+    except Exception as e:   # (a windowed exe would show a traceback dialog and wait)
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     try:
         t = time.time()
         files = render(setup, [parse_positions(p)[0] for p in args.pos],
                        args.exposure_ms or setup.get("exposure-ms", 50), args.frames or 100, args.start_sec,
                        args.out or str(Path.home() / "inSiliScope renders"), find_cli(args.cli))
         print(f"Done: {len(files)} file(s) in {time.time() - t:.1f} s.")
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
     finally:
         setup.close()
 
