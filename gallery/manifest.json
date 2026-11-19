@@ -194,6 +194,12 @@
     { "id": "light-tirf", "title": "TIRF",
       "text": "illum-bfp 1.03: past the critical angle, an evanescent layer about 150 nm deep (at 640 nm). The free-imager background drops, and the microtubules above the layer go dark: only those near the coverslip are lit.",
       "options": {"illum-bfp": 1.03} },
+    { "id": "light-sheet", "title": "Inclined light sheet",
+      "text": "sim-type LightSheet (a BFP light map): an elliptical coherent spot at illum-bfp 0.9, thin across (sheet-thickness-um 3) and as wide as the field along y, makes a light sheet through the sample at a slant, as HILO's beam but thinner across the sheet: less free imager lit.",
+      "options": {"sim-type": "LightSheet", "illum-bfp": 0.9} },
+    { "id": "ring-tirf", "title": "Ring TIRF",
+      "text": "sim-type RingTIRF (a BFP light map): the TIRF spot at illum-bfp 1.03 turned once round the pupil within every exposure (64 time slots, unpolarized), so the evanescent light comes from every direction at once.",
+      "options": {"sim-type": "RingTIRF", "illum-bfp": 1.03} },
     { "id": "light-flat", "title": "Flat beam profile",
       "text": "illum-profile Flat: a laterally infinite beam instead of the default Gaussian (FWHM 100 % of the field's width, a quarter of the centre's light in the corners): the corners are as bright as the centre.",
       "options": {"illum-profile": "Flat"} },
@@ -258,6 +264,7 @@
       "story": "Where the laser spot sits in the objective's back focal plane decides the light's path: in its centre the beam goes straight up (epi), towards the edge it leaves at a slant as a thin sheet (HILO), past the critical angle it is reflected and only an evanescent layer reaches the cells (TIRF). The beam is a Gaussian as wide as the field by default.",
       "rows": [
         {"panels": [["light-epi", "epi"], ["sr-default", "HILO (default)"], ["light-tirf", "TIRF"]], "shared": true, "caption": "Epi lights the free imager through the whole chamber, HILO only a sheet, TIRF only the first ~150 nm: the background falls, and in TIRF the microtubules higher in the cell go dark."},
+        {"panels": [["sr-default", "HILO (default)"], ["light-sheet", "inclined light sheet"], ["light-tirf", "TIRF"], ["ring-tirf", "ring TIRF"]], "shared": true, "caption": "The light can be any distribution in the back focal plane (BFP light maps): an elliptical spot makes a thinner inclined sheet than HILO's round beam, and the TIRF spot turned round the pupil within the exposure lights the coverslip from every direction."},
         {"panels": [["sr-default", "Gaussian beam (default)"], ["light-flattop", "FlatTop beam"], ["light-flat", "Flat beam"]], "shared": true, "caption": "A Gaussian beam dims steadily towards the edges, a flat-top one only in the corners; a flat one lights the field evenly."},
         {"panels": [["wf-default", "one beam (widefield)"], ["sim-2d", "2D SIM"], ["sim-3d", "3D SIM"], ["sim-lattice-3d", "3D lattice SIM"]], "shared": true, "caption": "Several coherent beams in the back focal plane interfere to a pattern that steps with the frame: stripes for 2D and 3D SIM (3 orientations), a lattice of spots for the five-beam lattice. The beams sit at 0.5 here so the fringe is resolved; at the types' defaults (0.9-0.95) it is near the resolution limit and the raw frames show mostly its moire with the sample."},
         {"panels": [["sim-dstorm-initial-on", "initial ON at the cycle mean (default)"], ["sim-dstorm-initial-on-frame", "initial ON in each frame's fringe (Exhaustive)"]], "shared": true, "caption": "dSTORM's first seconds under 2D SIM: the blinks take each frame's fringe either way; the dyes still in their initial ON glow under the cycle's mean light by default, under the frame's fringe at Exhaustive."}

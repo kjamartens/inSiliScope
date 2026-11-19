@@ -255,3 +255,13 @@ Upcoming ideas:
   Tried and dropped: a live mean-field anchor (`AnchorMeanField` with a wider reach: no gain, frames 0.3-0.5 % rms off);
   fewer dyes (1e-3 of the labelling: moves ~40 ms, but no signal left). [x] a plain live WideField scene's next bleach basis made ahead, 8 planes a frame (no ~170 ms frame every ~14 s), [x] SIM stage moves (the survey's height column from the last one's strips). [x] a record's HILO pivot on the dye planes' grid (a fine focus scrub's foci share records: SIM 1.4 -> 0.8 s a frame). [x] a DOSE map's closed records folded per chapter (SIM focus steps 200-400 -> 110-165 ms threaded, no longer growing). Next: [ ] `MapEntriesFor` still evaluates every tile x band per new map (6 terms now), [ ] a pore population per dye under a pattern (~1.1 s a frame by the nucleus edge), [ ] the next frame's bleach basis
   (~100 ms WASM), [ ] new dye-tile rows and the per-dye switch's splat sums made in the spare time too.
+- BFP light maps (2026-11-19, branch `bfp-light-maps`, spec/ALGORITHM.md "BFP light maps", spec/PORT.md 31): [x] text
+  options in the spec and settings files, [x] the equations and map images (`BfpExpr.*`, `BfpMaps.*`), [x] the
+  numerical field and its volumes (`BfpField.*`; rotation and shift shortcuts; the reach of 99.9 % of the power), [x]
+  `Excitation`'s maps mode and the light history's depth tents (lattice capped at 512 nodes, closed chapters slimmed),
+  [x] presets LightSheet / RingTIRF / Maps (MM, cli, viewer), the setup JSON, the Microscope view's panels (the
+  Illumination profile follows the focus), the viewer's Examples and map images (PNG), settings files carrying the
+  images, [x] docs, figures `bfp-maps` / `bfp-map-images`, gallery `light-sheet` / `ring-tirf`; ctest `bfp_maps`,
+  `test_sim.py`, `viewer_sim.mjs`, `settings_unit.mjs`. Next: [ ] a GPU path, [ ] the slide's per-frame fringes under
+  maps, [ ] a faster focused coherent beam (a full pupil: minutes; the field's reach over the whole volume),
+  [ ] emission-side maps (a detection pupil), [ ] the imager background's map on more than 32 nodes cheaply.

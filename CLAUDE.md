@@ -682,6 +682,30 @@ carry the same lab field (a grating's orders; before, opposite fields put SIM3D'
 ctest `sim_pattern`). Figures `sim-patterns`, `sim-cycle`, `sim-spot`; gallery `sim-2d`,
 `sim-3d`, `sim-lattice-3d`. Not yet: the GPU mean field under a pattern, the exact per-frame dose.
 
+**BFP light maps (2026-11-19, branch `bfp-light-maps`, spec/ALGORITHM.md "BFP light maps", spec/PORT.md 31,
+docs/physics/dyes-and-light-path.md "BFP light maps"):** the light in the BFP as maps over the pupil (u units, umax =
+NA / n_s): `I`, `phase` (turns), `pol` / `polLab` / `ellip`, `tiltX` / `tiltY` (deg), `focus` (deg, towards the lit
+region's centroid), `coherent` (0 / 1), `T` / `duty`, `scanX` / `scanY` / `scanRot`; equations (`Simulation/BfpExpr.*`,
+`;` or `,` between arguments: MMCore refuses commas) and images (`img("name")`, `BfpMaps.*`: a TIFF store by name, else a
+path; the viewer decodes PNG to an 8-bit TIFF, `bfpFileBytes`, and sends it to every engine, `isc_bfp_map_file`).
+`sim-type` 6 LightSheet (`sheet-thickness-um` 3 *estimate*, `sheet-width-um`; a pick sets `illum-bfp` 0.9), 7 RingTIRF
+(64 slots, a pick 1.03), 8 Maps; options `bfp-maps` (a **text option**: `ScopeSpec::text`, `key="..."` in a spec; the
+served cli reads lines, so `BfpOneLine`), `bfp-slots`, `bfp-cycle-frames`, `bfp-z-sample-um` 12, `bfp-map-px`. Coherent
+light is a numerical pupil field by chirp-Z per z plane (`BfpField.*` `BfpLight`, memoized: 512 MB WASM / 2 GB native;
+the pupil grid's period from the reach of 99.9 % of the propagating power, `kReachPower`; slots that rotate / shift one
+field are one field, the shift as one sparse bicubic kernel), incoherent points plane waves over the field stop's
+footprint; the power through the pupil = the legacy beam's. `Excitation` maps mode (`Mapped()`, `Slimmed()` for closed
+chapters), the light history's components = depth tents per plane (lattice <= `kLightMapNodes` 512 across the reach),
+the imager map on `kMapCollectNodes` 32. Not bit for bit with the legacy beam on purpose (a round spot lands round). MM
+`Lasers.BfpMaps` (Expert, one line; refuses a bad text or a missing image), `BfpSlots`, `BfpCycleFrames`,
+`SheetThicknessUm`, `SheetWidthUm`, `Renderer.BfpZSampleUm`. Viewer: `mv_bfp-maps` textarea (Expert), the Examples list
+(`web/live/bfp_examples.js`, PNGs `web/bfp_maps/` by `tools/gen_bfp_map_images.py [--check]`), Map images…, settings
+files carry the images (`part.files`, `filesOf` / `filesIn`); the Microscope view's Illumination profile follows the
+focus (`followFocus`; the focus dashed, a slider mark `Control::mark`). Checks: ctest `bfp_maps` (~2 s), `cli_settings`,
+`tools/test_sim.py`, `tests/web/viewer_sim.mjs`, `settings_unit.mjs`; figures `bfp-maps`, `bfp-map-images`; gallery
+`light-sheet`, `ring-tirf`. Slow: a focused coherent beam over much of the pupil (radial ring 12 s native, 72 s in the
+single-thread viewer module; a full pupil ~2 min native). Not yet: GPU, the slide's per-frame fringes under maps.
+
 **Exact light history (2026-10-15/16, core ABI 14, spec/ALGORITHM.md "Exact light history", spec/PORT.md 23; branch
 `claude/exact-dose`):** every dye of every consumer reads its kinetics at the dose at its own (x, y, z), smooth in all
 three, one core query per movie. It replaced the stepped history (two lateral levels per 0.25 um tile, 12 z bands,

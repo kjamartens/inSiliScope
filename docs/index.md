@@ -63,7 +63,9 @@ bleaching persists, focus matters. inSiliScope provides both from one source of 
 - **Realistic camera.** sCMOS and EMCCD noise chains with per-pixel maps, background and illumination profiles.
 - **The light's geometry.** One laser spot in the objective's back focal plane (epi, HILO, TIRF) or several coherent
   beams interfering to a 2D, 3D or lattice SIM pattern that steps with the frame
-  ([Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)).
+  ([Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)), or any light in the back
+  focal plane written as maps over the pupil: an inclined light sheet, ring TIRF, Bessel beams, scans
+  ([BFP light maps](physics/dyes-and-light-path.md#bfp-light-maps)).
 - **More than one sample.** The geometry of a sample is separate from the photophysics and the imaging: the cell
   field and the [nanorulers](samples/nanorulers/index.md) share the dyes, the light path, the PSF and the camera.
   Switch in the viewer's Sample select, Micro-Manager's `SampleHolder` or the cli's `--specimen`; see

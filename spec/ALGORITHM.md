@@ -1397,6 +1397,54 @@ fiducial beads as on any specimen); its light is the engine's (`Simulation/Slide
   core's queries over the whole field (every dye made, its schedule kept) are the cost; tiling them would bound the
   memory, not the time.
 
+## BFP light maps (2026-11-19)
+
+The light in the objective's back focal plane as maps over the pupil instead of a list of spots (`Simulation/BfpExpr.*`,
+`BfpMaps.*`, `BfpField.*`; `sim-type` 6 LightSheet, 7 RingTIRF, 8 Maps; docs/physics/dyes-and-light-path.md "BFP light
+maps"). The user's decisions: equations and image files; coherent light as a numerical pupil field, kept in RAM; coherence
+a binary map; `focus` an angle; area-based (a spot's size is its extent in `I`, no spot-size map); the same total power
+through the pupil as the legacy beam at the line's setting; editing Expert, the presets Basic.
+
+- **Maps** (u units: 1 the critical angle, umax = NA / n_s): `I`, `phase` (turns), `pol` / `polLab` / `ellip`, `tiltX`
+  / `tiltY` (deg), `focus` (deg from parallel, towards the intensity centroid of the point's connected lit region per
+  slot), `coherent` (0 / 1), `T` / `duty`, `scanX` / `scanY` / `scanRot`. Equations compile to a stack program
+  (`BfpProgram`; `,` or `;` between arguments: MMCore refuses commas); `img("name")` reads an image from the store
+  (`BfpRegisterImage`: uncompressed 8/16/32-bit TIFF, ImageJ stacks = time slots; the square is the pupil, row 0 at
+  +uy). The text option `bfp-maps` (`ScopeSpec::text`, `key="..."` in a spec; settings files carry the images, base64).
+- **Coherent regions** (per slot, line and polarization run): one complex vector field over a pupil grid: amplitude
+  sqrt I, phase = `phase` + the integral of the ray angle (tilt + the radial focus angle; least squares where it is not a
+  gradient), the Fresnel / Axelrod coefficients per pupil point (`BeamFieldOf`'s), then the separable chirp-Z per z
+  plane (propagating and evanescent alike). The pupil grid's period exceeds the window plus the reach of the light at
+  the volume's top (`bfp-z-sample-um`, 12 um): **the reach of 99.9 % of the propagating power** (`kReachPower`, a
+  histogram of tan theta), not of every point above 1e-4 of the peak: a Gaussian ring's tail towards u = 1 reached
+  200 um and took a focused ring's pupil to 1387^2 (31 s natively, 163 s in the viewer's worker); 655^2 now, the light
+  within 9e-4 of the peak. A full-pupil coherent spot still needs ~1200^2 (minutes): its power reaches steep angles.
+- **Incoherent points**: a plane wave each, over the field stop's footprint (`illum-profile`, `illum-fwhm`), centred
+  at f tan(ray angle) and sheared along its direction with height; a coarse pupil (128 per axis) when nothing is
+  coherent.
+- **Time:** `bfp-slots` S (t = (s + 0.5) / S; 64 when a map depends on t) and `bfp-cycle-frames` (0: every slot in
+  every exposure; n: slot s in frame floor(s n / S)). Shortcuts, each checked against the direct sums (ctest
+  `bfp_maps`): slots that are one field rotated (RingTIRF: 64 slots in 0.04 s instead of 1.8 s) and slots that are one
+  field shifted (a scan: one sparse kernel of every slot's bicubic taps, convolved once; 96 slots 22 -> 4.8 s).
+- **The volumes:** per light state and line the intensity on a lateral grid (bicubic) and adaptive z planes (fine at the
+  coverslip under evanescent light), the cycle mean beside; `Excitation` in maps mode reads them (`At`, `MeanAt`,
+  `PlaneMean`, `Column` / `ImagerMap`, `AtBall`). Memoized by the maps' hash (512 MB in WASM, 2 GB natively).
+- **The light history** without a core change: the cycle mean as one component per z plane, the plane's grid x a tent
+  depth table. Its lattice is at most `kLightMapNodes` (512) across the light's reach (`BfpLight::ReachUm`, 1e-4 of the
+  peak): a coherent lattice's fringes asked for 15.6 nm over +-27 um, gigabytes per chapter (the viewer ran out of
+  memory); the dose map now smooths fringes finer than a few nodes (~10 % at the extremes of a 400 nm fringe). A closed
+  chapter keeps a slimmed `Excitation` (no volumes; the depth tents, reach and components stay). The imager background
+  under maps collects on 32 nodes (`kMapCollectNodes`).
+- **One spot is not the legacy beam:** the map's field on the focal plane is the pupil's Fourier transform (the sine
+  condition), so a round spot lands round; the legacy beam is a round beam projected onto the plane (1 / cos theta_i
+  along x). Peaks agree; `bfp_maps` compares with the stretch taken out (3 %).
+- **Presets:** LightSheet (an elliptical coherent unpolarized Gaussian at `illum-bfp`, a pick sets 0.9;
+  `sheet-thickness-um` 3, *estimate*, x `sheet-width-um`; after [gustavsson2018], here through the imaging objective)
+  and RingTIRF (the legacy spot at `illum-bfp`, a pick 1.03, `scanRot = 360 t`, 64 slots, unpolarized; [ellefsen2015]).
+  RingTIRF's regime reads TIRF when >= 95 % of the pupil's power is evanescent (`kMapTirfShare`).
+- **Limits:** CPU only (no GPU path); the slide under maps takes the cycle mean (no per-frame fringes); MM has no
+  `bfp-map-px` row (a readout's).
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but
