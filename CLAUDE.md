@@ -348,7 +348,13 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   (`foldSettings`, class `setShut` on `#wrap`; 2026-11-13: folded at every launch, the panel keeps `--live-w` either way, so the
   live strip takes the column's room and the world view keeps its size); a search unfolds it; on a phone both are plain boxes again); the search highlights matching rows (`.opt.hit`, the column's too) and opens every group with a match; render paths/time/drift and the performance in the settings' section Simulation
   (group `perf`, Expert, `lv_perfBox`; with Image formation);
-  **● Record** (2026-10-14): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
+  **● Record** (2026-10-14; large recordings 2026-11-19: a fresh sample's frames stream out of the engine as made, `isc_movie_stream` +
+  `Module.onMovieFrame` -> 'movie-part' messages of ~16 MB (`streamFrames` / `streamEnd` in the worker, the job's `stream`),
+  every recording kept as its parts (`frameStore`; no 1 GB cap, no frame in the 4 GB heap past its part; a part the
+  worker cannot allocate stops the Record with the frames so far), `writeTiff16` takes the parts into the Blob as
+  they are and writes a BigTIFF past 4 GB less 64 MB (classic below, byte for byte), zip.js stores a Blob past 1 GB
+  streamed (CRC from its stream); checks `tests/web/tiff_unit.mjs` (0.5 s: the old writer's bytes, a BigTIFF read back
+  and by tifffile, a 4.4 GB layout through a counting Blob), `zip_unit.mjs` (Blob entries)): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
   `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames from the box's
   `lv_recT` start time, default 0 s (2026-11-03; not `mv_start-sec`, which live keeps), on the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
   replacing the worker); with "continue the live sample" (Advanced, `lv_recLive`, off by default; the user's choice,

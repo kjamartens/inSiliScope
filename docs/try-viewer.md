@@ -132,7 +132,11 @@ through it step by step.
   it ([napari](ground-truth.md#open-it-in-napari)). Nothing is saved by itself. A recording is a fresh sample: a movie starting at
   that time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
-  Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.
+  Live, Snap and ↺ wait while it records. A recording is held in the browser tab's memory, so its size is bounded
+  by that, not by a fixed cap. If the tab runs out, the recording stops and keeps the frames so far. A movie past
+  4 GB is saved as a **BigTIFF**: open it in Fiji with Bio-Formats, in napari or with tifffile, as plain ImageJ
+  cannot. For very large movies, `insiliscope_cli` or `tools/isc_render.py` on the saved settings write straight
+  to disk ([Quickstart](quickstart.md)).
   With **continue the live sample** (in the box, Advanced level; the start time is then hidden) the frames go on from the
   live sample instead: its
   illumination history, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition. They
