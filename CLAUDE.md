@@ -430,7 +430,7 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   TIFF per position; a viewer file and its .cfg export give the same frames within a few ADU: the PSF kernel width;
   `tools/build_isc_render_exe.py` makes `dist/inSiliScope Render.exe`, PyInstaller one-file windowed, in the venv
   `build/isc_render_venv` (pyinstaller, pymmcore 12.5.0.75.0, numpy: a hidden import, pymmcore's C module needs it),
-  carrying the cli, the DLL, `mmgr_dal_Utilities.dll` and the VC++ runtime; ~15 s; the exe's frames = the script's bit for bit).
+  carrying the cli, the DLL, `mmgr_dal_Utilities.dll` and the VC++ runtime; ~15 s; the exe's frames = the script's bit for bit; a frames bar per position from the cli's `--progress 1`: `@@isc-frame k` as frame k is written, frames unchanged).
 
 ## Rules for core (why each exists is in docs/dev/m0-feasibility.md)
 

@@ -167,8 +167,9 @@ def out_name(folder, stem, k, pos):
 
 # ---- rendering: one served cli for every position (it keeps the world and the PSF between them) ----
 
-def render(setup, positions, exposure_ms, frames, start_sec, folder, cli, log=print, stop=None):
-    """Renders each position into its TIFF; returns the files. log(text) per line; stop() True cancels between movies."""
+def render(setup, positions, exposure_ms, frames, start_sec, folder, cli, log=print, stop=None, on_frame=None):
+    """Renders each position into its TIFF; returns the files. log(text) per line; stop() True cancels between movies;
+    on_frame(position k, frames written) as each frame is written (0 when a position starts: its setup runs first)."""
     Path(folder).mkdir(parents=True, exist_ok=True)
     stem = re.sub(r"\.(isc\.json|cfg|json)$", "", Path(setup.path).name, flags=re.I)
     proc = subprocess.Popen([cli, "--serve"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -181,11 +182,14 @@ def render(setup, positions, exposure_ms, frames, start_sec, folder, cli, log=pr
                 break
             out = out_name(folder, stem, k, pos)
             args = setup.args() + ["--x", num(pos[0]), "--y", num(pos[1]), "--z", num(pos[2]),
-                                   "--exposure-ms", num(exposure_ms), "--frames", str(int(frames)), "--out", str(out)]
+                                   "--exposure-ms", num(exposure_ms), "--frames", str(int(frames)), "--out", str(out),
+                                   "--progress", "1"]
             if start_sec is not None:
                 args += ["--start-sec", num(start_sec)]
             log(f"[{k}/{len(positions)}] x {num(pos[0])}  y {num(pos[1])}  z {num(pos[2])} um ...")
             t = time.time()
+            if on_frame:
+                on_frame(k, 0)
             proc.stdin.write("\t".join(args) + "\n")
             proc.stdin.flush()
             code = None
@@ -193,6 +197,11 @@ def render(setup, positions, exposure_ms, frames, start_sec, folder, cli, log=pr
                 line = proc.stdout.readline()
                 if not line:
                     raise RuntimeError("insiliscope_cli stopped")
+                m = re.match(r"@@isc-frame (\d+)", line)
+                if m:
+                    if on_frame:
+                        on_frame(k, int(m.group(1)))
+                    continue
                 m = re.match(r"@@isc-done (-?\d+)", line)
                 if m:
                     code = int(m.group(1))
@@ -276,8 +285,17 @@ def gui(args):
     stop_btn.pack(side="left", padx=6)
     open_btn = ttk.Button(b, text="Open output folder", command=lambda: open_folder(out_var.get()))
     open_btn.pack(side="right")
-    bar = ttk.Progressbar(f, mode="determinate")
-    bar.grid(row=6, column=0, columnspan=3, sticky="ew")
+    pg = ttk.Frame(f)
+    pg.grid(row=6, column=0, columnspan=3, sticky="ew")
+    pg.columnconfigure(1, weight=1)
+    ttk.Label(pg, text="Positions").grid(row=0, column=0, sticky="w", padx=(0, 6))
+    bar = ttk.Progressbar(pg, mode="determinate")
+    bar.grid(row=0, column=1, sticky="ew")
+    ttk.Label(pg, text="Frames").grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(4, 0))
+    fbar = ttk.Progressbar(pg, mode="determinate")
+    fbar.grid(row=1, column=1, sticky="ew", pady=(4, 0))
+    prog_var = tk.StringVar(value="")
+    ttk.Label(pg, textvariable=prog_var).grid(row=2, column=1, sticky="w")
 
     log_box = tk.Text(f, height=12, state="disabled", wrap="none")
     log_box.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(6, 0))
@@ -354,17 +372,34 @@ def gui(args):
         go.configure(state="disabled")
         stop_btn.configure(state="normal")
         bar.configure(maximum=len(positions), value=0)
+        fbar.configure(maximum=frames, value=0)
+        prog_var.set("")
+        clock = {"t": time.time()}
 
         def step(text):
             log(text)
             if text.startswith("    -> "):
                 root.after(0, lambda: bar.configure(value=bar.cget("value") + 1))   # (step() wraps at the end)
 
+        def frame(k, n):   # (the render thread: the widgets change on the window's thread)
+            if n == 0:
+                clock["t"] = time.time()
+            dt = time.time() - clock["t"]
+            where = f"Position {k} of {len(positions)}: "
+            if n == 0:
+                text = where + "preparing (the sample and the PSF)…"
+            else:
+                rate = n / dt if dt > 0 else 0
+                left = (frames - n) / rate if rate > 0 and n < frames else 0
+                text = where + f"frame {n} of {frames}" + (f", {rate:.0f} frames/s, ~{left:.0f} s left" if n < frames and rate else "")
+            root.after(0, lambda: (fbar.configure(value=min(n, frames)), prog_var.set(text)))
+
         def work():
             t = time.time()
             try:
                 files = render(state["setup"], positions, exposure, frames, start_sec, out_var.get(), cli, step,
-                               lambda: state["stop"])
+                               lambda: state["stop"], frame)
+                root.after(0, lambda: prog_var.set(f"Done: {len(files)} file(s)"))
                 log(f"Done: {len(files)} file(s) in {time.time() - t:.1f} s.")
             except Exception as e:
                 log(f"Error: {e}")
@@ -403,9 +438,15 @@ def main():
         sys.exit(1)
     try:
         t = time.time()
+        n = args.frames or 100
+        tty = sys.stdout.isatty()
+
+        def frame(k, i):
+            if tty and i:
+                print(f"\r    frame {i} of {n}", end="\n" if i >= n else "", flush=True)
         files = render(setup, [parse_positions(p)[0] for p in args.pos],
-                       args.exposure_ms or setup.get("exposure-ms", 50), args.frames or 100, args.start_sec,
-                       args.out or str(Path.home() / "inSiliScope renders"), find_cli(args.cli))
+                       args.exposure_ms or setup.get("exposure-ms", 50), n, args.start_sec,
+                       args.out or str(Path.home() / "inSiliScope renders"), find_cli(args.cli), on_frame=frame)
         print(f"Done: {len(files)} file(s) in {time.time() - t:.1f} s.")
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

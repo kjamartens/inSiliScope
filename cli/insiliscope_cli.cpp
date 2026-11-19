@@ -87,6 +87,8 @@ void Usage()
                "  --gt-min n             localizations: photons in the 500 nm square around a blink (300)\n"
                "  --gt-volume xy,z       density stacks' voxel in nm (10,10; 0 = none)\n"
                "\n"
+               "  --progress 1           print '@@isc-frame <k>' as frame k (1, 2, ...) is written (a front end's\n"
+               "                         progress bar; tools/isc_render.py)\n"
                "  --serve                one command per stdin line (its arguments separated by tabs), each\n"
                "                         answered as a separate run would be, then a line '@@isc-done <exit code>';\n"
                "                         the process keeps its world and PSF kernel between commands\n");
@@ -115,6 +117,7 @@ int RunCli(int argc, char** argv)
    bool haveDyesRect = false;
    std::string historyBefore, gtOut;
    double gtMin = 300, gtVol[2] = { 10, 10 };
+   bool progress = false;   // --progress 1: a line per frame written
    sim::ScopeSpec spec;
    settings::Loaded loaded;   // --settings: the files' light history
    for (int i = 1; i < argc; i++) {
@@ -127,6 +130,7 @@ int RunCli(int argc, char** argv)
       if (a == "--geometry-detail" && i + 1 < argc) { geometryDetail = std::atof(argv[++i]) != 0; continue; }
       if (a == "--history-before" && i + 1 < argc) { historyBefore = argv[++i]; continue; }
       if (a == "--gt-out" && i + 1 < argc) { gtOut = argv[++i]; continue; }
+      if (a == "--progress" && i + 1 < argc) { progress = std::atof(argv[++i]) != 0; continue; }
       if (a == "--gt-volume" && i + 1 < argc) {
          if (!ParseList(argv[++i], gtVol, 2)) { std::fprintf(stderr, "--gt-volume needs 2 comma-separated numbers\n"); return 2; }
          continue;
@@ -300,6 +304,11 @@ int RunCli(int argc, char** argv)
 
    TiffWriter tif(out);
    if (!tif.ok()) { std::fprintf(stderr, "cannot write %s\n", out.c_str()); return 1; }
+   const auto written = [&](long f) {
+      if (!progress) return;
+      std::printf("@@isc-frame %ld\n", f + 1);
+      std::fflush(stdout);
+   };
    // --gt-out: every movie below fills it (GroundTruth.h); written when the frames are.
    sim::GroundTruth gt;
    gt.minCorePhotons = gtMin;
@@ -333,6 +342,7 @@ int RunCli(int argc, char** argv)
       bool writeOk = true;
       if (!settings::RenderMovie(loaded, [&](long f, const std::vector<uint16_t>& page, unsigned w, unsigned h) {
              writeOk = tif.Page(page, w, h, f == 0 ? run.description + " version=" ISC_VERSION : std::string());
+             if (writeOk) written(f);
              return writeOk;
           }, run, err)) {
          std::fprintf(stderr, "%s\n", writeOk ? err.c_str() : "write error");
@@ -371,6 +381,7 @@ int RunCli(int argc, char** argv)
    bool writeOk = true;
    const bool ok = sim::RenderScopeMovie(spec, [&](long f, const std::vector<uint16_t>& adu) {
       writeOk = tif.Page(adu, info.width, info.height, f == 0 ? info.description + " version=" ISC_VERSION : "");
+      if (writeOk) written(f);
       return writeOk;
    }, info, err);
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
