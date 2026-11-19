@@ -35,6 +35,7 @@ void InSiliScopeHub::LoadTargetDye(int s, bool modeMayChange)
       return;
    const std::string prefix = TargetAt(s).prefix;
    st.ClearDyeEditsWithPrefix(prefix + "-dye.");
+   Notify(prefix + "-dye.fields");
    // The label as the engine resolves it (Typical, Global: ScopeStructureDye).
    EffectiveDye eff;
    int choice = 0;

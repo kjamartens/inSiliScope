@@ -293,6 +293,21 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
    // engine never picks it: Lasers.Preset sets it), with the medium's index (the critical angle).
    s["illum-bfp"] = st.Option("illum-bfp");
    s["bf-n-medium"] = st.brightField[BF_INDEX_MEDIUM].load();
+   // The BrightField numbers (2026-11-19: the spec carries every setting, so a viewer-made configuration and the
+   // cli's --spec see them; the adapter's own BrightField frames take them from BuildBrightfieldSpec).
+   s["bf-quality"] = st.brightField[BF_QUALITY].load();
+   s["bf-sources"] = st.brightField[BF_SOURCES].load();
+   s["bf-upscale"] = st.brightField[BF_UPSCALING].load();
+   s["bf-sub"] = st.brightField[BF_GEOMETRY_SAMPLES].load();
+   s["bf-slice-um"] = st.brightField[BF_SLICE_UM].load() < 0 ? -1.0 : st.brightField[BF_SLICE_UM].load();
+   s["bf-condenser-na"] = st.brightField[BF_CONDENSER_NA].load();
+   s["bf-wavelength-nm"] = st.brightField[BF_WAVELENGTH_NM].load();
+   s["bf-photons-per-px-per-sec"] = st.brightField[BF_PHOTONS_PER_PX_PER_SEC].load();
+   s["bf-aberrations"] = st.brightField[BF_ABERRATIONS].load();
+   s["bf-n-cytoplasm"] = st.brightField[BF_INDEX_CYTOPLASM].load();
+   s["bf-n-nucleus"] = st.brightField[BF_INDEX_NUCLEUS].load();
+   s["bf-n-microtubule"] = st.brightField[BF_INDEX_MICROTUBULE].load();
+   s["bf-absorption-per-um"] = st.brightField[BF_ABSORPTION_PER_UM].load();
    // The light path and camera are the properties' (no preset of the engine's own).
    s["light-preset"] = -1;
    s["camera-preset"] = st.cameraPreset.load();
