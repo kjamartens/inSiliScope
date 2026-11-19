@@ -153,6 +153,14 @@ build/native/cli/insiliscope_cli --settings lab.isc.json:instrument --settings m
 later files and options override). When its measurement holds a light history, the CLI replays it and writes the live
 sample's next frames, the ones the viewer would take next.
 
+`python tools/isc_render.py` opens a small window on top of the CLI: open a viewer settings file (`.isc.json`) or a
+Micro-Manager configuration (`.cfg`: the shipped ones or the viewer's **Micro-Manager .cfg…**), type stage positions
+(`x y z` in um, one per line), the exposure, the number of frames and, if wanted, the start time, and **Render** writes
+one 16-bit TIFF stack per position into the output folder. With a file and `--pos "x y z"` (repeated) it runs without
+the window. A `.cfg` is read through Micro-Manager's core (it needs [pymmcore-plus](https://pymmcore-plus.github.io/pymmcore-plus/)
+and the inSiliScope DLL; `--adapter-dir` names the DLL's folder), so its frames are the ones Micro-Manager's adapter
+would render from a fresh sample.
+
 With `--drift-xy-speed-nm-per-sec` / `--drift-z-speed-nm-per-sec` the sample drifts (mean speeds; see `--help` for
 the direction, its wander and the random-walk jitter `--drift-xy-nm-per-sqrt-sec`) and the CLI writes the true drift per
 frame to `movie.drift.csv`.
