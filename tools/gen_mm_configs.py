@@ -24,6 +24,7 @@ from pathlib import Path
 os.environ["ISC_TEST"] = "0"   # the user's view: no Test rows
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from isc_mm import ALL_DEVICES, HUB, search_paths  # noqa: E402
+import mm_cfg_map  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "adapter" / "inSiliScope" / "config"
@@ -356,13 +357,14 @@ def viewer_presets(cfg_paths):
     # (2026-10-14; the specs need no cells).
     cache_env = os.environ.get("ISC_CACHE")
     os.environ["ISC_CACHE"] = "0"
-    out, tiers = {}, {}
+    out, tiers, cfg_table = {}, {}, {}
     with tempfile.TemporaryDirectory() as tmp:
         def spec(core, keep_all=False):
             f = os.path.join(tmp, "spec.txt")
             core.setProperty("Renderer", "WriteScopeSpecTo", f)
             kv = (line.split("=", 1) for line in Path(f).read_text(encoding="utf-8").splitlines() if "=" in line)
-            return {k: float(v) for k, v in kv if keep_all or k not in NOT_CONFIG}
+            # (the text options, k="...", are not numbers: the writer's own, mm_cfg_map.SPECIAL)
+            return {k: float(v) for k, v in kv if (keep_all or k not in NOT_CONFIG) and not v.startswith('"')}
 
         def registry(core):
             f = os.path.join(tmp, "registry.json")
@@ -458,6 +460,12 @@ def viewer_presets(cfg_paths):
             if tier == "Expert":   # every row exists at Expert
                 tiers = option_tiers(core, lambda c: {k: v for k, v in spec(c, True).items()
                                                       if k not in ("x", "y", "z", "seed", "frames")})
+                # the ".cfg from the viewer" table (tools/mm_cfg_map.py): each option's property, on fresh hubs
+                expert_text = text
+                cfg_table = mm_cfg_map.table(mm_cfg_map.build(lambda: load(expert_text), lambda c: spec(c, True),
+                                                              lambda c: list(registry(c).values())),
+                                             viewer_zernike_presets())
+                cfg_table["template"] = path.read_text(encoding="utf-8")
             core.unloadAllDevices()
     os.environ["ISC_TEST"] = "0"
     if cache_env is None:
@@ -471,7 +479,12 @@ def viewer_presets(cfg_paths):
             "// Each engine option's Micro-Manager tier (Basic / Advanced / Expert) and the property that sets it, and\n"
             "// each property's tier (a control whose help names the property): the viewer's settings levels follow them\n"
             "// (a control with neither keeps the viewer's own level).\n"
-            "self.ISC_MM_TIERS = " + json.dumps(tiers, indent=0) + ";\n")
+            "self.ISC_MM_TIERS = " + json.dumps(tiers, indent=0) + ";\n"
+            "// The \".cfg from the viewer\" table (web/live/mm_cfg.js, tools/mm_cfg_map.py): each engine option's property\n"
+            "// and how its values map, in the order a configuration sets them; the options the writer handles itself, the\n"
+            "// viewer's options that are no configuration, the viewer's names of options Micro-Manager writes under\n"
+            "// another, the Zernike presets by index, and the Expert configuration the export starts from.\n"
+            "self.ISC_MM_CFG = " + json.dumps(cfg_table, indent=0) + ";\n")
 
 
 def main():

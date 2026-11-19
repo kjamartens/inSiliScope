@@ -278,7 +278,8 @@ const sec = document.createElement('div');
 sec.id = 'menuSetup';
 sec.innerHTML = '<h4 title="A setup in five parts, each saved and loaded on its own; a .isc.json dropped on the page loads too">Settings file</h4>' +
   '<div id="lv_setupRows"></div><div class="btns"><button id="lv_setSave" title="Save the setup (or some of its parts) as a .isc.json file">Save…</button>' +
-  '<button id="lv_setLoad" title="Load a .isc.json file: all of it, or some of its parts over what is here">Load…</button></div>';
+  '<button id="lv_setLoad" title="Load a .isc.json file: all of it, or some of its parts over what is here">Load…</button>' +
+  '<button id="lv_setCfg" title="Save a Micro-Manager configuration (.cfg) that sets the simulated microscope in Micro-Manager to these settings">Micro-Manager .cfg…</button></div>';
 menu.prepend(sec);
 // standard icons: a floppy disk (save) and an open folder (load)
 const ICON = {
@@ -410,6 +411,38 @@ function openLoad(text, fileName) {
     $('setCancel').textContent = 'Close';
   };
 }
+// A Micro-Manager configuration of the viewer's settings (web/live/mm_cfg.js): the shipped Expert configuration with a
+// Startup preset that sets every property to the viewer's value.
+function mmCfgNow(name) {
+  const date = new Date().toISOString().slice(0, 10);
+  return self.iscMmCfg.write(parseSpec(movieSpec()), { optics: self.ISC_MM_OPTICS ? self.ISC_MM_OPTICS() : {}, name, date });
+}
+function openMmCfg() {
+  if (!self.iscMmCfg || !self.ISC_MM_CFG) return;
+  const name0 = store.get('setupSaveName', 'insiliscope-setup'), r = mmCfgNow(name0);
+  dbox.innerHTML = '<h3>Micro-Manager configuration</h3><div class="row"><label for="setName">Name</label><input type="text" id="setName" maxlength="60"></div>' +
+    '<div class="msg">A .cfg for Micro-Manager with the inSiliScope adapter (Detail Expert): its devices and groups as shipped, ' +
+    `and a Startup preset that sets ${r.settings.length} properties to the values here, so the adapter renders as this viewer does. ` +
+    'Not in it: the stage position, the movie\'s length and start time, and the viewer\'s smaller PSF kernel (Micro-Manager keeps its own).</div>' +
+    r.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
+    '<div class="row"><span class="sp"></span><button id="setCancel">Cancel</button><button id="setGo">Save</button></div>';
+  $('setName').value = name0;
+  dlg.hidden = false;
+  $('setName').focus(); $('setName').select();
+  $('setCancel').onclick = closeDlg;
+  $('setGo').onclick = () => {
+    const name = ($('setName').value.trim() || 'insiliscope-setup').replace(/[\\/:*?"<>|]+/g, '_');
+    store.set('setupSaveName', name);
+    const out = mmCfgNow(name), a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([out.text.replace(/\n/g, '\r\n')], { type: 'text/plain' }));
+    a.download = name + '.cfg';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    self.iscLastMmCfg = out;   // (the browser tests read it)
+    if (self.iscTrack) self.iscTrack('mm-cfg');
+    closeDlg();
+  };
+}
 function pickFile() {
   const inp = document.createElement('input');
   inp.type = 'file';
@@ -417,7 +450,7 @@ function pickFile() {
   inp.onchange = () => { const fl = inp.files[0]; if (fl) fl.text().then(t => openLoad(t, fl.name)); };
   inp.click();
 }
-for (const [id, go] of [['lv_setSave', openSave], ['lv_setLoad', pickFile], ['setIcoSave', openSave], ['setIcoLoad', pickFile]])
+for (const [id, go] of [['lv_setSave', openSave], ['lv_setLoad', pickFile], ['lv_setCfg', openMmCfg], ['setIcoSave', openSave], ['setIcoLoad', pickFile]])
   $(id).addEventListener('click', ev => { ev.stopPropagation(); closeMenu(); go(); });
 // a .isc.json dropped on the page loads it
 document.addEventListener('dragover', ev => { if ([...(ev.dataTransfer.items || [])].some(i => i.kind === 'file')) ev.preventDefault(); });
@@ -434,5 +467,5 @@ const dialog = (html, onClose) => {
   const f = onDlgClose; onDlgClose = null; if (f) f();   // (a box replacing another closes it)
   dbox.innerHTML = html; dlg.hidden = false; onDlgClose = onClose || null; return dbox;
 };
-self.iscSettings = { makeFile, recordFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS, dialog, closeDialog: closeDlg };
+self.iscSettings = { makeFile, recordFile, readFile, applyFile, current, partOf, idOf, open: openLoad, PARTS, dialog, closeDialog: closeDlg, mmCfg: mmCfgNow, openMmCfg };
 })();
