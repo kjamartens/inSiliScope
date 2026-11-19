@@ -4689,8 +4689,10 @@ function iscEngine(M) {
         M._isc_scope_options(b, n);
         const lines = M.UTF8ToString(b).split('\n').filter(Boolean).map(l => l.split('\t'));
         M._free(b);
-        return [{ type: 'options', id: d.id, names: lines.map(l => l[0]), defaults: lines.map(l => +l[1]),
-          parts: lines.map(l => l[3] || ''), valueNames: lines.map(l => (l[4] ? l[4].split('|') : null)) }, []];
+        // (a sixth field "text": a text option, bfp-maps, its default a string)
+        return [{ type: 'options', id: d.id, names: lines.map(l => l[0]), defaults: lines.map(l => (l[5] === 'text' ? l[1] : +l[1])),
+          parts: lines.map(l => l[3] || ''), valueNames: lines.map(l => (l[4] ? l[4].split('|') : null)),
+          kinds: lines.map(l => l[5] || '') }, []];
       }
       if (d.type === 'live-replay') {
         // A saved session's light (web/live/settings_file.js): a fresh sample, then each run of frames without rendering
@@ -4984,7 +4986,8 @@ function onDyesMessage(e) {
   else if (t === 'origami') onOrigamiResult(e.data);
   else if (t === 'options') {
     // the engine's options by name: default, settings-file part, value names (web/live/settings_file.js)
-    self.ISC_ENGINE_OPTIONS = new Map(e.data.names.map((n, i) => [n, { def: e.data.defaults[i], part: e.data.parts[i], names: e.data.valueNames[i] }]));
+    self.ISC_ENGINE_OPTIONS = new Map(e.data.names.map((n, i) => [n, { def: e.data.defaults[i], part: e.data.parts[i], names: e.data.valueNames[i],
+      text: !!(e.data.kinds && e.data.kinds[i] === 'text') }]));
     if (self.onEngineOptions) self.onEngineOptions(e.data.names, e.data.defaults);
   }
   else if (t === 'setup') onSetupResult(e.data);
@@ -6399,7 +6402,7 @@ function movieSpec(ov) {
   if (document.getElementById('qeFlat').checked) o.push('qe-curve=' + ISC_DYE_DATA.cameras.findIndex(c => c.id === 'Custom'));
   // The live panel's Configuration (web/live/mm_config_ui.js): a preset's options the panel has no control for.
   const mmExtra = self.ISC_MM_EXTRA || {};
-  for (const k in mmExtra) if (!has(k) && !MOVIE_KEYS.includes(k)) o.push(k + '=' + mmExtra[k]);
+  for (const k in mmExtra) if (!has(k) && !MOVIE_KEYS.includes(k)) o.push(typeof mmExtra[k] === 'string' ? iscSettingsCore.specPair(k, mmExtra[k]) : k + '=' + mmExtra[k]);
   // Zernike modes typed over the preset's (ZERN, below): all 28
   if (self.ISC_ZERN && ISC_ZERN.user) ISC_ZERN.user.forEach((v, j) => { if (!has('zern.' + j)) o.push('zern.' + j + '=' + v); });
   if (self.ISC_BEAMS && ISC_BEAMS.user) ISC_BEAMS.user.forEach((row, j) => row.forEach((v, c) => { const k = 'beam.' + j + '.' + BEAM_COLUMNS[c]; if (!has(k)) o.push(k + '=' + v); }));

@@ -1,6 +1,7 @@
 // WASM exports of the scope movie (sim::RenderScopeMovie) for the viewer:
 // the same render code as the inSiliScope camera and insiliscope_cli, in
 // the viewer's module next to the core's C ABI.
+#include "BfpMaps.h"
 #include "GroundTruth.h"
 #include "LiveScope.h"
 #include "MemoryReport.h"
@@ -150,6 +151,14 @@ ISC_API int32_t isc_scope_options(char* out, int32_t cap)
       out[n] = 0;
    }
    return static_cast<int32_t>(s.size());
+}
+
+// A BFP map image file for img("name") in bfp-maps (BfpMaps.h): its bytes (a TIFF) under its name; n = 0 removes it.
+// Returns 0.
+ISC_API int32_t isc_bfp_map_file(const char* name, const uint8_t* data, int32_t n)
+{
+   sim::BfpRegisterImage(name ? name : "", data, n > 0 ? static_cast<size_t>(n) : 0);
+   return 0;
 }
 
 // Renders the movie of `spec` ("k=v k=v ...", see ScopeMovie.h) into out

@@ -29,7 +29,8 @@ const str = s => { const n = M.lengthBytesUTF8(s) + 1, p = M._malloc(n); M.strin
 const n = M._isc_scope_options(0, 0) + 1, b = M._malloc(n);
 M._isc_scope_options(b, n);
 const eng = new Map(M.UTF8ToString(b).split('\n').filter(Boolean).map(l => l.split('\t'))
-  .map(([name, def, , part, names]) => [name, { def: +def, part, names: names ? names.split('|') : null }]));
+  .map(([name, def, , part, names, kind]) => [name, kind === 'text' ? { def, part, names: null, text: true }
+    : { def: +def, part, names: names ? names.split('|') : null }]));
 M._free(b);
 
 // ---- parts and names ----
@@ -125,6 +126,31 @@ function frames(spec, k) {
   check(okR && noHost && rs.before.length === 1 && rs.record.length === 3 && got.length === want.length && got.length === 7 * 16 * 16 &&
     got.every((v, i) => v === want[i]),
     `a Record's file (2 frames before, 3 recorded runs, the laser changed between two; recordFrom ${back.recordFrom}): the recorded frames, bit for bit`);
+}
+
+// ---- text options (bfp-maps): parsed, quoted back, replayed ----
+{
+  const maps = 'I = spot(ux - 0.5; uy; 0.15) # a "quoted" note \\ and a backslash\ncoherent = 0';
+  const spec = base + 'x=0 y=0 z=0.0135 laser-561=3 sim-type=8 bfp-maps=' + C.quoteText(maps);
+  const m = C.parseSpec(spec);
+  check(eng.get('bfp-maps') && eng.get('bfp-maps').text && eng.get('bfp-maps').part === 'settings' && m.get('bfp-maps') === maps &&
+    m.get('sim-type') === 8 && C.parseSpec(C.specPair('bfp-maps', maps)).get('bfp-maps') === maps && C.fromName(eng, 'bfp-maps', maps) === maps,
+    'a text option: listed as text, parsed with its quotes, newlines and backslashes, quoted back the same');
+  M._isc_live_reset();
+  const log = [{ spec, n: 2, lit: true }];
+  frame(spec); frame(spec);
+  const want = frame(spec), off = frame(spec.replace(/sim-type=8 bfp-maps=.*$/, ''));
+  const saved = JSON.parse(JSON.stringify(C.historyOut(eng, log, M._isc_live_time())));
+  M._isc_live_reset();
+  let okT = saved.records[0].set['bfp-maps'] === maps;
+  for (const r of C.replaySpecs(eng, saved.records, base)) {
+    const s = str(r.spec);
+    okT = okT && M._isc_live_advance(s, r.n, 1, err, 512) >= 0;
+    M._free(s);
+  }
+  const got = frame(spec);
+  check(okT && off.some((v, i) => v !== want[i]) && got.every((v, i) => v === want[i]),
+    'a light history under BFP maps (an incoherent spot): saved with its equations, replayed: the next frame bit for bit');
 }
 
 // ---- reading a file ----

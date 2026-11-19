@@ -159,7 +159,13 @@ function controlOf(k) {
 }
 // One engine key of a file onto the viewer.
 function setKey(k, raw, note) {
-  const extra = self.ISC_MM_EXTRA || {}, v = fromName(k, raw);
+  const extra = self.ISC_MM_EXTRA || {}, v = fromName(k, raw), eo = ENG().get(k);
+  if (eo && eo.text) {
+    // A text option (bfp-maps): its control's value, else into every spec; the default (empty) sends nothing.
+    const el = controlOf(k);
+    if (el) { el.value = v; el.dispatchEvent(new Event('change')); } else if (v === eo.def) delete extra[k]; else extra[k] = v;
+    return;
+  }
   if (!Number.isFinite(v)) { if (note) note(`${k}: ${raw} is not known here`); return; }
   if (k === 'x') { view.cx = v; return; }
   if (k === 'y') { view.cy = v; return; }
@@ -251,7 +257,7 @@ async function applyFile(file, parts) {
     for (const [k, raw] of Object.entries(file.parts[p].values || {})) {
       if (now.values[p][k] === undefined) continue;   // (a key this viewer does not know: in the notes)
       const a = fromName(k, raw), b = fromName(k, now.values[p][k]);
-      if (!(Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a)))) differ.push(`${k} ${raw} → ${now.values[p][k]}`);
+      if (typeof a === 'string' ? a !== b : !(Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a)))) differ.push(`${k} ${raw} → ${now.values[p][k]}`);
     }
   }
   for (const p of want) setSource(p, file.parts[p].name || file.name || 'file', idOf(now.values[p]));
