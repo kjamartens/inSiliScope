@@ -7,7 +7,7 @@
 //  - the menu's dialog saves a .cfg;
 //  - with --out <dir>: each scenario's spec (movieSpec()) and .cfg, for tools/test_viewer_cfg.py, which loads the .cfg in
 //    Micro-Manager and compares Renderer.WriteScopeSpecTo with the spec.
-//   node tests/web/viewer_mm_cfg.mjs [--out dir]   (~15 s)
+//   node tests/web/viewer_mm_cfg.mjs [--out dir]   (~26 s)
 import { runViewer } from './browser.mjs';
 import fs from 'node:fs';
 import path from 'node:path';

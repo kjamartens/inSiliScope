@@ -198,6 +198,15 @@ through it step by step.
   have taken (bleached and blinking as it was). A file from another release loads with a note that the image may
   differ, and what the viewer could not take is listed. Every value is stored (defaults too) by name, and
   `insiliscope_cli --settings <file>` renders the same frames on the command line.
+- **A Micro-Manager configuration.** **Micro-Manager .cfg…** in the same section of the ☰ menu saves `<name>.cfg`:
+  the shipped Expert configuration with the viewer's seed and a Startup preset that sets every
+  [Micro-Manager property](micro-manager.md) to the viewer's value (the sample, its labels and custom dyes, the cells'
+  shape, the light path and lasers, the pattern and BFP maps, the objective and its aberrations, the camera, the drift,
+  the render quality). Loaded in Micro-Manager, the simulated microscope renders with the viewer's settings, but for
+  the stage position and focus, the movie's length and start time and the viewer's 3 um PSF kernel (Micro-Manager keeps
+  its 7 um one). The light's shutter is the viewer's: the lasers, the lamp for BrightField, or both through the Multi
+  Shutter. The box lists what could not go in (a map image whose name has a comma); map images are not in the file:
+  put them where Micro-Manager finds them.
   The viewer counts anonymous usage (which specimen, mode and Look are picked, Live, Record, saved TIFFs), without
   cookies: [Privacy](privacy.md) lists what is counted and how to turn it off.
   A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the

@@ -10,7 +10,7 @@ in pymmcore-plus and Renderer.WriteScopeSpecTo is compared with the spec, key by
 dye field the spec has at its dye's own value read from its property (Micro-Manager writes only edits), the BFP maps'
 text as one line, the light as the Core-Shutter, the Zernike preset as the property.
 
-  ADAPTER_DIR=<dll dir> python tools/test_viewer_cfg.py [--cases <dir>]   (~45 s: the browser part ~25 s)
+  ADAPTER_DIR=<dll dir> python tools/test_viewer_cfg.py [--cases <dir>]   (~32 s: the browser part ~26 s)
 """
 
 import json

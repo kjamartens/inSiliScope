@@ -204,6 +204,25 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   view a band up to the thickness; `#hud` `data-slide`). Checks: ctest `slide` (`cli/slide_check.cpp`, ~1 s), `world_checks.fiducials` (a slide world),
   `tools/test_specimens.py` (Slide), `tests/web/viewer_nanorulers.mjs` (the slide); figure `slide-bleach`, gallery
   `slide-sample`, `slide-af647`, `slide-tirf`, `slide-bleached`. Timing phases `fl.slide-setup`, `fl.slide`.
+- **Micro-Manager .cfg from the viewer (2026-11-19, branch `bfp-light-maps`):** ☰ `#menuSetup` › Micro-Manager .cfg…
+  (`#lv_setCfg`, `openMmCfg` in settings_file.js) saves `<name>.cfg` = the shipped Expert config (`ISC_MM_CFG.template`)
+  with the seed and a Startup preset setting every property to the viewer's value (`web/live/mm_cfg.js` `write`,
+  page-free); loaded in MM, `Renderer.WriteScopeSpecTo` = `movieSpec()` but for `VIEWER_ONLY` (x/y/z, frames,
+  start-sec, world-seed, psf-kernel-half-width-nm (the user's choice: MM keeps 7000), bfp-map-px, the drawing's `p.*`,
+  prepare). The option -> property table `self.ISC_MM_CFG` (in `web/live/mm_config.js`) is learnt from the adapter by
+  `tools/mm_cfg_map.py` inside `gen_mm_configs.py`: every row nudged on a fresh Expert hub, the most specific row per
+  option, order mode -> label -> combinations -> members, each combination's `sets`, the fresh hub's values, `ALIASES`
+  (the viewer's `p.chunkSize` = `chunk-um`, ...); specials (zern.* -> `ZernikeCoefficients`, beam.* -> `Beams`,
+  bfp-maps as one line with ';' for the commas, the pixel size from the optics, exposure and size, the light ->
+  Core-Shutter). MMDevice keeps 4 decimals of a float property: the dye fields are text numbers (`AsTextNumber`), a
+  value Micro-Manager has already (fresh, a combination's, the engine's default) is not written rounded. New MM rows
+  for it (all Expert, the user's choice): the cell shape (38 `CellField` rows on `g_CellFieldCoreParam`), per-target
+  dye fields `<Target>_Dye<Field>` (key `<prefix>-dye.fields`, cleared by a label pick), the custom dye slots'
+  parametric spectra and pre state; `SceneSettings` writes the BrightField `bf-*` options. **Coverage check:**
+  `tests/web/viewer_mm_cfg.mjs` (~26 s, browser) fails on any viewer option (MOVIE_KEYS, `p.*`, spec keys) with no
+  property, special writer or VIEWER_ONLY line -- a new viewer setting needs an MM row (spec/MM_DEVICES.md 9). Checks:
+  `tests/web/mm_cfg_unit.mjs` (0.01 s, CI `viewer-js`), `ADAPTER_DIR=<dll dir> python tools/test_viewer_cfg.py` (~32 s:
+  four scenarios' .cfg loaded in pymmcore-plus, the spec key by key). Usage event `mm-cfg`.
 - **Save and load settings (2026-10-28, [docs/dev/SAVE_SETTINGS.md](docs/dev/SAVE_SETTINGS.md)):** `<name>.isc.json` in
   mixable parts -- instrument, settings, sample, measurement (with the sample's light history), view (viewer only).
   Every engine option has a part (`PartOf` in `ScopeMovie.cpp`, `ScopeOptionPart`; `Options()` throws on a new option

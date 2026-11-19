@@ -88,7 +88,9 @@ older builds refuse the DLL.
    `inSiliScope_Advanced.cfg` adds the excitation filter, dichroic and emission filter wheels and the
    channel `mEGFP WideField + BrightField`; `inSiliScope_Expert.cfg` shows every property. The hub's pre-init `Detail`
    (Basic, Advanced, Expert) decides which properties a session shows; to build a configuration of your own, add the
-   hub `inSiliScope` in the Hardware Configuration Wizard, then its devices.
+   hub `inSiliScope` in the Hardware Configuration Wizard, then its devices. The viewer's ☰ › **Micro-Manager .cfg…**
+   saves the Expert configuration with a Startup preset that sets everything to the viewer's settings
+   ([the viewer](try-viewer.md)).
 3. Take a snapshot of the cell field, move the XY stage, change the Z stage. The Z stage position is the focal plane
    height above the coverslip (0 = coverslip in focus; it starts at 0.5 um). The `Specimen` group (or `SampleHolder`)
    mounts the [DNA-origami nanorulers](samples/nanorulers/index.md) instead: set the Z stage to about 0.02 um (their
