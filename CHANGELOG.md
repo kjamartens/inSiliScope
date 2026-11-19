@@ -3,6 +3,20 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## v0.1.0-rc22 (changes since v0.1.0-rc21)
+
+Micro-Manager camera sizes up to 4096 x 4096 px, any width and height, with a memory check before anything renders:
+
+- **Micro-Manager: any camera size up to 4096 x 4096 px.** The pre-init `Camera.FovSize` (four square sizes up to
+  1024) is replaced by `Camera.SensorWidthPx` and `Camera.SensorHeightPx` (16..4096 each, default 256 x 256), set any
+  time but during an acquisition. Configurations saved with `FovSize` must drop that line (the shipped ones did).
+- **A size too large for the PC's memory is refused before it renders**, with the reason: the estimated memory, its
+  largest parts and the largest square that fits (e.g. the default scene at 4096 x 4096 needs ~31-44 GB). A snap, a
+  sequence or the live view is refused the same way when a later change (more labelled targets, the lasers opened)
+  makes the setup too large. Large fields stay slow: see spec/ALGORITHM.md "Large fields of view".
+- cli / settings files: `height` (0 = square), `size` up to 4096 (was 2048). On a non-square field the beam's
+  `illum-fwhm` is a share of the longer side.
+
 ## v0.1.0-rc21 (changes since v0.1.0-rc20-hotfix1)
 
 Live stage and focus moves without the lag, and a roomier live view:

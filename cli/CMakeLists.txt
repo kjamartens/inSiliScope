@@ -27,6 +27,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/BlinkExpectation.cpp
   ${ISC_SIM}/Illumination.cpp
   ${ISC_SIM}/LiveScope.cpp
+  ${ISC_SIM}/MemoryBudget.cpp
   ${ISC_SIM}/WidefieldRender.cpp
   ${ISC_SIM}/GpuSimD3D11.cpp
   ${ISC_SIM}/PsfGeneratorBridge.cpp

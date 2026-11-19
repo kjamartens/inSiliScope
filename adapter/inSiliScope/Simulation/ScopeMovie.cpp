@@ -23,6 +23,7 @@
 #include "Illumination.h"
 #include "LightHistory.h"
 #include "LightPath.h"
+#include "MemoryBudget.h"
 #include "MemoryReport.h"
 #include "Parallel.h"
 #include "Spectra.h"
@@ -156,7 +157,7 @@ const char* PartOf(const std::string& n)
    if (starts("laser-") || starts("wf-") || starts("mean-field-") || starts("blink-") || starts("bf-") ||
        starts("sim-") || (starts("psf-") && !starts("psf-sample-")) ||
        in({ "light-preset", "ex-filter", "dichroic", "em-filter", "illum-bfp", "modality", "light-epi", "light-trans",
-            "size", "em-gain", "z-range-um" }))
+            "size", "height", "em-gain", "z-range-um" }))
       return "settings";
    return nullptr;
 }
@@ -186,7 +187,8 @@ const OptionTable& Options()
          { "x", 0, "FOV centre x, world um (XY stage position)" },
          { "y", 0, "FOV centre y, world um" },
          { "z", 0.5, "Z stage: focal-plane height above the coverslip, um (as the ZStage device; it starts at 0.5)" },
-         { "size", 128, "FOV width = height, pixels" },
+         { "size", 128, "FOV width, pixels (1..4096; the height too unless height is set)" },
+         { "height", 0, "FOV height, pixels (1..4096; 0 = size: a square FOV)" },
          { "frames", 1000, "number of frames" },
          { "exposure-ms", 50, "frame duration, ms (simulated time per frame)" },
          { "start-sec", 60, "simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)" },
@@ -280,7 +282,7 @@ const OptionTable& Options()
          { "laser-custom", 0, "its intensity, kW/cm^2" },
          { "light-preset", 0, "Lasers.Preset: auto (0, the default) = the light presets of the labelled targets' dyes in their modes combined: each laser line at its highest power over them, the filters of the one preset, or the multi-band set (light_path.json multiTarget) when the presets' filters differ; -1 = none (the laser/dichroic/filter options as given); or a preset name/index (data/dyes/light_path.json presets). A preset sets every laser-*, ex-filter, dichroic and em-filter the spec does not give." },
          { "illum-profile", 1, "Lasers.IlluminationProfile: the cross-section of the beam, 0 Flat, 1 Gaussian (the default), 2 FlatTop (a soft-edged disc; names accepted)" },
-         { "illum-fwhm", 100, "Lasers.IlluminationFwhmPct: the FWHM of the beam (Gaussian, FlatTop), % of the width of the field of view" },
+         { "illum-fwhm", 100, "Lasers.IlluminationFwhmPct: the FWHM of the beam (Gaussian, FlatTop), % of the field of view's longer side (its width when square)" },
          { "illum-bfp", 0, "Lasers.BfpPosition: the laser spot in the back focal plane, from its centre (0, epi) to the critical angle (1); between: HILO, above: TIRF up to the pupil edge NA / n_medium (beyond it no light reaches the sample). Unset: that of the light preset (DNA-PAINT: HILO; the nanorulers: TIRF)" },
          { "illum-geometry", 0, "deprecated, ignored (was Lasers.IlluminationGeometry: Epi; illum-bfp replaces it)" },
          { "sim-type", 0, "Lasers.Pattern: structured illumination, the light as coherent beams in the back focal plane (spec/ALGORITHM.md \"Structured illumination\"): 0 Off (one beam at illum-bfp), 1 SIM2D (two beams at +-illum-bfp, 3 phases x 3 angles), 2 SIM3D (+ the centre beam, 5 phases x 3 angles), 3 LatticeSIM2D (+-x, +-y, 9 phases), 4 LatticeSIM3D (+ the centre, 13 phases stepped 2:3), 5 Custom (the beam matrix alone); names accepted. The pattern's phase and angle step with the frame (the frame program); the kinetics run on the cycle mean (the beams' incoherent sum)" },
@@ -796,7 +798,10 @@ bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err)
 
 void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frames)
 {
-   w = h = static_cast<unsigned>(std::min(2048.0, std::max(1.0, ScopeSpecGet(spec, "size"))));
+   // The camera's sensor: up to 4096 x 4096 (MM Camera.SensorWidthPx / SensorHeightPx); height 0 = square.
+   const double size = ScopeSpecGet(spec, "size"), height = ScopeSpecGet(spec, "height");
+   w = static_cast<unsigned>(std::min(kMaxFovPx, std::max(1.0, size)));
+   h = height > 0 ? static_cast<unsigned>(std::min(kMaxFovPx, std::max(1.0, height))) : w;
    frames = static_cast<long>(std::min(100000.0, std::max(1.0, ScopeSpecGet(spec, "frames"))));
    if (ScopeSpecGet(spec, "prepare") >= 1)
       frames = 0;   // prepare: the world and the PSF kernel only
@@ -1262,7 +1267,8 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
    ExcitationSpec e;
    e.profile = static_cast<int>(O("illum-profile"));
    e.fwhmPct = std::min(300.0, std::max(10.0, O("illum-fwhm")));
-   e.fovWidthUm = W * O("pixel-nm") / 1000.0;
+   // illum-fwhm is a share of the FOV's longer side (the width of a square FOV, as before).
+   e.fovSpanUm = std::max(W, H) * O("pixel-nm") / 1000.0;
    e.bfp = ScopeBfpPosition(spec);
    e.na = O("na");
    e.nImm = O("immersion-index");
@@ -5348,7 +5354,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    {
       const ExcitationSpec es = ScopeExcitationSpec(spec);
       // (The pivot at kExciteKeyPivot, the focus last: the plane factor's key leaves the focus out.)
-      m.exciteKey = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
+      m.exciteKey = { static_cast<double>(es.profile), es.fwhmPct, es.fovSpanUm, es.bfp, es.na, es.nImm, es.nMed,
                       es.pivotUm, m.axisX, m.axisY, S.q.zRefUm };
       // A beam set: its program and beams (before the focus, which stays last).
       if (!es.beams.beams.empty())
@@ -6087,7 +6093,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       for (size_t i = 0; i < imagers.size(); ++i)
          job.sources.push_back({ imagers[i]->ImagerPerPxPerUmPerSec(um), imagerShares[i] });
       const ExcitationSpec& es = job.es;
-      job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
+      job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovSpanUm, es.bfp, es.na, es.nImm, es.nMed,
                   m.axisX, m.axisY, static_cast<double>(S.W), static_cast<double>(S.H), um, H0, S.expSec,
                   S.p.backgroundPhotons };
       AppendBeamKey(job.key, es);
@@ -6166,7 +6172,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                job.sources.push_back({ 1.0, c.lineShares });
                job.nodesPerScale = kSlideNodesPerScale;
                const ExcitationSpec& es = job.es;
-               job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovWidthUm, es.bfp, es.na, es.nImm, es.nMed,
+               job.key = { static_cast<double>(es.profile), es.fwhmPct, es.fovSpanUm, es.bfp, es.na, es.nImm, es.nMed,
                            m.axisX, m.axisY, static_cast<double>(S.W), static_cast<double>(S.H), um, Hl, 1.0, 0.0,
                            kSlideNodesPerScale, 1.0 };
                AppendBeamKey(job.key, es);
@@ -6418,6 +6424,13 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                     "exposure_ms=%g start_sec=%g frames=%ld focus_um=%g lasers=",
                     S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, pixelNm, S.expSec * 1000, S.t0Sec, N, O("focus-um"));
       d = b;
+      if (H != W)
+      {
+         // A non-square FOV (a square one's description is as before).
+         const size_t at = d.find(" pixel_nm=");
+         std::snprintf(b, sizeof b, " height=%u", H);
+         d.insert(at, b);
+      }
       for (size_t l = 0; l < S.lp.lasers.size(); ++l)
       {
          std::snprintf(b, sizeof b, "%s%g:%g", l ? "," : "", S.lp.lasers[l].nm, S.lp.lasers[l].kWPerCm2);
@@ -7660,6 +7673,165 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
    }
    json += "]}";
    return true;
+}
+
+// ---- the memory estimate (ScopeMovie.h EstimateScopeMemory) ----
+namespace {
+// Fitted to measured peaks (private bytes, cli, 12 threads, 2026-11-18; spec/ALGORITHM.md "Memory estimate"), each on
+// the high side: the default DNA-PAINT scene took ~30 (1024 px), 35 (2048 x 1152) and 43 (2048 px) bytes per dye
+// beyond its kernels, a WideField label ~20, BrightField ~300-540 per pixel at quality 3.
+constexpr double kEstBaseBytes = 0.40e9;           // the process, the world, the tables
+constexpr double kEstKernelBytes = 0.40e9;         // one labelled target's PSF stack and its splat sums
+constexpr double kEstBlinkDyeBytes = 55;           // a dye of a blink mode (DNA-PAINT, dSTORM, PALM) in the core
+constexpr double kEstContinuousDyeBytes = 25;      // a WideField dye: the core's and the dye index's
+constexpr double kEstPixelBytes = 16;              // per pixel: noise maps, background map
+constexpr double kEstFramePixelBytes = 14;         // per pixel and frame in flight: photons and ADU
+constexpr double kEstWidefieldCellBytes = 600;     // per mean-field grid cell of a WideField target: spectra, images
+constexpr double kEstBrightfieldCellBytes = 220;   // per BrightField grid cell, plus 5 per condenser source
+constexpr double kEstSampleUm = 10;                // the dye count's sample windows: side, um
+constexpr int kEstSamplesPerAxis = 4;              // ... and how many along x and y
+} // namespace
+
+bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryEstimate& out, std::string& err)
+{
+   out = ScopeMemoryEstimate();
+   ScopeSetup S;
+   if (!MakeScopeSetup(spec, S, err))
+      return false;
+   out.w = S.W;
+   out.h = S.H;
+   const double px = static_cast<double>(S.W) * S.H;
+   bool epi = false, trans = false;
+   ScopeLights(spec, epi, trans);
+   out.baseBytes = kEstBaseBytes;
+   out.imageBytes = px * (kEstPixelBytes + kEstFramePixelBytes * std::max(1, framesInFlight));
+   if (trans)
+   {
+      BrightfieldSpec bs;
+      if (ScopeBrightfieldSpec(spec, bs, err))
+      {
+         const double up = BrightfieldScene::UpscaleFor(bs);
+         out.sceneBytes += px * up * up * (kEstBrightfieldCellBytes + 5.0 * bs.Resolved().sources);
+      }
+   }
+   if (!epi)
+      return true;
+   // The labelled targets: a PSF stack each, their dyes counted by kind.
+   int blinkMask = 0, contMask = 0, kernels = 0;
+   for (size_t s = 0; s < S.labels.size(); ++s)
+   {
+      if (!S.Mounted(static_cast<int>(s)) || S.labels[s].off)
+         continue;
+      ++kernels;
+      if (S.labels[s].mode == MODE_WIDEFIELD)
+      {
+         contMask |= 1 << s;
+         const double up = std::max(1.0, ScopeSpecGet(spec, "wf-upscale"));
+         out.sceneBytes += px * up * up * kEstWidefieldCellBytes;
+      }
+      else
+         blinkMask |= 1 << s;
+   }
+   out.kernelBytes = kernels * kEstKernelBytes;
+   const double x0 = S.q.x0Um, y0 = S.q.y0Um, x1 = S.q.x1Um, y1 = S.q.y1Um;
+   out.fieldUm2 = std::max(0.0, x1 - x0) * std::max(0.0, y1 - y0);
+   if (!(blinkMask | contMask) || !(out.fieldUm2 > 0))
+      return true;
+   // A world of its own, not the shared cache's: a live frame holds that one's lock for its whole render (minutes at
+   // the largest fields), and the check is to come before. It keeps only the sample windows' cells and dyes.
+   static std::mutex estMutex;
+   static SampleSource estSource;
+   // The last count's density, kept while the world, the labels and the field's size stay (a change of the exposure,
+   // the light or the camera, or a stage move, is checked again at no cost; the cell field is taken as uniform at the
+   // field's scale, as the sample windows take it).
+   struct DensityMemo
+   {
+      bool have = false;
+      SampleSettings cf;
+      int blinkMask = 0, contMask = 0;
+      double wUm = 0, hUm = 0, perUm2[2] = { 0, 0 };
+   };
+   static DensityMemo memo;
+   std::lock_guard<std::mutex> lock(estMutex);
+   const double wUm = x1 - x0, hUm = y1 - y0;
+   if (memo.have && memo.cf.SameWorld(S.cf) && memo.cf.SameLabels(S.cf) && memo.blinkMask == blinkMask &&
+       memo.contMask == contMask && memo.wUm == wUm && memo.hUm == hUm)
+   {
+      out.dyes = (memo.perUm2[0] + memo.perUm2[1]) * out.fieldUm2;
+      out.dyeBytes = out.fieldUm2 * (memo.perUm2[0] * kEstBlinkDyeBytes + memo.perUm2[1] * kEstContinuousDyeBytes);
+      return true;
+   }
+   if (!estSource.Configure(S.cf, err))
+      return false;
+   // The count over the whole rect when it is small, else over a grid of sample windows scaled to it (the core makes
+   // every dye of a window it counts: a whole 4096 px field would be the very cost the estimate is to avoid).
+   const double inf = std::numeric_limits<double>::infinity();
+   const double span = kEstSamplesPerAxis * kEstSampleUm;
+   const auto tCount = TimingClock::now();
+   double counted[2] = { 0, 0 }, sampledUm2 = 0;
+   auto count = [&](double a0, double b0, double a1, double b1) {
+      float one = 0;
+      const int masks[2] = { blinkMask, contMask };
+      for (int k = 0; k < 2; ++k)
+         if (masks[k])
+         {
+            const long n = estSource.Density3d(a0, b0, a1, b1, -inf, inf, 1, 1, 1, masks[k], &one);
+            if (n > 0)
+               counted[k] += static_cast<double>(n);
+         }
+      sampledUm2 += (a1 - a0) * (b1 - b0);
+   };
+   if ((x1 - x0) * (y1 - y0) <= span * span)
+      count(x0, y0, x1, y1);
+   else
+   {
+      const int nx = std::max(1, std::min(kEstSamplesPerAxis, static_cast<int>(std::ceil((x1 - x0) / kEstSampleUm))));
+      const int ny = std::max(1, std::min(kEstSamplesPerAxis, static_cast<int>(std::ceil((y1 - y0) / kEstSampleUm))));
+      const double sx = std::min(kEstSampleUm, (x1 - x0) / nx), sy = std::min(kEstSampleUm, (y1 - y0) / ny);
+      for (int j = 0; j < ny; ++j)
+         for (int i = 0; i < nx; ++i)
+         {
+            const double cx = x0 + (i + 0.5) * (x1 - x0) / nx, cy = y0 + (j + 0.5) * (y1 - y0) / ny;
+            count(cx - sx / 2, cy - sy / 2, cx + sx / 2, cy + sy / 2);
+         }
+   }
+   TimingLog("mem.estimate-dyes", TimingSince(tCount));
+   const double scale = sampledUm2 > 0 ? out.fieldUm2 / sampledUm2 : 0.0;
+   out.dyes = (counted[0] + counted[1]) * scale;
+   out.dyeBytes = counted[0] * scale * kEstBlinkDyeBytes + counted[1] * scale * kEstContinuousDyeBytes;
+   memo.have = true;
+   memo.cf = S.cf;
+   memo.blinkMask = blinkMask;
+   memo.contMask = contMask;
+   memo.wUm = wUm;
+   memo.hUm = hUm;
+   for (int k = 0; k < 2; ++k)
+      memo.perUm2[k] = sampledUm2 > 0 ? counted[k] / sampledUm2 : 0.0;
+   return true;
+}
+
+std::string ScopeMemoryRefusal(const ScopeSpec& spec, int framesInFlight)
+{
+   const double budget = MemoryBudgetBytes();
+   if (!(budget > 0))
+      return std::string();
+   ScopeMemoryEstimate e;
+   std::string err;
+   if (!EstimateScopeMemory(spec, framesInFlight, e, err) || e.Total() <= budget)
+      return std::string();
+   // The largest square FOV within the budget: everything but the base and the kernels grows with the area.
+   const double fixed = e.baseBytes + e.kernelBytes, perPx = (e.Total() - fixed) / (static_cast<double>(e.w) * e.h);
+   const double side = perPx > 0 && budget > fixed ? std::floor(std::sqrt((budget - fixed) / perPx)) : 0.0;
+   const double GB = 1e9;
+   char b[640];
+   std::snprintf(b, sizeof b,
+                 "A %u x %u px field of view would need about %.1f GB of memory (labelled dyes %.1f GB: ~%.3g dyes in "
+                 "the field; images %.1f GB; grids %.1f GB; PSF kernels %.1f GB); this PC has %.1f GB of RAM, of which "
+                 "%.1f GB may be used. Make the field of view smaller (about %.0f x %.0f px fits here), or label fewer "
+                 "targets or a lower labelling percentage.",
+                 e.w, e.h, e.Total() / GB, e.dyeBytes / GB, e.dyes, e.imageBytes / GB, e.sceneBytes / GB,
+                 e.kernelBytes / GB, PhysicalMemoryBytes() / GB, budget / GB, side, side);
+   return b;
 }
 
 

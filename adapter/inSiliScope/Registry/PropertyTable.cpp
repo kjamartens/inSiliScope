@@ -9,8 +9,9 @@
 //                tier by spec/MM_DEVICES.md, bind it to a setting of
 //                SceneState (or an engine option), give it a one-line help.
 //                Not here: the pre-init properties (the hub's Detail and
-//                RandomSeed, the camera's FovSize), MM's standard ones
-//                (Exposure, Binning, State, Label, Position, ...) and the
+//                RandomSeed), MM's standard ones (Exposure, Binning, State,
+//                Label, Position, ...), the camera's size (SensorWidthPx,
+//                SensorHeightPx: it checks the memory first) and the
 //                camera's own acquisition readouts and Test rows -- those are
 //                the devices' own (InSiliScopeHub.cpp, InSiliScopeCamera.cpp).
 //
@@ -735,7 +736,7 @@ std::vector<PropDef> BuildTable()
       add(OptNames(L, "IlluminationProfile", Tier::Basic, "illum-profile", sim::IlluminationProfileNames(), 0,
                    "The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge)."));
       add(Opt(L, "IlluminationFwhmPct", Tier::Basic, "illum-fwhm", 10, 300,
-              "The beam's FWHM (Gaussian, FlatTop), % of the field of view's width."));
+              "The beam's FWHM (Gaussian, FlatTop), % of the field of view's longer side (its width when square)."));
       // The illumination geometry: the laser spot's place in the objective's back focal plane (spec/ALGORITHM.md
       // "Excitation geometry"). The config group Illumination sets it to Epi / HILO / TIRF.
       add(Opt(L, "BfpPosition", Tier::Basic, "illum-bfp", 0, 1.2,
@@ -971,7 +972,7 @@ std::vector<PropDef> BuildTable()
                            std::max(1.0, sim::ScopeSpecGet(spec, "magnification"));
             }
             const sim::Excitation ex(es);
-            return ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovWidthUm);
+            return ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovSpanUm);
          };
          r.set = [](H&, double) {};
          add(r);

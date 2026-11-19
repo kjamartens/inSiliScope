@@ -42,7 +42,7 @@ ExcitationSpec Base(double bfp)
    ExcitationSpec s;
    s.profile = ILLUM_FLATTOP;
    s.fwhmPct = 100;
-   s.fovWidthUm = 12.8;
+   s.fovSpanUm = 12.8;
    s.na = 1.49;
    s.nImm = 1.518;
    s.nMed = 1.337;
@@ -118,7 +118,7 @@ void Units()
       // The collected column (JS excitation_check's): 25.6 um FlatTop, NA 1.40, focus 0.5 um, a 100 um chamber.
       auto cb = [](double bfp) {
          ExcitationSpec s = Base(bfp);
-         s.fovWidthUm = 25.6;
+         s.fovSpanUm = 25.6;
          s.na = 1.4;
          s.pivotUm = 0.5;
          return s;

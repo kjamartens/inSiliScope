@@ -49,11 +49,10 @@ def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICE
     for d in devices:
         core.loadDevice(d, "inSiliScope", d)
         core.setParentLabel(d, HUB)
-    if "Camera" in devices:
-        core.setProperty("Camera", "FovSize", fov)
     core.initializeAllDevices()
     if "Camera" in devices:
         core.setCameraDevice("Camera")
+        set_fov(core, fov)
     if "XYStage" in devices:
         core.setXYStageDevice("XYStage")
     if "ZStage" in devices:
@@ -66,6 +65,14 @@ def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICE
     if "CellField" in devices and not pores:
         core.setProperty("CellField", "NuclearPores_Label", "None")
     set_light(core, epi, trans)
+
+
+def set_fov(core, fov):
+    """The camera's sensor size: "WxH" (e.g. "128x128") or a number of pixels per side (Camera.SensorWidthPx /
+    SensorHeightPx, settable while not acquiring)."""
+    w, _, h = str(fov).partition("x")
+    core.setProperty("Camera", "SensorWidthPx", int(w))
+    core.setProperty("Camera", "SensorHeightPx", int(h or w))
 
 
 def set_light(core, epi, trans):

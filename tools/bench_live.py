@@ -136,7 +136,7 @@ def machine():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="Basic")
-    ap.add_argument("--fov", default="256")
+    ap.add_argument("--fov", default="256", help="the sensor: N (N x N px) or WxH")
     ap.add_argument("--exposures", default="5,10,20,50")
     ap.add_argument("--seconds", type=float, default=1.5, help="one measuring window (s)")
     ap.add_argument("--repeats", type=int, default=3, help="windows per case; the case's rate is their median")
@@ -154,7 +154,6 @@ def main():
     from pymmcore_plus import CMMCorePlus
 
     cfg = (OUT / f"inSiliScope_{a.config}.cfg").read_text(encoding="utf-8")
-    cfg = cfg.replace("Property,Camera,FovSize,256x256", f"Property,Camera,FovSize,{a.fov}x{a.fov}")
     tmp = Path(tempfile.mkdtemp()) / "bench.cfg"
     tmp.write_text(cfg, encoding="utf-8")
     core = CMMCorePlus()
@@ -162,6 +161,9 @@ def main():
     t0 = time.perf_counter()
     core.loadSystemConfiguration(str(tmp))
     load_ms = (time.perf_counter() - t0) * 1000
+    w, _, h = a.fov.partition("x")   # "512" or "2048x1024"
+    core.setProperty("Camera", "SensorWidthPx", int(w))
+    core.setProperty("Camera", "SensorHeightPx", int(h or w))
     prof = Profiler(core, a.profile)
     first_snap = timed(core.snapImage)
     startup_profile = prof.take()

@@ -127,6 +127,7 @@
     <ClCompile Include="Simulation\DyeLibrary.cpp" />
     <ClCompile Include="Simulation\LightPath.cpp" />
     <ClCompile Include="Simulation\Excitation.cpp" />
+    <ClCompile Include="Simulation\MemoryBudget.cpp" />
     <ClCompile Include="Simulation\SimPattern.cpp" />
     <ClCompile Include="Simulation\Spectra.cpp" />
     <ClCompile Include="Simulation\Fft2d.cpp" />
@@ -190,6 +191,7 @@
     <ClInclude Include="Simulation\Excitation.h" />
     <ClInclude Include="Simulation\SimPattern.h" />
     <ClInclude Include="Simulation\MemoryReport.h" />
+    <ClInclude Include="Simulation\MemoryBudget.h" />
     <ClInclude Include="Simulation\Spectra.h" />
     <ClInclude Include="Simulation\ScopeMovie.h" />
     <ClInclude Include="Simulation\LightHistory.h" />

@@ -56,7 +56,7 @@ void Excitation::Make(const ExcitationSpec& s)
 void Excitation::MakeLegacy(const ExcitationSpec& s)
 {
    profile_ = s.profile;
-   fwhmUm_ = std::max(1e-6, (s.fwhmPct / 100.0) * s.fovWidthUm);
+   fwhmUm_ = std::max(1e-6, (s.fwhmPct / 100.0) * s.fovSpanUm);
    const double nI = s.nImm, nS = s.nMed;
    nS_ = nS;
    nI_ = nI;
@@ -143,7 +143,7 @@ double Excitation::EnvelopeFwhmUm(double spotUm, double lambdaNm) const
 void Excitation::MakePatterned(const ExcitationSpec& s)
 {
    profile_ = s.profile;
-   fwhmUm_ = std::max(1e-6, (s.fwhmPct / 100.0) * s.fovWidthUm);
+   fwhmUm_ = std::max(1e-6, (s.fwhmPct / 100.0) * s.fovSpanUm);
    nS_ = s.nMed;
    nI_ = s.nImm;
    na_ = s.na;

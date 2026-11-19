@@ -18,7 +18,7 @@ Renderer: how the images are computed (numerics only)     Hub: session state (se
 | Device | MM type | Owns | Must not own |
 |---|---|---|---|
 | `inSiliScope` (hub) | Hub | pre-init `Detail`, `RandomSeed`; the settings (`Registry/SceneState`), the stage state, cross-device couplings | anything a user tunes during a session |
-| `Camera` | Camera | the sensor (noise chain, QE curve, sensor pixel, bit depth), exposure, binning, pre-init `FovSize`, acquisition | optics, specimen, render numerics |
+| `Camera` | Camera | the sensor (noise chain, QE curve, sensor pixel, bit depth), exposure, binning, the sensor size `SensorWidthPx` x `SensorHeightPx` (16..4096 each, set any time but during an acquisition; refused when its memory estimate exceeds the PC's budget), acquisition | optics, specimen, render numerics |
 | `XYStage`, `ZStage` | XYStage, Stage | commanded motion (position, speed, settle, limits, z sequences) | drift (that is the sample's) |
 | `Objective` | State (turret) | the detection pupil: NA, immersion, magnification, aberrations (Zernike), the PSF kernel's extent | the emission magnification, the mask of a relay |
 | `EmissionPath` | Magnifier | magnification between objective and camera (tube lens / relay); MM divides the pixel size by it | |
@@ -146,13 +146,13 @@ rows exist in a session; a row above it is never created and its setting keeps i
 
 | Tier | Rule | Examples |
 |---|---|---|
-| **Basic** | What a microscopist changes at the instrument during a session to get the image they want. **At most 35 Basic properties over all devices** (`tools/test_insiliscope.py` checks it; 30 until 2026-10-30, when the fluorescent slide's four rows (its dye, thickness, concentration and bleach half-time: what one sets at the slide) and `Lasers.Pattern` -- the structured-illumination type a microscopist switches during a session -- took it to 35): adding one means justifying it or demoting another. | exposure, binning, FOV, camera preset and its relay (`EmissionPath.EmissionMagnification`: a Camera config preset sets both), laser powers, light preset, beam profile, objective and its aberrations (`Objective.ZernikePreset`), filter cube, label, quality |
+| **Basic** | What a microscopist changes at the instrument during a session to get the image they want. **At most 37 Basic properties over all devices** (`tools/test_insiliscope.py` checks it; 35 until 2026-11-18, when the camera size became two post-init rows, `Camera.SensorWidthPx` and `SensorHeightPx` (the FOV, already a Basic thing here, was the pre-init `FovSize`, which the count did not see); 30 until 2026-10-30, when the fluorescent slide's four rows (its dye, thickness, concentration and bleach half-time: what one sets at the slide) and `Lasers.Pattern` -- the structured-illumination type a microscopist switches during a session -- took it to 35): adding one means justifying it or demoting another. | exposure, binning, FOV, camera preset and its relay (`EmissionPath.EmissionMagnification`: a Camera config preset sets both), laser powers, light preset, beam profile, objective and its aberrations (`Objective.ZernikePreset`), filter cube, label, quality |
 | **Advanced** | Physical parameters a user knows the meaning of and may tune to match their own setup. Read-only readouts. | noise values, NA, refractive indices, labelling density, drift, background, filter wheels, stage speed, GPU switch, disk cache |
 | **Expert** | Numerics, caches, debugging, model-shape parameters, overrides of library data, custom dyes. | PSF model and oversampling, BrightField sampling, mean-field limits, nucleus shape, Zernike coefficients, Dye1-3 |
 | **Test** | Only what automated checks need (deterministic stacks, hooks). Never shown in MM: created only when the process has `ISC_TEST=1`, whatever `Detail` says; named `Test_*`. Never something a user needs to reproduce a result. | `Test_AcqMode`, `Test_GenerateStack`, `Test_StackLength`, `Renderer.Test_WriteRegistryTo` |
 
 - A readout is Advanced (Expert if it only helps debugging).
-- Pre-init only when a change needs a reload (`RandomSeed`, `Detail`, `FovSize`).
+- Pre-init only when a change needs a reload (`RandomSeed`, `Detail`; the camera size was pre-init `FovSize` until 2026-11-18).
 - Device tiers follow the same rules: the hub's `DetectInstalledDevices` offers the devices at or below `Detail`
   (the filter wheels are Advanced: in Basic the `FilterCube` holds the filters).
 

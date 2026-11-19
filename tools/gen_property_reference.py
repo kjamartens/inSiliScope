@@ -32,6 +32,13 @@ TYPES = {"CameraDevice": "Camera", "StageDevice": "Stage", "XYStageDevice": "XY 
 
 
 HUB_RO = {}   # the hub's own read-only rows (read_adapter)
+# The camera's own sensor size (not registry rows: InSiliScopeCamera.cpp), as read from the adapter (read_adapter).
+CAMERA_OWN_HELP = {
+    "SensorWidthPx": "The sensor's width, pixels (any time but during an acquisition; a size whose memory estimate "
+                     "exceeds 80 % of this PC's RAM is refused, with the reason). Zoom in with Micro-Manager's ROI.",
+    "SensorHeightPx": "The sensor's height, pixels (as SensorWidthPx).",
+}
+CAMERA_OWN = {}
 
 
 def cell(s):
@@ -63,6 +70,11 @@ def read_adapter():
     HUB_RO = {p: core.getProperty(HUB, p) for p in ["Version"] if core.hasProperty(HUB, p)}
     core.setProperty(HUB, "Detail", "Expert")
     core.initializeAllDevices()
+    # The camera's own size rows (made at its initialization).
+    global CAMERA_OWN
+    CAMERA_OWN = {p: (core.getProperty("Camera", p), "%g .. %g" % (core.getPropertyLowerLimit("Camera", p),
+                                                                   core.getPropertyUpperLimit("Camera", p)))
+                  for p in CAMERA_OWN_HELP if core.hasProperty("Camera", p)}
     devices = {}
     for d in [HUB] + ALL_DEVICES:
         dtype = str(core.getDeviceType(d)).split(".")[-1]
@@ -121,6 +133,9 @@ def build(devices, pre, rows):
         if d == HUB:
             for p, val in HUB_RO.items():
                 listed.append(f"| `{p}` | Basic | {cell(val)} |  | the release (read-only) |")
+        if d == "Camera":
+            for p, (val, lim) in CAMERA_OWN.items():
+                listed.append(f"| `{p}` | Basic | {cell(val)} | {lim} | {cell(CAMERA_OWN_HELP[p])} |")
         for t in TIERS:
             for r in by_dev.get(d, []):
                 if r["tier"] != t or r["name"] in pre.get(d, {}):

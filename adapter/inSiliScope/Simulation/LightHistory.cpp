@@ -137,7 +137,7 @@ bool MakeLightState(const ScopeSpec& spec, bool lightOn, LightState& out, std::s
    out.lightKey = "p" + Num(g.profile) + ";u" + Num(g.bfp) + ";na" + Num(g.na) + ";ni" + Num(g.nImm) + ";ns" +
                   Num(g.nMed);
    if (g.profile != ILLUM_FLAT)
-      out.lightKey += ";fw" + Num(g.fwhmPct) + ";fov" + Num(g.fovWidthUm);
+      out.lightKey += ";fw" + Num(g.fwhmPct) + ";fov" + Num(g.fovSpanUm);
    out.lightKey += ScopeBeamMeanKey(g);   // a beam set: the components the kinetics run on (empty for one beam)
    for (const LaserLine& l : out.lines)
    {

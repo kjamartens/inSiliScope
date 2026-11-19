@@ -61,7 +61,7 @@ ExcitationSpec SpecFor(const BeamSet& set, int profile = ILLUM_FLAT)
    ExcitationSpec e;
    e.profile = profile;
    e.fwhmPct = 100;
-   e.fovWidthUm = 12.8;
+   e.fovSpanUm = 12.8;
    e.na = 1.4;
    e.nImm = 1.518;
    e.nMed = 1.337;

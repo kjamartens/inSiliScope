@@ -70,7 +70,7 @@ constexpr double kCollectRatio = 1.15, kCollectDz0 = 0.05;
 struct ExcitationSpec
 {
    int profile = ILLUM_FLATTOP;
-   double fwhmPct = 100, fovWidthUm = 12.8;
+   double fwhmPct = 100, fovSpanUm = 12.8;
    double bfp = 0;               // u
    double na = 1.4, nImm = 1.518, nMed = 1.337;
    double pivotUm = 0;           // where the HILO beam crosses the axis (the focal plane)

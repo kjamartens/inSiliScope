@@ -1107,6 +1107,23 @@ void CInSiliScopeCamera::LiveProducerLoop()
          cellFieldVersion = appliedConfigVersion;
       }
 
+      // A setup too large for this PC's memory (sim::ScopeMemoryRefusal, checked again after any change): nothing is
+      // rendered; a black frame at the exposure's pace keeps a running display going (a snap or a sequence start is
+      // refused with the reason, and the reason is logged).
+      if (!MemoryRefusal().empty())
+      {
+         std::vector<uint16_t> black(static_cast<size_t>(w) * h, 0);
+         LitFrame none;
+         publish(black, w, h, 0, liveFrameCounter_.load(std::memory_order_relaxed), currentConfigVersion, frameLight,
+                 none, frameStart, frameStart);
+         ++liveFrameCounter_;
+         isc::PreciseWaiter().WaitUntil(
+            frameStart + std::chrono::duration_cast<sim::SharedStageState::Clock::duration>(
+                            std::chrono::duration<double, std::milli>(std::max(50.0, St().exposureMs.load()))),
+            [this] { return !liveProducerRun_.load(); });
+         scheduled = sim::SharedStageState::Clock::now();
+         continue;
+      }
       // Whether this frame is part of an acquisition (a sequence, or the
       // frame a snap woke) and whether the sample's time runs for it: always
       // (TimeWhileIdle Running), else only in an acquisition.
