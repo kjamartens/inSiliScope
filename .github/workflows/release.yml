@@ -220,6 +220,9 @@ jobs:
 
   pages:
     needs: release
+    # (without its own condition a job inherits the skip of release's skipped needs: a hotfix's gallery and mm-bench,
+    # so a hotfix never redeployed the site, 2026-11-12)
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     permissions:
       contents: read
       pages: write
