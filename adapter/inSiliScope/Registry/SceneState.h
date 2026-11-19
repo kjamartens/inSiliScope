@@ -125,9 +125,11 @@ struct SceneState
 
    // ---- camera: geometry and timing (the camera writes these) ----
    std::atomic<double> exposureMs{50.0};
-   std::atomic<long> fovPx{256};
+   std::atomic<long> fovPx{256};    // the sensor's width, pixels (Camera.SensorWidthPx)
+   std::atomic<long> fovPxY{256};   // its height (Camera.SensorHeightPx)
    std::atomic<long> binning{1};
    long WidthPx() const { return fovPx.load() / binning.load(); }
+   long HeightPx() const { return fovPxY.load() / binning.load(); }
 
    // ---- pixel size: sensor pixel / (objective x emission magnification) ----
    std::atomic<double> sensorPixelUm{6.5};

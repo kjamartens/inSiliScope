@@ -97,7 +97,8 @@ inSiliScope camera: a simulated sCMOS/EMCCD.
 
 | Property | Tier | Default | Values | Description |
 |---|---|---|---|---|
-| `FovSize` | pre-init | 256x256 | `1024x1024 (slow, ~4x the memory of 512)`, `128x128`, `256x256`, `512x512 (slower)` | set before the devices initialize |
+| `SensorWidthPx` | Basic | 256 | 16 .. 4096 | The sensor's width, pixels (any time but during an acquisition; a size whose memory estimate exceeds 80 % of this PC's RAM is refused, with the reason). Zoom in with Micro-Manager's ROI. |
+| `SensorHeightPx` | Basic | 256 | 16 .. 4096 | The sensor's height, pixels (as SensorWidthPx). |
 | `CameraPreset` | Basic | Kinetix22 | `Kinetix22`, `iXonUltra897`, `Custom` | A camera model: sets the sensor type, QE curve, noise values, gain and sensor pixel. |
 | `PixelSizeNm` | Advanced (read-only) | 97.45127436 |  | The pixel size in the sample: SensorPixelUm / (objective x emission magnification). |
 | `SensorPixelUm` | Advanced | 6.5 | 0.5 .. 50 | The sensor's physical pixel pitch (um); the camera preset sets it. |
@@ -189,7 +190,7 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `Laser730KWcm2` | Basic | 0 | 0 .. 10 | Intensity of this laser line at the sample, kW/cm^2 (0 = off). |
 | `Preset` | Basic | Auto | `None`, `Auto`, `dSTORM-640`, `dSTORM-561`, `dSTORM-488`, `PAINT-640`, `PAINT-561`, `PAINT-488`, `PALM-561`, `PALM-primed`, `WF-405`, `WF-488`, `WF-561`, `WF-640`, `Beads-561`, `Slide-405`, `Slide-488`, `Slide-561`, `Slide-640` | A light path (lasers + filter cube). Auto: the labelled targets' dyes' presets together (each laser line at its highest power; the multi-band filter set where their filters differ), what a dye or mode pick applies (its lasers and filters: such a pick leaves BfpPosition). A preset by name: one dye mode's. Picked here, a preset also sets BfpPosition (DNA-PAINT: HILO, on the nanorulers TIRF; else epi). None = as set. |
 | `IlluminationProfile` | Basic | Gaussian | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge). |
-| `IlluminationFwhmPct` | Basic | 100 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's width. |
+| `IlluminationFwhmPct` | Basic | 100 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's longer side (its width when square). |
 | `BfpPosition` | Basic | 0.95 | 0 .. 1.2 | Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge NA / medium index (beyond it no light reaches the sample). Set by Lasers.Preset, the config group Illumination and a Lasers.Pattern pick; a dye, mode or specimen pick leaves it. |
 | `Pattern` | Basic | Off | `Off`, `SIM2D`, `SIM3D`, `LatticeSIM2D`, `LatticeSIM3D`, `Custom` | Structured illumination: the light as coherent beams in the back focal plane, the fringes stepping with the frame. Off: one beam at BfpPosition. SIM2D: two beams at +-BfpPosition, 3 phases x 3 orientations. SIM3D: + the centre beam, 5 phases x 3 orientations. LatticeSIM2D: +-x and +-y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets BfpPosition to the type's radius (2D 0.95; 3D and the lattices 0.9) and PatternPolarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern's cycle mean, each frame's image on its exact pattern. |
 | `IlluminationRegime` | Advanced (read-only) | HILO |  | Epi, HILO, TIRF, or Clipped (the spot beyond the pupil edge: no light) (read-only). |

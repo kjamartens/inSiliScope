@@ -11,7 +11,7 @@
 //                normal session), or as a seeded precomputed stack (the Test
 //                rows, ISC_TEST=1). Its settings are the hub's
 //                (Registry/SceneState.h); its own properties are the sensor
-//                size (pre-init FovSize), exposure, binning and the readouts.
+//                size (SensorWidthPx x SensorHeightPx, up to 4096 x 4096), exposure, binning and the readouts.
 //
 //                Structurally based on Micro-Manager's built-in DemoCamera
 //                adapter (CCameraBase, ImgBuffer, MMDeviceThreadBase sequence
@@ -113,7 +113,8 @@ public:
    // action interface: the camera's own properties (the settings' rows are
    // the registry's, Registry/PropertyTable.cpp)
    // ----------------
-   int OnFovSize(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnSensorWidthPx(MM::PropertyBase* pProp, MM::ActionType eAct);
+   int OnSensorHeightPx(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnBinning(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnExposureProperty(MM::PropertyBase* pProp, MM::ActionType eAct);
    int OnActualFrameIntervalMs(MM::PropertyBase* pProp, MM::ActionType eAct);
@@ -298,7 +299,18 @@ private:
    ImgBuffer img_;
    unsigned roiX_ = 0, roiY_ = 0, roiXSize_ = 0, roiYSize_ = 0;
    long binSize_ = 1;
-   // The sensor's size (pre-init FovSize: square).
+   // The sensor's size (SensorWidthPx / SensorHeightPx, settable while not capturing).
+   int SetSensorSize(MM::PropertyBase* pProp, MM::ActionType eAct, long& side);
+   // Memory (2026-11-18, sim::ScopeMemoryRefusal): "" or why a frame of the current setup at w x h px (after
+   // binning) would not fit this PC's memory. MemoryRefusal is the current setup's, cached until the settings, the
+   // light or the size change (then estimated again and logged once); a size change asks MemoryRefusalAt first.
+   std::string MemoryRefusalAt(unsigned w, unsigned h);
+   std::string MemoryRefusal();
+   std::mutex memMutex_;
+   std::string memRefusal_;
+   long memKey_[4] = { -1, -1, -1, -1 };
+   static constexpr int ERR_MEMORY = 10120;   // its error code (the text is set before it is returned)
+   int RefuseForMemory(const std::string& why);
    long cameraCCDXSize_ = 256;
    long cameraCCDYSize_ = 256;
    MMThreadLock imgPixelsLock_;

@@ -152,9 +152,13 @@ def load_hub_layout(core, seed, frames):
     for d in PERIPHERALS:
         core.loadDevice(d, "inSiliScope", d)
         core.setParentLabel(d, "Hub")
-    core.setProperty("Camera", "FovSize", "128x128")
+    if "FovSize" in core.getDevicePropertyNames("Camera"):   # a DLL from before 2026-11-18: the pre-init size
+        core.setProperty("Camera", "FovSize", "128x128")
     core.initializeAllDevices()
     core.setCameraDevice("Camera")
+    if core.hasProperty("Camera", "SensorWidthPx"):   # since 2026-11-18: settable after startup
+        core.setProperty("Camera", "SensorWidthPx", 128)
+        core.setProperty("Camera", "SensorHeightPx", 128)
     core.setAutoShutter(False)
     # The sample's time stands still between acquisitions (else the idle live
     # loop, with the lasers opened here, would light it before the stack).

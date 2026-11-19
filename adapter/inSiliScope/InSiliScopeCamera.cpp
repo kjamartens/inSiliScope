@@ -34,20 +34,10 @@ const char* g_CameraDeviceName = "Camera";
 
 namespace {
 
-// The pre-init sensor sizes (square). Larger ones render proportionally slower.
-struct FovChoice
-{
-   const char* name;
-   long px;
-};
-const FovChoice kFovChoices[] = {
-   { "128x128", 128 },
-   { "256x256", 256 },
-   { "512x512 (slower)", 512 },
-   { "1024x1024 (slow, ~4x the memory of 512)", 1024 },
-};
-
-const char* g_PropFovSize = "FovSize";
+// The sensor's size, pixels per side (any width x height in this range; larger ones render proportionally slower).
+const char* g_PropSensorWidth = "SensorWidthPx";
+const char* g_PropSensorHeight = "SensorHeightPx";
+const long kSensorMinPx = 16;
 const char* g_PropActualFrameIntervalMs = "ActualFrameIntervalMs";
 const char* g_AcqModePrecomputed = "Precomputed";
 const char* g_AcqModeLive = "Live";
@@ -62,12 +52,6 @@ CInSiliScopeCamera::CInSiliScopeCamera()
 {
    SetRegistryErrorTexts();
    thd_ = new SMLMSequenceThread(this);
-
-   // Pre-init: the sensor's size (zoom in with MM's ROI).
-   CreateStringProperty(g_PropFovSize, kFovChoices[1].name, false,
-                        new CPropertyAction(this, &CInSiliScopeCamera::OnFovSize), true);
-   for (const FovChoice& c : kFovChoices)
-      AddAllowedValue(g_PropFovSize, c.name);
 }
 
 CInSiliScopeCamera::~CInSiliScopeCamera()
@@ -102,6 +86,7 @@ int CInSiliScopeCamera::Initialize()
    if (nRet != DEVICE_OK)
       return nRet;
    St().fovPx = cameraCCDXSize_;
+   St().fovPxY = cameraCCDYSize_;
    St().binning = binSize_;
 
    nRet = CreateStringProperty(MM::g_Keyword_Name, g_CameraDeviceName, true);
@@ -126,6 +111,19 @@ int CInSiliScopeCamera::Initialize()
    AddAllowedValue(MM::g_Keyword_Binning, "2");
    AddAllowedValue(MM::g_Keyword_Binning, "4");
    AddAllowedValue(MM::g_Keyword_Binning, "8");
+
+   // The sensor's size (settable any time but during an acquisition, as Binning; zoom in with MM's ROI).
+   const long maxPx = static_cast<long>(sim::kMaxFovPx);
+   nRet = CreateIntegerProperty(g_PropSensorWidth, cameraCCDXSize_, false,
+                                new CPropertyAction(this, &CInSiliScopeCamera::OnSensorWidthPx));
+   if (nRet != DEVICE_OK)
+      return nRet;
+   SetPropertyLimits(g_PropSensorWidth, kSensorMinPx, maxPx);
+   nRet = CreateIntegerProperty(g_PropSensorHeight, cameraCCDYSize_, false,
+                                new CPropertyAction(this, &CInSiliScopeCamera::OnSensorHeightPx));
+   if (nRet != DEVICE_OK)
+      return nRet;
+   SetPropertyLimits(g_PropSensorHeight, kSensorMinPx, maxPx);
 
    // Pixel type: 16-bit only.
    nRet = CreateStringProperty(MM::g_Keyword_PixelType, "16-bit", true);
@@ -232,24 +230,50 @@ int CInSiliScopeCamera::Initialize()
    return DEVICE_OK;
 }
 
-int CInSiliScopeCamera::OnFovSize(MM::PropertyBase* pProp, MM::ActionType eAct)
+int CInSiliScopeCamera::OnSensorWidthPx(MM::PropertyBase* pProp, MM::ActionType eAct)
 {
-   // Pre-init: set before Initialize (zoom in afterwards with MM's ROI).
+   return SetSensorSize(pProp, eAct, cameraCCDXSize_);
+}
+
+int CInSiliScopeCamera::OnSensorHeightPx(MM::PropertyBase* pProp, MM::ActionType eAct)
+{
+   return SetSensorSize(pProp, eAct, cameraCCDYSize_);
+}
+
+// One side of the sensor: as a Binning change, refused during an acquisition; the ROI resets to the whole sensor,
+// and the live producer takes the new size with its next frame (it reads FullWidth / FullHeight per frame).
+int CInSiliScopeCamera::SetSensorSize(MM::PropertyBase* pProp, MM::ActionType eAct, long& side)
+{
    if (eAct == MM::BeforeGet)
    {
-      for (const FovChoice& c : kFovChoices)
-         if (c.px == cameraCCDXSize_)
-            pProp->Set(c.name);
+      pProp->Set(side);
    }
    else if (eAct == MM::AfterSet)
    {
-      if (initialized_)
-         return DEVICE_CAN_NOT_SET_PROPERTY;
-      std::string s;
-      pProp->Get(s);
-      for (const FovChoice& c : kFovChoices)
-         if (s == c.name)
-            cameraCCDXSize_ = cameraCCDYSize_ = c.px;
+      long v = 0;
+      pProp->Get(v);
+      if (v == side)
+         return DEVICE_OK;
+      if (IsCapturing())
+      {
+         pProp->Set(side);
+         return DEVICE_CAMERA_BUSY_ACQUIRING;
+      }
+      if (v < kSensorMinPx || v > static_cast<long>(sim::kMaxFovPx))
+         return DEVICE_INVALID_PROPERTY_VALUE;
+      // Before anything renders at the new size: would it fit this PC's memory?
+      const long newW = &side == &cameraCCDXSize_ ? v : cameraCCDXSize_;
+      const long newH = &side == &cameraCCDYSize_ ? v : cameraCCDYSize_;
+      const std::string why = MemoryRefusalAt(static_cast<unsigned>(newW / binSize_), static_cast<unsigned>(newH / binSize_));
+      if (!why.empty())
+      {
+         pProp->Set(side);
+         return RefuseForMemory(why);
+      }
+      side = v;
+      St().fovPx = cameraCCDXSize_;
+      St().fovPxY = cameraCCDYSize_;
+      ApplyFrameSizeChange();
    }
    return DEVICE_OK;
 }
@@ -305,9 +329,48 @@ int CInSiliScopeCamera::Shutdown()
    return DEVICE_OK;
 }
 
+std::string CInSiliScopeCamera::MemoryRefusalAt(unsigned w, unsigned h)
+{
+   double x = 0.0, y = 0.0;
+   Stg().PositionXyAt(sim::SharedStageState::Clock::now(), x, y);
+   sim::ScopeSpec spec = isc::BuildScopeSpec(St(), x, y, Stg().zPositionUm.load(), 0.0, 1);
+   sim::ScopeSpecSet(spec, "size", w);
+   sim::ScopeSpecSet(spec, "height", h);
+   // Frames in flight: the render-ahead's largest batch (SMLMImageGeneration.cpp).
+   return sim::ScopeMemoryRefusal(spec, 16);
+}
+
+std::string CInSiliScopeCamera::MemoryRefusal()
+{
+   const long key[4] = { liveConfigVersion_.load(), St().lightVersion.load(), static_cast<long>(FullWidth()),
+                         static_cast<long>(FullHeight()) };
+   std::lock_guard<std::mutex> g(memMutex_);
+   if (!std::equal(key, key + 4, memKey_))
+   {
+      std::copy(key, key + 4, memKey_);
+      const sim::TimingScope timing("mm.memory-check");
+      memRefusal_ = MemoryRefusalAt(FullWidth(), FullHeight());
+      if (!memRefusal_.empty())
+         LogMessage("Not rendering: " + memRefusal_, false);
+   }
+   return memRefusal_;
+}
+
+int CInSiliScopeCamera::RefuseForMemory(const std::string& why)
+{
+   SetErrorText(ERR_MEMORY, why.c_str());
+   LogMessage(why, false);
+   return ERR_MEMORY;
+}
+
 int CInSiliScopeCamera::SnapImage()
 {
    const sim::TimingScope timing("mm.snap");
+   {
+      const std::string why = MemoryRefusal();
+      if (!why.empty())
+         return RefuseForMemory(why);
+   }
    const auto t0 = std::chrono::steady_clock::now();
    const double exp = GetExposure();
 
@@ -426,6 +489,11 @@ int CInSiliScopeCamera::StartSequenceAcquisition(long numImages, double interval
 {
    if (IsCapturing())
       return DEVICE_CAMERA_BUSY_ACQUIRING;
+   {
+      const std::string why = MemoryRefusal();
+      if (!why.empty())
+         return RefuseForMemory(why);
+   }
 
    int ret = GetCoreCallback()->PrepareForAcq(this);
    if (ret != DEVICE_OK)

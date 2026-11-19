@@ -132,7 +132,7 @@ beyond it no light reaches the sample (MM `Lasers.IlluminationRegime` reads `Cli
 BFP radius, so 0.5 is half-way to the critical angle.
 
 The beam's cross-section is `illum-profile` (Flat, Gaussian, the default, or FlatTop: a disc with a soft edge) with
-`illum-fwhm` (% of the FOV width, default 100: the default Gaussian gives the middle of each edge half the centre's
+`illum-fwhm` (% of the FOV's longer side -- its width when square --, default 100: the default Gaussian gives the middle of each edge half the centre's
 light and the corners a quarter). Each dye is excited by the laser power times a factor at its place:
 
 - epi: the profile, the same at every height;

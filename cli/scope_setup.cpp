@@ -110,7 +110,7 @@ void ExcitationBeamsJson(Json& j, const sim::Excitation& ex)
       j.Open('{');
       j.KNum("ux", b.ux);
       j.KNum("uy", b.uy);
-      j.KNum("spot_um", b.spotUm > 0 ? b.spotUm : ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovWidthUm));
+      j.KNum("spot_um", b.spotUm > 0 ? b.spotUm : ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovSpanUm));
       j.KBool("spot_from_fwhm", !(b.spotUm > 0));
       j.KNum("tilt_x_deg", b.tiltXDeg);
       j.KNum("tilt_y_deg", b.tiltYDeg);
@@ -156,7 +156,7 @@ void ExcitationBeamsJson(Json& j, const sim::Excitation& ex)
    j.KNum("f_obj_um", es.fObjUm);
    j.KNum("pupil_radius_um", es.fObjUm * es.na);
    j.KNum("lambda_ref_nm", es.lambdaRefNm);
-   j.KNum("spot_radius_um", ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovWidthUm));
+   j.KNum("spot_radius_um", ex.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovSpanUm));
    j.Key("period_nm");
    j.Open('{');
    for (int nm : sim::LaserLines())
@@ -331,7 +331,7 @@ bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int
    sim::ExcitationSpec geo = es;
    geo.fObjUm = fObjUm;
    const sim::Excitation pair(geo);
-   const double spotLegacy = pair.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovWidthUm);
+   const double spotLegacy = pair.SpotRadiusUm(es.fwhmPct / 100.0 * es.fovSpanUm);
    std::vector<double> spotU(beams.size());
    for (size_t k = 0; k < beams.size(); ++k)
    {

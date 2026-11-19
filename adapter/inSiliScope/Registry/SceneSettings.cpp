@@ -273,6 +273,8 @@ sim::ScopeSpec BuildScopeSpec(const SceneState& st, double stageXUm, double stag
    s["y"] = stageYUm;
    s["z"] = zStageUm;
    s["size"] = static_cast<double>(st.WidthPx());
+   if (st.HeightPx() != st.WidthPx())
+      s["height"] = static_cast<double>(st.HeightPx());   // a square FOV's spec is as before
    s["frames"] = static_cast<double>(frames);
    s["exposure-ms"] = st.exposureMs.load();
    s["start-sec"] = startSec;

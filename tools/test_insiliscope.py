@@ -1,7 +1,7 @@
 """Smoke test for the inSiliScope device adapter (the hub and its devices), using pymmcore-plus.
 
 Exercises: the device layout and the property tiers (Detail Basic / Advanced / Expert; the Test rows only with
-ISC_TEST=1), pre-init enforcement (the hub's RandomSeed and Detail, the camera's FovSize), background stack generation,
+ISC_TEST=1), pre-init enforcement (the hub's RandomSeed and Detail; the camera's size is post-init, tools/test_fov.py), background stack generation,
 reproducibility (same seed + settings -> identical precomputed stack), pixel shape/dtype, live mode end-to-end,
 couplings across devices (a dye pick loading its light preset and filter cube, a camera preset its noise values and
 sensor pixel, the pixel size from sensor / objective / emission path), the light sources' shutters (none open: dark
@@ -53,12 +53,14 @@ def snaps(n):
 
 # --- device layout, pre-init, tiers ---------------------------------------
 fresh()
-for label, prop in (("Hub", "RandomSeed"), ("Hub", "Detail"), ("Camera", "FovSize")):
+for label, prop in (("Hub", "RandomSeed"), ("Hub", "Detail")):
     assert core.isPropertyPreInit(label, prop), f"{label}.{prop} should be pre-init"
 hub_children = set(core.getInstalledDevices("Hub"))
 assert set(ALL_DEVICES) <= hub_children, f"the hub should offer every device (Expert): missing {set(ALL_DEVICES) - hub_children}"
-assert "1024x1024 (slow, ~4x the memory of 512)" in core.getAllowedPropertyValues("Camera", "FovSize")
-print("Layout OK: hub + %d devices, pre-init RandomSeed/Detail/FovSize" % len(ALL_DEVICES))
+for prop in ("SensorWidthPx", "SensorHeightPx"):   # the sensor's size: set any time but during a sequence (test_fov.py)
+    assert not core.isPropertyPreInit("Camera", prop), f"Camera.{prop} should be settable after startup"
+    assert core.getPropertyUpperLimit("Camera", prop) == 4096, prop
+print("Layout OK: hub + %d devices, pre-init RandomSeed/Detail, Camera.SensorWidthPx/SensorHeightPx" % len(ALL_DEVICES))
 
 STANDARD = {"Name", "Description", "HubID", "State", "Label", "Position", "Exposure", "Binning", "PixelType",
             "CameraName", "CameraID", "TransposeMirrorX", "TransposeMirrorY", "TransposeXY", "TransposeCorrection"}
@@ -76,7 +78,7 @@ load_scope(core, detail="Basic", devices=[d for d in ALL_DEVICES if d not in WHE
 basic = own_props([d for d in ALL_DEVICES if d not in WHEELS])
 assert not set(WHEELS) & set(core.getInstalledDevices("Hub")), "Basic: the hub should not offer the Advanced filter wheels"
 assert basic < expert, "Basic should show a subset of Expert"
-assert len(basic) <= 35, f"Basic shows {len(basic)} properties (cap 35): {sorted(basic)}"
+assert len(basic) <= 37, f"Basic shows {len(basic)} properties (cap 37): {sorted(basic)}"
 for must in (("Camera", "CameraPreset"), ("Lasers", "Laser640KWcm2"), ("Lasers", "Preset"), ("Lasers", "BfpPosition"), ("Lasers", "Pattern"),
              ("CellField", "Microtubules_Label"),
              ("CellField", "Microtubules_Mode"), ("CellField", "NuclearPores_Label"), ("CellField", "NuclearPores_Mode"),

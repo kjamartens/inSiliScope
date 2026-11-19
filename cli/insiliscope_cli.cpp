@@ -33,6 +33,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -335,6 +336,29 @@ int RunCli(int argc, char** argv)
                   out.c_str(), run.frames, run.width, run.height, run.tFirst, run.before, run.replaySec,
                   std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
       return writeGt() ? 0 : 1;
+   }
+   {
+      // The memory estimate made before a render (ScopeMovie.h): printed with ISC_TIMING=1; a warning when it is over
+      // this machine's budget (the cli renders anyway: the adapter refuses).
+      unsigned W = 0, H = 0;
+      long frames = 0;
+      sim::ScopeMovieDims(spec, W, H, frames);
+      const long slots = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
+      const int inFlight = static_cast<int>(std::max(1L, std::min(frames, slots)));
+      const char* timing = std::getenv("ISC_TIMING");
+      if (timing && *timing && *timing != '0')
+      {
+         sim::ScopeMemoryEstimate e;
+         std::string eerr;
+         if (sim::EstimateScopeMemory(spec, inFlight, e, eerr))
+            std::printf("ISC_MEMORY estimate %.1f MB: base %.1f, kernels %.1f, dyes %.1f (%.4g dyes in %.0f um2), "
+                        "images %.1f (%d frames in flight), grids %.1f\n",
+                        e.Total() / 1e6, e.baseBytes / 1e6, e.kernelBytes / 1e6, e.dyeBytes / 1e6, e.dyes, e.fieldUm2,
+                        e.imageBytes / 1e6, inFlight, e.sceneBytes / 1e6);
+      }
+      const std::string over = sim::ScopeMemoryRefusal(spec, inFlight);
+      if (!over.empty())
+         std::fprintf(stderr, "warning: %s\n", over.c_str());
    }
    sim::ScopeMovieInfo info;
    std::string err;

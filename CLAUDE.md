@@ -129,6 +129,17 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   aborted movie worker is replaced alone, its jobs told "out of memory" (`spawnDyesWorker`, `workerErrorText`). Viewer
   heap at 40 nm, two WideField labels: 1470-1855 MB (two aborts) -> 592-979 MB; cli 40 nm 256 px LatticeSIM3D 2301 ->
   1140 MB. Checks: `tests/web/wasm_heap_check.mjs`, `viewer_oom.mjs`, ctest `sr_render` (the layout's memcmp).
+- **Camera size and the memory check (2026-11-18, branch `large-fov`, spec/ALGORITHM.md "Large fields of view"):**
+  MM `Camera.SensorWidthPx` / `SensorHeightPx` (16..4096, any time but during an acquisition, as Binning; replaced the
+  pre-init `FovSize`); spec `height` (0 = square; `size` = the width), `ScopeMovieDims` caps `kMaxFovPx` 4096; a
+  non-square field's `illum-fwhm` is of the longer side (`ExcitationSpec::fovSpanUm`). Before anything renders the
+  adapter checks `sim::ScopeMemoryRefusal(spec, 16)` (`EstimateScopeMemory`: the labelled dyes counted in 4 x 4 sample
+  windows of a world of its own, scaled to the field, x bytes per dye, plus kernels, images, grids; fitted to measured
+  peaks, `kEst*` in ScopeMovie.cpp) against `MemoryBudgetBytes()` (`Simulation/MemoryBudget.*`: 80 % of the RAM, or
+  `ISC_MEMORY_BUDGET_GB`): a size change, a snap and a sequence start are refused with the reason (`ERR_MEMORY`, MMCore
+  chains the text), the live producer publishes black frames (`CInSiliScopeCamera::MemoryRefusal`, cached per settings
+  / light / size). The cli prints `ISC_MEMORY estimate` with `ISC_TIMING=1` and warns. Large fields stay slow (the core
+  makes every dye of the field): DNA-PAINT 2048 px ~4 min / 3 frames, WideField 2048 px > 10 min a frame.
 - **Usage counts (2026-10-21, [docs/privacy.md](docs/privacy.md)):** Umami Cloud (cookieless, website id in
   `web/live/usage.js` and `overrides/partials/integrations/analytics/custom.html`, keep them in step), only on
   kjamartens.github.io and never with Do Not Track / GPC / `localStorage umami.disabled`. The viewer calls `iscTrack(name,
@@ -451,7 +462,8 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   `ADAPTER_DIR=<dll dir> python tools/test_cellfield_stage.py` (CellField pattern + XY stage + hardware z stacks), and
   the same with `--drift` (the sample drift checks), `ADAPTER_DIR=<dll dir> python tools/test_history.py` (the sample's
   history: a change acts from now on, stop/start continues, `TimeWhileIdle`; < 1 min), `ADAPTER_DIR=<dll dir> python
-  tools/test_specimens.py` (SampleHolder: CellField / Nanorulers, the switch is a new world; < 30 s), then
+  tools/test_specimens.py` (SampleHolder: CellField / Nanorulers, the switch is a new world; < 30 s), `ADAPTER_DIR=<dll
+  dir> python tools/test_fov.py` (the camera size and the memory check; ~30 s), then
   `ADAPTER_DIR=<dll dir> python tools/test_mm_configs.py` (the shipped configs, < 3 min). (2026-10-27: the scripts read
   the defaults' rules from `data/`, not pinned numbers; each stack is as long as what it reads, `Test_StackLength`; no
   wall-clock upper bounds.) After a registry change: `python tools/gen_mm_configs.py` and

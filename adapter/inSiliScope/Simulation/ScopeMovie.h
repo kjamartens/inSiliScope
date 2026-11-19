@@ -193,8 +193,31 @@ bool MakeScopePsfPreview(const ScopeSpec& spec, ScopePsfPreview& out, std::strin
 // (isc_cell_npcs in world um: centre, outward normal, ring direction e1).
 bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::string& json, std::string& err);
 
-// Frame size and count of a spec (no rendering).
+// The largest FOV side, pixels (the spec's size and height).
+constexpr double kMaxFovPx = 4096;
+
+// Frame size and count of a spec (no rendering): w = size, h = height (0: = size), each 1..kMaxFovPx.
 void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frames);
+
+// What a render of the spec would hold in memory at its peak, bytes (2026-11-18), estimated before it runs: the
+// labelled dyes in the field (counted in sample windows of the world, scaled to the field: the core generates every
+// one), the PSF kernels, the images in flight and the BrightField / WideField grids. Calibrated against measured peaks
+// (spec/ALGORITHM.md "Memory estimate"); on the high side by design. framesInFlight: frames rendered at once (the
+// adapter's render-ahead K, a movie's batch).
+struct ScopeMemoryEstimate
+{
+   unsigned w = 0, h = 0;
+   double fieldUm2 = 0;    // the dyes' query rect (the FOV and its PSF margin)
+   double dyes = 0;        // labelled dyes in it, all structures
+   double baseBytes = 0, kernelBytes = 0, dyeBytes = 0, imageBytes = 0, sceneBytes = 0;
+   double Total() const { return baseBytes + kernelBytes + dyeBytes + imageBytes + sceneBytes; }
+};
+bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryEstimate& out, std::string& err);
+
+// "" when the spec's estimate fits this machine's budget (MemoryBudget.h; or no budget is known), else a sentence for
+// the user: the estimate and its largest parts, the RAM, the largest square FOV that would fit. A spec the estimate
+// cannot read gives "" (the render reports its own error).
+std::string ScopeMemoryRefusal(const ScopeSpec& spec, int framesInFlight);
 
 // Progress of a movie, per frame: ("frames", fraction done, a JSON object
 // {"frame","frames","blinks","backends":[...]} naming which backend drew each

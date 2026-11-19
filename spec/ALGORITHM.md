@@ -897,7 +897,7 @@ light reaches the sample (dyes and imager dark; the autofluorescence background,
   linearly is linear in u = n_i sin(theta_i) / n_s, and the critical angle sits at u = 1 for every objective and
   medium (n_s = `bf-n-medium`, 1.337). The 1.40 objective's edge is 1.047, the 1.49's 1.114, a water objective's < 1.
 - **The beam.** The in-plane profile P (Flat, Gaussian, FlatTop: the logistic-edged disc of the SMLM Challenge
-  simulator, sage2019), FWHM as % of the FOV width (default Gaussian 100 %; FlatTop until 2026-10-20), centred on the optical axis. On a plane at
+  simulator, sage2019), FWHM as % of the FOV's longer side (its width when square; the width before 2026-11-18) (default Gaussian 100 %; FlatTop until 2026-10-20), centred on the optical axis. On a plane at
   height z it lands as P((x - (z - z_p) tan theta_s) cos theta_i, y): stretched along x by 1 / cos theta_i, and below
   the critical angle moving with z, so an inclined beam is an inclined **sheet** (HILO, tokunaga2008) crossing the axis
   at the focal plane z_p (the movie's focus). Its thickness on the axis is W / (tan theta_s cos theta_i).
@@ -1365,6 +1365,37 @@ fiducial beads as on any specimen); its light is the engine's (`Simulation/Slide
   100 nm pixel per 50 ms frame (the orange component; 561 nm excites the others too little to pass 600/37).
 - **Not modelled**: the layer's own refractive index (a slab of the medium's), autofluorescence of the glass, dye
   saturation and triplet blinking, BrightField contrast.
+
+## Large fields of view and the memory estimate (2026-11-18)
+
+- **Size:** the camera is any width x height up to 4096 x 4096 px (spec `size` = the width, `height` 0 = square;
+  `ScopeMovieDims`, `kMaxFovPx`; was square and at most 2048). MM `Camera.SensorWidthPx` / `SensorHeightPx` (16..4096,
+  any time but during an acquisition; the pre-init `FovSize` is gone). On a non-square field `illum-fwhm` is a share of
+  the longer side (`ExcitationSpec::fovSpanUm`; a square field's beam is unchanged).
+- **Why a check:** what a fluorescence frame holds grows with the labelled dyes in the field, and the core generates
+  every one of them: ~4000 per um^2 in the default cell field, so ~2e8 at 2048 x 2048 px (8.5 GB, ~4 min for 3 frames
+  of the default DNA-PAINT scene) and ~5-7e8 at 4096 x 4096 (30-45 GB). A render that runs out of memory takes
+  Micro-Manager down with it, so the adapter estimates first and refuses what would not fit.
+- **The estimate** (`EstimateScopeMemory`, ScopeMovie.cpp): the labelled dyes counted in a 4 x 4 grid of 10 um sample
+  windows over the field and its PSF margin (the whole rect when it is at most 40 x 40 um), scaled to its area, on a
+  world of its own (`isc_density3d_in_window`; the shared cache's lock is held by a live frame for its whole render);
+  bytes per blink-mode dye 55 and per WideField dye 25, 0.4 GB per labelled target's PSF stack, 0.4 GB base, per pixel
+  16 B plus 14 B per frame in flight (the adapter: 16, its render-ahead), a WideField target's mean-field grid 600 B per
+  cell, BrightField 220 + 5 per condenser source per grid cell. Fitted to measured peaks (cli, private bytes) and kept
+  above them: DNA-PAINT 1024 px estimate 3.7 / peak 2.6 GB, 2048 x 1152 px 7.3 / 5.3 GB, WideField 1024 px 2.5 / 2.1 GB,
+  BrightField 2048 px 2.0 / 1.75 GB. The per-dye cost grows slowly with the field (~30 B at 1024 px, ~43 B at 2048 px).
+  The sample windows put the count within roughly +-20 % in a cell field (*estimate*: cells are ~50 um, the windows
+  10 um); a bead sample and the slide have no core dyes.
+- **The budget** (`MemoryBudget.h`): 80 % of the physical RAM, or `ISC_MEMORY_BUDGET_GB` (tests). The refusal names
+  the estimate, its largest parts and the largest square field that fits (the area-proportional parts scaled).
+- **Where it is checked:** a size change (refused, the size kept), a snap and a sequence start (refused with the
+  reason as MM's error), and the live producer after any change of the settings, the light or the size (then black
+  frames at the exposure's pace, the reason logged once); the cli prints the estimate with `ISC_TIMING=1` and a warning
+  above the budget, and renders anyway. The check takes ~2.5 s at 4096 px (the sample windows' dyes).
+- **Not done:** time. A field that fits may still be slow: the default DNA-PAINT scene took ~4 min for 3 frames at
+  2048 px, the WideField label over 10 min for one frame at 2048 px (stopped); BrightField 133 s at 4096 px. The
+  core's queries over the whole field (every dye made, its schedule kept) are the cost; tiling them would bound the
+  memory, not the time.
 
 ## Known limitations / not yet done
 

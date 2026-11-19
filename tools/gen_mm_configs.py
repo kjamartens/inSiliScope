@@ -31,7 +31,6 @@ VIEWER_OUT = ROOT / "web" / "live" / "mm_config.js"
 TIERS = ("Basic", "Advanced", "Expert")
 WHEELS = ("ExcitationFilter", "Dichroic", "EmissionFilter")   # Advanced devices
 MULTI = "Multi Shutter"   # Utilities: both light sources at once (Advanced, Expert)
-FOV = "256x256"
 SEED = "42"
 # The relay that goes with each camera (EmissionPath): the Kinetix22's 6.5 um pixel at 100x x 0.667 = 97.45 nm, the
 # iXon's 16 um at 100x x 1.6 = 100 nm (the ~100 nm of SMLM setups).
@@ -80,8 +79,9 @@ def read_adapter():
     for d in ALL_DEVICES:
         core.loadDevice(d, "inSiliScope", d)
         core.setParentLabel(d, HUB)
-    core.setProperty("Camera", "FovSize", "128x128")
     core.initializeAllDevices()
+    core.setProperty("Camera", "SensorWidthPx", 128)
+    core.setProperty("Camera", "SensorHeightPx", 128)
     objectives = []
     for label in core.getStateLabels("Objective"):
         if label == "Custom":
@@ -178,7 +178,6 @@ def build(tier, info, typical, cameras):
     w("# Pre-init settings for devices")
     w(f"Property,{HUB},Detail,{tier}")
     w(f"Property,{HUB},RandomSeed,{SEED}")
-    w(f"Property,Camera,FovSize,{FOV}")
     w("")
     w("# Hub (parent) references")
     for d in devs:
