@@ -258,6 +258,9 @@ self.iscCoi = (() => {
   #liveCtl .opt .ctl select{max-width:none;width:100%}
   .opt.text:has(#zernCoeffs),.opt.text:has(#simBeams){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val,.opt.text:has(#simBeams)>.val{display:none}
   #simBeams{width:100%;box-sizing:border-box;font:var(--font-size-caption) var(--font-family-mono)}
+  .opt.text:has(#mv_bfp-maps){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#mv_bfp-maps)>.val{display:none}
+  #mv_bfp-maps{width:100%;box-sizing:border-box;resize:vertical;font:var(--font-size-caption) var(--font-family-mono)}
+  #mv_bfp-maps.bad{outline:1px solid var(--color-status-warn)}
   #zernCoeffs{width:100%;box-sizing:border-box;font:var(--font-size-caption) var(--font-family-mono)}   /* (the 28 Zernike modes under their name) */
   #liveCtl .sub{font-size:var(--font-size-caption);line-height:1.35}
   #liveCtl .opt .unit,#liveCtl .opt .u{font-size:var(--font-size-caption)}
@@ -345,10 +348,14 @@ self.iscCoi = (() => {
   .pSpecLegend.lgHov [data-i]:not(.lgOn){opacity:.35}
   .pv-curves{position:relative}
   .pnlCtl{display:flex;flex-direction:column;gap:4px;margin-top:8px} .pnlCtl:empty{display:none}
-  .pc{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;cursor:default} .pcL{flex:1;color:var(--color-text-muted)} .pc input{order:3;flex:1 1 100%;min-width:0;margin:2px 0 0}
+  .pc{display:flex;flex-wrap:wrap;align-items:center;gap:0 6px;cursor:default} .pcL{flex:1;color:var(--color-text-muted)} .pcR{order:3;flex:1 1 100%;min-width:0;margin:2px 0 0;position:relative;display:flex;align-items:center}
+  .pcR input{flex:1;min-width:0;margin:0;position:relative;z-index:1}
+  .pcM{position:absolute;top:50%;width:2px;height:14px;margin-top:-7px;background:var(--color-accent);border-radius:1px;opacity:.75;
+    left:calc(7px - 1px + (100% - 14px) * var(--f, 0))}
+  body.mobile .pcM{left:calc(12px - 1px + (100% - 24px) * var(--f, 0))}
   .pcV{flex:none;text-align:right;font-variant-numeric:tabular-nums;cursor:pointer}
   .pnl.big .pnlCtl{max-width:720px;width:100%;margin:10px auto 0}
-  .pnl.big .pc{flex-wrap:nowrap} .pnl.big .pcL{flex:none;width:100px} .pnl.big .pc input{order:0;flex:1 1 auto;margin:0} .pnl.big .pcV{min-width:84px}
+  .pnl.big .pc{flex-wrap:nowrap} .pnl.big .pcL{flex:none;width:100px} .pnl.big .pcR{order:0;flex:1 1 auto;margin:0} .pnl.big .pcV{min-width:84px}
   .pnlCap{margin-top:8px;color:var(--color-text-muted);line-height:1.4;text-align:center} .pnlCap:empty{display:none}
   .pSchem{display:flex;flex-direction:column;align-items:center;position:relative}
   .pTip{position:absolute;z-index:3;max-width:280px;padding:7px 9px;border-radius:var(--radius-md);background:var(--color-surface-raised);color:var(--color-text);border:1px solid var(--color-border-strong);font-size:var(--font-size-caption);line-height:1.45;white-space:pre-line;pointer-events:none;box-shadow:var(--shadow-raised)}
@@ -886,6 +893,7 @@ self.iscCoi = (() => {
 <script src="live/settle.js"></script>
 <script src="dye_library.js"></script>
 <script src="live/mm_config.js"></script>
+<script src="live/bfp_examples.js"></script>
 <script src="origami_designs.js"></script>
 <script src="insiliscope_module.js"></script>
 <!-- The threaded module (ISC_MODULE_MT_SRC) only on a cross-origin isolated page: the live worker runs it. -->
@@ -1500,9 +1508,9 @@ const UI_GROUPS = [
     { kind: 'html', html: '<div class="sub" id="bfpReadout"></div>', show: FL },
     // Structured illumination (spec/ALGORITHM.md "Structured illumination"): the light as coherent beams in the BFP at
     // the BFP position's radius, the pattern stepping with the frame. A type pick sets the radius and the polarization.
-    select('mv_sim-type', 'Pattern', 'Structured illumination: the light as coherent beams in the objective\'s back focal plane, whose fringes step with the frame (the live sample counts its frames; a recording starts at 0). Off: one beam at the BFP position. SIM2D: two beams at ±position, 3 phases × 3 orientations. SIM3D: + the centre beam, 5 phases × 3 orientations. LatticeSIM2D: ±x and ±y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets the BFP position to the type\'s radius (2D 0.95, 3D and the lattices 0.9) and the polarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern\'s cycle mean, each frame\'s image on its exact pattern. <code>Lasers.Pattern</code>',
-      [['0', 'Off'], ['1', 'SIM2D'], ['2', 'SIM3D'], ['3', 'LatticeSIM2D'], ['4', 'LatticeSIM3D'], ['5', 'Custom']], '0', { show: FL,
-        apply: v => { const r = { '1': 0.95, '2': 0.9, '3': 0.9, '4': 0.9 }[v]; const o = {}; if (r) o['mv_illum-bfp'] = r; if (v !== '0') o['mv_sim-polarization'] = '0'; return o; },
+    select('mv_sim-type', 'Pattern', 'Structured illumination: the light as coherent beams in the objective\'s back focal plane, whose fringes step with the frame (the live sample counts its frames; a recording starts at 0). Off: one beam at the BFP position. SIM2D: two beams at ±position, 3 phases × 3 orientations. SIM3D: + the centre beam, 5 phases × 3 orientations. LatticeSIM2D: ±x and ±y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets the BFP position to the type\'s radius (2D 0.95, 3D and the lattices 0.9) and the polarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern\'s cycle mean, each frame\'s image on its exact pattern. The BFP light maps (the BFP maps row, Expert): LightSheet, an inclined light sheet (an elliptical spot at the BFP position, the sheet\'s thickness × width; a pick sets 0.9); RingTIRF, a spot at the BFP position turned once round in every exposure, unpolarized (a pick sets 1.03); Maps, the BFP maps alone. <code>Lasers.Pattern</code>',
+      [['0', 'Off'], ['1', 'SIM2D'], ['2', 'SIM3D'], ['3', 'LatticeSIM2D'], ['4', 'LatticeSIM3D'], ['5', 'Custom'], ['6', 'LightSheet'], ['7', 'RingTIRF'], ['8', 'Maps']], '0', { show: FL,
+        apply: v => { const r = { '1': 0.95, '2': 0.9, '3': 0.9, '4': 0.9, '6': 0.9, '7': 1.03 }[v]; const o = {}; if (r) o['mv_illum-bfp'] = r; if (+v >= 1 && +v <= 5) o['mv_sim-polarization'] = '0'; return o; },
         kids: [
           select('mv_sim-polarization', 'Polarization', 'Every beam\'s polarization: S (across its plane of incidence: full fringe contrast; the lattice\'s x and y pairs then do not interfere, LatticeSIM3D\'s centre beam is linear diagonal), P, Circular, LinearX (the pupil field along the lab x axis) or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S. <code>Lasers.PatternPolarization</code>',
             [['0', 'S'], ['1', 'P'], ['2', 'Circular'], ['3', 'LinearX'], ['4', 'Unpolarized']], '0', { adv, show: FL }),
@@ -1517,6 +1525,14 @@ const UI_GROUPS = [
           text('simBeams', 'Beams', 'Every beam of the illumination, one row per beam, rows separated by ; and columns by spaces: <b>ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm</b> — the position in the back focal plane (u units: 1 = the critical angle, beyond it evanescent), the spot\'s 1/e² radius in the pupil (µm; 0 = from the beam FWHM: a Gaussian spot of radius w makes an envelope of 1/e² radius λf / πw, f the objective\'s focal length), the bundle\'s entry tilt (°, two axes: the envelope\'s centre moves by f tan tilt), the field amplitude, the phase (turns), the polarization angle (°; 0 s, 90 p; below −180 unpolarized), the ellipticity phase (turns; 0.25 circular), the phase step per phase index (1/phases turns) and the laser line the beam carries (nm; 0 = every line). Off shows its one beam, a pattern its beams; typed rows replace them (every column of every row goes into the spec as <code>beam.&lt;j&gt;.&lt;column&gt;</code>; Custom: the matrix alone). Example, the 2D SIM pair at 0.95: 0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0. <code>Lasers.Beams</code>', undefined, { maxlength: 2000, show: FL }),
           num('mv_sim-phase-drift-turns-per-sqrt-sec', 'Phase walk', 'turns/√s', 'Each beam\'s phase takes a random walk: its RMS after 1 s (per seed and frame, as the sample drift). 0 = none. <code>Lasers.PatternPhaseDriftTurnsPerSqrtSec</code>', 0, 10, 0.001, 0, { adv, show: FL }),
           num('mv_sim-phase-drift-turns-per-sec', 'Phase slide', 'turns/s', 'Each beam\'s phase drifts at its phase step × this: the pattern slides along its stepping direction. 0 = none. <code>Lasers.PatternPhaseDriftTurnsPerSec</code>', -100, 100, 0.01, 0, { adv, show: FL }),
+          num('mv_sheet-thickness-um', 'Sheet thickness', 'µm', 'Pattern LightSheet: the sheet\'s thickness, FWHM across the beam (an estimate). <code>Lasers.SheetThicknessUm</code>', 0.1, 50, 0.1, 3, { adv, show: FL }),
+          num('mv_sheet-width-um', 'Sheet width', 'µm', 'Pattern LightSheet: the sheet\'s width along y, FWHM (0 = the beam\'s FWHM). <code>Lasers.SheetWidthUm</code>', 0, 500, 1, 0, { adv, show: FL }),
+          text('mv_bfp-maps', 'BFP maps', 'The back focal plane\'s light as maps over the pupil, one statement per line (or separated by ;): <b>I</b> intensity, <b>phase</b> (turns), <b>pol</b> (° from s; <i>unpolarized</i>), <b>polLab</b> (a lab angle), <b>ellip</b> (turns), <b>tiltX</b> and <b>tiltY</b> (the entry angle, °: the light lands f tan(tilt) off the axis), <b>focus</b> (° from parallel, towards its lit region\'s centre: + converging), <b>coherent</b> (0 or 1: coherent regions add as fields, incoherent points as intensities), <b>T</b> and <b>duty</b> (lit while (t − T) mod 1 &lt; duty), <b>scanX</b>, <b>scanY</b>, <b>scanRot</b> (°, functions of t: one field moved or turned per time slot, fast). Variables: ux, uy, r (u units: 1 = the critical angle), phi (rad), nm, t (the cycle, 0..1), umax, uc, bfp (the BFP position), w (the beam\'s spot radius in u), fwhm, ns, ni, na, f, sheetT, sheetW. Functions: exp log sqrt abs sin cos tan asin acos atan atan2 hypot min max pow floor ceil round mod step gauss spot clamp if, and img("file.tif") (a map image picked below; row 0 = +uy, a page per time slot). # starts a comment. Shown: the Pattern\'s own equations; an edit sets the Pattern to Maps. The same power through the pupil as one beam. Example, CLSM-like: I = r &lt; umax; coherent = 0; scanX = 0.2*sin(2*pi*t); scanY = 0.2*cos(2*pi*t). <code>Lasers.BfpMaps</code>', undefined, { rows: 6, maxlength: 8000, show: FL }),
+          { kind: 'html', html: '<div class="sub" id="bfpMapsMsg"></div><div class="sub"><select class="bfpExample" aria-label="BFP maps examples" title="An example of the BFP maps: its equations in the box (the Pattern Maps), or a Pattern type"></select> <button type="button" id="bfpMapFilesBtn" title="Images for img(&quot;name&quot;) in the BFP maps: a PNG (grey: the mean of R, G and B) or a TIFF (8, 16 or 32-bit, a page per time slot); the square = the pupil, u from −umax to umax, the top row at +uy">Map images…</button> <span id="bfpMapFilesList"></span><input type="file" id="bfpMapFiles" accept=".png,.tif,.tiff" multiple hidden></div>', show: FL, expert: true },
+          num('mv_bfp-slots', 'Time slots', '', 'The BFP maps\' time slots per cycle: t = (slot + 0.5) / slots (0 = 64 when a map depends on t, else 1). <code>Lasers.BfpSlots</code>', 0, 4096, 1, 0, { adv, show: FL }),
+          num('mv_bfp-cycle-frames', 'Cycle', 'frames', 'The BFP maps\' cycle in frames: 0 = the whole cycle in every exposure (the slots add up: a scan within the exposure); n = the cycle spans n frames (stepped, as SIM). <code>Lasers.BfpCycleFrames</code>', 0, 10000, 1, 0, { adv, show: FL }),
+          num('mv_bfp-z-sample-um', 'Maps\' z range', 'µm', 'The BFP maps\' light is computed this far from the focal plane (propagating) or the coverslip (evanescent); beyond, its end plane carries on along the light\'s mean direction. <code>Renderer.BfpZSampleUm</code>', 1, 100, 1, 12, { adv, show: FL }),
+          num('mv_bfp-map-px', 'Maps\' raster', 'px', 'The BFP maps\' raster in the readouts (the Microscope view\'s BFP panel), pixels per side.', 16, 512, 1, 128, { expert: true, show: FL }),
           num('mv_tube-length-mm', 'Tube length', 'mm', 'The tube lens\' focal length: the objective\'s focal length is it over the magnification (100), the pupil\'s radius that × NA; a beam\'s spot size and tilt map to the sample through it. <code>Objective.TubeLengthMm</code>', 50, 500, 1, 200, { adv, show: FL }),
         ] }),
     { kind: 'html', html: '<div class="sub" id="patternReadout"></div>', show: FL },
@@ -1755,7 +1771,8 @@ function renderEntry(e, host, g, parent) {
   } else if (e.kind === 'text') {
     row = h('div', { class: 'opt text' });
     const ctl = h('div', { class: 'ctl' });
-    ctl.append(h('input', { type: 'text', id: e.id, value: e.value === undefined ? '' : e.value, maxlength: e.maxlength || 40 }));
+    ctl.append(e.rows ? h('textarea', { id: e.id, rows: e.rows, maxlength: e.maxlength || 4000, spellcheck: 'false' }, e.value === undefined ? '' : e.value)
+      : h('input', { type: 'text', id: e.id, value: e.value === undefined ? '' : e.value, maxlength: e.maxlength || 40 }));
     row.append(labelCell(e, e.id), ctl, h('div', { class: 'val' }));
   } else {
     row = h('div', { class: 'opt ' + e.kind });
@@ -4479,7 +4496,16 @@ function iscEngine(M) {
     for (const ptr of [s, info, err]) M._free(ptr);
     return [res, res.frames ? [res.frames.buffer] : []];
   }
-  return { handle };
+  // A BFP map image for img("name") (isc_bfp_map_file): the bytes into the engine's store.
+  function bfpFile(d) {
+    if (!M._isc_bfp_map_file) return;
+    const n = M.lengthBytesUTF8(d.name) + 1, s = M._malloc(n), b = M._malloc(Math.max(1, d.bytes.length));
+    M.stringToUTF8(d.name, s, n);
+    M.HEAPU8.set(d.bytes, b);
+    M._isc_bfp_map_file(s, b, d.bytes.length);
+    M._free(s); M._free(b);
+  }
+  return { handle, bfpFile };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
       const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'gt' || d.type === 'gt-run' || d.type === 'gt-files' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
@@ -4812,6 +4838,7 @@ function genWorkerMain() {
       start(createInsiliscope(opts).then(M => { if (d.threads && M._isc_set_threads) M._isc_set_threads(d.threads); return iscEngine(M); }));
       return;
     }
+    if (d && d.type === 'bfp-file') { ready.then(eng => eng.bfpFile(d)); return; }   // (no reply)
     ready.then(eng => Promise.resolve(eng.handle(d, m => postMessage(m)))).then(([out, transfer]) => {
       postMessage(out, transfer);
     }).catch(err => setTimeout(() => { throw err; })); // surfaces as the worker's onerror
@@ -4882,12 +4909,43 @@ const wasmMtModulePromise = (() => {
     return WebAssembly.compile(bytes).catch(() => null);
   } catch (e) { return Promise.resolve(null); }
 })();
+// The BFP maps' image files (img("name")): every engine worker gets each one (sendBfpFile), a new worker all of them.
+const BFP_FILES = self.ISC_BFP_FILES = new Map(), genAll = new Set();
+function sendBfpFile(name, bytes) {
+  BFP_FILES.set(name, bytes);
+  for (const w of genAll) w.postMessage({ type: 'bfp-file', name, bytes });
+  if (mainEngine) mainEngine.bfpFile({ name, bytes });
+  setupCache.clear();   // (the same spec text, other light: every readout and panel made again)
+  if (typeof scopeView !== 'undefined') scopeView.invalidate();
+  window.dispatchEvent(new Event('isc-bfp-files'));
+}
+self.iscSendBfpFile = sendBfpFile;
+// A map image's bytes for the engine (it reads TIFF, BfpMaps.h): a .tif as it is; any other image the browser decodes
+// (a PNG drawn in any paint program) becomes an 8-bit grey TIFF of its pixels (the mean of R, G, B times alpha).
+async function bfpFileBytes(name, blob) {
+  if (/\.tiff?$/i.test(name)) return new Uint8Array(await blob.arrayBuffer());
+  const bm = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+  const w = bm.width, h = bm.height, cv = new OffscreenCanvas(w, h), g = cv.getContext('2d');
+  g.drawImage(bm, 0, 0);
+  const rgba = g.getImageData(0, 0, w, h).data, px = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) px[i] = Math.round((rgba[4 * i] + rgba[4 * i + 1] + rgba[4 * i + 2]) / 3 * rgba[4 * i + 3] / 255);
+  const tags = [[256, 4, w], [257, 4, h], [258, 3, 8], [259, 3, 1], [262, 3, 1], [273, 4, 8], [277, 3, 1], [278, 4, h], [279, 4, w * h]];
+  const off = 8 + px.length + (px.length & 1), buf = new ArrayBuffer(off + 2 + tags.length * 12 + 4), dv = new DataView(buf);
+  dv.setUint16(0, 0x4949); dv.setUint16(2, 42, true); dv.setUint32(4, off, true);
+  new Uint8Array(buf, 8, px.length).set(px);
+  dv.setUint16(off, tags.length, true);
+  tags.forEach(([t, ty, v], i) => { const o = off + 2 + i * 12; dv.setUint16(o, t, true); dv.setUint16(o + 2, ty, true); dv.setUint32(o + 4, 1, true);
+    if (ty === 3) dv.setUint16(o + 8, v, true); else dv.setUint32(o + 8, v, true); });
+  return new Uint8Array(buf);
+}
+self.iscBfpFileBytes = bfpFileBytes;
 function spawnGenWorker(opts = {}) {
+  const files = w => { genAll.add(w); for (const [name, bytes] of BFP_FILES) w.postMessage({ type: 'bfp-file', name, bytes }); return w; };
   if (opts.mt && genMtBlobUrl) {
     const w = new Worker(genMtBlobUrl);
     w.onerror = e => console.warn('the threaded worker failed:', e.message);
     wasmMtModulePromise.then(mod => w.postMessage({ type: 'init', module: mod, threads: self.iscCoi.nThreads }));
-    return w;
+    return files(w);
   }
   const w = new Worker(genBlobUrl);
   w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
@@ -4895,7 +4953,7 @@ function spawnGenWorker(opts = {}) {
   wasmModulePromise.then(mod => {
     try { w.postMessage({ type: 'init', module: mod }); } catch (e) { w.postMessage({ type: 'init', module: null }); }
   });
-  return w;
+  return files(w);
 }
 function initGenWorkers() {
   try {
@@ -6406,6 +6464,8 @@ function movieSpec(ov) {
   // Zernike modes typed over the preset's (ZERN, below): all 28
   if (self.ISC_ZERN && ISC_ZERN.user) ISC_ZERN.user.forEach((v, j) => { if (!has('zern.' + j)) o.push('zern.' + j + '=' + v); });
   if (self.ISC_BEAMS && ISC_BEAMS.user) ISC_BEAMS.user.forEach((row, j) => row.forEach((v, c) => { const k = 'beam.' + j + '.' + BEAM_COLUMNS[c]; if (!has(k)) o.push(k + '=' + v); }));
+  // The BFP maps typed over the Pattern's own (MAPS, below): the text option bfp-maps, quoted.
+  if (self.ISC_MAPS && ISC_MAPS.user && !has('bfp-maps')) o.push(iscSettingsCore.specPair('bfp-maps', ISC_MAPS.user));
   if (!has('seed')) o.push('seed=' + noiseSeed());
   o.push('world-seed=' + (worldSeed() >>> 0), 'x=' + (has('x') ? ov.x : view.cx), 'y=' + (has('y') ? ov.y : view.cy),
          'psf-kernel-half-width-nm=' + MOVIE_PSF_HALF_WIDTH_NM);
@@ -7452,7 +7512,7 @@ const SIM_EPI_BELOW = 0.05;
   bfp.addEventListener('input', () => {
     if (self.ISC_QUIET) return;
     const u = +bfp.value;
-    if (u < SIM_EPI_BELOW && sim.value !== '0') { parked = sim.value; setSim('0'); }
+    if (u < SIM_EPI_BELOW && sim.value !== '0' && +sim.value <= 5) { parked = sim.value; setSim('0'); }   // (not the BFP maps)
     else if (u >= SIM_EPI_BELOW && parked !== null) { const p = parked; parked = null; if (sim.value === '0') setSim(p); }
   });
   sim.addEventListener('input', () => { if (!setting) parked = null; });
@@ -7461,6 +7521,89 @@ const SIM_EPI_BELOW = 0.05;
 document.getElementById('mv_sim-type').addEventListener('change', () => { BEAMS.user = null; forgetBeams(); showBeams(); });
 window.addEventListener('isc-reset', () => BEAMS.clear());
 setTimeout(showBeams, 0);
+// The BFP light maps (Lasers.BfpMaps; spec/ALGORITHM.md "BFP light maps"): the box shows the equations in use (the
+// Pattern's own, from the setup job) or the ones typed (MAPS.user, the spec's bfp-maps); an edit applies when the box
+// is left (or Ctrl+Enter) and sets the Pattern to Maps; a LightSheet / RingTIRF pick forgets it. Errors from the setup.
+const mapsEl = document.getElementById('mv_bfp-maps'), MAPS = self.ISC_MAPS = { user: null, shown: '' };
+let mapsSeq = 0;
+async function showMaps() {
+  const msg = document.getElementById('bfpMapsMsg'), seq = ++mapsSeq;
+  try {
+    const S = await setupJob(movieSpec());
+    if (seq !== mapsSeq) return;   // (a later change asked again)
+    const m = S.excitation && S.excitation.maps;
+    MAPS.shown = m ? m.equations : '';
+    if (document.activeElement !== mapsEl) mapsEl.value = MAPS.user !== null ? MAPS.user : MAPS.shown;
+    mapsEl.classList.toggle('bad', !!(m && m.error));
+    if (msg) msg.textContent = !m ? '' : m.error ? 'Not made: ' + m.error : (m.slots > 1 ? m.slots + ' time slots, ' : '') +
+      (m.period > 1 ? 'a cycle of ' + m.period + ' frames, ' : '') + (m.compute_sec || 0).toFixed(2) + ' s to make, ' + ((m.bytes || 0) / 1048576).toFixed(1) + ' MB';
+  } catch (e) { /* the readout follows with the next change */ }
+}
+function commitMaps() {
+  const v = mapsEl.value;
+  if (v === (MAPS.user !== null ? MAPS.user : MAPS.shown)) return;
+  const sim = document.getElementById('mv_sim-type');
+  MAPS.user = v.trim() === '' ? null : v;
+  if (MAPS.user !== null && sim.value !== '8') {
+    const q = self.ISC_QUIET;
+    self.ISC_QUIET = true;   // (the Pattern's own pick would move the BFP position and forget the text)
+    try { sim.value = '8'; sim.dispatchEvent(new Event('input', { bubbles: true })); } finally { self.ISC_QUIET = q; }
+  }
+  schedulePrepare();
+  scheduleBfpReadout();
+  showMaps();
+}
+mapsEl.addEventListener('change', commitMaps);
+mapsEl.addEventListener('keydown', ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); commitMaps(); } });
+mapsEl.addEventListener('blur', showMaps);
+document.getElementById('mv_sim-type').addEventListener('change', () => {
+  const v = document.getElementById('mv_sim-type').value;
+  if (!self.ISC_QUIET && (v === '6' || v === '7')) MAPS.user = null;
+  showMaps();
+});
+for (const k of ['mv_illum-bfp', 'mv_sheet-thickness-um', 'mv_sheet-width-um', 'mv_bfp-slots', 'mv_bfp-cycle-frames'])
+  document.getElementById(k).addEventListener('input', () => showMaps());
+window.addEventListener('isc-reset', () => { MAPS.user = null; showMaps(); });
+setTimeout(showMaps, 0);
+// The examples (web/live/bfp_examples.js, also the docs' figure bfp-maps): a pick puts its equations in the box (with
+// its slots and cycle) or picks its Pattern type; the list goes back to its title (no id: not a setting kept).
+{
+  const sel = document.querySelector('select.bfpExample'), EX = self.ISC_BFP_EXAMPLES || [];
+  sel.innerHTML = '<option value="">Examples…</option>' + EX.map(e => `<option value="${e.id}" title="${e.about.replace(/"/g, '&quot;')}">${e.name}</option>`).join('');
+  const put = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); };
+  sel.addEventListener('change', async () => {
+    const e = EX.find(x => x.id === sel.value);
+    sel.value = '';
+    if (!e) return;
+    // its map images (web/bfp_maps/), fetched once
+    for (const f of e.files || []) {
+      if (BFP_FILES.has(f)) continue;
+      try { const r = await fetch('bfp_maps/' + f); if (!r.ok) throw new Error(r.status); sendBfpFile(f, await bfpFileBytes(f, await r.blob())); }
+      catch (err) { document.getElementById('bfpMapsMsg').textContent = 'Not loaded: bfp_maps/' + f; return; }
+    }
+    if (e.type !== undefined) { MAPS.user = null; put('mv_sim-type', String(e.type)); if (e.bfp !== undefined) put('mv_illum-bfp', e.bfp); return; }
+    put('mv_bfp-slots', e.slots || 0);
+    put('mv_bfp-cycle-frames', e.cycleFrames || 0);
+    if (e.bfp !== undefined) put('mv_illum-bfp', e.bfp);
+    mapsEl.value = e.text;
+    commitMaps();
+  });
+}
+// Map images for img("name"): each file's bytes go to every engine worker (sendBfpFile), kept for workers made later.
+{
+  const input = document.getElementById('bfpMapFiles'), list = document.getElementById('bfpMapFilesList');
+  const show = () => { list.textContent = [...BFP_FILES.keys()].join(', ') || 'none'; };
+  document.getElementById('bfpMapFilesBtn').addEventListener('click', () => input.click());
+  input.addEventListener('change', async () => {
+    for (const f of input.files) {
+      try { sendBfpFile(f.name, await bfpFileBytes(f.name, f)); } catch (e) { list.textContent = f.name + ': not an image this browser reads'; return; }
+    }
+    input.value = '';
+  });
+  // (sendBfpFile: the same spec text, other light: the box's message, the readout and the movie's kernel again)
+  window.addEventListener('isc-bfp-files', () => { show(); schedulePrepare(); scheduleBfpReadout(); showMaps(); });
+  show();
+}
 
 // ---- the Microscope view (the left view's switch, 2026-11-03) ----
 // The title bar's Sample | Microscope: the world view, or #scopeHost with the module's panels (cli/scope_panels.h:
@@ -7568,8 +7711,19 @@ const scopeView = (() => {
     }
     host.style.setProperty('--tile-img-h', Math.max(40, Math.floor(h)) + 'px');
   }
+  // The illumination's section height (its z, a height above the coverslip) moves with the focus: at the focus it
+  // follows by itself (z -1); a height set by its slider is carried by each focus step, so it stays as far above (or
+  // below) the focus as it was put.
+  let lastFocus = null;
+  function followFocus() {
+    const f = +document.getElementById('mv_z').value;
+    if (lastFocus !== null && f !== lastFocus && params.z !== undefined && +params.z >= 0)
+      params.z = Math.max(0, Math.round((+params.z + f - lastFocus) * 1000) / 1000);
+    lastFocus = f;
+  }
   function update() {
     if (!on || !list) return;
+    followFocus();
     const spec = movieSpec(), ps = paramText();
     if (filled) request(filled, big, true, spec, ps);
     else for (const p of list) request(p.id, els.get(p.id), false, spec, ps);
@@ -7633,7 +7787,9 @@ const scopeView = (() => {
   let saved = null;
   try { saved = localStorage.getItem(KEY); } catch (e) { /* private window */ }
   if (saved === 'scope') set(true);
-  return { onResult, set, open, close, refresh, get on() { return on; }, get filled() { return filled; } };
+  // Every panel drawn again although its spec is the same (a BFP map image replaced under its name).
+  function invalidate() { for (const st of state.values()) st.shown = null; refresh(0); }
+  return { onResult, set, open, close, refresh, invalidate, get on() { return on; }, get filled() { return filled; } };
 })();
 function onPanelResult(d) { scopeView.onResult(d); }
 // The pattern readout under the rows: the type's state, the fringe period at the strongest line, the frames per cycle.
@@ -7731,6 +7887,16 @@ async function drawBfpReadout() {
     if (!ex) { out.textContent = ''; return; }
     const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
     const nm = lit.length ? lit[lit.length - 1] : 640, d = ex.depth_nm[nm];
+    const m = ex.maps;
+    if (m) {
+      // The BFP light maps: the regime of their light (TIRF when nearly all of it is evanescent).
+      const share = m.evanescent_share || 0;
+      out.textContent = m.error ? 'BFP maps: not made (' + m.error + ')'
+        : ex.regime === 'TIRF' ? `BFP maps: evanescent (TIRF), 1/e depth ${d.toFixed(0)} nm at ${nm} nm`
+        : m.evanescent ? `BFP maps: evanescent and propagating light (${(100 * share).toFixed(0)} % evanescent)`
+        : `BFP maps: propagating, up to ${(Math.asin(Math.min(1, ex.u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium`;
+      return;
+    }
     if (ex.pattern && ex.pattern.type !== 'Off') {
       // A beam set: the outermost beams' regime (several beams make no sheet).
       const ang = (Math.asin(Math.min(1, ex.u)) * 180 / Math.PI).toFixed(0);
@@ -7744,7 +7910,7 @@ async function drawBfpReadout() {
       : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.u_max.toFixed(3)}), no light` : ': the beam straight up');
   } catch (e) { out.textContent = ''; }
 }
-for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', 'mv_sim-type', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
+for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', 'mv_sim-type', 'mv_sheet-thickness-um', 'mv_sheet-width-um', 'mv_bfp-slots', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
   document.getElementById(k)?.addEventListener('input', scheduleBfpReadout);
 scheduleBfpReadout();
 

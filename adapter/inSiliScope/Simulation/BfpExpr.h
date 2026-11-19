@@ -96,4 +96,7 @@ private:
    unsigned setMask_ = 0;
 };
 
+// The equations on one line (Micro-Manager's property values): comments dropped, statements joined by "; ".
+std::string BfpOneLine(const std::string& text);
+
 } // namespace sim

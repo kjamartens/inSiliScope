@@ -468,3 +468,168 @@ def sim_spot(ctx):
                   "beam in the centre of the field. Right: the default spot entering the pupil 0.1° off axis "
                   "(`tiltX 0.1`) lands its envelope f tan(0.1°) = %.1f µm off centre.\n"
                   % (f_um / 1000, w_default, lam, lam * 1e-3 * f_um / (np.pi * 100), f_um * np.tan(np.deg2rad(0.1))))
+
+
+# ---- BFP light maps (spec/ALGORITHM.md "BFP light maps") ----
+def bfp_examples():
+    """The examples of web/live/bfp_examples.js (the viewer's Examples list): JSON after "ISC_BFP_EXAMPLES ="."""
+    import json
+    import os
+    p = os.path.join(os.path.dirname(__file__), "..", "..", "web", "live", "bfp_examples.js")
+    text = open(p, encoding="utf-8").read()
+    k = text.index("self.ISC_BFP_EXAMPLES")
+    return json.loads(text[text.index("=", k) + 1:].strip().rstrip(";"))
+
+
+def bfp_one_line(text):
+    """The equations on one line (the served cli reads a command per line): comments dropped, statements by '; '."""
+    out = []
+    for line in text.split("\n"):
+        line = line.split("#", 1)[0].strip()
+        if line:
+            out.append(line)
+    return "; ".join(out)
+
+
+BFP_FOCUS_UM = 3.0   # the focal plane in the figure: light above and below it shows in the x-z sections
+
+
+def bfp_example_setup(ctx, e):
+    # its map images (web/bfp_maps/*.png): the cli reads TIFF, so each is written as a TIFF of the same pixels under
+    # its own name into the served cli's working folder (img("name") reads by name; the reader goes by the content)
+    import os
+    from PIL import Image
+    for f in e.get("files", []):
+        src = os.path.join(os.path.dirname(__file__), "..", "..", "web", "bfp_maps", f)
+        Image.open(src).convert("L").save(ctx.path(f), format="TIFF")
+    opts = {"sim-type": e.get("type", 8), "z": bfp_focus(e)}
+    if "bfp" in e:
+        opts["illum-bfp"] = e["bfp"]
+    if "text" in e:
+        opts.update({"bfp-maps": bfp_one_line(e["text"]), "bfp-slots": e.get("slots", 0),
+                     "bfp-cycle-frames": e.get("cycleFrames", 0)})
+    return sim_setup(ctx, opts, "bfp-" + e["id"])
+
+
+BFP_TIRF_FOCUS_UM = 0.1   # the evanescent examples' focus (their light is a ~0.1 um layer on the coverslip)
+
+
+def bfp_focus(d):
+    return BFP_TIRF_FOCUS_UM if d["id"] in ("ring", "img-annulus") else BFP_FOCUS_UM
+
+
+def bfp_grow(a, px=2):
+    """A spot of a pixel or two made visible: the largest value within px pixels (drawing only)."""
+    out = a.copy()
+    for dy in range(-px, px + 1):
+        for dx in range(-px, px + 1):
+            out = np.maximum(out, np.roll(np.roll(a, dy, axis=0), dx, axis=1))
+    return out
+
+
+def bfp_example_figure(ctx, exs, alt):
+    ex = [bfp_example_setup(ctx, e) for e in exs]
+    per_row = 2
+    rows = (len(exs) + per_row - 1) // per_row
+
+    def draw(fig, st):
+        gs = fig.add_gridspec(rows, 3 * per_row, width_ratios=[1, 1, 1.3] * per_row, hspace=0.32, wspace=0.12,
+                              left=0.02, right=0.99, top=0.95, bottom=0.04)
+        for k, (d, e) in enumerate(zip(exs, ex)):
+            r, c0 = k // per_row, 3 * (k % per_row)
+            zf = bfp_focus(d)
+            tirf = zf < 1
+            # the pupil from above: the maps' intensity over frame 0's exposure, the critical circle dotted, the edge
+            ax = fig.add_subplot(gs[r, c0])
+            if "bfp_map" in e:
+                n, span = int(e["bfp_map_n"]), e["bfp_map_span"]
+                a = np.array(e["bfp_map"]).reshape(n, n)
+                ax.imshow(bfp_grow(a), origin="lower", cmap="magma", vmin=0, extent=[-span, span, -span, span])
+                ax.add_patch(plt.Circle((0, 0), 1.0, fill=False, ls=":", lw=0.6, color=st["muted"]))
+                ax.add_patch(plt.Circle((0, 0), e["bfp_map_u_max"], fill=False, lw=0.6, color=st["muted"]))
+                ax.set_xlim(-span, span)
+                ax.set_ylim(-span, span)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.text(0, 1.04, d["name"].replace(" (the LightSheet pattern)", "").replace(" (the RingTIRF pattern)", "")
+                    .replace("Image: ", ""), transform=ax.transAxes, fontsize=7, ha="left", va="bottom", color=st["fg"])
+            # the focal plane from below
+            ax = fig.add_subplot(gs[r, c0 + 1])
+            ps = np.array(e["pattern_xy_um"])
+            a = np.array(e["pattern_xy"]).reshape(len(ps), len(ps))
+            ax.imshow(a, origin="lower", cmap="magma", vmin=0, extent=[ps[0], ps[-1], ps[0], ps[-1]])
+            ax.set_xlim(-6, 6)
+            ax.set_ylim(-6, 6)
+            ax.set_xticks([-5, 0, 5])
+            ax.set_yticks([-5, 0, 5])
+            ax.tick_params(labelsize=5, length=2, pad=1)
+            ax.text(0.97, 0.03, "z %g" % zf, transform=ax.transAxes, fontsize=5, ha="right", va="bottom", color="w")
+            # the x-z section through the axis, the focal plane dashed (the evanescent ones: the first micrometre)
+            ax = fig.add_subplot(gs[r, c0 + 2])
+            xs, zs = np.array(e["section_x_um"]), np.array(e["section_z_um"])
+            s = np.array(e["section"]).reshape(len(zs), len(xs))
+            ax.imshow(s, origin="lower", aspect="auto", cmap="magma", vmin=0, extent=[xs[0], xs[-1], zs[0], zs[-1]],
+                      interpolation="bilinear" if tirf else "antialiased")
+            ax.axhline(zf, ls="--", lw=0.6, color=st["muted"])
+            ax.set_xlim(-6, 6)
+            ax.set_ylim(0, 1 if tirf else 8)
+            ax.set_xticks([-5, 0, 5])
+            ax.tick_params(labelsize=5, length=2, pad=1)
+
+    body = ctx.plot("", draw, h=1.12 * rows + 0.3, alt=alt)
+
+    def eq(d):
+        if "type" in d:
+            return "the %s pattern's own equations (`Lasers.Pattern`)" % ("LightSheet" if d["type"] == 6 else "RingTIRF")
+        code = "<br>".join("<code>%s</code>" % l.replace("<", "&lt;") for l in d["text"].split("\n") if not l.startswith("#"))
+        t = []
+        if d.get("slots"):
+            t.append("%d slots" % d["slots"])
+        if d.get("cycleFrames"):
+            t.append("a cycle of %d frames" % d["cycleFrames"])
+        return code + ("<br>(" + ", ".join(t) + ")" if t else "")
+
+    def made(e):
+        m = e.get("maps") or {}
+        return "%.2f s, %.0f MB" % (m.get("compute_sec", 0), m.get("bytes", 0) / 1048576.0) if m else ""
+
+    eqs = table(["Example", "What it shows", "Equations", "Made in"],
+                [[d["name"], d["about"], eq(d), made(e)] for d, e in zip(exs, ex)])
+    return body, eqs, ex
+
+
+CAPTION_VIEWS = ("each in three views: the pupil from above (the maps' intensity over the exposure, its time slots "
+                 "summed, a spot of a pixel or two drawn wider; dotted: the critical circle u = 1, solid: the pupil's "
+                 "edge), the excitation on the focal plane (%g µm above the coverslip, %g µm for the evanescent ones) and "
+                 "an x-z section through the axis (dashed: the focal plane; the evanescent ones over the first "
+                 "micrometre), each scaled to its own peak, at 488 nm (the widefield microtubules' line). The time to "
+                 "make each light (insiliscope_cli, cold) and its memory are in the table. Axes in µm."
+                 % (BFP_FOCUS_UM, BFP_TIRF_FOCUS_UM))
+
+
+@register("bfp-maps", "dyes-and-light-path")
+def bfp_maps(ctx):
+    exs = [e for e in bfp_examples() if not e.get("files")]
+    body, eqs, _ = bfp_example_figure(ctx, exs, "Examples of BFP light maps written as equations: the pupil, the focal "
+                                                "plane and an x-z section of each")
+    return figure(body,
+                  "The equation examples of the viewer's BFP maps Examples list (`web/live/bfp_examples.js`), " +
+                  CAPTION_VIEWS + " A spot at the centre goes straight up and one at u = 0.9 crosses the focal plane "
+                  "inclined; the light sheet is that beam made thin across and wide along y; the ring past the critical "
+                  "angle stays at the coverslip; a thin annulus makes a long narrow core (Bessel beam); a wider annulus "
+                  "focuses to a spot when radially (p) polarized and to a donut when azimuthally (s) polarized; a focused "
+                  "spot swept within the exposure draws a line; two spots make fringes (frame 0 of 3).\n") + "\n" + eqs
+
+
+@register("bfp-map-images", "dyes-and-light-path")
+def bfp_map_images(ctx):
+    exs = [e for e in bfp_examples() if e.get("files")]
+    body, eqs, _ = bfp_example_figure(ctx, exs, "Examples of BFP light maps from images: the pupil, the focal plane and "
+                                                "an x-z section of each")
+    return figure(body,
+                  "The image examples (`web/bfp_maps/*.png`, made by `tools/gen_bfp_map_images.py`; a PNG's square is the "
+                  "pupil, u from -umax to umax, the top row at +uy), " + CAPTION_VIEWS + " Six coherent spots on a "
+                  "hexagon interfere to a hexagonal lattice and four on the axes to a square one, both reaching every "
+                  "height alike; three beams (3D SIM's) add fringes along z; a line across the pupil focuses to a line; "
+                  "an annulus past the critical angle lit all round at once gives TIRF from every direction; half the "
+                  "pupil lit incoherently gives oblique light from one side.\n") + "\n" + eqs

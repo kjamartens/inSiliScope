@@ -10,6 +10,7 @@
 //
 //   settings_check     exit code 0 = all checks passed
 #include "settings_file.h"
+#include "BfpMaps.h"
 
 #include "insiliscope/version.h"
 
@@ -217,6 +218,34 @@ int main()
       settings::Loaded beyond;
       Check(!settings::ReadText(File("\"measurement\":{\"values\":{},\"history\":{\"recordFrom\":3,\"records\":[{\"n\":1,\"set\":{}}]}}"), {}, beyond, err),
             "refused: recordFrom beyond the history's records");
+   }
+
+   {
+      // The BFP maps' images a part carries (files: base64 by name) go into the store: a 2 x 2 16-bit TIFF.
+      const uint8_t px[8] = { 0, 0, 0xff, 0xff, 0xff, 0xff, 0, 0 };
+      std::vector<uint8_t> tif = { 'I', 'I', 42, 0, 16, 0, 0, 0 };
+      tif.insert(tif.end(), px, px + 8);
+      const uint16_t tags[9][3] = { { 256, 3, 2 }, { 257, 3, 2 }, { 258, 3, 16 }, { 259, 3, 1 }, { 262, 3, 1 },
+                                    { 273, 4, 8 }, { 277, 3, 1 }, { 278, 3, 2 }, { 279, 4, 8 } };
+      auto u16 = [&](unsigned v) { tif.push_back(static_cast<uint8_t>(v)); tif.push_back(static_cast<uint8_t>(v >> 8)); };
+      u16(9);
+      for (const auto& t : tags) { u16(t[0]); u16(t[1]); u16(1); u16(0); u16(t[2]); u16(0); }
+      u16(0); u16(0);
+      static const char* k64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+      std::string b64;
+      for (size_t i = 0; i < tif.size(); i += 3) {
+         const uint32_t v = (static_cast<uint32_t>(tif[i]) << 16) | (i + 1 < tif.size() ? tif[i + 1] << 8 : 0) | (i + 2 < tif.size() ? tif[i + 2] : 0);
+         b64 += k64[(v >> 18) & 63]; b64 += k64[(v >> 12) & 63];
+         b64 += i + 1 < tif.size() ? k64[(v >> 6) & 63] : '='; b64 += i + 2 < tif.size() ? k64[v & 63] : '=';
+      }
+      settings::Loaded lf;
+      const bool okF = settings::ReadText(File("\"settings\":{\"values\":{\"sim-type\":\"Maps\",\"bfp-maps\":\"I = img(\\\"pupil_check.tif\\\")\"},"
+                                               "\"files\":{\"pupil_check.tif\":\"" + b64 + "\",\"bad.tif\":\"%%%\"}}"), {}, lf, err);
+      std::string ierr;
+      const auto im = BfpFindImage("pupil_check.tif", ierr);
+      Check(okF && im && im->w == 2 && im->h == 2 && im->v[1] > 0.99f * im->v[2] && im->v[0] == 0 &&
+            ScopeSpecGetText(lf.spec, "bfp-maps") == "I = img(\"pupil_check.tif\")" && Has(lf.warnings, "bad.tif"),
+            "a part's files: the map image into the store by name (" + ierr + "), a broken one warned");
    }
 
    std::printf("cli_settings: %d failure(s), %.1f s\n", g_failures,

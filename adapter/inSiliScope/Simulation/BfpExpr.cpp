@@ -621,4 +621,43 @@ void BfpProgram::Run(const double* vars, double* maps, std::vector<double>& R, c
    std::copy(R.begin() + kBfpVars, R.begin() + kBfpVars + kBfpMaps, maps);
 }
 
+std::string BfpOneLine(const std::string& text)
+{
+   std::string out, cur;
+   bool quoted = false, comment = false;
+   auto flush = [&]() {
+      const size_t a = cur.find_first_not_of(" \t\r"), b = cur.find_last_not_of(" \t\r");
+      if (a != std::string::npos)
+         out += (out.empty() ? "" : "; ") + cur.substr(a, b - a + 1);
+      cur.clear();
+   };
+   for (char c : text)
+   {
+      if (c == '\n')
+      {
+         flush();
+         comment = false;
+         quoted = false;
+         continue;
+      }
+      if (comment)
+         continue;   // (a ';' in a comment too)
+      if (c == ';' && !quoted)
+      {
+         flush();
+         continue;
+      }
+      if (c == '"')
+         quoted = !quoted;
+      else if (c == '#' && !quoted)
+      {
+         comment = true;
+         continue;
+      }
+      cur += c;
+   }
+   flush();
+   return out;
+}
+
 } // namespace sim

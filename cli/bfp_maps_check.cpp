@@ -108,6 +108,18 @@ void Parser()
    Check(Run("I = 1", "coherent") == 1.0 && Run("I = 1", "duty") == 1.0 && Run("I = 1", "pol") == kBfpUnpolarized,
          "defaults");
    Check(Run("I = 1", "tiltX") == 0.0, "default tilt");
+   Check(BfpOneLine("# head\n a = max(1; 2) # note; not a statement\nI = img(\"x#1.tif\")\n\n") ==
+            "a = max(1; 2); I = img(\"x#1.tif\")",
+         "one line: comments dropped (a ';' in one too), statements joined");
+   for (int type : { 6, 7, 8 })
+   {
+      BfpProgram a, b;
+      std::string e1, e2;
+      Check(a.Compile(BfpTypeEquations(type), e1) && b.Compile(BfpOneLine(BfpTypeEquations(type)), e2) &&
+               BfpOneLine(BfpTypeEquations(type)).find('\n') == std::string::npos &&
+               BfpOneLine(BfpTypeEquations(type)).find(',') == std::string::npos,
+            "type " + std::to_string(type) + "'s equations on one line compile, without commas");
+   }
    struct Bad
    {
       const char* text;
@@ -564,6 +576,17 @@ void InExcitation()
    for (double v : bg)
       okBg = okBg && std::isfinite(v) && v >= 0.0;
    Check(okBg && bg[16 * 32 + 16] > 0.0, "the imager background's map");
+   // A closed light-history chapter's copy (Slimmed): no volumes, the same components, depth tents and reach.
+   const auto slim = mapped.Slimmed();
+   bool same = slim && slim->Maps()->IsSlim() && slim->Maps()->Bytes() == 0 && es.maps->Bytes() > 0 &&
+               slim->ComponentCount() == mapped.ComponentCount() && slim->ReachUm(1e-4) == mapped.ReachUm(1e-4) &&
+               slim->MeanAt(0, 0, 0.5, sh) == 0.0 && !slim->Slimmed();
+   for (int j = 0; same && j < mapped.ComponentCount(); ++j)
+      for (double z : { 0.0, 0.45, 1.3, 7.0 })
+         same = same && slim->ComponentDepth(j, z, sh) == mapped.ComponentDepth(j, z, sh) &&
+                slim->ComponentDepthMean(j, z, z + 0.3, sh) == mapped.ComponentDepthMean(j, z, z + 0.3, sh) &&
+                slim->ComponentLateral(j, 1.0, 0.5, z) == 0.0;
+   Check(same, "a slim copy: no volumes, the same components' depths (" + std::to_string(es.maps->Bytes() >> 10) + " KB dropped)");
 }
 
 } // namespace

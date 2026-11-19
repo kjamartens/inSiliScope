@@ -113,6 +113,8 @@ function makeFile(parts, name, opt = {}) {
     const part = { name, id: idOf(now.values[p]), summary: summary(p, now.values[p], now.viewer[p], p === 'measurement' ? hist : null),
       values: now.values[p] };
     if (now.viewer[p]) part.viewer = now.viewer[p];
+    const files = C.filesOf(now.values[p], self.ISC_BFP_FILES);   // (the BFP maps' images: the file reproduces)
+    if (files) part.files = files;
     if (p === 'measurement' && hist) part.history = hist;
     if (p === 'measurement' && opt.record) part.record = opt.record;
     out.parts[p] = part;
@@ -225,6 +227,8 @@ async function applyFile(file, parts) {
     const iv = want.includes('instrument') && file.parts.instrument.viewer;
     if (iv && self.mmConfig && iv.objectiveMag) self.mmConfig.setObjectiveMag(+iv.objectiveMag);
     if (iv && iv.emissionMag) setControl($('emissionMag'), +iv.emissionMag, note);
+    // the BFP maps' images before the text that names them
+    for (const p of want) for (const [n, b] of C.filesIn(file.parts[p])) if (self.iscSendBfpFile) self.iscSendBfpFile(n, b);
     // twice: a handler the first pass fires may move a value set before it
     for (let pass = 0; pass < 2; pass++)
       for (const p of want) {

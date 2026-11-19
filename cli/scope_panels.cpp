@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstdio>
 #include <cstdlib>
 #include <functional>
@@ -88,6 +89,8 @@ struct Control
    const char* name;
    std::string label, unit, note;
    double min, max, step, value, reset;
+   double mark = std::numeric_limits<double>::quiet_NaN();   // a fixed mark on the slider (the focus), NaN: none
+   std::string markNote;
 };
 
 // The panel being written: the header's JSON and the floats.
@@ -121,6 +124,11 @@ struct Builder
          j.KNum("value", c.value);
          j.KNum("reset", c.reset);
          j.KStr("note", c.note);
+         if (std::isfinite(c.mark))
+         {
+            j.KNum("mark", c.mark);
+            j.KStr("markNote", c.markNote);
+         }
          j.Close('}');
       }
       j.Close(']');
@@ -251,6 +259,8 @@ void FrameControl(const IllumPreview& P, std::vector<Control>& c)
 // One line on the state: "frame 3 of 15: angle 0, phase 3 (6 beams)" or "one beam at u = 0.95".
 std::string StateCaption(const IllumPreview& P)
 {
+   if (P.maps)
+      return !P.mapsError.empty() ? "the BFP maps: " + P.mapsError : "BFP maps: " + P.mapsCaption;
    const size_t nb = P.beams.size() / IllumPreview::kBeamStride;
    if (!P.patterned)
       return nb == 1 ? "one beam at u = " + Fmt("%.2f", P.beams[6]) : std::to_string(nb) + " beams";
@@ -307,7 +317,10 @@ bool IlluminationPanel(const sim::ScopeSpec& spec, const std::map<std::string, d
    ref = std::max(ref, *std::max_element(P.xy.begin(), P.xy.end()));
    std::vector<Control> c;
    FrameControl(P, c);
-   c.push_back({ "z", "height z", "\xC2\xB5m", "double-click: back to the focus", 0, P.zMaxUm, 0.02, P.zUm, -1 });
+   c.push_back({ "z", "height z", "\xC2\xB5m", "the section's height above the coverslip; the mark: the focus (the Z position); "
+                 "double-click: back to the focus", 0, P.zMaxUm, 0.02, P.zUm, -1 });
+   c.back().mark = P.focusUm;
+   c.back().markNote = "the focus: " + Fmt("%.2f", P.focusUm) + " \xC2\xB5m";
    b.Begin("illumination", "Illumination profile: " + IllumTitle(spec, P),
            StateCaption(P) + "; the section at z = " + Fmt("%.2f", P.zUm) + " \xC2\xB5m" + (z < 0 ? " (the focus)" : ""),
            c);
@@ -333,19 +346,24 @@ bool IlluminationPanel(const sim::ScopeSpec& spec, const std::map<std::string, d
    b.AddImage(xy, P.xy.data(), n, n, true);
    Builder::Image xz{ "xz" };
    xz.title = "Side, x-z through the axis";
-   xz.note = "the coverslip at the bottom, " + Fmt("%g", P.zMaxUm) + " \xC2\xB5m up; dashed: the section's height";
+   xz.note = "the coverslip at the bottom, " + Fmt("%g", P.zMaxUm) + " \xC2\xB5m up; dashed: the focus (the Z position); "
+             "solid: the section's height";
    xz.peak = ref;   // the section's scale
    setWindow(xz, wxz);
    if (scale >= 2)
       xz.barUm = P.xySpanUm;
-   // the coverslip (half a row up from the bottom, as before) and the section's height
+   // the coverslip (half a row up from the bottom, as before), the section's height (solid; left out where it is the
+   // focus) and the focus (dashed, the accent: the Z position)
    const double yCover = wy(wxz, 1 - 0.5 / nz, nz);
    xz.overlays.push_back({ "line", { 0, yCover, double(nx), yCover } });
-   if (P.zMaxUm > 0 && P.zUm >= 0 && P.zUm <= P.zMaxUm)
+   auto yAt = [&](double zUm) { return wy(wxz, 1 - (0.5 + zUm / P.zMaxUm * nz) / nz, nz); };
+   if (P.zMaxUm > 0 && P.zUm >= 0 && P.zUm <= P.zMaxUm && std::abs(P.zUm - P.focusUm) > 1e-9)
+      xz.overlays.push_back({ "line", { 0, yAt(P.zUm), double(nx), yAt(P.zUm) } });
+   if (P.zMaxUm > 0 && P.focusUm >= 0 && P.focusUm <= P.zMaxUm)
    {
-      const double yz = wy(wxz, 1 - (0.5 + P.zUm / P.zMaxUm * nz) / nz, nz);
-      Overlay l{ "line", { 0, yz, double(nx), yz } };
+      Overlay l{ "line", { 0, yAt(P.focusUm), double(nx), yAt(P.focusUm) } };
       l.dash = true;
+      l.role = "focus";
       xz.overlays.push_back(l);
    }
    b.AddImage(xz, P.xz.data(), nx, nz, true);
@@ -371,6 +389,18 @@ std::string RegimeText(const sim::ScopeSpec& spec)
    const std::string regime = sim::IlluminationRegimeNames()[static_cast<size_t>(ex.Regime())];
    const std::string ang = Fmt("%.0f", std::asin(std::min(1.0, ex.U())) * 180 / kPi);
    const std::string at = " at " + Fmt("%.0f", nm) + " nm";
+   if (ex.Mapped())
+   {
+      const sim::BfpLight* L = ex.Maps();
+      if (!L)
+         return "BFP maps: " + ex.Spec().mapsError;
+      std::string t = L->Evanescent() && L->Propagating() && ex.Regime() != sim::REGIME_TIRF
+                         ? "evanescent and propagating light (" + Fmt("%.0f", 100 * L->EvanescentShare()) + " % evanescent)"
+                      : L->Evanescent()                   ? "evanescent (TIRF), 1/e depth " + Fmt("%.0f", L->DecayPerNm() * nm * 1000) + " nm" + at
+                      : L->Propagating()                  ? "propagating, up to " + ang + "\xC2\xB0 from the axis in the medium"
+                                                          : "no light inside the pupil";
+      return "BFP maps: " + t;
+   }
    if (ex.Patterned())
       return regime == "TIRF"      ? "TIRF-SIM: the beams evanescent, 1/e depth " + Fmt("%.0f", d) + " nm" + at
              : regime == "Clipped" ? "the beams beyond the pupil edge (" + Fmt("%.3f", ex.UMax()) + "), no light"
@@ -394,6 +424,8 @@ std::string RegimeWord(const sim::ScopeSpec& spec)
    if (!sim::ScopeExcitation(spec, ex, sh, e))
       return "";
    const std::string regime = sim::IlluminationRegimeNames()[static_cast<size_t>(ex.Regime())];
+   if (ex.Mapped())
+      return regime;   // (the maps' light: TIRF when only evanescent, Clipped without any)
    if (ex.Patterned())
       return regime == "TIRF" ? "TIRF-SIM" : regime == "Clipped" ? "Clipped" : "SIM";
    return regime;
@@ -412,8 +444,10 @@ bool BfpPanel(const sim::ScopeSpec& spec, const std::map<std::string, double>& p
    const double s = n / (2 * P.uSpan);
    Builder::Image im{ "bfp" };
    im.title = "Back focal plane, from above";
-   im.note = "dashed: the critical circle u = 1; solid: the pupil edge; each beam's spot ringed, its polarization a bar "
-             "(circular: an arrow); evanescent beams in blue";
+   im.note = P.maps ? "the maps' intensity over the exposure (its time slots summed); dashed: the critical circle u = 1; "
+                      "solid: the pupil edge"
+                    : "dashed: the critical circle u = 1; solid: the pupil edge; each beam's spot ringed, its polarization a bar "
+                      "(circular: an arrow); evanescent beams in blue";
    Overlay crit{ "circle", { n / 2.0, n / 2.0, s } };
    crit.dash = true;
    im.overlays.push_back(crit);
@@ -448,12 +482,31 @@ bool BfpPanel(const sim::ScopeSpec& spec, const std::map<std::string, double>& p
       }
    }
    b.AddImage(im, P.bfp.data(), n, n, true);
+   // The maps' other images in use (filled: each beside the intensity, scaled to its own range).
+   if (P.maps && scale >= 2)
+      for (size_t k = 0; k < P.mapImages.size(); ++k)
+      {
+         const std::string id = "map." + P.mapNames[k];   // (AddImage writes the name at once)
+         Builder::Image mi{ id.c_str() };
+         mi.title = P.mapNames[k];
+         mi.note = Fmt("%.3g", P.mapRanges[k].first) + " .. " + Fmt("%.3g", P.mapRanges[k].second) + " where lit";
+         mi.map = "grey";
+         b.AddImage(mi, P.mapImages[k].data(), n, n, true);
+      }
    std::vector<std::pair<std::string, std::string>> rows;
    const std::string regime = RegimeText(spec);
    if (!regime.empty())
       rows.push_back({ "Light", regime });
-   rows.push_back({ "Pattern", P.patterned ? OptionName(spec, "sim-type") + ", polarization " + OptionName(spec, "sim-polarization")
-                                           : "none (one beam)" });
+   rows.push_back({ "Pattern", P.maps ? OptionName(spec, "sim-type") + " (BFP maps)"
+                               : P.patterned ? OptionName(spec, "sim-type") + ", polarization " + OptionName(spec, "sim-polarization")
+                                             : "none (one beam)" });
+   if (P.maps && !P.mapNames.empty())
+   {
+      std::string used;
+      for (const std::string& nmk : P.mapNames)
+         used += (used.empty() ? "" : ", ") + nmk;
+      rows.push_back({ "Maps in use", used });
+   }
    b.AddRows("state", "", rows);
    b.End();
    return true;

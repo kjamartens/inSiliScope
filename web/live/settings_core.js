@@ -127,5 +127,24 @@ function readFile(text, here) {
   for (const p of Object.values(file.parts)) if (p && p.values) for (const [o, n] of Object.entries(RENAMED)) if (o in p.values) { p.values[n] = p.values[o]; delete p.values[o]; }
   return { file, warnings };
 }
-self.iscSettingsCore = { FORMAT, VERSION, parseSpec, quoteText, specPair, partOf, toName, fromName, idOf, historyOut, replaySpecs, recordSpecs, readFile };
+// The BFP maps' images a part's text options name (img("name")), as the part's "files": base64 by name, from the
+// viewer's store (a Map name -> bytes, self.ISC_BFP_FILES); filesIn reads them back ([name, bytes], bad ones left out).
+const toB64 = b => { let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+function filesOf(values, store) {
+  const out = {};
+  for (const v of Object.values(values || {}))
+    if (typeof v === 'string')
+      for (const m of v.matchAll(/img\(\s*"([^"]+)"/g))
+        if (store && store.has(m[1])) out[m[1]] = toB64(store.get(m[1]));
+  return Object.keys(out).length ? out : null;
+}
+function filesIn(part) {
+  const out = [];
+  for (const [name, b64] of Object.entries((part && part.files) || {})) {
+    try { const s = atob(b64), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); if (b.length) out.push([name, b]); }
+    catch (e) { /* not base64: left out */ }
+  }
+  return out;
+}
+self.iscSettingsCore = { FORMAT, VERSION, parseSpec, quoteText, specPair, partOf, toName, fromName, idOf, historyOut, replaySpecs, recordSpecs, readFile, filesOf, filesIn };
 })();

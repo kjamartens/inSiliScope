@@ -1913,6 +1913,18 @@ self.ISC_MM_TIERS = {
 "tier": "Advanced",
 "prop": "SampleHolder.MediumIndex"
 },
+"bfp-cycle-frames": {
+"tier": "Expert",
+"prop": "Lasers.BfpCycleFrames"
+},
+"bfp-slots": {
+"tier": "Expert",
+"prop": "Lasers.BfpSlots"
+},
+"bfp-z-sample-um": {
+"tier": "Expert",
+"prop": "Renderer.BfpZSampleUm"
+},
 "bit-depth": {
 "tier": "Expert",
 "prop": "Camera.BitDepth"
@@ -2633,6 +2645,14 @@ self.ISC_MM_TIERS = {
 "tier": "Expert",
 "prop": "Nanorulers.Docking_WobbleConeDeg"
 },
+"sheet-thickness-um": {
+"tier": "Advanced",
+"prop": "Lasers.SheetThicknessUm"
+},
+"sheet-width-um": {
+"tier": "Advanced",
+"prop": "Lasers.SheetWidthUm"
+},
 "sim-anchor": {
 "tier": "Advanced",
 "prop": "Lasers.PatternAnchor"
@@ -2914,7 +2934,10 @@ self.ISC_MM_TIERS = {
 "Fluorophores.NuclearPores_EmissionNm": "Advanced",
 "Fluorophores.NuclearPores_PhotonsPerSecOn": "Advanced",
 "Lasers.Beams": "Expert",
+"Lasers.BfpCycleFrames": "Expert",
+"Lasers.BfpMaps": "Expert",
 "Lasers.BfpPosition": "Basic",
+"Lasers.BfpSlots": "Expert",
 "Lasers.ChamberHeightUm": "Advanced",
 "Lasers.CustomLineKWcm2": "Advanced",
 "Lasers.CustomLineNm": "Advanced",
@@ -2943,6 +2966,8 @@ self.ISC_MM_TIERS = {
 "Lasers.PatternRestart": "Advanced",
 "Lasers.PatternState": "Advanced",
 "Lasers.Preset": "Basic",
+"Lasers.SheetThicknessUm": "Advanced",
+"Lasers.SheetWidthUm": "Advanced",
 "Lasers.SpotRadiusUm": "Advanced",
 "Nanorulers.AttachHeightNm": "Advanced",
 "Nanorulers.Bending": "Advanced",
@@ -2978,6 +3003,7 @@ self.ISC_MM_TIERS = {
 "Objective.ZernikeCoefficients": "Expert",
 "Objective.ZernikePreset": "Basic",
 "Renderer.BeadClumpsAsOne": "Expert",
+"Renderer.BfpZSampleUm": "Expert",
 "Renderer.BlinkBinnedDensityPerUm2": "Expert",
 "Renderer.BlinkBinnedMaxEmitters": "Expert",
 "Renderer.BlinkBinnedUpscale": "Expert",

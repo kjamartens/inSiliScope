@@ -116,6 +116,12 @@ double LightLatticeUm(const Excitation& ex)
    double h = kLightTileUm;
    while (h > kLightTileUm / 16 && h * h / 8 * k > kLightLatticeErr)
       h /= 2;
+   if (ex.Mapped())
+   {
+      const double R = ex.ReachUm(kLightReach);
+      while (std::isfinite(R) && h < kLightTileUm && 2.0 * R / h > kLightMapNodes)
+         h *= 2;
+   }
    return h;
 }
 
@@ -613,6 +619,11 @@ void LightHistory::Advance(double dtSec, const LightState& light)
    if (chapters_.empty() || !SameChapter(chapters_.back(), light))
    {
       CloseOpen();
+      // The chapter closed takes no more records (their footprints are made when they open): under BFP maps it keeps
+      // its light without the volumes (100-200 MB for a lattice; every map tried in live stayed in memory).
+      if (!chapters_.empty() && chapters_.back().ex)
+         if (auto slim = chapters_.back().ex->Slimmed())
+            chapters_.back().ex = slim;
       Chapter c;
       c.tStart = T_;
       c.envKey = light.envKey;

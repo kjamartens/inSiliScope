@@ -20,6 +20,9 @@
 #include "PropertyTable.h"
 
 #include "../InSiliScopeHub.h"
+#include "../Simulation/BfpExpr.h"
+#include "../Simulation/BfpField.h"
+#include "../Simulation/BfpMaps.h"
 #include "../Simulation/CacheDir.h"
 #include "../Simulation/DyeLibrary.h"
 #include "../Simulation/Excitation.h"
@@ -801,7 +804,10 @@ std::vector<PropDef> BuildTable()
                               "stepping 2:3). Custom: the Beams matrix alone. A pick sets BfpPosition to the type's "
                               "radius (2D 0.95; 3D and the lattices 0.9) and PatternPolarization to S; past 1 the "
                               "beams are evanescent (TIRF-SIM). The kinetics run on the pattern's cycle mean, each "
-                              "frame's image on its exact pattern.");
+                              "frame's image on its exact pattern. The BFP light maps (BfpMaps): LightSheet (an "
+                              "inclined light sheet: an elliptical spot at BfpPosition, SheetThicknessUm x "
+                              "SheetWidthUm; a pick sets BfpPosition 0.9), RingTIRF (a spot at BfpPosition turned "
+                              "once round per exposure, unpolarized; a pick sets 1.03), Maps (BfpMaps alone).");
          ThenText(d, [](H& h) {
             const int t = static_cast<int>(h.State().Option("sim-type"));
             const double r = sim::SimTypeDefaultRadius(t);
@@ -810,10 +816,16 @@ std::vector<PropDef> BuildTable()
                h.State().SetOption("illum-bfp", r);
                h.Notify("illum-bfp");
             }
-            if (t != sim::SIM_OFF)
+            if (t != sim::SIM_OFF && !sim::SimTypeIsMaps(t))
             {
                h.State().SetOption("sim-polarization", sim::SIM_POL_S);
                h.Notify("sim-polarization");
+            }
+            // A map preset: its own equations (BfpMaps shows them; an edit makes the type Maps).
+            if (t == sim::SIM_LIGHT_SHEET || t == sim::SIM_RING_TIRF)
+            {
+               h.State().SetTextOption("bfp-maps", "");
+               h.Notify("bfp-maps");
             }
             h.Notify("beams");
          });
@@ -903,6 +915,68 @@ std::vector<PropDef> BuildTable()
             return true;
          };
          add(d);
+      }
+      {
+         // The BFP light maps (spec/ALGORITHM.md "BFP light maps", Simulation/BfpField.h): the equations; the type's
+         // own shown under LightSheet and RingTIRF, an edit makes the type Maps.
+         PropDef d = Row(L, "BfpMaps", Tier::Expert, "bfp-maps",
+                         "The back focal plane's light as maps over the pupil, statements separated by ';': I "
+                         "(intensity), phase (turns), pol (deg from s; unpolarized), polLab (a lab angle), ellip "
+                         "(turns), tiltX and tiltY (entry angle, deg: the light lands f tan(tilt) off the axis), focus "
+                         "(deg from parallel, towards its lit region's centre), coherent (0 or 1), T and duty (lit "
+                         "while (t - T) mod 1 < duty), scanX, scanY, scanRot (deg; functions of t: one field moved or "
+                         "turned per time slot), in ux, uy, r, phi (rad), nm, t, umax, uc, bfp, w, fwhm, ns, ni, na, f, "
+                         "sheetT, sheetW; functions exp log sqrt abs sin cos tan asin acos atan atan2 hypot min max pow "
+                         "floor ceil round mod step gauss spot clamp if and img(\"file.tif\") (a map image, row 0 = "
+                         "+uy, a page per time slot). Arguments by ';' too (Micro-Manager refuses commas). Example, a "
+                         "ring scanned once per exposure: I = spot(ux - 1.03; uy; 0.1); scanRot = 360*t; pol = "
+                         "unpolarized. Used under Pattern LightSheet, RingTIRF (their own equations shown) and Maps; "
+                         "an edit sets Pattern to Maps.");
+         d.kind = PropKind::Text;
+         d.getText = [](H& h) {
+            // (On one line: a property value; the comments left out.)
+            const std::string t = h.State().TextOption("bfp-maps");
+            const int type = static_cast<int>(h.State().Option("sim-type"));
+            return sim::BfpOneLine(t.empty() && sim::SimTypeIsMaps(type) ? sim::BfpTypeEquations(type) : t);
+         };
+         d.setText = [](H& h, const std::string& text) {
+            std::string err;
+            sim::BfpProgram p;
+            if (!text.empty() && !p.Compile(text, err))
+               return false;
+            for (const std::string& name : p.Images())   // (a map image must be there: a file by its path)
+               if (!sim::BfpFindImage(name, err))
+                  return false;
+            const int type = static_cast<int>(h.State().Option("sim-type"));
+            if (sim::SimTypeIsMaps(type) && sim::BfpOneLine(text) == sim::BfpOneLine(sim::BfpTypeEquations(type)))
+            {
+               h.State().SetTextOption("bfp-maps", "");
+               return true;   // the type's own: nothing to keep
+            }
+            h.State().SetTextOption("bfp-maps", text);
+            if (!text.empty() && type != sim::SIM_MAPS)
+            {
+               h.State().SetOption("sim-type", sim::SIM_MAPS);
+               h.Notify("sim-type");
+            }
+            return true;
+         };
+         add(d);
+         d = Opt(L, "BfpSlots", Tier::Expert, "bfp-slots", 0, 4096,
+                 "The BFP maps' time slots per cycle: t = (slot + 0.5) / slots (0 = 64 when a map depends on t, "
+                 "else 1).");
+         d.kind = PropKind::Integer;
+         add(d);
+         d = Opt(L, "BfpCycleFrames", Tier::Expert, "bfp-cycle-frames", 0, 10000,
+                 "The BFP maps' cycle in frames: 0 = the whole cycle in every exposure (the slots add up: a scan "
+                 "within the exposure); n = the cycle spans n frames (slot s lit in frame s n / slots: stepped, as "
+                 "SIM).");
+         d.kind = PropKind::Integer;
+         add(d);
+         add(Opt(L, "SheetThicknessUm", Tier::Advanced, "sheet-thickness-um", 0.1, 50,
+                 "Pattern LightSheet: the sheet's thickness, FWHM across the beam (um; 3, an estimate)."));
+         add(Opt(L, "SheetWidthUm", Tier::Advanced, "sheet-width-um", 0, 500,
+                 "Pattern LightSheet: the sheet's width along y, FWHM (um; 0 = the beam's, IlluminationFwhmPct)."));
       }
       {
          // The frame program's state (read-only): the counter, the state it gives, the fringe period.
@@ -1430,6 +1504,9 @@ std::vector<PropDef> BuildTable()
               "(Quality: Fast 30, Realistic 15, Exhaustive 0 = no limit).");
       ThenNumber(d, quality);
       add(d);
+      add(Opt(R, "BfpZSampleUm", Tier::Expert, "bfp-z-sample-um", 1, 100,
+              "Lasers.BfpMaps: the maps' light is computed this far from the focal plane (propagating light) or the "
+              "coverslip (evanescent), um; beyond, its end plane carries on along the light's mean direction."));
       add(Names(R, "PsfInterp", Tier::Expert, "psf-interp", &SceneState::psfInterp, { "Nearest", "Linear", "Cubic", "Fft" },
                 "Sub-pixel placement of the PSF (Fft: exact, slow, CPU only)."));
       d = Num(R, "PsfHaloCut", Tier::Expert, "psf-halo-cut", &SceneState::psfHaloCut, 0.0, 1e-3,

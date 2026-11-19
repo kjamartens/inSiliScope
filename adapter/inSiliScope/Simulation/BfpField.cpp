@@ -38,6 +38,11 @@ constexpr int kMaxPlanes = 256;       // per part
 constexpr int kIncoherentPupil = 128; // pupil samples per axis when no light is coherent (each point its own plane wave)
 constexpr double kLitRel = 1e-8;      // a pupil point counts above this x the peak (amplitude 1e-4)
 constexpr double kSigRel = 1e-4;      // ... and for the geometry (reach, spans, regions)
+// The pupil grid's period keeps all but this share of the propagating light's power out of the window (the steepest
+// rays of a focused beam's edge, a Gaussian ring's tail towards u = 1, reach 200 um at the volume's top: a period over
+// them took a full-pupil spot to a 1227^2 pupil, minutes; their light, wrapped round, lands spread thin in the window).
+constexpr double kReachPower = 1e-3;
+constexpr int kTanBins = 1000;        // the steepness histogram for it: tan 0..50 in steps of 0.05
 constexpr double kZSnap = 0.005;      // planes on the light history's depth step (LightHistory.h kLightDepthStepUm)
 constexpr double kMaxDxUm = 1.0;
 constexpr int kIncoherentBins = 256;
@@ -316,6 +321,18 @@ const BfpLightField& BfpLight::State(int l, int state) const
    return L.states[static_cast<size_t>(((state % n) + n) % n)];
 }
 
+std::shared_ptr<const BfpLight> BfpLight::Slim() const
+{
+   auto s = std::make_shared<BfpLight>(*this);   // (the volumes copied, then dropped: a copy of the small parts)
+   for (Line& L : s->lines_)
+   {
+      L.states.clear();
+      L.mean.parts.clear();
+   }
+   s->slim_ = true;
+   return s;
+}
+
 size_t BfpLight::Bytes() const
 {
    size_t b = 0;
@@ -490,6 +507,7 @@ struct BfpBuilder
       int propRegions = 0;
       double tanMax = 0, shiftMax = 0, span = 0, dg = 0, sigMin = 1e9, sbx = 0, sby = 0, wsum = 0;
       double dMin = 1e9, dMax = 0, devMax = 0, uOuter = 0;
+      std::vector<double> tanW = std::vector<double>(kTanBins + 1, 0.0);   // propagating intensity by tan(angle)
    };
 
    // The analysis raster's points for one evaluation (a slot's t), with timing at t.
@@ -540,7 +558,7 @@ struct BfpBuilder
                A.uOuter = std::max(A.uOuter, r);
             if (std::fabs(r - 1.0) < kUEdge)
                r = r < 1.0 ? 1.0 - kUEdge : 1.0 + kUEdge;
-            const bool ev = r > 1.0;
+            const bool evn = r > 1.0;
             const double tilt = std::hypot(p.tx, p.ty) + std::fabs(p.focus);
             A.shiftMax = std::max(A.shiftMax, P.fObjUm * std::tan(std::min(89.0, tilt) * kDeg));
             if (p.coh)
@@ -550,11 +568,11 @@ struct BfpBuilder
                cx1 = std::max(cx1, ux);
                cy0 = std::min(cy0, uy);
                cy1 = std::max(cy1, uy);
-               (ev ? cohEvan : cohProp) = true;
+               (evn ? cohEvan : cohProp) = true;
             }
             else
                A.incoh = true;
-            if (ev)
+            if (evn)
             {
                A.evan = true;
                const double d = nm * 1e-3 / (4.0 * kPi * P.nS * std::sqrt(r * r - 1.0));
@@ -566,6 +584,7 @@ struct BfpBuilder
                A.prop = true;
                const double kz = std::sqrt(1.0 - r * r), tn = r / kz;
                A.tanMax = std::max(A.tanMax, tn);
+               A.tanW[static_cast<size_t>(std::min(static_cast<double>(kTanBins), tn / 50.0 * kTanBins))] += p.I;
                const double w = p.I;
                const double cphi = r > 0 ? ux / r : 1.0, sphi = r > 0 ? uy / r : 0.0;
                A.sbx += w * tn * cphi;
@@ -692,6 +711,7 @@ struct BfpBuilder
       std::vector<std::vector<float>> fam;   // per plane set: nz x nx x nx
       std::vector<double> sx, sy;            // the field's mean direction per plane set
       std::vector<double> power;             // per plane set: the raw pupil power (sum I du^2)
+      double powerEva = 0, powerAll = 0;     // the raw pupil power evanescent and in all (the regime's share)
    };
 
    void ComputeField(double nm, const Grid& G, const std::vector<Pt>& pts, const std::vector<uint8_t>& mask, double Imax,
@@ -913,6 +933,9 @@ struct BfpBuilder
             }
             const double kz = evan ? 0.0 : std::sqrt(1.0 - r * r), kap = evan ? std::sqrt(r * r - 1.0) : 0.0;
             F.power[static_cast<size_t>(set)] += p.I * du2;
+            F.powerAll += p.I * du2;
+            if (evan)
+               F.powerEva += p.I * du2;
             if (!evan)
             {
                const double tn = r / kz, cphi = r > 0 ? ux / r : 1.0, sphi = r > 0 ? uy / r : 0.0;
@@ -1131,6 +1154,7 @@ struct BfpBuilder
          lines.push_back(P.lambdaRefNm);
       std::vector<double> scratch;
       bool anyEvan = false, anyProp = false;
+      double powEva = 0, powAll = 0;   // every line's and slot's pupil power, evanescent and in all
       double uOuter = 0, decayPerNm = 0, tanS = 0;
       char buf[512];
       std::string info;
@@ -1158,6 +1182,21 @@ struct BfpBuilder
             AnalyseSlot2(nm, L.raster[static_cast<size_t>(s)], L.A);
          if (L.A.mixed || (!P.anchorFocus && L.A.propRegions > 1))
             out.pivotDependent_ = true;
+         {
+            // The steepness below which all but kReachPower of the propagating power lies (the grid's reach).
+            double tot = 0, above = 0;
+            for (double w : L.A.tanW)
+               tot += w;
+            for (int b = kTanBins; tot > 0 && b > 0; --b)
+            {
+               above += L.A.tanW[static_cast<size_t>(b)];
+               if (above > kReachPower * tot)
+               {
+                  L.A.tanMax = std::min(L.A.tanMax, (b + 1) * 50.0 / kTanBins);
+                  break;
+               }
+            }
+         }
          la.push_back(std::move(L));
       }
       for (LineA& L : la)
@@ -1374,6 +1413,16 @@ struct BfpBuilder
             const int e = fieldPts[f];
             ComputeField(nm, G, fpts[static_cast<size_t>(e)], masks[f], A.Imax, sets, nxf, dx, pivot, FP);
             fieldsMade++;
+            // Slots that only shift this field (no rotation) add up to one sparse kernel of bicubic taps per state and
+            // plane set, convolved once (a scan of S slots: S x 16 taps per pixel became the kernel's distinct taps,
+            // a line scan's ~4 x its length): the same sum, negative ringing clipped from the sum, not per slot.
+            std::vector<std::map<std::pair<int, int>, double>> shiftK(static_cast<size_t>(period) * sets.size());
+            for (int s = 0; s < S; ++s)
+               if (fieldOf[static_cast<size_t>(s)] == static_cast<int>(f))
+               {
+                  powEva += FP.powerEva;
+                  powAll += FP.powerAll;
+               }
             for (int s = 0; s < S; ++s)
             {
                if (fieldOf[static_cast<size_t>(s)] != static_cast<int>(f))
@@ -1399,6 +1448,21 @@ struct BfpBuilder
                         V.v[q] += static_cast<float>(w * src[q]);
                      continue;
                   }
+                  if (std::fabs(std::remainder(th, 2.0 * kPi)) < 1e-12)
+                  {
+                     // out(p, q) += w x sum of taps src(p + i - 1 + a, q + j - 1 + b), as Bicubic at X - d.
+                     const double ox = (x0 - ddx - FP.x0) / dx, oy = (x0 - ddy - FP.x0) / dx;
+                     const int i = static_cast<int>(std::floor(ox)), j = static_cast<int>(std::floor(oy));
+                     double wx[4], wy[4];
+                     CubicWeights(ox - i, wx);
+                     CubicWeights(oy - j, wy);
+                     auto& km = shiftK[static_cast<size_t>(st) * sets.size() + k];
+                     for (int b = 0; b < 4; ++b)
+                        for (int a = 0; a < 4; ++a)
+                           if (wx[a] * wy[b] != 0.0)
+                              km[{ i - 1 + a, j - 1 + b }] += w * wx[a] * wy[b];
+                     continue;
+                  }
                   ParallelFor(static_cast<unsigned>(nz), [&](unsigned kz) {
                      const float* sp = src.data() + static_cast<size_t>(kz) * nxf * nxf;
                      float* dp = V.v.data() + static_cast<size_t>(kz) * nx * nx;
@@ -1414,6 +1478,35 @@ struct BfpBuilder
                         }
                   });
                }
+            }
+            for (size_t sk = 0; sk < shiftK.size(); ++sk)
+            {
+               if (shiftK[sk].empty())
+                  continue;
+               std::vector<std::pair<std::pair<int, int>, double>> taps(shiftK[sk].begin(), shiftK[sk].end());
+               const size_t k = sk % sets.size();
+               BfpVolume& V = line.states[sk / sets.size()].parts[k];
+               const std::vector<float>& src = FP.fam[k];
+               ParallelFor(static_cast<unsigned>(V.Nz()), [&](unsigned kz) {
+                  const float* sp = src.data() + static_cast<size_t>(kz) * nxf * nxf;
+                  float* dp = V.v.data() + static_cast<size_t>(kz) * nx * nx;
+                  std::vector<double> acc(static_cast<size_t>(nx) * nx, 0.0);
+                  for (const auto& t : taps)
+                  {
+                     const int ax = t.first.first, ay = t.first.second;
+                     const int p0 = std::max(0, -ax), p1 = std::min(nx, nxf - ax);
+                     for (int q = std::max(0, -ay); q < std::min(nx, nxf - ay); ++q)
+                     {
+                        const float* r = sp + static_cast<size_t>(q + ay) * nxf + ax;
+                        double* o = acc.data() + static_cast<size_t>(q) * nx;
+                        for (int p = p0; p < p1; ++p)
+                           o[p] += t.second * r[p];
+                     }
+                  }
+                  for (size_t q = 0; q < acc.size(); ++q)
+                     if (acc[q] > 0)
+                        dp[q] += static_cast<float>(acc[q]);
+               });
             }
          }
          // Scale to the reference power; the states' directions; the cycle mean.
@@ -1466,6 +1559,23 @@ struct BfpBuilder
                   }
             out.curvature_ = std::max(out.curvature_, cmax);
          }
+         // How far from the axis the mean light reaches (down to 1e-4 of its peak, any plane): the light history's
+         // footprints span this, not the whole field window.
+         {
+            double peak = 0;
+            for (const BfpVolume& V : line.mean.parts)
+               for (float v : V.v)
+                  peak = std::max(peak, static_cast<double>(v));
+            for (const BfpVolume& V : line.mean.parts)
+               for (int k = 0; peak > 0 && k < V.Nz(); ++k)
+               {
+                  const float* pl = V.v.data() + static_cast<size_t>(k) * V.nx * V.ny;
+                  for (int q = 0; q < V.ny; ++q)
+                     for (int p = 0; p < V.nx; ++p)
+                        if (pl[static_cast<size_t>(q) * V.nx + p] > 1e-4 * peak)
+                           out.reachUm_ = std::max(out.reachUm_, std::hypot(V.x0 + (p + 1) * V.dx, V.y0 + (q + 1) * V.dx) );
+               }
+         }
          size_t planes = 0;
          for (const PlaneSet& ps : sets)
             planes += ps.z.size();
@@ -1478,6 +1588,7 @@ struct BfpBuilder
       }
       out.evanescent_ = anyEvan;
       out.propagating_ = anyProp;
+      out.evanescentShare_ = powAll > 0 ? powEva / powAll : 0.0;
       out.uOuter_ = uOuter;
       out.decayPerNm_ = decayPerNm;
       out.tanS_ = tanS;
@@ -1502,6 +1613,11 @@ std::list<std::pair<uint64_t, std::shared_ptr<const BfpLight>>>& Memo()
    return l;
 }
 constexpr size_t kMemo = 6;
+#ifdef __EMSCRIPTEN__
+constexpr size_t kMemoBytes = size_t(512) << 20;   // (the viewer's heap: 4 GB for everything)
+#else
+constexpr size_t kMemoBytes = size_t(2048) << 20;
+#endif
 
 uint64_t KeyOf(const BfpLightParams& p, const BfpProgram& prog, bool withPivot, std::string& err)
 {
@@ -1561,8 +1677,16 @@ std::shared_ptr<const BfpLight> BfpLight::Make(const BfpLightParams& p, std::str
    TimingLog("fl.bfp-maps", L->ComputeSec(), L->Info().c_str());
    std::lock_guard<std::mutex> g(MemoMutex());
    Memo().emplace_front(L->hash_, L);
-   while (Memo().size() > kMemo)
+   // At most kMemo lights and kMemoBytes of volumes (the newest always kept): a light-sheet's field is ~1 MB, a coherent
+   // full pupil's or a lattice's 100-200 MB.
+   size_t bytes = 0;
+   for (const auto& m : Memo())
+      bytes += m.second->Bytes();
+   while (Memo().size() > kMemo || (Memo().size() > 1 && bytes > kMemoBytes))
+   {
+      bytes -= Memo().back().second->Bytes();
       Memo().pop_back();
+   }
    return L;
 }
 

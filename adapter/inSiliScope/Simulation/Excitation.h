@@ -66,6 +66,10 @@ struct ImagerSource { double rate; ExcitationShares shares; };
 struct CollectionRings { std::vector<double> tans, weights; };
 CollectionRings CollectionRingsFor(double nS, double nI, double na, int n, bool fresnel = true);
 constexpr int kCollectDirs = 24, kCollectTirfSteps = 64, kCollectNodes = 64;
+// Under BFP maps the imager map is made on at most this many nodes per axis (and interpolated, as any): a lattice's
+// fine fringes asked for a node per pixel, a column integral each (3.3 s at 128 px natively, ~30 s in the viewer's
+// worker, again at every focus step); the background is mostly light collected out of focus, which smooths them.
+constexpr int kMapCollectNodes = 32;
 constexpr double kCollectRatio = 1.15, kCollectDz0 = 0.05;
 
 struct ExcitationSpec
@@ -108,6 +112,10 @@ public:
    // BFP light maps (Spec().maps; Patterned too): At = the frame state's volume, MeanAt = the cycle mean's.
    bool Mapped() const { return mapped_; }
    const BfpLight* Maps() const { return spec_.maps.get(); }
+   // Under maps: a copy whose light has no volumes (BfpLight::Slim; a closed light-history chapter's: its components'
+   // depth tents, line shares and reach stay, At / MeanAt / ComponentLateral give 0); nullptr when there is nothing to
+   // drop (no maps, or slim already).
+   std::shared_ptr<const Excitation> Slimmed() const;
    int MapState() const { return mapState_; }
    // The frame program's period (1 for the legacy beam).
    int Period() const;

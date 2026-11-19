@@ -240,6 +240,7 @@ void Excitation::MakePatterned(const ExcitationSpec& s)
 // kMapHistoryPlanes per part, evenly), each with its tent in z, for the light history.
 namespace {
 constexpr int kMapHistoryPlanes = 24;
+constexpr double kMapTirfShare = 0.95;   // the evanescent share of the pupil's power the maps' regime calls TIRF
 } // namespace
 
 void Excitation::MakeMapped(const ExcitationSpec& s)
@@ -263,13 +264,15 @@ void Excitation::MakeMapped(const ExcitationSpec& s)
          any = any || !L->Mean(l).parts.empty();
    clipped_ = !any;
    u_ = L ? L->UOuter() : 0.0;
-   tirf_ = L && L->Evanescent() && !L->Propagating();
+   // TIRF when nearly all the light is evanescent (a spot just past the critical angle leaves a little of its tail
+   // below it: that light is still made, propagating, but the regime is the bulk's).
+   tirf_ = L && L->Evanescent() && L->EvanescentShare() >= kMapTirfShare;
    tanS_ = L ? L->TanS() : 0.0;
    const double sinI = std::min(1.0, u_ * nS_ / nI_);
    cosI_ = std::sqrt(std::max(0.0, 1.0 - sinI * sinI));
    regime_ = clipped_ ? REGIME_CLIPPED : (tirf_ ? REGIME_TIRF : (u_ > 1e-3 ? REGIME_HILO : REGIME_EPI));
    tilted_ = L && L->Propagating() && tanS_ > 0.0;
-   reachUm_ = L ? L->HalfWindowUm() * std::sqrt(2.0) : 0.0;
+   reachUm_ = L ? (L->ReachUm() > 0.0 ? std::min(L->ReachUm(), L->HalfWindowUm() * std::sqrt(2.0)) : L->HalfWindowUm() * std::sqrt(2.0)) : 0.0;
    if (L)
       for (int l = 0; l < L->LineCount(); ++l)
       {
@@ -350,7 +353,7 @@ double Excitation::MapShare(int line, const ExcitationShares& shares) const
 double Excitation::MapAt(double x, double y, double z, const ExcitationShares& shares, bool mean) const
 {
    const BfpLight* L = spec_.maps.get();
-   if (!L || clipped_)
+   if (!L || clipped_ || L->IsSlim())
       return 0.0;
    double s = 0.0;
    for (const ExcitationLine& l : shares)
@@ -498,13 +501,25 @@ double Excitation::MaxCurvature() const
    return k;
 }
 
+std::shared_ptr<const Excitation> Excitation::Slimmed() const
+{
+   if (!mapped_ || !spec_.maps || spec_.maps->IsSlim())
+      return nullptr;
+   auto e = std::make_shared<Excitation>(*this);
+   e->spec_.maps = spec_.maps->Slim();
+   return e;
+}
+
 double Excitation::ComponentLateral(int j, double x, double y, double z) const
 {
    const Component& c = comps_[static_cast<size_t>(j)];
    if (c.depthTable)
    {
-      // The cycle mean's plane, sheared along the light's mean direction from its height.
-      const BfpVolume& V = spec_.maps->Mean(c.mapLine).parts[static_cast<size_t>(c.mapPart)];
+      // The cycle mean's plane, sheared along the light's mean direction from its height (none in a slim copy).
+      const auto& parts = spec_.maps->Mean(c.mapLine).parts;
+      if (static_cast<size_t>(c.mapPart) >= parts.size())
+         return 0.0;
+      const BfpVolume& V = parts[static_cast<size_t>(c.mapPart)];
       const double d = z - c.zMid;
       const double v = V.Plane(c.mapPlane, x - d * c.sx, y - d * c.sy);
       return v > 0.0 ? v : 0.0;
@@ -1206,7 +1221,7 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
       if (n <= 1)
          return 1;
       return static_cast<unsigned>(
-         std::min(static_cast<double>(kCollectNodes), std::max(2.0, std::ceil((n - 1) * um / g) + 1)));
+         std::min(static_cast<double>(mapped_ ? kMapCollectNodes : kCollectNodes), std::max(2.0, std::ceil((n - 1) * um / g) + 1)));
    };
    const unsigned nx = axis(W), ny = axis(H);
    auto nodeAt = [&](unsigned k, unsigned nn, unsigned n) { return nn <= 1 ? 0.0 : (n - 1) * um * k / (nn - 1); };

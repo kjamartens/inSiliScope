@@ -7,6 +7,7 @@
 //   - a live session's light history written as the viewer saves it (runs of spec changes, without the sample's keys),
 //     through JSON, rebuilt with the sample's keys and replayed (isc_live_advance): the next frame is the session's,
 //     bit for bit;
+//   - the BFP maps' images a part carries (base64), only those its text names;
 //   - reading a file: another release / world version / newer format warned about, other files refused;
 //   - the setup readout's Zernike modes: the preset's, zern.<j> replacing its own.
 //   node tests/web/settings_unit.mjs
@@ -151,6 +152,19 @@ function frames(spec, k) {
   const got = frame(spec);
   check(okT && off.some((v, i) => v !== want[i]) && got.every((v, i) => v === want[i]),
     'a light history under BFP maps (an incoherent spot): saved with its equations, replayed: the next frame bit for bit');
+}
+
+// ---- the BFP maps' images in a part (part.files, base64 by name; only the ones its text names) ----
+{
+  const img = new Uint8Array(70000).map((_, i) => (i * 37) & 255), other = new Uint8Array([1, 2, 3]);
+  const store = new Map([['a map.png', img], ['unused.tif', other]]);
+  const values = { 'sim-type': 8, 'bfp-maps': 'I = img("a map.png")\ncoherent = 0' };
+  const files = C.filesOf(values, store);
+  const part = JSON.parse(JSON.stringify({ values, files: Object.assign({ 'bad.tif': '%%%' }, files) }));
+  const back = C.filesIn(part);
+  check(files && Object.keys(files).join() === 'a map.png' && C.filesOf({ 'bfp-maps': 'I = 1' }, store) === null &&
+    back.length === 1 && back[0][0] === 'a map.png' && back[0][1].length === img.length && back[0][1].every((v, i) => v === img[i]),
+    "a part's BFP map images: only the named ones, base64 through JSON, read back byte for byte, a bad entry left out");
 }
 
 // ---- reading a file ----

@@ -120,13 +120,21 @@ public:
    // largest relative curvature of the mean light (1/um^2), the field's cost and memory.
    double UOuter() const { return uOuter_; }
    bool Evanescent() const { return evanescent_; }
+   // The share of the pupil's power that is evanescent (beyond the critical angle), over the lines and the cycle.
+   double EvanescentShare() const { return evanescentShare_; }
    bool Propagating() const { return propagating_; }
    double TanS() const { return tanS_; }
    double DecayPerNm() const { return decayPerNm_; }
    double HalfWindowUm() const { return halfWindowUm_; }
    double Curvature() const { return curvature_; }
+   // How far from the axis the cycle mean reaches, um (to 1e-4 of its peak, any plane; at most the window's corner).
+   double ReachUm() const { return reachUm_; }
    double ComputeSec() const { return computeSec_; }
    size_t Bytes() const;
+   // A copy without the volumes (the lines, the readouts and the numbers kept): what a closed light-history chapter
+   // keeps (LightHistory; its depth tents and line shares need no volume). State / Mean of a slim light are empty.
+   std::shared_ptr<const BfpLight> Slim() const;
+   bool IsSlim() const { return slim_; }
    const std::string& Info() const { return info_; }
 
 private:
@@ -144,6 +152,8 @@ private:
    std::vector<Line> lines_;
    double uOuter_ = 0, tanS_ = 0, decayPerNm_ = 0, halfWindowUm_ = 0, curvature_ = 0, computeSec_ = 0;
    bool evanescent_ = false, propagating_ = false;
+   double evanescentShare_ = 0, reachUm_ = 0;
+   bool slim_ = false;
    std::string info_;
 };
 
