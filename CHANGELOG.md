@@ -3,9 +3,9 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
-## Unreleased (changes since v0.1.0-rc22)
+## v0.1.0-rc23 (changes since v0.1.0-rc22)
 
-Any light in the objective's back focal plane:
+Any light in the objective's back focal plane; the viewer's settings as a Micro-Manager configuration; large movies:
 
 - **BFP light maps.** The excitation can be any distribution over the pupil, written as equations (intensity, phase,
   polarization, entry tilt, focusing, coherence, timing and scans over the pupil and the exposure) or read from images
@@ -25,6 +25,16 @@ Any light in the objective's back focal plane:
   the pupil's rim: 1 % -> 0.1 % at Realistic). A tile too fine for the memory is made coarser and the BFP panel says so.
 - A focused coherent beam over a large part of the pupil takes seconds natively and up to a minute or more in the
   viewer to make (once per light).
+- **Viewer: a Micro-Manager .cfg of its settings** (☰ › Micro-Manager .cfg…): the Expert configuration with a Startup
+  preset that sets every property to the viewer's value. Every viewer setting now has a Micro-Manager property (new
+  Expert rows: the cell shape, per-target dye fields, the custom dye slots' spectra and pre state, BrightField); a
+  browser check fails on a viewer setting without one.
+- **`tools/isc_render.py`** (a window or a command line; `tools/build_isc_render_exe.py` makes a one-file Windows
+  exe): movies from a saved `.isc.json` or `.cfg` at a list of positions to TIFF, with an estimate of disk and memory
+  first, a progress bar per position, optional ground truth, and an unfinished movie named as such.
+- **Large movies:** the cli writes a BigTIFF past 4 GB (64-bit file positions; a file past 2 GB was broken on
+  Windows), refuses a movie the disk cannot hold and says out of memory in words; the viewer's Records stream their
+  frames out of the engine (no 1 GB cap) and save a BigTIFF past 4 GB.
 
 ## v0.1.0-rc22 (changes since v0.1.0-rc21)
 
