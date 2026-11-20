@@ -1,6 +1,7 @@
 # Large Records in the viewer: frames to disk, strips, a larger field (plan, 2026-11-20)
 
-Three parts, in this order; each is useful alone. Status: A, B and C done (2026-11-20; spec/PORT.md 32).
+Three parts, in this order; each is useful alone. Status: A, B and C done (2026-11-20; spec/PORT.md 32). Added after: "save to a file as recorded" (Chrome, Edge), the
+frames straight into a file the person chooses, past the browser's storage quota.
 
 - **A. Frames to disk while rendering** (viewer only, no engine change): a Record's TIFF and ground-truth files
   are written to the browser's private disk storage (OPFS) as they are made, not held in the tab.

@@ -1544,7 +1544,13 @@ branch).
 - **A. The viewer's Record on disk:** "write frames to disk" (on by default) writes the frames into the browser's disk
   storage (OPFS, `navigator.storage`; a sync access handle in the worker) as they are made, and the ground truth's
   files beside them; Save downloads disk-backed Blobs (web/live/live.js `DISK`, `diskStore`; web/index.html
-  `diskOpen` / `diskWrite`); without the storage the frames stay in memory as before.
+  `diskOpen` / `diskWrite`); without the storage the frames stay in memory as before. "save to a file as recorded"
+  (where `showSaveFilePicker` exists: Chrome, Edge): the worker posts the frames ('movie-part', or a strip's rows
+  'movie-rows' with the job's `rowsOut`), the page writes each at its place in the chosen file (`FILE`, `fileOut`:
+  `createWritable`, positional writes), room kept in front for the tags (`tiffHeadBytes` for the frames asked, a
+  BigTIFF's, the description + 64 KB), written last by `tiffHead(..., dataAt)` for the frames it has, the file cut
+  after them; checks `tests/web/tiff_unit.mjs` (the layout, tifffile), `viewer_live_record.mjs` (whole frames, strips,
+  live chunks: the file's frames = the disk storage's Record's; the picker stood in for by an OPFS file).
 - **B. Strips:** spec/ALGORITHM.md "Movies in strips". Engine `ScopeSensorDims`, `ScopeWindowRows`, `window-y0` /
   `window-rows`, `ScopeStripMarginPx`, `ScopeStripRows`, `ScopeNeedsStrips`, `RenderScopeMovieStrips`;
   `Excitation::ImagerMap(..., rowY0, sensorH)`, `NoiseSetup` / the noise maps' `keepY0` / `keepRows`, `ApplyNoiseChain`'s

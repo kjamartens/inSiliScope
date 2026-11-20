@@ -831,6 +831,7 @@ self.iscCoi = (() => {
           <div class="recnote bad" id="lv_recMsg" role="alert" hidden></div>
           <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
           <div class="recrow" id="lv_recDiskRow"><label title="On (default): the frames (and the ground truth's files) are written to this browser's own disk storage as they are made, not held in the tab's memory, so a recording is bounded by the disk, not the memory; Save makes the .tif or .zip from that file. This tab's last recording stays there until the next Record; recordings of closed tabs are deleted. Off: the frames are kept in memory, as before."><input type="checkbox" id="lv_recDisk" checked> write frames to disk</label></div>
+          <div class="recrow" id="lv_recFileRow" hidden><label title="On: Start asks where to save the recording, a .tif, and the frames are written into that file as they are made: no limit but the disk (the browser's own disk storage gives this page a share of it). The player reads them back from the file, and Save has nothing left to do for the movie alone; a .zip with the settings or ground truth takes the file as its movie. Off (default): the frames go to the browser's disk storage or memory, and Save writes the file. Chrome and Edge."><input type="checkbox" id="lv_recFile"> save to a file as recorded</label></div>
           <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
         </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button><span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span><div id="lv_info"></div></div>
       <!-- the setup, the stage and the display side by side -->
@@ -4441,8 +4442,44 @@ function iscEngine(M) {
   // when the movie needs them, a side past 4096 px or the field past the module's memory): every frame's rows of one
   // strip, then the next strip's (Module.onMovieRows), each written at its place in the frames file; a frame is done
   // when its last strip is (S.frames).
+  // With d.rowsOut (2026-11-20, a Record written straight to a file the person chose: the page writes it) the movie
+  // renders in strips by the same rule, and every strip's rows go to the page in parts of ~16 MB ('movie-rows': frames
+  // first .. first + n - 1, rows y0 .. y0 + rows - 1), as whole frames do ('movie-part').
   function streamFrames(d, post, info) {
-    const S = { part: null, px: 0, first: 0, n: 0, frames: 0, stopped: '', disk: d.diskOpen || null, strips: false };
+    const S = { part: null, px: 0, first: 0, n: 0, frames: 0, stopped: '', disk: d.diskOpen || null, strips: false,
+      flush: null };
+    S.flush = () => {
+      post({ type: 'movie-part', id: d.id, first: S.first, n: S.n, frames: S.part.subarray(0, S.n * S.px) }, [S.part.buffer]);
+      S.part = null;
+    };
+    if (!S.disk && d.rowsOut && info) {
+      S.strips = true;
+      M._isc_movie_strips(d.stripRows > 0 ? d.stripRows : -1);
+      M.onMovieRows = (f, y0, rows, pixels) => {
+        const w = M.HEAP32[info / 4], h = M.HEAP32[info / 4 + 1], k = rows * w;
+        try {
+          S.px = w * h;
+          if (S.part && (S.y0 !== y0 || S.rows !== rows)) S.flush();
+          if (!S.part) {
+            S.part = new Uint16Array(Math.max(1, Math.floor(16e6 / k)) * k);
+            Object.assign(S, { first: f, n: 0, y0, rows });
+            S.flush = () => {
+              post({ type: 'movie-rows', id: d.id, first: S.first, n: S.n, y0: S.y0, rows: S.rows, w, h,
+                frames: S.part.subarray(0, S.n * S.rows * w) }, [S.part.buffer]);
+              S.part = null;
+            };
+          }
+          S.part.set(pixels, S.n * k);
+          S.n++;
+          if (y0 + rows >= h) S.frames = f + 1;
+          if ((S.n + 1) * k > S.part.length) S.flush();
+          return true;
+        } catch (e) {
+          S.stopped = `out of memory at frame ${f + 1}, rows ${y0}-${y0 + rows - 1}`;
+          return false;
+        }
+      };
+    }
     if (S.disk && info) {
       S.strips = true;
       M._isc_movie_strips(d.stripRows > 0 ? d.stripRows : -1);
@@ -4479,10 +4516,7 @@ function iscEngine(M) {
         }
         S.part.set(pixels, S.n * S.px);
         S.n++; S.frames = f + 1;
-        if ((S.n + 1) * S.px > S.part.length) {
-          post({ type: 'movie-part', id: d.id, first: S.first, n: S.n, frames: S.part }, [S.part.buffer]);
-          S.part = null;
-        }
+        if ((S.n + 1) * S.px > S.part.length) S.flush();
         return true;
       } catch (e) {
         S.stopped = `out of memory after ${S.frames} frames`;
@@ -4498,7 +4532,7 @@ function iscEngine(M) {
     M.onMovieFrame = null;
     M.onMovieRows = null;
     M.onMovieProgress = null;
-    if (S.part && S.n) post({ type: 'movie-part', id: d.id, first: S.first, n: S.n, frames: S.part.subarray(0, S.n * S.px) }, [S.part.buffer]);
+    if (S.part && S.n) S.flush();
     S.part = null;
     let last = null;
     if (S.disk) {   // the last frame for the view, read back; the file closed (the page reads it)
@@ -4773,7 +4807,7 @@ function iscEngine(M) {
       // memory) stays on the CPU path (isc_scope_movie, isc_movie_strips): the GPU's scenes are the whole field's.
       if (d.type === 'movie' && !d.prepare && !/(^| )modality=(1|BrightField)( |$)/.test(d.spec) && self.IscWfGpu &&
           self.ISC_WF_WGSL && !d.noGpu && !/(^| )drift-(xy|z)-(nm-per-sqrt-sec|speed-nm-per-sec)=(?!0( |$))/.test(d.spec) &&
-          !(d.stream && d.diskOpen && movieInStrips(d.spec)))
+          !(d.stream && (d.diskOpen || d.rowsOut) && movieInStrips(d.spec)))
         return wfGpuMovie(d, post);
       // ---- a BrightField movie split across the workers (spec/PORT.md 15) ----
       if (d.type === 'bf-begin') {
@@ -6850,16 +6884,24 @@ function toggleMoviePlay() {
 // Every page's tags come first, then the frames back to back: a description starting "ImageJ=" (the Record TIFF) makes
 // ImageJ / Fiji read the frames as one contiguous block from the first page's data, without reading the other pages'
 // tags (tags between the frames shifted every frame after the first, 2026-10-28).
-function writeTiff16(frames, w, h, n, desc, pxUm, bigTiff) {
-  const enc = new TextEncoder().encode(desc + '\0'), px = w * h, res = pxUm > 0;
-  const big = !!bigTiff || 16 + enc.length + n * (px * 2 + 400) >= 2 ** 32 - 2 ** 26;
+// The bytes tiffHead takes for n pages with a description of descBytes bytes (its 0 included).
+function tiffHeadBytes(n, descBytes, pxUm, big) {
+  const res = pxUm > 0;
   // a classic IFD: count 2, entries 12, link 4, the two RATIONALs (16) after it; a BigTIFF's: 8, 20, 8, the RATIONALs
   // in their entries (8 bytes fit)
   const entries = p => (p === 0 ? 10 : 9) + (res ? 3 : 0);
   const ifdBytes = p => big ? 8 + 20 * entries(p) + 8 : 2 + 12 * entries(p) + 4 + (res ? 16 : 0);
-  const ppu = res ? Math.round(1e6 / pxUm) : 0;   // pixels per micron x 1e6 (a RATIONAL ppu / 1e6)
-  let head = (big ? 16 : 8) + enc.length + (enc.length & 1);
+  let head = (big ? 16 : 8) + descBytes + (descBytes & 1);
   for (let p = 0; p < n; p++) head += ifdBytes(p);
+  return head;
+}
+// writeTiff16's header and every page's tags (an ArrayBuffer of tiffHeadBytes), the frames' data back to back from
+// dataAt (default: right after the tags; 2026-11-20, a Record written straight to a file: room kept for the tags in
+// front of its frames, which are written as made, the tags at its end for the frames it has).
+function tiffHead(w, h, n, desc, pxUm, big, dataAt) {
+  const enc = new TextEncoder().encode(desc + '\0'), px = w * h, res = pxUm > 0;
+  const ppu = res ? Math.round(1e6 / pxUm) : 0;   // pixels per micron x 1e6 (a RATIONAL ppu / 1e6)
+  const head = tiffHeadBytes(n, enc.length, pxUm, big);
   const buf = new ArrayBuffer(head), dv = new DataView(buf), u8 = new Uint8Array(buf);
   const u64 = (at, v) => dv.setBigUint64(at, BigInt(v), true);
   dv.setUint16(0, 0x4949, true);
@@ -6867,7 +6909,7 @@ function writeTiff16(frames, w, h, n, desc, pxUm, bigTiff) {
   else dv.setUint16(2, 42, true);
   let pos = big ? 16 : 8, link = big ? 8 : 4;
   for (let p = 0; p < n; p++) {
-    const data = head + p * px * 2;
+    const data = (dataAt || head) + p * px * 2;
     let descOff = 0;
     if (p === 0) { descOff = pos; u8.set(enc, pos); pos += enc.length + (enc.length & 1); }
     let resOff = 0;
@@ -6899,6 +6941,12 @@ function writeTiff16(frames, w, h, n, desc, pxUm, bigTiff) {
       link = pos; dv.setUint32(pos, 0, true); pos += 4;
     }
   }
+  return buf;
+}
+function writeTiff16(frames, w, h, n, desc, pxUm, bigTiff) {
+  const enc = new TextEncoder().encode(desc + '\0'), px = w * h;
+  const big = !!bigTiff || 16 + enc.length + n * (px * 2 + 400) >= 2 ** 32 - 2 ** 26;
+  const buf = tiffHead(w, h, n, desc, pxUm, big);
   // the frames as they are: n x px samples in order
   const parts = [];
   let left = n * px;

@@ -7,7 +7,10 @@
 //   - a BigTIFF (forced) read back here: the IFD chain, each page's offset, size and pixels, the description, the
 //     pixel size (a RATIONAL in its entry); with Python and tifffile at hand, tifffile reads it the same;
 //   - a 4.4 GB movie's layout, made with a Blob that only counts its parts (the frames are one array 520 times): a
-//     BigTIFF by itself, every page's offset where its frame is, past 4 GB too.
+//     BigTIFF by itself, every page's offset where its frame is, past 4 GB too;
+//   - a Record written straight to a file (2026-11-20, tiffHead with dataAt): room kept in front of the frames, the
+//     tags written last for the 4 frames it has, classic and BigTIFF: read back here and by tifffile, the pixels the
+//     same as the plain file's.
 //   node tests/web/tiff_unit.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,8 +23,8 @@ const t0 = performance.now();
 let fail = 0;
 const check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}`); };
 const html = fs.readFileSync(path.join(ROOT, 'web/index.html'), 'utf8');
-const a = html.indexOf('function writeTiff16('), b = html.indexOf('\nfunction saveMovieTiff(');
-const writeTiff16 = new Function(html.slice(a, b) + '; return writeTiff16;')();
+const a = html.indexOf('function tiffHeadBytes('), b = html.indexOf('\nfunction saveMovieTiff(');
+const [writeTiff16, tiffHead, tiffHeadBytes] = new Function(html.slice(a, b) + '; return [writeTiff16, tiffHead, tiffHeadBytes];')();
 
 // The writer before 2026-11-19 (one array, one buffer, classic only), verbatim.
 function oldWriteTiff16(frames, w, h, n, desc, pxUm) {
@@ -125,6 +128,22 @@ const bigFile = await bytes(writeTiff16(parts, w, h, n, desc, 0.1, true));
   fs.writeFileSync(path.join(dir, 'classic.tif'), await bytes(writeTiff16(movie, w, h, n, desc, 0.1)));
 }
 
+// A Record straight to a file: room for 6 frames' tags (a BigTIFF's, the description's bytes and some), 4 frames
+// written, the tags for those 4 at the start, the file cut after the 4th frame.
+for (const big of [false, true]) {
+  const d4 = desc.replace(/=6/g, '=4'), at = tiffHeadBytes(n, 4096, 0.1, true) + 64;
+  const head = new Uint8Array(tiffHead(w, h, 4, d4, 0.1, big, at));
+  const file = new Uint8Array(at + 4 * px * 2);
+  file.set(head, 0);
+  file.set(new Uint8Array(movie.buffer, 0, 4 * px * 2), at);
+  const r = readTiff(file);
+  check(head.length <= at && r.big === big && r.pages.length === 4 && r.pages.every((p, k) => p.offset === at + k * px * 2 &&
+      p.bytes === px * 2 && same(new Uint16Array(file.slice(p.offset, p.offset + px * 2).buffer), movie.subarray(k * px, (k + 1) * px))) &&
+      r.pages[0].desc === d4,
+    `straight to a file (${big ? 'BigTIFF' : 'classic'}): tags ${head.length} of ${at} bytes kept, 4 pages where the frames are`);
+  fs.writeFileSync(path.join(dir, big ? 'inplace_big.tif' : 'inplace.tif'), file);
+}
+
 // 520 frames of 2048 x 2048 px (4.4 GB) through a Blob that keeps its parts uncopied: the layout only.
 {
   const Real = globalThis.Blob;
@@ -155,6 +174,12 @@ else {
   let out = '';
   try { out = execFileSync(py, ['-I', '-c', script, path.join(dir, 'big.tif'), path.join(dir, 'classic.tif')], { encoding: 'utf8' }); } catch (e) { out = String(e.stderr || e); }
   check(/^True False \(6, 11, 37\) True \(10000000, 1000000\)/.test(out.trim()), `tifffile reads the BigTIFF as the classic file: ${out.trim()}`);
+  const s2 = 'import sys, tifffile, numpy as np\n' +
+    'y = np.stack([p.asarray() for p in tifffile.TiffFile(sys.argv[3]).pages])[:4]\n' +
+    'for f in sys.argv[1:3]:\n' +
+    '    t = tifffile.TiffFile(f); x = np.stack([p.asarray() for p in t.pages]); print(t.is_bigtiff, x.shape, bool((x == y).all()))\n';
+  try { out = execFileSync(py, ['-I', '-c', s2, path.join(dir, 'inplace.tif'), path.join(dir, 'inplace_big.tif'), path.join(dir, 'classic.tif')], { encoding: 'utf8' }); } catch (e) { out = String(e.stderr || e); }
+  check(/^False \(4, 11, 37\) True\s+True \(4, 11, 37\) True$/.test(out.trim()), `tifffile reads the files written in place: ${out.trim().replace(/\s+/g, ' ')}`);
 }
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`tiff unit: ${fail ? fail + ' FAILED' : 'all ok'}, ${((performance.now() - t0) / 1000).toFixed(2)} s`);

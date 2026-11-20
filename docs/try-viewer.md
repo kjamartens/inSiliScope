@@ -138,7 +138,11 @@ through it step by step.
   starts); Save then makes the .tif or .zip from those files. The tab's last recording stays there until the next
   Record, and recordings of closed tabs are deleted. A browser without that storage (some private windows) keeps the
   frames in memory, as with the box unticked: then the tab's memory bounds the recording. If the storage or the
-  memory runs out, the recording stops and keeps the frames so far. The box's **field** (W × H px, empty = the live
+  memory runs out, the recording stops and keeps the frames so far. The browser gives the page only a share of the
+  disk (often a few GB; small in a private window), and a page cannot raise it: in Chrome and Edge, tick **save to a
+  file as recorded** and Start asks where to save the .tif; the frames go straight into that file as they are made,
+  with no limit but the disk. The player then reads the recording from that file, and Save has nothing left to do for
+  the movie alone (a .zip with its settings or ground truth takes the file as its movie). The box's **field** (W × H px, empty = the live
   field) records a field of its own, centred on the stage, larger or smaller than the live one (up to 16384 px a side;
   the world view outlines it while the box is open). The illumination **beam scales with the field**: its width stays
   the set share of the field (Beam FWHM), so a larger field is lit by a wider beam than live; the box says so, with the

@@ -337,7 +337,7 @@ function request(n) {
   const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && expert() };
   if (n) {
     job.n = n; job.rec = true;
-    if (REC.disk) job.disk = { path: DISK.path(REC.disk.dir, 'frames.raw'), first: REC.got };   // (written at their place)
+    if (recOpfs()) job.disk = { path: DISK.path(REC.disk.dir, 'frames.raw'), first: REC.got };   // (written at their place)
   }
   L.pending = job;
   w.postMessage(job);
@@ -348,6 +348,7 @@ function onResult(d) {
   if (!job || d.id !== job.id) return;
   if (d.type === 'movie-progress') { if (job.fresh) onRecProgress(d); return; }
   if (d.type === 'movie-part') { if (job.fresh) onRecPart(d); return; }
+  if (d.type === 'movie-rows') { if (job.fresh) onRecRows(d); return; }
   L.pending = null;
   if (job.type === 'live-replay') { onReplay(d, job); return; }
   if (d.error) { L.err = d.error; L.on = false; if (REC.on) finishRec(); syncButtons(); showInfo(); return; }
@@ -960,6 +961,61 @@ const DISK = L.disk = (() => {
   };
 })();
 DISK.sweep();
+// ---- a Record straight to a file the person chooses (2026-11-20; Chrome and Edge: the File System Access API) ----
+// "save to a file as recorded" (the Record box, where the browser has a save picker): Start asks for a .tif and the
+// frames go into it as the engine makes them, with no storage quota (the browser's disk storage gives a page a share
+// of the disk, 2.7 GB in the preview pane). The worker posts the frames (whole frames, or a strip's rows: 'movie-part',
+// 'movie-rows'), the page writes each at its place in the TIFF (createWritable: the browser keeps the writes in a file
+// beside the chosen one and puts it in place at the end), with room in front for the tags, written last for the frames
+// it has (tiffHead in index.html; a BigTIFF past 4 GB), and the file cut after the last frame. A frame written goes
+// from memory; the frames wait only while the disk is slower than the engine. The player reads them back from the
+// file; Save .tif has nothing left to do, a .zip takes the file as its movie.tif. The ground truth's spool files go
+// to the disk storage as before (or memory).
+const FILE = L.file = { ok: typeof self.showSaveFilePicker === 'function' };
+const recOpfs = () => !!(REC.disk && !REC.disk.file);   // (the frames on the disk storage, not in a file)
+function fileOut(handle, writable, w, h, nMax, descBytes) {
+  const px = w * h;
+  // room for the tags: a BigTIFF's for nMax pages, the description's bytes and 64 KB to spare
+  const at = tiffHeadBytes(nMax, descBytes + 65536, 1, true);
+  let chain = Promise.resolve(), error = null, queued = 0, got = 0;
+  const put = (data, position) => {
+    queued += data.byteLength;
+    const k = data.byteLength;
+    chain = chain.then(() => error ? null : writable.write({ type: 'write', position, data }))
+      .catch(e => { error = error || e; }).then(() => { queued -= k; });
+  };
+  return {
+    toFile: true, handle, at, w, h,
+    get n() { return got; },
+    get queued() { return queued; },
+    get error() { return error; },
+    // whole frames, in order
+    add(data, n) {
+      if (!n) return;
+      if (data.length !== n * px) { error = error || new Error(`the frames are not ${w} × ${h} px`); return; }
+      put(data, at + got * px * 2);
+      got += n;
+    },
+    // frames first .. first + n - 1, rows y0 .. y0 + rows - 1 (a strip)
+    rows(first, n, y0, rows, data) {
+      const k = rows * w;
+      for (let i = 0; i < n; i++) put(data.subarray(i * k, (i + 1) * k), at + ((first + i) * h + y0) * w * 2);
+      if (y0 + rows >= h) got = Math.max(got, first + n);
+    },
+    // the tags for n frames, the file cut after them and put in place: its File
+    async finish(n, desc, pxUm) {
+      await chain;
+      if (error) throw error;
+      const head = tiffHead(w, h, n, desc, pxUm, at + n * px * 2 >= 2 ** 32 - 2 ** 26, at);
+      if (head.byteLength > at) throw new Error('the TIFF tags do not fit in front of the frames');
+      await writable.write({ type: 'write', position: 0, data: head });
+      await writable.truncate(at + n * px * 2);
+      await writable.close();
+      return handle.getFile();
+    },
+    abort() { error = error || new Error('cancelled'); chain = chain.then(() => writable.abort()).catch(() => {}); },
+  };
+}
 // the fresh sample's time at its first frame (the movie's start-sec; 0 = the light comes on): not the Start time
 // setting, which live keeps; hidden with "continue the live sample", which runs on from the live sample's time
 const syncRecT = (init) => { $('lv_recTRow').hidden = $('lv_recFieldRow').hidden = $('lv_recLive').checked; if (!init) syncRecField(); };
@@ -972,6 +1028,9 @@ $('lv_recT').value = store.get('recT', '0');
 $('lv_recDisk').checked = store.get('recDisk', '1') === '1';
 $('lv_recDisk').addEventListener('change', () => store.set('recDisk', $('lv_recDisk').checked ? '1' : '0'));
 $('lv_recDiskRow').hidden = !DISK.ok;
+$('lv_recFile').checked = FILE.ok && store.get('recFile', '0') === '1';
+$('lv_recFile').addEventListener('change', () => store.set('recFile', $('lv_recFile').checked ? '1' : '0'));
+$('lv_recFileRow').hidden = !FILE.ok;
 $('lv_recT').addEventListener('change', () => store.set('recT', $('lv_recT').value));
 const recStartSec = () => Math.max(0, +$('lv_recT').value || 0);
 // The Record's field (2026-11-20, docs/dev/LARGE_RECORDS.md part C): W x H px centred on the stage, empty = the live
@@ -996,14 +1055,15 @@ const recBytes = () => {
 };
 const gbText = b => (b / 1e9 < 0.1 ? (b / 1e9).toFixed(3) : (b / 1e9).toFixed(1)) + ' GB';
 function recProblem(room = recRoom) {
-  const { w, h, n, bytes } = recBytes(), disk = DISK.ok && $('lv_recDisk').checked;
-  if (!disk && Math.max(w, h) > REC_WHOLE_SIDE)
+  const { w, h, n, bytes } = recBytes(), file = FILE.ok && $('lv_recFile').checked, disk = DISK.ok && $('lv_recDisk').checked;
+  if (!disk && !file && Math.max(w, h) > REC_WHOLE_SIDE)
     return `A field past ${REC_WHOLE_SIDE} px renders in strips, which write to the disk storage: tick "write frames to disk"` +
-      (DISK.ok ? '.' : ' (this browser offers no disk storage to this page).');
-  if (disk && room !== null && bytes > room)
+      (FILE.ok ? ' or "save to a file as recorded".' : DISK.ok ? '.' : ' (this browser offers no disk storage to this page).');
+  if (disk && !file && room !== null && bytes > room)
     return `Not enough disk storage: ${n} frames of ${w} × ${h} px are ${gbText(bytes)}, this browser lets the page store ` +
-      `${gbText(room)} (at most ${Math.floor(room / (w * h * 2))} frames of this field). Record fewer frames or a smaller ` +
-      'field, or free disk space (the browser\'s share grows with it).';
+      `${gbText(room)} (at most ${Math.floor(room / (w * h * 2))} frames of this field). ` +
+      (FILE.ok ? 'Tick "save to a file as recorded" (no limit but the disk), or record fewer frames or a smaller field.'
+               : 'Record fewer frames or a smaller field, or free disk space (the browser\'s share grows with it).');
   return '';
 }
 function syncRecMsg(text = recProblem()) {
@@ -1039,7 +1099,7 @@ function syncRecField() {
     : `The beam scales with the field: its width stays ${fwhm} % of the field (Beam FWHM), so this Record's beam is ` +
       `${um(Math.max(f.w, f.h) * fwhm / 100)} µm wide instead of the live view's ${um(f.live * fwhm / 100)} µm. `,
     `${gb < 0.1 ? gb.toFixed(3) : gb.toFixed(1)} GB of frames.` +
-    (strips ? (disk ? ' Past 4096 px it renders in strips of rows (all frames of one strip, then the next).'
+    (strips ? (disk || (FILE.ok && $('lv_recFile').checked) ? ' Past 4096 px it renders in strips of rows (all frames of one strip, then the next).'
                     : ' Past 4096 px it needs "write frames to disk" (it renders in strips).') : '') +
     (f.w * f.h > 4096 * 4096 ? ` The player shows its centre ${Math.min(f.w, VIEW_MAX)} × ${Math.min(f.h, VIEW_MAX)} px.` : '') +
     ' Large fields are slow: every dye of the field is made.');
@@ -1049,7 +1109,7 @@ for (const id of ['lv_recW', 'lv_recH']) {
   $(id).addEventListener('input', syncRecField);
   $(id).addEventListener('change', () => store.set(id === 'lv_recW' ? 'recW' : 'recH', $(id).value));
 }
-for (const id of ['lv_recN', 'lv_recDisk']) $(id).addEventListener('input', syncRecField);
+for (const id of ['lv_recN', 'lv_recDisk', 'lv_recFile']) $(id).addEventListener('input', syncRecField);
 syncRecField();
 // A recording's frames as the parts they came in (each whole frames, in order): no one buffer of the whole movie.
 function frameStore() {
@@ -1084,13 +1144,13 @@ function frameStore() {
 // last few frames read are kept for the player. A frame past 4096 x 4096 px (a large Record field) is shown as its
 // centre, at most VIEW_MAX px a side (vw x vh: its rows read as one slice, the columns taken from them); the file and
 // Save keep every pixel (VIEW_MAX, above).
-function diskStore(file, w, h, n) {
+function diskStore(file, w, h, n, base = 0) {
   const cache = new Map(), px = w * h, big = px > 4096 * 4096;
   const vw = big ? Math.min(w, VIEW_MAX) : w, vh = big ? Math.min(h, VIEW_MAX) : h;
   const x0 = (w - vw) >> 1, y0 = (h - vh) >> 1;
   const read = i => {
-    if (!big) return file.slice(i * px * 2, (i + 1) * px * 2).arrayBuffer().then(b => new Uint16Array(b));
-    const at = (i * px + y0 * w) * 2;
+    if (!big) return file.slice(base + i * px * 2, base + (i + 1) * px * 2).arrayBuffer().then(b => new Uint16Array(b));
+    const at = base + (i * px + y0 * w) * 2;
     return file.slice(at, at + vh * w * 2).arrayBuffer().then(b => {
       const rows = new Uint16Array(b), out = new Uint16Array(vw * vh);
       for (let y = 0; y < vh; y++) out.set(rows.subarray(y * w + x0, y * w + x0 + vw), y * vw);
@@ -1106,7 +1166,7 @@ function diskStore(file, w, h, n) {
       }
       return cache.get(i);
     },
-    arrays(m = n) { return [file.slice(0, m * px * 2)]; },
+    arrays(m = n) { return [file.slice(base, base + m * px * 2)]; },
   };
 }
 async function startRec() {
@@ -1114,6 +1174,7 @@ async function startRec() {
     if (L.worker) L.worker.terminate();
     L.worker = null; L.pending = null; L.worldKey = null;
     gtStop();   // (its ground truth's run)
+    if (REC.out) { REC.out.abort(); REC.out = null; }   // (the chosen file left as it was)
     Object.assign(REC, { on: false, store: null, msg: 'recording cancelled' });
     syncButtons(); showInfo();
     return;
@@ -1127,7 +1188,23 @@ async function startRec() {
   let disk = DISK.ok && $('lv_recDisk').checked ? { dir: DISK.newDir() } : null;
   const early = recProblem(null);   // (the field; the room is asked below)
   if (early) { recRefused(early); return; }
-  if (disk) {
+  // straight to a file: the picker first (it needs the click), then the file opened for writing
+  let out = null;
+  if (FILE.ok && $('lv_recFile').checked) {
+    REC.starting = true;
+    try {
+      const handle = await self.showSaveFilePicker({ suggestedName: `insiliscope_rec_${fw}x${fh}x${n}.tif`,
+        types: [{ description: 'TIFF stack', accept: { 'image/tiff': ['.tif', '.tiff'] } }] });
+      const spec = movieSpec(recFieldSpecOf(field));
+      out = fileOut(handle, await handle.createWritable(), fw, fh, n, new TextEncoder().encode(spec).length * 2 + 4096);
+    } catch (e) {
+      if (e && e.name === 'AbortError') { REC.msg = 'not recorded: no file chosen'; showInfo(); }
+      else recRefused(`the file could not be opened for writing: ${e && e.message || e}`);
+      return;
+    } finally { REC.starting = false; }
+    if (disk) disk.file = true;   // (the disk storage for the ground truth's files alone)
+  }
+  if (disk && !disk.file) {
     REC.starting = true;
     let refused = '';
     try {
@@ -1140,10 +1217,10 @@ async function startRec() {
   }
   syncRecMsg('');
   closePlayer();
-  Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n, got: 0, store: null, disk, diskFrames: 0,
+  Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n, got: 0, store: null, disk, diskFrames: 0, out, desc: '',
     field: $('lv_recLive').checked || !field.larger ? null : { size: fw, height: fh },
     exp: exposureSec(), t0: performance.now(), engineMs: 0,
-    msg: gb > 2 ? `${gb.toFixed(1)} GB of frames, ` + (disk ? 'written to this browser\'s disk storage' : 'held in this tab\'s memory') +
+    msg: gb > 2 ? `${gb.toFixed(1)} GB of frames, ` + (out ? `written to ${out.handle.name}` : disk ? 'written to this browser\'s disk storage' : 'held in this tab\'s memory') +
       (gb > 4 ? ' (saved as a BigTIFF)' : '') : '',
     log: null, chunks: [], pxUm: (+$('mv_pixel-nm').value || 100) / 1000 });
   // the settings as the Record begins (its file: web/live/settings_file.js recordFile)
@@ -1174,13 +1251,16 @@ async function recGtEarly() {
 }
 // The Record's field in the spec (none: the live field's size, no height)
 const recFieldSpec = () => REC.field ? { size: REC.field.size, height: REC.field.height } : {};
+// (before the Record: the box's field, the live sample's own)
+const recFieldSpecOf = f => $('lv_recLive').checked ? { frames: 1 } : { frames: 1, ...(f.larger ? { size: f.w, height: f.h } : {}) };
 function recMovie() {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; REC.on = false; syncButtons(); showInfo(); return; }
-  REC.store = REC.disk ? null : frameStore();   // (on disk: made at the end; parts only if the storage failed)
+  REC.store = REC.out || (REC.disk ? null : frameStore());   // (on disk: made at the end; parts only if the storage failed)
   const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1, ...recFieldSpec() }),
     fresh: true, stream: true, t0: performance.now() };
-  if (REC.disk) job.disk = { path: DISK.path(REC.disk.dir, 'frames.raw') };
+  if (recOpfs()) job.disk = { path: DISK.path(REC.disk.dir, 'frames.raw') };
+  if (REC.out) job.rowsOut = true;   // (strips' rows posted: the page writes them into the file)
   L.pending = job;
   w.postMessage(job);
 }
@@ -1195,12 +1275,17 @@ function onRecPart(d) {
   REC.store.add(d.frames, d.n);
   REC.got = Math.min(REC.n, REC.store.n);
 }
+// a part of a strip's rows (a Record straight to a file)
+function onRecRows(d) {
+  if (!REC.on || !REC.out) return;
+  REC.out.rows(d.first, d.n, d.y0, d.rows, d.frames);
+}
 function onRecMovie(d, job) {
   if (!REC.on) return;
   const px = d.w * d.h;
   if (d.disk) REC.diskFrames = d.got;
   else {
-    if (REC.disk) { REC.disk = null; if (d.diskError) REC.msg = `frames kept in memory (the disk storage: ${d.diskError})` + (REC.msg ? ' · ' + REC.msg : ''); }
+    if (recOpfs()) { REC.disk = null; if (d.diskError) REC.msg = `frames kept in memory (the disk storage: ${d.diskError})` + (REC.msg ? ' · ' + REC.msg : ''); }
     if (!REC.store) REC.store = frameStore();
     if (!d.streamed) REC.store.add(d.frames, Math.min(REC.n, Math.floor(d.frames.length / Math.max(1, px))));
   }
@@ -1211,7 +1296,7 @@ function onRecMovie(d, job) {
   L.err = '';
   L.ms = n ? (performance.now() - REC.t0) / n : 0;
   L.frames++;
-  if (n && (!d.disk || d.last)) draw({ ...d, frames: d.disk ? d.last : REC.store.frame(n - 1).slice() });
+  if (n && (d.disk ? d.last : !REC.store.toFile)) draw({ ...d, frames: d.disk ? d.last : REC.store.frame(n - 1).slice() });
   finishRec();
 }
 function recNext() {
@@ -1224,11 +1309,13 @@ function onRecChunk(d, job) {
   const px = d.w * d.h, n = d.n || 1;
   if (!REC.got) {
     Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, tStart: d.tStart !== undefined ? d.tStart : job.t, litStart: d.clock });
-    if (REC.disk && !d.disk) { REC.disk = null; REC.msg = `frames kept in memory (the disk storage: ${d.diskError || 'failed'})`; }
-    if (!REC.disk) REC.store = frameStore();
+    if (recOpfs() && !d.disk) { REC.disk = null; REC.msg = `frames kept in memory (the disk storage: ${d.diskError || 'failed'})`; }
+    if (REC.out) REC.store = REC.out;
+    else if (!REC.disk) REC.store = frameStore();
   }
-  if (d.w !== REC.w || d.h !== REC.h) { REC.msg = 'the image size changed: stopped'; REC.stop = true; }
-  else if (REC.disk && !d.disk) { REC.msg = `stopped: ${d.diskError || 'the disk storage failed'}`; REC.stop = true; }
+  if (d.w !== REC.w || d.h !== REC.h || REC.out && (d.w !== REC.out.w || d.h !== REC.out.h)) { REC.msg = 'the image size changed: stopped'; REC.stop = true; }
+  else if (recOpfs() && !d.disk) { REC.msg = `stopped: ${d.diskError || 'the disk storage failed'}`; REC.stop = true; }
+  else if (REC.out && REC.out.error) { REC.msg = `stopped: the file: ${REC.out.error.message || REC.out.error}`; REC.stop = true; }
   else {
     const k = Math.min(n, REC.n - REC.got);
     if (d.disk) REC.diskFrames = REC.got + k;   // (written at their place in the frames file: d.frames is the last)
@@ -1249,14 +1336,30 @@ function onRecChunk(d, job) {
 async function finishRec() {
   const n = REC.got, s = (performance.now() - REC.t0) / 1000;
   REC.on = false;
-  if (n && REC.disk && REC.diskFrames) {
+  if (REC.out) {   // the tags written, the file cut and put in place, read back for the player
+    const out = REC.out;
+    REC.out = null;
+    if (n) {
+      try {
+        REC.desc = recDesc(n);
+        REC.store = diskStore(await out.finish(n, REC.desc, recPxUm()), REC.w, REC.h, n, out.at);
+        REC.store.saved = out.handle.name;
+      } catch (e) {
+        REC.store = null;
+        REC.msg = `the file ${out.handle.name} could not be written: ${e.message || e}`;
+      }
+    } else out.abort();
+  }
+  else if (n && REC.disk && REC.diskFrames) {
     try { REC.store = diskStore(await DISK.file(REC.disk.dir, 'frames.raw'), REC.w, REC.h, Math.min(n, REC.diskFrames)); }
     catch (e) { REC.store = null; REC.msg = `the recording's frames could not be read back: ${e.message || e}`; }
   }
   if (n && REC.store) {
     REC.msg = `recorded ${n} frames in ${s.toFixed(1)} s, ${(n / s).toFixed(1)} frames/s` +
       (REC.got < REC.n ? ` (stopped at ${n} of ${REC.n})` : '') +
-      (REC.store.cropped ? ` · ${REC.w} × ${REC.h} px: the centre ${REC.store.vw} × ${REC.store.vh} shown, Save writes all of it` : '') +
+      (REC.store.saved ? ` · written to ${REC.store.saved}` : '') +
+      (REC.store.cropped ? ` · ${REC.w} × ${REC.h} px: the centre ${REC.store.vw} × ${REC.store.vh} shown, ` +
+        (REC.store.saved ? 'the file has all of it' : 'Save writes all of it') : '') +
       (REC.msg ? ' · ' + REC.msg : '');
     openPlayer(n);
   }
@@ -1267,14 +1370,20 @@ async function finishRec() {
 
 // ---- a finished recording plays in the live view (looping at the frame interval); Save .tif saves it ----
 const PLAY = L.play = { on: false, store: null, w: 0, h: 0, n: 0, desc: '', i: 0, run: false, timer: 0 };
-function openPlayer(n) {
-  const exp = REC.exp || exposureSec();   // the exposure the frames were taken at
-  const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
+// The recording's TIFF description (ImageJ's lines, the spec)
+function recDesc(n) {
+  const exp = REC.exp || exposureSec();
+  return [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
     ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.sample-time-sec=${REC.tStart}`,
       `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
       'insiliscope.note=the frames continue the live sample (its light history and drift); insiliscope_cli --spec renders a fresh sample']
       : [`insiliscope=recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.recorded=${new Date().toISOString()}`,
         'insiliscope.note=a fresh sample (a movie from start-sec, no history); insiliscope_cli --spec renders the same movie'])].join('\n') + '\n';
+}
+const recPxUm = () => REC.pxUm || (+$('mv_pixel-nm').value || 100) / 1000;
+function openPlayer(n) {
+  const exp = REC.exp || exposureSec();   // the exposure the frames were taken at
+  const desc = REC.desc || recDesc(n);
   closePlayer(true);   // (a ground truth's run begun with the Record goes on)
   // the recording's settings file: the movie reproducible from it (insiliscope_cli --settings)
   if (!REC.now && self.iscSettings && self.ISC_ENGINE_OPTIONS && REC.nowArgs) REC.now = self.iscSettings.current(...REC.nowArgs);
@@ -1283,8 +1392,8 @@ function openPlayer(n) {
     if (!settings && REC.now && self.iscSettings) settings = self.iscSettings.recordFile({ mode: REC.live ? 'live' : 'fresh', now: REC.now, frames: n,
       log: REC.log || [], chunks: REC.chunks, tSec: L.t }, 'insiliscope-recording');
   } catch (e) { console.warn('the recording\'s settings file:', e); }
-  Object.assign(PLAY, { on: true, store: REC.store, disk: REC.disk, w: REC.w, h: REC.h, n, desc, spec: REC.spec,
-    exp, pxUm: REC.pxUm || (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1, settings, gpu: REC.live ? '' : REC.gpu || '' });
+  Object.assign(PLAY, { on: true, store: REC.store, disk: REC.disk, saved: REC.store.saved || '', w: REC.w, h: REC.h, n, desc, spec: REC.spec,
+    exp, pxUm: recPxUm(), i: 0, run: n > 1, settings, gpu: REC.live ? '' : REC.gpu || '' });
   $('lv_playPos').max = n - 1;
   $('lv_play').hidden = false;
   $('liveView').classList.add('playing');
@@ -1386,7 +1495,8 @@ async function openSave() {
         'dye (large: 100-600 MB)</span></label>'
       : '') +
     warn.map(w => `<div class="warn">${esc(w)}</div>`).join('') +
-    '<div class="msg" id="svMsg">Movie alone: a .tif. Otherwise a .zip; drop its <code>open_in_napari.py</code> on napari ' +
+    `<div class="msg" id="svMsg">Movie alone: ${PLAY.saved ? `already saved as ${esc(PLAY.saved)} while recording` : 'a .tif'}. ` +
+    'Otherwise a .zip; drop its <code>open_in_napari.py</code> on napari ' +
     'to view it.</div>' +
     '<progress id="svBar" max="1" hidden style="width:100%"></progress>' +
     '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>',
@@ -1440,8 +1550,14 @@ async function openSave() {
 // c = {settings, gt, dyes, minCore}; say(text): progress.
 async function saveRecording(c, name, say = () => {}) {
   iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(PLAY.n), settings: !!c.settings, gt: !!c.gt });
-  const tif = writeTiff16(PLAY.store.arrays(PLAY.n), PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
+  // (a Record written straight to a file: that file is the TIFF)
+  const tif = PLAY.saved ? PLAY.store.file : writeTiff16(PLAY.store.arrays(PLAY.n), PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
   const bigTiff = tif.size >= 2 ** 32 - 2 ** 26 ? ', a BigTIFF: Fiji with Bio-Formats, napari or tifffile open it' : '';
+  if (!c.settings && !c.gt && PLAY.saved) {
+    REC.msg = `the movie is in ${PLAY.saved} already (written while recording)`;
+    showInfo();
+    return;
+  }
   if (!c.settings && !c.gt) {
     download(tif, name + '.tif');
     REC.msg = `saved ${name}.tif (${(tif.size / 1e6).toFixed(1)} MB${bigTiff})`;
@@ -1490,7 +1606,7 @@ async function saveRecording(c, name, say = () => {}) {
     (vox ? 'gt/voxelize.html   open in a browser, drop gt/dyes.csv on it: a stack at any voxel size\n' : '') +
     (napari ? 'open_in_napari.py  drop on napari\'s window to view everything (pip install "napari[all]" tifffile)\n' : '') });
   // (a recording on the disk storage: files past 64 MB stored as they are, streamed from disk, never read into memory)
-  const blob = await self.iscZip.zip(entries, PLAY.disk ? { blobInline: 64e6 } : {});
+  const blob = await self.iscZip.zip(entries, PLAY.disk || PLAY.saved ? { blobInline: 64e6 } : {});
   download(blob, name + '.zip');
   self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)
   REC.msg = `saved ${name}.zip (${(blob.size / 1e6).toFixed(1)} MB${bigTiff})`;

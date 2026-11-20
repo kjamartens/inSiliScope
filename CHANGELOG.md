@@ -10,6 +10,8 @@ Large recordings:
 - **Viewer Record, frames to disk:** "write frames to disk" (in the Record box, on by default) writes the frames and the
   ground truth's files into the browser's own disk storage as they are made, so a recording is bounded by the disk
   space the browser gives the page, not the tab's memory; Save makes the .tif or .zip from those files.
+- **Viewer Record, straight to a file (Chrome, Edge):** "save to a file as recorded" asks for a .tif at Start and writes
+  the frames into it as they are made, with no storage quota; the TIFF's tags are written in front of them at the end.
 - **Movies in strips:** a movie whose field does not fit in memory, or has a side past 4096 px (up to 16384), renders
   in strips of rows (all frames of one strip, then the next). The frames are those of the field rendered whole (blinks,
   beads and the camera noise to the last bit; WideField and BrightField within rounding). cli `--strip-rows n`
