@@ -18,6 +18,18 @@
 
 namespace sim {
 
+namespace {
+// The dye cache's cap (dyes; the core keeps the blocks a query uses beyond it): ~16M (~1.5-3 GB) natively, the whole
+// z column of a 12.8 um FOV plus margin at 100% labelling is ~9M, so focusing through the cell and moving about a FOV
+// in xy come back from the cache, not regenerated. In the browser (where the movie world lives across movies) a 4M
+// soft cap: a 256 px WideField movie uses ~4M dyes, which the cap never evicts while they are in use.
+#if defined(__EMSCRIPTEN__)
+constexpr double kDyeCacheDyes = 4e6;
+#else
+constexpr double kDyeCacheDyes = 16e6;
+#endif
+} // namespace
+
 int SampleSettings::LabelMode(int s) const
 {
    if (s < 0 || static_cast<size_t>(s) >= labels.size() || labels[static_cast<size_t>(s)].size() <= ISC_LABEL_MODE)
@@ -101,17 +113,7 @@ bool SampleSource::Configure(const SampleSettings& s, std::string& err)
          err = "could not create the cell-field world";
          return false;
       }
-      // Keep ~16M dyes (~1.5-3 GB): the whole z column of a 12.8 um FOV plus
-      // margin at 100% labelling is ~9M, so focusing through the cell and
-      // moving about a FOV in xy come back from the cache, not regenerated.
-      // In the browser (where the movie world now lives across movies) a
-      // 4M soft cap: a 256 px WideField movie uses ~4M dyes, which the cap
-      // never evicts while they are in use.
-#if defined(__EMSCRIPTEN__)
-      isc_world_set_dye_cache(w, 4e6);
-#else
-      isc_world_set_dye_cache(w, 16e6);
-#endif
+      isc_world_set_dye_cache(w, kDyeCacheDyes);
       isc_world_free(world_);
       world_ = w;
       settings_ = s;
@@ -218,6 +220,18 @@ bool SampleSource::ContinuousRows(double x0, double y0, double x1, double y1, do
       cap = n + n / 4;
       rows.resize(static_cast<size_t>(cap) * ISC_EVENT_STRIDE);
    }
+}
+
+void SampleSource::TrimDyeCache(double xUm, double yUm)
+{
+   if (!world_)
+      return;
+   // The core evicts down to its cap at the end of a dye query, all but that query's blocks: a cap of 0 and a query
+   // of a point, then the cap again.
+   float one = 0;
+   isc_world_set_dye_cache(world_, 0);
+   Density3d(xUm, yUm, xUm + 1e-3, yUm + 1e-3, -1e9, 1e9, 1, 1, 1, AllStructures(), &one);
+   isc_world_set_dye_cache(world_, kDyeCacheDyes);
 }
 
 bool SampleSource::Events(const SampleQuery& q, std::vector<BlinkEvent>& out)

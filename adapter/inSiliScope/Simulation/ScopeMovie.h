@@ -240,10 +240,15 @@ struct ScopeMemoryEstimate
    unsigned w = 0, h = 0;
    double fieldUm2 = 0;    // the dyes' query rect (the FOV and its PSF margin)
    double dyes = 0;        // labelled dyes in it, all structures
-   double baseBytes = 0, kernelBytes = 0, dyeBytes = 0, imageBytes = 0, sceneBytes = 0;
-   double Total() const { return baseBytes + kernelBytes + dyeBytes + imageBytes + sceneBytes; }
+   double events = 0;      // the movie's blinks (movieEvents)
+   double baseBytes = 0, kernelBytes = 0, dyeBytes = 0, imageBytes = 0, sceneBytes = 0, eventBytes = 0;
+   double Total() const { return baseBytes + kernelBytes + dyeBytes + imageBytes + sceneBytes + eventBytes; }
 };
-bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryEstimate& out, std::string& err);
+// movieEvents (2026-11-20; the strip height, ScopeStripRows): also the blinks of the whole movie (spec frames), which a
+// movie holds from its start (a 1000-frame DNA-PAINT Record of a 1600 px field: ~1.4 GB); without it a live frame's
+// (the adapter's check, a frame at a time).
+bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryEstimate& out, std::string& err,
+                         bool movieEvents = false);
 
 // "" when the spec's estimate fits this machine's budget (MemoryBudget.h; or no budget is known), else a sentence for
 // the user: the estimate and its largest parts, the RAM, the largest square FOV that would fit. A spec the estimate

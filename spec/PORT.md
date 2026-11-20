@@ -1551,7 +1551,10 @@ branch).
   BigTIFF's, the description + 64 KB), written last by `tiffHead(..., dataAt)` for the frames it has, the file cut
   after them; checks `tests/web/tiff_unit.mjs` (the layout, tifffile), `viewer_live_record.mjs` (whole frames, strips,
   live chunks: the file's frames = the disk storage's Record's; the picker stood in for by an OPFS file).
-- **B. Strips:** spec/ALGORITHM.md "Movies in strips". Engine `ScopeSensorDims`, `ScopeWindowRows`, `window-y0` /
+- **B. Strips:** spec/ALGORITHM.md "Movies in strips" (2026-11-20 follow-up: the strip height counts the movie's blinks,
+  `EstimateScopeMemory(..., movieEvents)`; the dye cache emptied between strips, `SampleSource::TrimDyeCache`; one copy
+  of a movie's blinks, the core's `EventRowsOut` and `SampleSource::ReleaseBuffersOver` let large query buffers go;
+  every output unchanged). Engine `ScopeSensorDims`, `ScopeWindowRows`, `window-y0` /
   `window-rows`, `ScopeStripMarginPx`, `ScopeStripRows`, `ScopeNeedsStrips`, `RenderScopeMovieStrips`;
   `Excitation::ImagerMap(..., rowY0, sensorH)`, `NoiseSetup` / the noise maps' `keepY0` / `keepRows`, `ApplyNoiseChain`'s
   `pixelBase`, `GroundTruth::Window`. cli `--strip-rows n` (0: when needed; -1 never), `--estimate`'s `strip-rows=`

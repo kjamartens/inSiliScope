@@ -1431,7 +1431,20 @@ live frames and a measurement with a light history render whole.
 - **The strip height** (`ScopeStripRows`): the whole sensor when its window's estimate (`EstimateScopeMemory`) fits the
   budget (`MemoryBudgetBytes`, in WebAssembly 2.5 GB of the module's 4 GB heap), else halved until it fits, at least
   max(64, 4 m) rows. Strips are used when a side passes 4096 px or the whole field passes the budget
-  (`ScopeNeedsStrips`), or when asked (cli `--strip-rows n`).
+  (`ScopeNeedsStrips`), or when asked (cli `--strip-rows n`). The estimate counts the movie's blinks too
+  (`movieEvents`, 2026-11-20): a movie holds all its blinks from its start, so its memory grows with its length (the
+  viewer's 1600 px DNA-PAINT field: ~1.4 MB per frame in a 308-row strip; a 1000-frame Record ran out of its heap). They
+  are counted in the dye count's sample windows over the movie's first 20 s at the uniform clock, in its z range, and
+  scaled to the window and the length, 300 bytes each (`kEstEventBytes`, on the high side); in one pass with the dye
+  count (a window's blinks while its dyes are cached), the densities kept for every height tried (a field counted in
+  sample windows is taken as uniform; the viewer's 1600 px plan ~100 -> ~20 s), the sample windows' dyes let go after.
+  The least height is a floor: a movie whose blinks do not fit there either is made in it all the same and may run out
+  (strips in time are not made).
+- **Memory between strips** (2026-11-20): the world's dye cache is emptied after each strip (`SampleSource::TrimDyeCache`:
+  a cap of 0 and a query of a point, then the cap again); it kept a strip's dyes while the next one's were made (the
+  viewer's heap 2.0 -> 2.8 -> 3.0 GB over the first strips at 1600 px; now 2.0 -> 2.1). A movie keeps one copy of its
+  blinks (the per-group lists; the merged list was a second, the query's rows a third, the core's list a fourth: the
+  host's buffer and the core's are let go after a query past 32 MB).
 - **Writing:** the cli's TIFF writer lays every page out on the first strip (`TiffWriter::PageRows`: the page's first
   rows, the rest a hole) and fills the later strips' rows in place (`Rows`): the file is byte for byte the one written
   whole (ctest `tiff_writer`). The viewer writes each strip's rows at their place in the Record's frames file on the

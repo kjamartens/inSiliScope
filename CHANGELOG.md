@@ -12,6 +12,9 @@ Large recordings:
   space the browser gives the page, not the tab's memory; Save makes the .tif or .zip from those files.
 - **Viewer Record, straight to a file (Chrome, Edge):** "save to a file as recorded" asks for a .tif at Start and writes
   the frames into it as they are made, with no storage quota; the TIFF's tags are written in front of them at the end.
+- **Long Records in strips no longer run out of memory:** a strip's height now counts the movie's blinks (they grow with
+  its length), the cached dyes of one strip are let go before the next, and a movie keeps one copy of its blinks instead
+  of up to four (a 1600 px, 1000-frame DNA-PAINT Record stopped with "out of memory" about a quarter of the way through).
 - **Movies in strips:** a movie whose field does not fit in memory, or has a side past 4096 px (up to 16384), renders
   in strips of rows (all frames of one strip, then the next). The frames are those of the field rendered whole (blinks,
   beads and the camera noise to the last bit; WideField and BrightField within rounding). cli `--strip-rows n`

@@ -431,6 +431,20 @@ void WriteEventRow(const isc::WorldEvent& e, double* o)
 }
 } // namespace
 
+namespace {
+// The rows of w->events into out (at most cap), the total returned. A large list's buffer is let go after (a long
+// movie's blinks, 2026-11-20: it stayed beside the host's copy for the whole movie; the next call fills it again).
+int32_t EventRowsOut(IscWorld* w, double* out, int32_t cap)
+{
+   std::vector<isc::WorldEvent>& e = w->events;
+   if (e.size() > (size_t)INT32_MAX) return -1;
+   for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
+   const int32_t n = (int32_t)e.size();
+   if (e.capacity() * sizeof(isc::WorldEvent) > (32u << 20)) std::vector<isc::WorldEvent>().swap(e);
+   return n;
+}
+} // namespace
+
 int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                              double zMin, double zMax, double t0, double t1, double* out, int32_t cap)
 {
@@ -439,9 +453,7 @@ int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, doubl
       std::vector<isc::WorldEvent>& e = w->events;
       e.clear();
       w->w.EventsInWindow(x0, y0, x1, y1, zMin, zMax, t0, t1, e);
-      if (e.size() > (size_t)INT32_MAX) return -1;
-      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
-      return (int32_t)e.size();
+      return EventRowsOut(w, out, cap);
    } catch (...) {
       return -1;
    }
@@ -455,9 +467,7 @@ int32_t isc_continuous_in_window(IscWorld* w, double x0, double y0, double x1, d
       std::vector<isc::WorldEvent>& e = w->events;
       e.clear();
       w->w.ContinuousInWindow(x0, y0, x1, y1, zMin, zMax, tMin, e);
-      if (e.size() > (size_t)INT32_MAX) return -1;
-      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
-      return (int32_t)e.size();
+      return EventRowsOut(w, out, cap);
    } catch (...) {
       return -1;
    }
@@ -496,9 +506,7 @@ int32_t isc_events_in_map(IscWorld* w, double x0, double y0, double x1, double y
       std::vector<isc::WorldEvent>& e = w->events;
       e.clear();
       w->w.EventsInMap(x0, y0, x1, y1, zMin, zMax, t0, t1, e);
-      if (e.size() > (size_t)INT32_MAX) return -1;
-      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
-      return (int32_t)e.size();
+      return EventRowsOut(w, out, cap);
    } catch (...) {
       return -1;
    }

@@ -149,6 +149,11 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   everything over the field the sensor's; sides up to 16384 px; `ScopeStripRows` from the memory budget; cli
   `--strip-rows`; module `isc_movie_strips` / `isc_movie_plan` / `Module.onMovieRows`): blinks, beads, slide, SIM,
   drift bit for bit with the whole movie, WideField / BrightField within rounding (ctest `strips`, `strips_unit.mjs`).
+  The strip height counts the movie's blinks (`EstimateScopeMemory(..., movieEvents)`, one pass with the dye count over
+  the sample windows, the density kept across the heights tried: the viewer's 1600 px plan ~100 -> ~20 s); the dye cache
+  is emptied between strips (`SampleSource::TrimDyeCache`) and a movie keeps one copy of its blinks (a 1600 px
+  1000-frame Record ran out of the 4 GB heap at a quarter). The least height (max(64, 4 margins)) is a floor: a movie
+  whose blinks do not fit even there can still run out.
   C: the Record box's field `lv_recW` x `lv_recH` (empty = live; `recField`, `recFieldSpec`: the Record's spec `size` /
   `height`, centred on the stage; the user's choice: the beam scales with the field, said in `#lv_recFieldNote` before
   Start; the world view's outline `self.ISC_REC_FIELD` in `drawPlannedFov`); a Record needing strips stays off the WebGPU

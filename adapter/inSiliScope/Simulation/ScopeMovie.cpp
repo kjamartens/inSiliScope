@@ -3698,7 +3698,8 @@ struct FluorescenceMovie::Impl
    MovieCache& cache;
    std::unique_lock<std::mutex> lock;
    std::vector<Group> groups;
-   std::vector<BlinkEvent> events;                    // blinks of structures with a main group
+   size_t eventCount = 0;                             // blinks of structures with a main group (2026-11-20: their
+                                                      // list was a second copy of byGroup's, ~90 bytes a blink)
    std::vector<std::vector<BlinkEvent>> byGroup;
    std::vector<std::vector<std::vector<uint32_t>>> buckets;
    std::vector<Population> pops;
@@ -5738,12 +5739,14 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    std::vector<BlinkEvent> all;
    // The blinks under a clock map (JS mapEvents): every dye on its own clock (isc_events_in_map; a dye the light does
    // not reach emits nothing), each event's photons x its factor under a shaped beam. Without one: at start-sec.
+   // (the kept ones moved down in place: a long movie's blinks are its largest list, 2026-11-20)
    auto mapEvents = [&]() -> bool {
       std::vector<BlinkEvent> got;
       const bool ok = source.SetClockMap(&m.map->buffer) && source.EventsInMap(S.q, got);
       source.SetClockMap(nullptr);
       if (!ok)
          return false;
+      size_t kept = 0;
       for (BlinkEvent& e : got)
       {
          const int gi = groupOf(e.structure, false);
@@ -5751,8 +5754,13 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             continue;
          if (m.shaped)
             e.excite = m.ExciteAt(m.groups[static_cast<size_t>(gi)].shares, e.xUm, e.yUm, e.zNm);
-         all.push_back(e);
+         got[kept++] = e;
       }
+      got.resize(kept);
+      if (all.empty())
+         all.swap(got);
+      else
+         all.insert(all.end(), got.begin(), got.end());
       return true;
    };
    auto queryEvents = [&]() { return m.map ? mapEvents() : source.Events(S.q, all); };
@@ -5772,6 +5780,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
 #endif
    TimingLog("fl.psf-kernels", psfSec, std::to_string(m.groups.size()).c_str());
    TimingLog("fl.events-query", eventsSec);
+   source.ReleaseBuffersOver(32u << 20);   // (a long movie's query rows: not kept beside its blinks)
    if (!psfOk)
    {
       err = psfErr;
@@ -5961,22 +5970,23 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       if (!g.pre && binnedPossible)
          g.binned.Setup(g.blinkKernel.valid ? &g.blinkKernel : nullptr, g.sigmaPx, S.W, S.H, S.blinkBinnedUpscale);
    tPhase = TimingClock::now();
-   m.events.clear();
+   m.eventCount = 0;
    for (const BlinkEvent& e : all)
       if (groupOf(e.structure, false) >= 0)
-         m.events.push_back(e);
-   std::vector<BlinkEvent>().swap(all);
+         ++m.eventCount;
    m.byGroup.assign(m.groups.size(), {});
    m.buckets.assign(m.groups.size(), {});
    for (size_t gi = 0; gi < m.groups.size(); ++gi)
    {
+      // (a main group's structure has a group: the blinks kept above, in their order)
       if (!m.groups[gi].pre)
-         for (const BlinkEvent& e : m.events)
-            if (e.structure == m.groups[gi].structure)
+         for (const BlinkEvent& e : all)
+            if (e.structure == m.groups[gi].structure && groupOf(e.structure, false) >= 0)
                m.byGroup[gi].push_back(e);
       m.buckets[gi] = BucketEventsByFrame(m.byGroup[gi], S.N);
    }
-   TimingLog("fl.events-sort", TimingSince(tPhase), std::to_string(m.events.size()).c_str());
+   std::vector<BlinkEvent>().swap(all);
+   TimingLog("fl.events-sort", TimingSince(tPhase), std::to_string(m.eventCount).c_str());
 
    // ---- continuous populations ----
    // Counted from the structure's dyes (every dye has the window from t = 0):
@@ -6617,7 +6627,7 @@ FluorescenceSimplePlan FluorescenceMovie::SimplePlan() const
       blinks += m.byGroup[gi].size();
       sp.groups.push_back(std::move(sg));
    }
-   if (sp.groups.empty() || blinks != m.events.size() || m.varies)
+   if (sp.groups.empty() || blinks != m.eventCount || m.varies)
       return FluorescenceSimplePlan();   // no blinks, blinks of another group (none should be), or a pattern per frame
    sp.ok = true;
    sp.backgroundPhotons = m.bg;
@@ -6668,7 +6678,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          info.patternStates.push_back(ps.light.phase);
          info.patternStates.push_back(ps.rotDeg);
       }
-   info.blinks = m.events.size();
+   info.blinks = m.eventCount;
    info.dyes = 0;
    for (const Population& p : m.pops)
       if (p.state != ISC_STATE_BLINK)
@@ -7956,9 +7966,14 @@ constexpr double kEstWidefieldCellBytes = 600;     // per mean-field grid cell o
 constexpr double kEstBrightfieldCellBytes = 220;   // per BrightField grid cell, plus 5 per condenser source
 constexpr double kEstSampleUm = 10;                // the dye count's sample windows: side, um
 constexpr int kEstSamplesPerAxis = 4;              // ... and how many along x and y
+// A movie's blink (2026-11-20, the viewer module's heap): the host's event (88 bytes) and its group's copy, the core's
+// schedule, the query rows (80 x 1.25) while they are read; on the high side.
+constexpr double kEstEventBytes = 300;
+constexpr double kEstEventSpanSec = 20;            // the blinks counted over at most this much of the movie, scaled
 } // namespace
 
-bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryEstimate& out, std::string& err)
+bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryEstimate& out, std::string& err,
+                         bool movieEvents)
 {
    out = ScopeMemoryEstimate();
    ScopeSetup S;
@@ -8010,9 +8025,10 @@ bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryE
    // the largest fields), and the check is to come before. It keeps only the sample windows' cells and dyes.
    static std::mutex estMutex;
    static SampleSource estSource;
-   // The last count's density, kept while the world, the labels and the field's size stay (a change of the exposure,
-   // the light or the camera, or a stage move, is checked again at no cost; the cell field is taken as uniform at the
-   // field's scale, as the sample windows take it).
+   // The last count's density, kept while the world and the labels stay, and the field's size while the field is
+   // counted whole (a change of the exposure, the light or the camera, a stage move, or a strip height tried by
+   // ScopeStripRows, is checked again at no cost; the cell field is taken as uniform at the field's scale, as the
+   // sample windows take it).
    struct DensityMemo
    {
       bool have = false;
@@ -8022,38 +8038,15 @@ bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryE
    };
    static DensityMemo memo;
    std::lock_guard<std::mutex> lock(estMutex);
-   const double wUm = x1 - x0, hUm = y1 - y0;
-   if (memo.have && memo.cf.SameWorld(S.cf) && memo.cf.SameLabels(S.cf) && memo.blinkMask == blinkMask &&
-       memo.contMask == contMask && memo.wUm == wUm && memo.hUm == hUm)
-   {
-      out.dyes = (memo.perUm2[0] + memo.perUm2[1]) * out.fieldUm2;
-      out.dyeBytes = out.fieldUm2 * (memo.perUm2[0] * kEstBlinkDyeBytes + memo.perUm2[1] * kEstContinuousDyeBytes);
-      return true;
-   }
-   if (!estSource.Configure(S.cf, err))
-      return false;
-   // The count over the whole rect when it is small, else over a grid of sample windows scaled to it (the core makes
-   // every dye of a window it counts: a whole 4096 px field would be the very cost the estimate is to avoid).
    const double inf = std::numeric_limits<double>::infinity();
    const double span = kEstSamplesPerAxis * kEstSampleUm;
-   const auto tCount = TimingClock::now();
-   double counted[2] = { 0, 0 }, sampledUm2 = 0;
-   auto count = [&](double a0, double b0, double a1, double b1) {
-      float one = 0;
-      const int masks[2] = { blinkMask, contMask };
-      for (int k = 0; k < 2; ++k)
-         if (masks[k])
-         {
-            const long n = estSource.Density3d(a0, b0, a1, b1, -inf, inf, 1, 1, 1, masks[k], &one);
-            if (n > 0)
-               counted[k] += static_cast<double>(n);
-         }
-      sampledUm2 += (a1 - a0) * (b1 - b0);
-   };
-   if ((x1 - x0) * (y1 - y0) <= span * span)
-      count(x0, y0, x1, y1);
-   else
-   {
+   const bool sampled = (x1 - x0) * (y1 - y0) > span * span;
+   const double wUm = sampled ? -1 : x1 - x0, hUm = sampled ? -1 : y1 - y0;
+   // The rect itself when it is small, else a grid of sample windows (the core makes every dye of a window it counts:
+   // a whole 4096 px field would be the very cost the estimate is to avoid); fn(a0, b0, a1, b1) on each.
+   auto samples = [&](const std::function<void(double, double, double, double)>& fn) {
+      if ((x1 - x0) * (y1 - y0) <= span * span)
+         return fn(x0, y0, x1, y1);
       const int nx = std::max(1, std::min(kEstSamplesPerAxis, static_cast<int>(std::ceil((x1 - x0) / kEstSampleUm))));
       const int ny = std::max(1, std::min(kEstSamplesPerAxis, static_cast<int>(std::ceil((y1 - y0) / kEstSampleUm))));
       const double sx = std::min(kEstSampleUm, (x1 - x0) / nx), sy = std::min(kEstSampleUm, (y1 - y0) / ny);
@@ -8061,21 +8054,81 @@ bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryE
          for (int i = 0; i < nx; ++i)
          {
             const double cx = x0 + (i + 0.5) * (x1 - x0) / nx, cy = y0 + (j + 0.5) * (y1 - y0) / ny;
-            count(cx - sx / 2, cy - sy / 2, cx + sx / 2, cy + sy / 2);
+            fn(cx - sx / 2, cy - sy / 2, cx + sx / 2, cy + sy / 2);
          }
+   };
+   // The movie's blinks (movieEvents): counted in the sample windows over its first kEstEventSpanSec at the uniform
+   // clock (no light map: the DNA-PAINT binding runs on the sample's time alone, and a beam lights the field's middle
+   // at most at its centre's rate), in the movie's z range, scaled to the field and the movie's length.
+   struct EventMemo
+   {
+      bool have = false;
+      SampleSettings cf;
+      int blinkMask = 0;
+      double wUm = 0, hUm = 0, t0 = 0, sampled = 0, zLo = 0, zHi = 0, perUm2 = 0;
+   };
+   static EventMemo em;
+   const bool wantEvents = movieEvents && blinkMask && S.N > 0 && S.q.frameSec > 0;
+   const double t0 = S.q.tSec, length = S.N * S.q.frameSec, evSpan = std::min(length, kEstEventSpanSec);
+   const double zLo = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm - S.q.zHalfRangeUm : -inf;
+   const double zHi = S.q.zHalfRangeUm > 0 ? S.q.zCullCentreUm + S.q.zHalfRangeUm : inf;
+   const bool needEvents =
+      wantEvents && !(em.have && em.cf.SameWorld(S.cf) && em.cf.SameLabels(S.cf) && em.blinkMask == blinkMask &&
+                      em.wUm == wUm && em.hUm == hUm && em.t0 == t0 && em.sampled == evSpan && em.zLo == zLo &&
+                      em.zHi == zHi);
+   const bool needDyes = !(memo.have && memo.cf.SameWorld(S.cf) && memo.cf.SameLabels(S.cf) &&
+                           memo.blinkMask == blinkMask && memo.contMask == contMask && memo.wUm == wUm && memo.hUm == hUm);
+   if (needDyes || needEvents)
+   {
+      if (!estSource.Configure(S.cf, err))
+         return false;
+      // One pass over the windows: a window's blinks are queried while its dyes are in the world's cache (a second
+      // pass made them again: the viewer's 1600 px plan took ~100 s).
+      const auto tCount = TimingClock::now();
+      double counted[2] = { 0, 0 }, events = 0, sampledUm2 = 0;
+      samples([&](double a0, double b0, double a1, double b1) {
+         float one = 0;
+         const int masks[2] = { blinkMask, contMask };
+         if (needDyes)
+            for (int k = 0; k < 2; ++k)
+               if (masks[k])
+               {
+                  const long n = estSource.Density3d(a0, b0, a1, b1, -inf, inf, 1, 1, 1, masks[k], &one);
+                  if (n > 0)
+                     counted[k] += static_cast<double>(n);
+               }
+         if (needEvents)
+         {
+            const int32_t k = isc_events_in_window(estSource.World(), a0, b0, a1, b1, zLo, zHi, t0, t0 + evSpan, nullptr, 0);
+            if (k > 0)
+               events += k;
+         }
+         sampledUm2 += (a1 - a0) * (b1 - b0);
+      });
+      TimingLog("mem.estimate-dyes", TimingSince(tCount));
+      // The sample windows' dyes let go (the render's world is another; a heap that never shrinks in the viewer).
+      estSource.TrimDyeCache(x0, y0);
+      if (needDyes)
+      {
+         memo.have = true;
+         memo.cf = S.cf;
+         memo.blinkMask = blinkMask;
+         memo.contMask = contMask;
+         memo.wUm = wUm;
+         memo.hUm = hUm;
+         for (int k = 0; k < 2; ++k)
+            memo.perUm2[k] = sampledUm2 > 0 ? counted[k] / sampledUm2 : 0.0;
+      }
+      if (needEvents)
+         em = EventMemo{ true, S.cf, blinkMask, wUm, hUm, t0, evSpan, zLo, zHi, sampledUm2 > 0 ? events / sampledUm2 : 0.0 };
    }
-   TimingLog("mem.estimate-dyes", TimingSince(tCount));
-   const double scale = sampledUm2 > 0 ? out.fieldUm2 / sampledUm2 : 0.0;
-   out.dyes = (counted[0] + counted[1]) * scale;
-   out.dyeBytes = counted[0] * scale * kEstBlinkDyeBytes + counted[1] * scale * kEstContinuousDyeBytes;
-   memo.have = true;
-   memo.cf = S.cf;
-   memo.blinkMask = blinkMask;
-   memo.contMask = contMask;
-   memo.wUm = wUm;
-   memo.hUm = hUm;
-   for (int k = 0; k < 2; ++k)
-      memo.perUm2[k] = sampledUm2 > 0 ? counted[k] / sampledUm2 : 0.0;
+   out.dyes = (memo.perUm2[0] + memo.perUm2[1]) * out.fieldUm2;
+   out.dyeBytes = out.fieldUm2 * (memo.perUm2[0] * kEstBlinkDyeBytes + memo.perUm2[1] * kEstContinuousDyeBytes);
+   if (wantEvents)
+   {
+      out.events = em.perUm2 * out.fieldUm2 * (length / evSpan);
+      out.eventBytes = out.events * kEstEventBytes;
+   }
    return true;
 }
 
@@ -8520,7 +8573,7 @@ unsigned ScopeStripRows(const ScopeSpec& spec, int framesInFlight, double budget
       w["window-rows"] = std::min(H, rows + 2 * m);
       ScopeMemoryEstimate est;
       std::string err;
-      if (!(budget > 0) || (EstimateScopeMemory(w, framesInFlight, est, err) && est.Total() <= budget))
+      if (!(budget > 0) || (EstimateScopeMemory(w, framesInFlight, est, err, true) && est.Total() <= budget))
          return rows;
    }
 }
@@ -8603,6 +8656,15 @@ bool RenderScopeMovieStrips(const ScopeSpec& spec, unsigned stripRows, const Sco
          info = si;
       else
          info.blinks += si.blinks;
+      // The world's dye cache emptied before the next strip (2026-11-20): it kept this strip's dyes while the next
+      // one's were made (the viewer's heap 2.0 -> 2.8 -> 3.0 GB over the first strips at 1600 px, then out of memory in a
+      // 1000-frame Record). The margin rows' blocks are made again.
+      if (ok && !stopped && s + 1 < strips)
+      {
+         MovieCache& cache = SharedMovieCache();
+         std::lock_guard<std::mutex> lock(cache.mutex);
+         cache.source.TrimDyeCache(ScopeSpecGet(spec, "x"), ScopeSpecGet(spec, "y"));
+      }
    }
    if (gt)
    {

@@ -189,6 +189,15 @@ public:
 
    // Lets the query rows' buffer go (it keeps the largest query's size: the ground truth's dye list frees it).
    void ReleaseBuffers() { std::vector<double>().swap(buf_); }
+   // ... when it holds more than `bytes` (a movie's blinks: a live frame's small buffer stays, 2026-11-20).
+   void ReleaseBuffersOver(size_t bytes)
+   {
+      if (buf_.capacity() * sizeof(double) > bytes)
+         ReleaseBuffers();
+   }
+   // Lets every dye block go but those near (xUm, yUm) (a movie in strips between its strips, 2026-11-20: the last
+   // strip's dyes stayed cached while the next one's were made, ~1 GB more heap in the viewer at 1600 px).
+   void TrimDyeCache(double xUm, double yUm);
 
 private:
    IscWorld* world_ = nullptr;
