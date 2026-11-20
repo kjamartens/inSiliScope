@@ -256,6 +256,16 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
          sim::ScopeSensorDims(sensor, w, h);
          stripRows = g_stripRows > 0 ? std::min(static_cast<unsigned>(g_stripRows), h) : sim::ScopeStripRows(s, StripFramesInFlight(n));
       }
+      else
+      {
+         // (a side past 4096 px is never cut to 4096 without a word: it renders in strips, which need isc_movie_strips)
+         sim::ScopeSpec sensor = s;
+         sensor["window-rows"] = 1;
+         unsigned sw = 0, sh = 0;
+         sim::ScopeSensorDims(sensor, sw, sh);
+         if (sim::ScopeSpecGet(s, "window-rows") <= 0 && (sw > w || sh > h))
+            return fail("a field past 4096 px renders in strips (the viewer: frames written to the disk storage)");
+      }
       const double need = static_cast<double>(w) * h * n;
       if (need > 2.0e9 && !stream) return fail("movie too large");
       if (info) { info[0] = (int32_t)w; info[1] = (int32_t)h; info[2] = (int32_t)n; info[3] = info[4] = info[5] = 0; }
@@ -379,6 +389,17 @@ ISC_API int32_t isc_wf_begin(const char* spec, char* errOut, int32_t errCap)
       std::unique_ptr<WfSession> w(new WfSession);
       std::string err;
       if (!spec || !sim::ParseScopeSpec(spec, w->spec, err)) return Fail(errOut, errCap, err.empty() ? "no spec" : err);
+      {
+         // (a side past 4096 px renders in strips, on the CPU: isc_scope_movie with isc_movie_strips; never cut here)
+         sim::ScopeSpec sensor = w->spec;
+         sensor["window-rows"] = 1;
+         unsigned sw = 0, sh = 0, mw = 0, mh = 0;
+         long n = 0;
+         sim::ScopeSensorDims(sensor, sw, sh);
+         sim::ScopeMovieDims(w->spec, mw, mh, n);
+         if (sim::ScopeSpecGet(w->spec, "window-rows") <= 0 && (sw > mw || sh > mh))
+            return Fail(errOut, errCap, "a field past 4096 px renders in strips (isc_scope_movie with isc_movie_strips)");
+      }
       if (!w->movie.Begin(w->spec, true, err)) return Fail(errOut, errCap, err);
       const int32_t h = g_wfNext++;
       g_wf[h] = std::move(w);

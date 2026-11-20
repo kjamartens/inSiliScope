@@ -962,10 +962,10 @@ const DISK = L.disk = (() => {
 DISK.sweep();
 // the fresh sample's time at its first frame (the movie's start-sec; 0 = the light comes on): not the Start time
 // setting, which live keeps; hidden with "continue the live sample", which runs on from the live sample's time
-const syncRecT = () => { $('lv_recTRow').hidden = $('lv_recLive').checked; };
+const syncRecT = (init) => { $('lv_recTRow').hidden = $('lv_recFieldRow').hidden = $('lv_recLive').checked; if (!init) syncRecField(); };
 $('lv_recLive').checked = store.get('recLive', '0') === '1';
 $('lv_recLive').addEventListener('change', () => { store.set('recLive', $('lv_recLive').checked ? '1' : '0'); syncRecT(); });
-syncRecT();
+syncRecT(true);
 $('lv_recN').value = store.get('recN', '100');
 $('lv_recN').addEventListener('change', () => store.set('recN', $('lv_recN').value));
 $('lv_recT').value = store.get('recT', '0');
@@ -974,6 +974,50 @@ $('lv_recDisk').addEventListener('change', () => store.set('recDisk', $('lv_recD
 $('lv_recDiskRow').hidden = !DISK.ok;
 $('lv_recT').addEventListener('change', () => store.set('recT', $('lv_recT').value));
 const recStartSec = () => Math.max(0, +$('lv_recT').value || 0);
+// The Record's field (2026-11-20, docs/dev/LARGE_RECORDS.md part C): W x H px centred on the stage, empty = the live
+// field (mv_size); a fresh sample only (a sample continued keeps the live field). Up to 16384 px a side: past 4096 px,
+// or past the module's memory, the engine renders it in strips of rows (frames on the disk storage only). The beam
+// scales with the field (the user's choice): illum-fwhm stays a share of the field's longer side, which the box says
+// before Start (lv_recFieldNote). While the box is open the world view outlines the field (self.ISC_REC_FIELD).
+const REC_MAX_SIDE = 16384, REC_WHOLE_SIDE = 4096, VIEW_MAX = 2048;
+function recField() {
+  const live = Math.max(1, +($('mv_size') || {}).value || 128);
+  const side = v => { const n = Math.round(+v); return Number.isFinite(n) && n > 0 ? Math.min(REC_MAX_SIDE, Math.max(8, n)) : 0; };
+  const w = side($('lv_recW').value) || live, h = side($('lv_recH').value) || w;
+  return { w, h, live, larger: !$('lv_recLive').checked && (w !== live || h !== live) };
+}
+function syncRecField() {
+  const f = recField(), note = $('lv_recFieldNote'), open = !$('lv_recPop').hidden;
+  $('lv_recW').placeholder = $('lv_recH').placeholder = String(f.live);
+  self.ISC_REC_FIELD = open && f.larger ? { w: f.w, h: f.h } : null;
+  if (typeof requestDraw === 'function') requestDraw();
+  note.hidden = !f.larger;
+  if (!f.larger) return;
+  const pxUm = (+($('mv_pixel-nm') || {}).value || 100) / 1000, fwhm = +(($('mv_illum-fwhm') || {}).value) || 100;
+  const prof = $('mv_illum-profile'), uniform = prof && prof.selectedOptions[0] && /uniform/i.test(prof.selectedOptions[0].textContent);
+  const um = n => (n * pxUm).toFixed(n * pxUm < 100 ? 1 : 0);
+  const gb = f.w * f.h * 2 * Math.max(1, +$('lv_recN').value || 1) / 1e9;
+  const disk = DISK.ok && $('lv_recDisk').checked, strips = Math.max(f.w, f.h) > REC_WHOLE_SIDE;
+  note.textContent = '';
+  const b = document.createElement('b');
+  b.textContent = `Field ${f.w} × ${f.h} px (${um(f.w)} × ${um(f.h)} µm), centred on the stage. `;
+  note.append(b, uniform
+    ? 'The illumination covers the whole recorded field (beam profile Uniform). '
+    : `The beam scales with the field: its width stays ${fwhm} % of the field (Beam FWHM), so this Record's beam is ` +
+      `${um(Math.max(f.w, f.h) * fwhm / 100)} µm wide instead of the live view's ${um(f.live * fwhm / 100)} µm. `,
+    `${gb < 0.1 ? gb.toFixed(3) : gb.toFixed(1)} GB of frames.` +
+    (strips ? (disk ? ' Past 4096 px it renders in strips of rows (all frames of one strip, then the next).'
+                    : ' Past 4096 px it needs "write frames to disk" (it renders in strips).') : '') +
+    (f.w * f.h > 4096 * 4096 ? ` The player shows its centre ${Math.min(f.w, VIEW_MAX)} × ${Math.min(f.h, VIEW_MAX)} px.` : '') +
+    ' Large fields are slow: every dye of the field is made.');
+}
+for (const id of ['lv_recW', 'lv_recH']) {
+  $(id).value = store.get(id === 'lv_recW' ? 'recW' : 'recH', '');
+  $(id).addEventListener('input', syncRecField);
+  $(id).addEventListener('change', () => store.set(id === 'lv_recW' ? 'recW' : 'recH', $(id).value));
+}
+for (const id of ['lv_recN', 'lv_recDisk']) $(id).addEventListener('input', syncRecField);
+syncRecField();
 // A recording's frames as the parts they came in (each whole frames, in order): no one buffer of the whole movie.
 function frameStore() {
   const parts = [];   // { first, n, data }
@@ -1004,14 +1048,27 @@ function frameStore() {
   };
 }
 // A recording's frames in its file on the disk storage (a File: read back by slices): frame(i) is a promise; the
-// last few frames read are kept for the player.
-function diskStore(file, px, n) {
-  const cache = new Map();
+// last few frames read are kept for the player. A frame past 4096 x 4096 px (a large Record field) is shown as its
+// centre, at most VIEW_MAX px a side (vw x vh: its rows read as one slice, the columns taken from them); the file and
+// Save keep every pixel (VIEW_MAX, above).
+function diskStore(file, w, h, n) {
+  const cache = new Map(), px = w * h, big = px > 4096 * 4096;
+  const vw = big ? Math.min(w, VIEW_MAX) : w, vh = big ? Math.min(h, VIEW_MAX) : h;
+  const x0 = (w - vw) >> 1, y0 = (h - vh) >> 1;
+  const read = i => {
+    if (!big) return file.slice(i * px * 2, (i + 1) * px * 2).arrayBuffer().then(b => new Uint16Array(b));
+    const at = (i * px + y0 * w) * 2;
+    return file.slice(at, at + vh * w * 2).arrayBuffer().then(b => {
+      const rows = new Uint16Array(b), out = new Uint16Array(vw * vh);
+      for (let y = 0; y < vh; y++) out.set(rows.subarray(y * w + x0, y * w + x0 + vw), y * vw);
+      return out;
+    });
+  };
   return {
-    disk: true, file, n,
+    disk: true, file, n, vw, vh, cropped: big,
     frame(i) {
       if (!cache.has(i)) {
-        cache.set(i, file.slice(i * px * 2, (i + 1) * px * 2).arrayBuffer().then(b => new Uint16Array(b)));
+        cache.set(i, read(i));
         if (cache.size > 8) cache.delete(cache.keys().next().value);
       }
       return cache.get(i);
@@ -1030,10 +1087,17 @@ async function startRec() {
   }
   if (REC.on) { REC.stop = true; return; }
   if (REC.starting) return;
-  const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), side = Math.max(1, +$('mv_size').value || 128);
-  const bytes = n * side * (+($('mv_height') || {}).value || side) * 2, gb = bytes / 1e9;
+  const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), field = recField();
+  const fw = $('lv_recLive').checked ? field.live : field.w, fh = $('lv_recLive').checked ? field.live : field.h;
+  const bytes = n * fw * fh * 2, gb = bytes / 1e9;
   // the frames to the disk storage: room for them (the saved .tif or .zip is a Blob of the same file)
   let disk = DISK.ok && $('lv_recDisk').checked ? { dir: DISK.newDir() } : null;
+  if (!disk && Math.max(fw, fh) > REC_WHOLE_SIDE) {
+    REC.msg = `not recorded: a field past ${REC_WHOLE_SIDE} px renders in strips, which write to the disk storage ` +
+      '(tick "write frames to disk"' + (DISK.ok ? ')' : '; this browser offers no disk storage to this page)');
+    showInfo();
+    return;
+  }
   if (disk) {
     REC.starting = true;
     try {
@@ -1050,13 +1114,14 @@ async function startRec() {
   }
   closePlayer();
   Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n, got: 0, store: null, disk, diskFrames: 0,
+    field: $('lv_recLive').checked || !field.larger ? null : { size: fw, height: fh },
     exp: exposureSec(), t0: performance.now(), engineMs: 0,
     msg: gb > 2 ? `${gb.toFixed(1)} GB of frames, ` + (disk ? 'written to this browser\'s disk storage' : 'held in this tab\'s memory') +
       (gb > 4 ? ' (saved as a BigTIFF)' : '') : '',
     log: null, chunks: [], pxUm: (+$('mv_pixel-nm').value || 100) / 1000 });
   // the settings as the Record begins (its file: web/live/settings_file.js recordFile)
   // (before the engine's option list has come, its values would be empty: the spec kept, the values made at the end)
-  const over = REC.live ? { frames: REC.n } : { frames: REC.n, 'start-sec': recStartSec() };
+  const over = REC.live ? { frames: REC.n } : { frames: REC.n, 'start-sec': recStartSec(), ...recFieldSpec() };
   REC.nowArgs = [over, movieSpec(over)];
   REC.now = self.iscSettings && self.ISC_ENGINE_OPTIONS ? self.iscSettings.current(...REC.nowArgs) : null;
   // A fresh sample's settings file is known now (a sample continued is known at its end); kept for the player.
@@ -1075,17 +1140,19 @@ async function startRec() {
 async function recGtEarly() {
   const o = saveOpts(), file = REC.file;
   if (!o.gt || !file) return;
-  const kind = await gtKind(movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }));
+  const kind = await gtKind(movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1, ...recFieldSpec() }));
   if (REC.file !== file || !REC.on) return;
   const min = Math.max(0, +o.minCore || 0), dyeCsv = kind === 'wf' && !!o.dyes;
   gtRun(JSON.stringify(file, null, 1), min, dyeCsv, { min, vol: GT_VOL, dyeCsv }, REC.disk && REC.disk.dir);
 }
+// The Record's field in the spec (none: the live field's size, no height)
+const recFieldSpec = () => REC.field ? { size: REC.field.size, height: REC.field.height } : {};
 function recMovie() {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; REC.on = false; syncButtons(); showInfo(); return; }
   REC.store = REC.disk ? null : frameStore();   // (on disk: made at the end; parts only if the storage failed)
-  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }), fresh: true,
-    stream: true, t0: performance.now() };
+  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1, ...recFieldSpec() }),
+    fresh: true, stream: true, t0: performance.now() };
   if (REC.disk) job.disk = { path: DISK.path(REC.disk.dir, 'frames.raw') };
   L.pending = job;
   w.postMessage(job);
@@ -1117,7 +1184,7 @@ function onRecMovie(d, job) {
   L.err = '';
   L.ms = n ? (performance.now() - REC.t0) / n : 0;
   L.frames++;
-  if (n) draw({ ...d, frames: d.disk ? d.last : REC.store.frame(n - 1).slice() });
+  if (n && (!d.disk || d.last)) draw({ ...d, frames: d.disk ? d.last : REC.store.frame(n - 1).slice() });
   finishRec();
 }
 function recNext() {
@@ -1156,12 +1223,14 @@ async function finishRec() {
   const n = REC.got, s = (performance.now() - REC.t0) / 1000;
   REC.on = false;
   if (n && REC.disk && REC.diskFrames) {
-    try { REC.store = diskStore(await DISK.file(REC.disk.dir, 'frames.raw'), REC.w * REC.h, Math.min(n, REC.diskFrames)); }
+    try { REC.store = diskStore(await DISK.file(REC.disk.dir, 'frames.raw'), REC.w, REC.h, Math.min(n, REC.diskFrames)); }
     catch (e) { REC.store = null; REC.msg = `the recording's frames could not be read back: ${e.message || e}`; }
   }
   if (n && REC.store) {
     REC.msg = `recorded ${n} frames in ${s.toFixed(1)} s, ${(n / s).toFixed(1)} frames/s` +
-      (REC.got < REC.n ? ` (stopped at ${n} of ${REC.n})` : '') + (REC.msg ? ' · ' + REC.msg : '');
+      (REC.got < REC.n ? ` (stopped at ${n} of ${REC.n})` : '') +
+      (REC.store.cropped ? ` · ${REC.w} × ${REC.h} px: the centre ${REC.store.vw} × ${REC.store.vh} shown, Save writes all of it` : '') +
+      (REC.msg ? ' · ' + REC.msg : '');
     openPlayer(n);
   }
   else gtStop();   // (no recording: a ground truth's run begun with it let go)
@@ -1200,8 +1269,9 @@ function openPlayer(n) {
 function showPlayFrame(i) {
   PLAY.i = i;
   const f = PLAY.store.frame(i), store = PLAY.store;
-  if (f && f.then) f.then(a => { if (PLAY.on && PLAY.store === store && PLAY.i === i) draw({ w: PLAY.w, h: PLAY.h, spec: PLAY.spec, frames: a }); }).catch(() => {});
-  else draw({ w: PLAY.w, h: PLAY.h, spec: PLAY.spec, frames: f });
+  const w = store.vw || PLAY.w, h = store.vh || PLAY.h;   // (a large field: its centre)
+  if (f && f.then) f.then(a => { if (PLAY.on && PLAY.store === store && PLAY.i === i) draw({ w, h, spec: PLAY.spec, frames: a }); }).catch(() => {});
+  else draw({ w, h, spec: PLAY.spec, frames: f });
   $('lv_playPos').value = i;
   $('lv_playN').textContent = `${i + 1}/${PLAY.n}`;
 }
@@ -1404,12 +1474,13 @@ $('lv_playSave').addEventListener('click', openSave);
 // its Start (or Enter) records. While recording, ● Record stops.
 const recPop = (open) => {
   $('lv_recPop').hidden = !open;
+  syncRecField();
   if (open) { $('lv_recN').focus(); $('lv_recN').select(); }
 };
 $('lv_rec').addEventListener('click', () => { if (REC.on) startRec(); else recPop($('lv_recPop').hidden); });
 $('lv_recGo').addEventListener('click', () => { recPop(false); startRec(); });
 $('lv_recPop').addEventListener('keydown', ev => {
-  if (ev.key === 'Enter') { ev.preventDefault(); for (const id of ['lv_recN', 'lv_recT']) $(id).dispatchEvent(new Event('change')); recPop(false); startRec(); }
+  if (ev.key === 'Enter') { ev.preventDefault(); for (const id of ['lv_recN', 'lv_recT', 'lv_recW', 'lv_recH']) $(id).dispatchEvent(new Event('change')); recPop(false); startRec(); }
   else if (ev.key === 'Escape') { ev.preventDefault(); recPop(false); $('lv_rec').focus(); }
 });
 document.addEventListener('pointerdown', ev => {

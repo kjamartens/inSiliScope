@@ -62,6 +62,12 @@ function current(over, specText) {
     sample: { userDyes: [1, 2, 3].filter(n => USER_DYES.added[n - 1]).map(n => ({ slot: n, name: $('ud' + n + '-name').value, mode: +$('ud' + n + '-mode').value })) },
     measurement: { recordFrames: +$('lv_recN').value || 100, recordStartSec: Math.max(0, +$('lv_recT').value || 0) },
   };
+  // A Record's own field (web/live/live.js recFieldSpec; its size and height are the settings' size / height, so the
+  // cli renders it): the live field kept beside it, which a load gives the live view back (the Record box the field).
+  if (over && over.size !== undefined) {
+    viewer.measurement.recordField = { w: +over.size, h: +(over.height || over.size) };
+    viewer.measurement.liveSize = +$('mv_size').value || 128;
+  }
   return { values, viewer };
 }
 const historyOut = () => C.historyOut(ENG(), L.log, L.t);
@@ -229,14 +235,26 @@ async function applyFile(file, parts) {
     if (iv && iv.emissionMag) setControl($('emissionMag'), +iv.emissionMag, note);
     // the BFP maps' images before the text that names them
     for (const p of want) for (const [n, b] of C.filesIn(file.parts[p])) if (self.iscSendBfpFile) self.iscSendBfpFile(n, b);
+    // A Record with a field of its own (recordField): its size and height go into the Record box, the live field is
+    // the one kept beside them (the live view is square: a height is only ever a Record's).
+    const mv = want.includes('measurement') && file.parts.measurement.viewer;
+    const rf = mv && mv.recordField && +mv.recordField.w > 0 ? mv.recordField : null;
     // twice: a handler the first pass fires may move a value set before it
     for (let pass = 0; pass < 2; pass++)
       for (const p of want) {
         if (p === 'view') continue;
         const keys = Object.keys(file.parts[p].values || {}).sort((a, b) => rank(a) - rank(b));
-        for (const k of keys) setKey(k, file.parts[p].values[k], pass ? null : note);
+        for (const k of keys) {
+          if (k === 'height' || (rf && k === 'size')) continue;
+          setKey(k, file.parts[p].values[k], pass ? null : note);
+        }
       }
-    const mv = want.includes('measurement') && file.parts.measurement.viewer;
+    if (rf) {
+      if (want.includes('settings') && +mv.liveSize > 0) setControl($('mv_size'), +mv.liveSize, note);
+      for (const [id, v] of [['lv_recW', rf.w], ['lv_recH', rf.h]]) { $(id).value = v; fire($(id)); }
+    }
+    else if (want.includes('settings') && +(file.parts.settings.values || {}).height > 0 && note)
+      note('height: the live field is square (a field of its own: the Record box)');
     if (mv && mv.recordFrames) { $('lv_recN').value = mv.recordFrames; fire($('lv_recN')); }
     if (mv && mv.recordStartSec !== undefined) { $('lv_recT').value = mv.recordStartSec; fire($('lv_recT')); }
     if (want.includes('view')) applyView(file.parts.view.values, note);

@@ -322,6 +322,54 @@ try {
     `fresh: with "write frames to disk" off (in memory) the same ${(framesOf(mem).length / 1e6).toFixed(2)} MB of frames byte for byte`);
   await setDisk(true);
 
+  // A Record field larger than live (2026-11-20, docs/dev/LARGE_RECORDS.md part C): the box says the beam scales with
+  // the field before Start and the world view outlines it; the recording has the size asked, centred on the stage
+  // (its centre's blinks = the live-size recording's: their temporal variance images correlate, a crop 8 px off not).
+  const setField = (w, h) => page.evaluate(([w, h]) => {
+    for (const [id, v] of [['lv_recW', w], ['lv_recH', h]]) {
+      const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('change'));
+    }
+  }, [w, h]);
+  await setField(256, 192);
+  const box = await page.evaluate(() => {
+    document.getElementById('lv_rec').click();
+    const n = document.getElementById('lv_recFieldNote'), o = { open: self.ISC_REC_FIELD, hidden: n.hidden, text: n.textContent };
+    document.getElementById('lv_rec').click();
+    return { ...o, shut: self.ISC_REC_FIELD };
+  });
+  check(!box.hidden && /256 × 192 px/.test(box.text) && /beam scales with the field/.test(box.text) && /centred on the stage/.test(box.text) &&
+    box.open && box.open.w === 256 && box.open.h === 192 && box.shut === null,
+    `field: the box says the field and that the beam scales with it before Start ("${box.text.slice(0, 120)}..."), the world view outlines it while open`);
+  const big = await record();
+  const bd = big.pages[0] || {}, bspec = (/insiliscope\.spec=(.*)/.exec(bd.desc || '') || [])[1] || '', fspec = (/insiliscope\.spec=(.*)/.exec(df.desc || '') || [])[1] || '';
+  const xy = s => [(/(^| )x=(\S+)/.exec(s) || [])[2], (/(^| )y=(\S+)/.exec(s) || [])[2]].join(',');
+  check(big.pages.length === 20 && big.pages.every(p => p.w === 256 && p.h === 192) && / size=256( |$)/.test(bspec) && / height=192( |$)/.test(bspec) &&
+    xy(bspec) === xy(fspec) && /insiliscope_live_256x192x20\.tif/.test(big.dl.suggestedFilename()),
+    `field: ${big.dl.suggestedFilename()}: 20 pages of 256 × 192 at the stage (${xy(bspec)})`);
+  const varImg = (r, w, h, x0, y0, n) => {   // each pixel's variance over the 20 frames (the blinks; noise is flat)
+    const m = new Float64Array(n * n), q = new Float64Array(n * n);
+    for (let k = 0; k < 20; k++) {
+      const f = new Uint16Array(r.buf.buffer.slice(r.buf.byteOffset + r.pages[k].data, r.buf.byteOffset + r.pages[k].data + w * h * 2));
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const v = f[(y0 + y) * w + x0 + x]; m[y * n + x] += v; q[y * n + x] += v * v; }
+    }
+    return m.map((s, i) => q[i] / 20 - (s / 20) ** 2);
+  };
+  const corr = (a, b) => {
+    const ma = a.reduce((s, v) => s + v, 0) / a.length, mb = b.reduce((s, v) => s + v, 0) / b.length;
+    let sab = 0, saa = 0, sbb = 0;
+    for (let i = 0; i < a.length; i++) { sab += (a[i] - ma) * (b[i] - mb); saa += (a[i] - ma) ** 2; sbb += (b[i] - mb) ** 2; }
+    return sab / Math.sqrt(saa * sbb);
+  };
+  const ref = varImg(fresh, 128, 128, 8, 8, 112);
+  const cIn = corr(varImg(big, 256, 192, 64 + 8, 32 + 8, 112), ref), cOff = corr(varImg(big, 256, 192, 64 + 16, 32 + 8, 112), ref);
+  check(cIn > 0.5 && cIn > cOff + 0.3, `field: centred on the stage: its centre's blinks (variance over the frames) correlate ${cIn.toFixed(3)} with the live-size recording's (8 px off: ${cOff.toFixed(3)})`);
+  // past 4096 px a side: rendered in strips (the module refuses it whole), the rows written into the frames file
+  await setField(4104, 24);
+  const wide = await record();
+  check(wide.pages.length === 20 && wide.pages.every(p => p.w === 4104 && p.h === 24) && await onDisk(),
+    `field past 4096 px: ${wide.pages.length} pages of ${(wide.pages[0] || {}).w} × ${(wide.pages[0] || {}).h}, rendered in strips onto the disk storage (${wide.recSec.toFixed(1)} s; ${((/insiliscope\.spec=(.*)/.exec((wide.pages[0] || {}).desc || '') || [])[1] || '').match(/(^| )(size|height)=\S+/g)})`);
+  await setField('', '');
+
   // "continue the live sample": the frames go on from the live sample
   await page.evaluate(() => { const c = document.getElementById('lv_recLive'); c.checked = true; c.dispatchEvent(new Event('change')); });
   const t2 = await page.evaluate(() => liveState.t);

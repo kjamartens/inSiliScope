@@ -1552,3 +1552,9 @@ branch).
   and `strips=`; `TiffWriter::PageRows` / `Rows`. Module `isc_movie_strips`, `isc_movie_plan`, `Module.onMovieRows`;
   `isc_scope_gt_run` in strips when the movie needs them. Checks: ctest `strips` (~9 s), `tiff_writer` (strips = whole,
   byte for byte), `tests/web/strips_unit.mjs` (the module, 6 s, CI `viewer-js`).
+- **C. A Record field of its own:** the Record box's field W x H px (empty = live), centred on the stage, up to 16384 px
+  (past 4096 px only with the frames on disk: strips); the beam scales with the field (`illum-fwhm` a share of the
+  field, the user's choice), which the box says before Start; the world view outlines the field while the box is open;
+  a Record in strips takes the CPU path (`movieInStrips`), `isc_wf_begin` refuses a field past 4096 px; a frame past
+  4096^2 px plays as its centre; the settings file keeps the field (`size` / `height`, `recordField`, `liveSize`).
+  Checks: `viewer_live_record.mjs`, `viewer_save.mjs`.

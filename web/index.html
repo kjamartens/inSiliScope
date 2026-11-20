@@ -375,6 +375,9 @@ self.iscCoi = (() => {
   #lv_recPop[hidden]{display:none}
   #lv_recPop .recrow{display:flex;align-items:center;gap:4px;font-size:var(--font-size-caption);color:var(--color-text-muted)}
   #lv_recPop .recrow input[type=number]{width:72px}
+  #lv_recPop .recrow input.side{width:64px}
+  #lv_recPop .recnote{font-size:var(--font-size-caption);color:var(--color-text);border-left:2px solid var(--color-status-warn);padding-left:var(--space-2)}
+  #lv_recPop .recnote[hidden]{display:none}
   #lv_recPop .recrow[hidden]{display:none}
   #lv_recPop .recrow button{margin-left:auto;padding:3px 10px}
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
@@ -822,6 +825,8 @@ self.iscCoi = (() => {
       <div id="lv_acts"><button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button><button id="lv_snap" title="Snap: one frame">Snap</button><span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header), or with its settings file and ground truth as one .zip; asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
         <div id="lv_recPop" class="popover" hidden role="dialog" aria-label="Record">
           <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
+          <div class="recrow" id="lv_recFieldRow" title="The recorded field of view, width × height in camera pixels, centred on the stage; empty: the live field. Larger than live: a fresh sample over the whole field (past 4096 px, up to 16384, rendered in strips of rows on the disk storage); the illumination beam scales with it (Beam FWHM is a share of the field). Not used with &quot;continue the live sample&quot;, which keeps the live field."><span>field</span><input type="number" id="lv_recW" class="side" min="8" max="16384" step="8" aria-label="Recorded field width, pixels"><span class="u">×</span><input type="number" id="lv_recH" class="side" min="8" max="16384" step="8" aria-label="Recorded field height, pixels"><span class="u">px</span></div>
+          <div class="recnote" id="lv_recFieldNote" role="note" hidden></div>
           <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
           <div class="recrow" id="lv_recDiskRow"><label title="On (default): the frames (and the ground truth's files) are written to this browser's own disk storage as they are made, not held in the tab's memory, so a recording is bounded by the disk, not the memory; Save makes the .tif or .zip from that file. This tab's last recording stays there until the next Record; recordings of closed tabs are deleted. Off: the frames are kept in memory, as before."><input type="checkbox" id="lv_recDisk" checked> write frames to disk</label></div>
           <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
@@ -4505,6 +4510,15 @@ function iscEngine(M) {
       stopped: S.stopped || error || '', w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2],
       blinks: M.HEAP32[info / 4 + 3], dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, ...extra };
   }
+  // Whether a streamed movie on the disk storage renders in strips (isc_movie_plan, the rule of isc_movie_strips -1).
+  function movieInStrips(spec) {
+    if (!M._isc_movie_plan) return false;
+    const n = M.lengthBytesUTF8(spec) + 1, s = M._malloc(n), out = M._malloc(16);
+    M.stringToUTF8(spec, s, n);
+    const rc = M._isc_movie_plan(s, -1, out), p = M.HEAP32.slice(out / 4, out / 4 + 4);
+    M._free(s); M._free(out);
+    return rc === 0 && (p[2] < p[1] || p[0] > 4096 || p[1] > 4096);
+  }
   // ---- a Record's files on the browser's disk storage (OPFS, 2026-11-20; web/live/live.js REC.disk) ----
   // d.disk = { path: 'isc-rec/<recording>/<file>', first }: handle() opens the file (a sync access handle, workers only)
   // before the job runs (d.diskOpen) and the job closes it; a storage that cannot (none in this browser, a private
@@ -4753,8 +4767,11 @@ function iscEngine(M) {
       }
       // A fluorescence movie with WebGPU at hand: its mean-field populations (WideField labels, PALM pre states, the
       // dSTORM initial ON; issue 16) convolve on the GPU. A drifting sample's are shifted spectra, made on the CPU (WASM).
+      // A Record that renders in strips (on the disk storage: a side past 4096 px or the field past the module's
+      // memory) stays on the CPU path (isc_scope_movie, isc_movie_strips): the GPU's scenes are the whole field's.
       if (d.type === 'movie' && !d.prepare && !/(^| )modality=(1|BrightField)( |$)/.test(d.spec) && self.IscWfGpu &&
-          self.ISC_WF_WGSL && !d.noGpu && !/(^| )drift-(xy|z)-(nm-per-sqrt-sec|speed-nm-per-sec)=(?!0( |$))/.test(d.spec))
+          self.ISC_WF_WGSL && !d.noGpu && !/(^| )drift-(xy|z)-(nm-per-sqrt-sec|speed-nm-per-sec)=(?!0( |$))/.test(d.spec) &&
+          !(d.stream && d.diskOpen && movieInStrips(d.spec)))
         return wfGpuMovie(d, post);
       // ---- a BrightField movie split across the workers (spec/PORT.md 15) ----
       if (d.type === 'bf-begin') {
@@ -7569,6 +7586,25 @@ function drawPlannedFov() {
   ctx.save(); ctx.translate(a[0], a[1]); ctx.rotate(Math.atan2(b[1] - a[1], b[0] - a[0]));
   ctx.fillText(planning ? `next movie: ${n} × ${n} px` : 'camera', 2 * devicePixelRatio, -3 * devicePixelRatio);
   ctx.restore();
+  // The Record's field while its box is open and it is not the live field (web/live/live.js syncRecField), centred
+  // on the stage, with its size above its far edge.
+  const rf = self.ISC_REC_FIELD;
+  if (rf) {
+    const rw = rf.w * px, rh = rf.h * px, rx0 = view.cx - rw / 2 - half, ry0 = view.cy - rh / 2 - half;
+    const q = [[rx0, ry0], [rx0 + rw, ry0], [rx0 + rw, ry0 + rh], [rx0, ry0 + rh]].map(([x, y]) => project(x, y, 0));
+    const c = iscTheme.tok('--color-status-warn');
+    ctx.strokeStyle = c; ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.setLineDash([6 * devicePixelRatio, 4 * devicePixelRatio]);
+    ctx.beginPath(); q.forEach(([sx, sy], i) => (i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy))); ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+    let k = 0;
+    for (let i = 1; i < 4; i++) if (q[i][1] + q[(i + 1) % 4][1] < q[k][1] + q[(k + 1) % 4][1]) k = i;
+    let qa = q[k], qb = q[(k + 1) % 4];
+    if (qb[0] < qa[0]) [qa, qb] = [qb, qa];
+    ctx.fillStyle = c; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.save(); ctx.translate(qa[0], qa[1]); ctx.rotate(Math.atan2(qb[1] - qa[1], qb[0] - qa[0]));
+    ctx.fillText(`Record: ${rf.w} × ${rf.h} px`, 2 * devicePixelRatio, -3 * devicePixelRatio);
+    ctx.restore();
+  }
 }
 // Outline of the movie's FOV on the map (on the coverslip) while the player is open.
 function drawMovieFov() {

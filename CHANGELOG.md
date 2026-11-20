@@ -3,6 +3,21 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## Unreleased (changes since v0.1.0-rc23)
+
+Large recordings:
+
+- **Viewer Record, frames to disk:** "write frames to disk" (in the Record box, on by default) writes the frames and the
+  ground truth's files into the browser's own disk storage as they are made, so a recording is bounded by the disk
+  space the browser gives the page, not the tab's memory; Save makes the .tif or .zip from those files.
+- **Movies in strips:** a movie whose field does not fit in memory, or has a side past 4096 px (up to 16384), renders
+  in strips of rows (all frames of one strip, then the next). The frames are those of the field rendered whole (blinks,
+  beads and the camera noise to the last bit; WideField and BrightField within rounding). cli `--strip-rows n`
+  (0: when needed, -1: never); `--estimate` reports the strips. A whole movie is unchanged.
+- **Viewer Record, a field of its own:** the Record box's field (W x H px, empty = the live field), centred on the
+  stage; the world view outlines it while the box is open. The illumination beam scales with the field (Beam FWHM is a
+  share of the field), which the box says before Start. Its settings file reproduces it in the cli.
+
 ## v0.1.0-rc23 (changes since v0.1.0-rc22)
 
 Any light in the objective's back focal plane; the viewer's settings as a Micro-Manager configuration; large movies:

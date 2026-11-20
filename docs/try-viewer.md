@@ -138,7 +138,14 @@ through it step by step.
   starts); Save then makes the .tif or .zip from those files. The tab's last recording stays there until the next
   Record, and recordings of closed tabs are deleted. A browser without that storage (some private windows) keeps the
   frames in memory, as with the box unticked: then the tab's memory bounds the recording. If the storage or the
-  memory runs out, the recording stops and keeps the frames so far. A movie past
+  memory runs out, the recording stops and keeps the frames so far. The box's **field** (W × H px, empty = the live
+  field) records a field of its own, centred on the stage, larger or smaller than the live one (up to 16384 px a side;
+  the world view outlines it while the box is open). The illumination **beam scales with the field**: its width stays
+  the set share of the field (Beam FWHM), so a larger field is lit by a wider beam than live; the box says so, with the
+  beam's width, before Start. A field past 4096 px, or one past what the tab's engine can hold, is rendered in
+  **strips** of rows (all frames of one strip, then the next) straight into the disk storage, so it needs **write
+  frames to disk**; the frames are those of the field rendered whole. A frame past 4096 × 4096 px plays as its centre
+  (2048 × 2048); Save writes all of it. Large fields stay slow: every dye of the field is made. A movie past
   4 GB is saved as a **BigTIFF**: open it in Fiji with Bio-Formats, in napari or with tifffile, as plain ImageJ
   cannot. For very large movies, `insiliscope_cli` or `tools/isc_render.py` on the saved settings write straight
   to disk ([Quickstart](quickstart.md)).
