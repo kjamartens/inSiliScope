@@ -103,6 +103,10 @@ public:
    // panels and figures). maps: kBfpMaps planes of n x n (row 0 at +uy).
    static bool Rasters(const BfpLightParams& p, int n, int slot, double nm, std::vector<std::vector<float>>& maps,
                        std::string& err);
+   // The BFP drawing: the intensity summed over `slots` (sumI, n x n) and the first slot's maps (first). Maps that do not
+   // depend on t (a scan at most) are drawn once and turned per slot.
+   static bool RasterSum(const BfpLightParams& p, int n, const std::vector<int>& slots, double nm,
+                         std::vector<float>& sumI, std::vector<std::vector<float>>& first, std::string& err);
 
    uint64_t Hash() const { return hash_; }
    const BfpLightParams& Params() const { return params_; }

@@ -18,7 +18,7 @@ Any light in the objective's back focal plane:
 - **Viewer:** the equations' box with 15 examples (a light sheet, ring TIRF, Bessel beam, radially and azimuthally
   polarized rings, a line scan, SIM2D, lattices and more from images in `bfp_maps/`), map images, settings files that
   carry the images; the Microscope view's Illumination profile follows the focus (its height moves with Z, the focus
-  dashed and marked on the slider).
+  dashed and marked on the slider); the Back focal plane panel draws the pupil at 512 x 512 (Expert: BFP drawing).
 - A focused coherent beam over a large part of the pupil takes seconds natively and up to a minute or more in the
   viewer to make (once per light).
 

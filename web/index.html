@@ -1532,7 +1532,7 @@ const UI_GROUPS = [
           num('mv_bfp-slots', 'Time slots', '', 'The BFP maps\' time slots per cycle: t = (slot + 0.5) / slots (0 = 64 when a map depends on t, else 1). <code>Lasers.BfpSlots</code>', 0, 4096, 1, 0, { adv, show: FL }),
           num('mv_bfp-cycle-frames', 'Cycle', 'frames', 'The BFP maps\' cycle in frames: 0 = the whole cycle in every exposure (the slots add up: a scan within the exposure); n = the cycle spans n frames (stepped, as SIM). <code>Lasers.BfpCycleFrames</code>', 0, 10000, 1, 0, { adv, show: FL }),
           num('mv_bfp-z-sample-um', 'Maps\' z range', 'µm', 'The BFP maps\' light is computed this far from the focal plane (propagating) or the coverslip (evanescent); beyond, its end plane carries on along the light\'s mean direction. <code>Renderer.BfpZSampleUm</code>', 1, 100, 1, 12, { adv, show: FL }),
-          num('mv_bfp-map-px', 'Maps\' raster', 'px', 'The BFP maps\' raster in the readouts (the Microscope view\'s BFP panel), pixels per side.', 16, 512, 1, 128, { expert: true, show: FL }),
+          num('mv_bfp-map-px', 'BFP drawing', 'px', 'The Microscope view\'s back focal plane drawing, pixels per side (over 1.1 x the pupil).', 16, 2048, 1, 512, { expert: true, show: FL }),
           num('mv_tube-length-mm', 'Tube length', 'mm', 'The tube lens\' focal length: the objective\'s focal length is it over the magnification (100), the pupil\'s radius that × NA; a beam\'s spot size and tilt map to the sample through it. <code>Objective.TubeLengthMm</code>', 50, 500, 1, 200, { adv, show: FL }),
         ] }),
     { kind: 'html', html: '<div class="sub" id="patternReadout"></div>', show: FL },

@@ -301,7 +301,7 @@ const OptionTable& Options()
          { "bfp-slots", 0, "Lasers.BfpSlots: the BFP light maps' time slots per cycle (t = (s + 0.5) / slots; 0 = 64 when a map depends on t, else 1)" },
          { "bfp-cycle-frames", 0, "Lasers.BfpCycleFrames: the maps' cycle in frames: 0 = the whole cycle in every exposure (the slots add up: a scan within the exposure), n = the cycle spans n frames (slot s lit in frame s n / slots: stepped, as SIM)" },
          { "bfp-z-sample-um", 12, "Renderer.BfpZSampleUm: the maps' light is computed this far from the focal plane (propagating) or the coverslip (evanescent); beyond, its end plane carries on along the light's mean direction" },
-         { "bfp-map-px", 128, "the BFP maps' raster in the readouts (the setup JSON, the Microscope view's BFP panel), pixels per side; no Micro-Manager row (MM has no such readout)" },
+         { "bfp-map-px", 512, "the Microscope view's BFP drawing, pixels per side (over 1.1 x the pupil); no Micro-Manager row (MM has no such readout)" },
          { "sheet-thickness-um", 3, "Lasers.SheetThicknessUm: the LightSheet type's thickness, FWHM across the beam (estimate)" },
          { "sheet-width-um", 0, "Lasers.SheetWidthUm: the LightSheet type's width along y, FWHM (0 = the beam's, illum-fwhm)" },
          { "frame0", 0, "the movie's first frame's index in the sample's frame sequence (the frame program: a live producer passes its running counter here; a stack starts at 0). Not a user setting" },

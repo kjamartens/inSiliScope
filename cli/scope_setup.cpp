@@ -333,27 +333,19 @@ static void MapsPreview(const sim::Excitation& ex, const sim::ExcitationShares& 
                dst[static_cast<size_t>(j) * n + i] = r[static_cast<size_t>(rj) * nr + ri];
          }
    };
-   std::vector<float> sumI(static_cast<size_t>(nr) * nr, 0.0f);
-   std::vector<std::vector<float>> first;
-   int nSlots = 0, firstSlot = -1;
-   std::string err;
+   std::vector<int> slots;
    for (int s = 0; s < S; ++s)
    {
       const int sst = C >= 1 && S > 1 ? static_cast<int>(static_cast<long long>(s) * C / S) : 0;
-      if (sst % std::max(1, L->Period()) != st)
-         continue;
-      std::vector<std::vector<float>> m;
-      if (!sim::BfpLight::Rasters(prm, nr, s, nm, m, err))
-         return;
-      for (size_t q = 0; q < sumI.size(); ++q)
-         sumI[q] += m[sim::BM_I][q];
-      if (firstSlot < 0)
-      {
-         firstSlot = s;
-         first = std::move(m);
-      }
-      ++nSlots;
+      if (sst % std::max(1, L->Period()) == st)
+         slots.push_back(s);
    }
+   std::vector<float> sumI;
+   std::vector<std::vector<float>> first;
+   std::string err;
+   if (!sim::BfpLight::RasterSum(prm, nr, slots, nm, sumI, first, err))
+      return;
+   const int nSlots = static_cast<int>(slots.size());
    if (nSlots > 0)
       for (float& v : sumI)
          v /= static_cast<float>(nSlots);

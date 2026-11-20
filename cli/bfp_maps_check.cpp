@@ -453,6 +453,34 @@ void Field()
                }
          Check(worst < 5e-3 * peak, "scanRot = the slots computed one by one (" + Num(worst / peak) + ")");
       }
+      // The BFP drawing (RasterSum): a spot drawn once and turned per slot = each slot's raster summed (a spot the
+      // raster resolves, 0.05 u; RingTIRF's own spot is about a pixel of the drawing: turned, it is smoothed).
+      p.text = "I = exp(-((ux - 1.06)^2 + uy^2)/0.05^2); scanRot = 360*t; pol = unpolarized";
+      const int n = 200;
+      std::vector<int> slots(16);
+      for (int s = 0; s < 16; ++s)
+         slots[static_cast<size_t>(s)] = s;
+      std::vector<float> sum, ref(static_cast<size_t>(n) * n, 0.0f);
+      std::vector<std::vector<float>> first, m;
+      std::string err;
+      bool ok = BfpLight::RasterSum(p, n, slots, 640, sum, first, err);
+      for (int s = 0; s < 16 && ok; ++s)
+      {
+         ok = BfpLight::Rasters(p, n, s, 640, m, err);
+         for (size_t q = 0; ok && q < ref.size(); ++q)
+            ref[q] += m[BM_I][q];
+      }
+      double d2 = 0, r2 = 0, sa = 0, sr = 0;
+      for (size_t q = 0; ok && q < ref.size(); ++q)
+      {
+         d2 += double(sum[q] - ref[q]) * (sum[q] - ref[q]);
+         r2 += double(ref[q]) * ref[q];
+         sa += sum[q];
+         sr += ref[q];
+      }
+      Check(ok && r2 > 0 && std::sqrt(d2 / r2) < 0.05 && std::fabs(sa / sr - 1) < 0.01,
+            "the BFP drawing of a scan (turned once per slot) = its slots drawn one by one (rms " +
+               Num(r2 > 0 ? std::sqrt(d2 / r2) : -1) + ", sum " + Num(sr > 0 ? sa / sr : -1) + "; " + err + ")");
    }
    // The light sheet: thin across x (its thickness / cos theta_s on a plane), long along y.
    {

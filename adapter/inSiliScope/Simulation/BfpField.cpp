@@ -1690,6 +1690,31 @@ std::shared_ptr<const BfpLight> BfpLight::Make(const BfpLightParams& p, std::str
    return L;
 }
 
+namespace {
+// The maps on an n x n raster over [-umax, umax]^2 (row 0 at +uy) at time t, shown where a scan turned them by rot: the
+// point R(-rot) X; I is 0 outside the pupil and where the timing leaves it dark. Rows on threads.
+void MapsRaster(const BfpBuilder& b, int n, double t, double rot, std::vector<std::vector<float>>& maps)
+{
+   maps.assign(kBfpMaps, std::vector<float>(static_cast<size_t>(n) * n, 0.0f));
+   const double um = b.umax, c = std::cos(rot), sn = std::sin(rot);
+   ParallelFor(static_cast<unsigned>(n), [&](unsigned jj) {
+      const int j = static_cast<int>(jj);
+      std::vector<double> scratch;
+      for (int i = 0; i < n; ++i)
+      {
+         const double X = -um + (i + 0.5) * 2.0 * um / n, Y = um - (j + 0.5) * 2.0 * um / n;
+         const double ux = c * X + sn * Y, uy = -sn * X + c * Y;
+         double m[kBfpMaps];
+         b.ev.Eval(ux, uy, t, m, scratch);
+         if (std::hypot(ux, uy) > um || !LitAt(t, m[BM_T], m[BM_DUTY]) || !(m[BM_I] > 0))
+            m[BM_I] = 0.0;
+         for (int k = 0; k < kBfpMaps; ++k)
+            maps[static_cast<size_t>(k)][static_cast<size_t>(j) * n + i] = static_cast<float>(m[k]);
+      }
+   });
+}
+} // namespace
+
 bool BfpLight::Rasters(const BfpLightParams& p, int n, int slot, double nm, std::vector<std::vector<float>>& maps,
                        std::string& err)
 {
@@ -1707,21 +1732,89 @@ bool BfpLight::Rasters(const BfpLightParams& p, int n, int slot, double nm, std:
    double rot = 0, dxs = 0, dys = 0;
    if (b.scans)
       b.ScanOf(s, rot, dxs, dys, scratch);
-   maps.assign(kBfpMaps, std::vector<float>(static_cast<size_t>(n) * n, 0.0f));
-   const double um = b.umax, c = std::cos(rot), sn = std::sin(rot);
-   for (int j = 0; j < n; ++j)
-      for (int i = 0; i < n; ++i)
+   MapsRaster(b, n, t, rot, maps);
+   return true;
+}
+
+bool BfpLight::RasterSum(const BfpLightParams& p, int n, const std::vector<int>& slots, double nm,
+                         std::vector<float>& sumI, std::vector<std::vector<float>>& first, std::string& err)
+{
+   sumI.assign(static_cast<size_t>(n) * n, 0.0f);
+   first.clear();
+   if (slots.empty())
+      return true;
+   BfpLight tmp;
+   BfpBuilder b(p, tmp);
+   if (!b.Setup())
+   {
+      err = b.err;
+      return false;
+   }
+   b.SetVars(nm > 0 ? nm : p.lambdaRefNm);
+   std::vector<double> scratch;
+   auto scanOf = [&](int s, double& rot) {
+      double dxs = 0, dys = 0;
+      rot = 0;
+      if (b.scans)
+         b.ScanOf(std::max(0, std::min(s, b.S - 1)), rot, dxs, dys, scratch);   // (a shift tilts the light: the pupil stays)
+   };
+   double rot0 = 0;
+   scanOf(slots[0], rot0);
+   MapsRaster(b, n, b.SlotT(std::max(0, std::min(slots[0], b.S - 1))), rot0, first);
+   if (b.tdep || b.timing)
+   {
+      // Maps that change with t: each slot drawn on its own.
+      std::vector<std::vector<float>> m;
+      for (size_t k = 0; k < slots.size(); ++k)
       {
-         const double X = -um + (i + 0.5) * 2.0 * um / n, Y = um - (j + 0.5) * 2.0 * um / n;
-         // The maps shown where the scan turned them: the point R(-rot) X.
-         const double ux = c * X + sn * Y, uy = -sn * X + c * Y;
-         double m[kBfpMaps];
-         b.ev.Eval(ux, uy, t, m, scratch);
-         if (std::hypot(ux, uy) > um || !LitAt(t, m[BM_T], m[BM_DUTY]) || !(m[BM_I] > 0))
-            m[BM_I] = 0.0;
-         for (int k = 0; k < kBfpMaps; ++k)
-            maps[static_cast<size_t>(k)][static_cast<size_t>(j) * n + i] = static_cast<float>(m[k]);
+         double rot = 0;
+         scanOf(slots[k], rot);
+         const std::vector<std::vector<float>>* src = &first;
+         if (k > 0)
+         {
+            MapsRaster(b, n, b.SlotT(std::max(0, std::min(slots[k], b.S - 1))), rot, m);
+            src = &m;
+         }
+         const std::vector<float>& I = (*src)[BM_I];
+         for (size_t q = 0; q < sumI.size(); ++q)
+            sumI[q] += I[q];
       }
+      return true;
+   }
+   // Maps that do not change with t (a scan at most): one drawing, unturned, turned per slot (bilinear; the light's
+   // own shortcut for a rotation scan, BfpLight::Make).
+   std::vector<std::vector<float>> base;
+   MapsRaster(b, n, b.SlotT(0), 0.0, base);
+   const std::vector<float>& B = base[BM_I];
+   const double um = b.umax;
+   for (size_t k = 0; k < slots.size(); ++k)
+   {
+      double rot = 0;
+      scanOf(slots[k], rot);
+      if (std::fabs(std::remainder(rot, 2.0 * kPi)) < 1e-12)
+      {
+         for (size_t q = 0; q < sumI.size(); ++q)
+            sumI[q] += B[q];
+         continue;
+      }
+      const double c = std::cos(rot), sn = std::sin(rot);
+      ParallelFor(static_cast<unsigned>(n), [&](unsigned jj) {
+         const int j = static_cast<int>(jj);
+         for (int i = 0; i < n; ++i)
+         {
+            const double X = -um + (i + 0.5) * 2.0 * um / n, Y = um - (j + 0.5) * 2.0 * um / n;
+            const double ux = c * X + sn * Y, uy = -sn * X + c * Y;
+            const double fi = (ux + um) / (2.0 * um) * n - 0.5, fj = (um - uy) / (2.0 * um) * n - 0.5;
+            const int i0 = static_cast<int>(std::floor(fi)), j0 = static_cast<int>(std::floor(fj));
+            const double ax = fi - i0, ay = fj - j0;
+            auto at = [&](int x, int y) {
+               return x >= 0 && y >= 0 && x < n && y < n ? static_cast<double>(B[static_cast<size_t>(y) * n + x]) : 0.0;
+            };
+            sumI[static_cast<size_t>(j) * n + i] += static_cast<float>(
+               (1 - ay) * ((1 - ax) * at(i0, j0) + ax * at(i0 + 1, j0)) + ay * ((1 - ax) * at(i0, j0 + 1) + ax * at(i0 + 1, j0 + 1)));
+         }
+      });
+   }
    return true;
 }
 

@@ -435,7 +435,9 @@ bool BfpPanel(const sim::ScopeSpec& spec, const std::map<std::string, double>& p
               std::string& err)
 {
    IllumPreview P;
-   if (!IllumPreviewOf(spec, static_cast<long long>(Param(p, "frame", 0)), -1, 160 * scale, 8, P, err))
+   // The drawing's raster: bfp-map-px per side over +-1.1 umax at every scale (drawn at the tile's size).
+   const int px = static_cast<int>(std::lround(std::max(16.0, std::min(2048.0, sim::ScopeSpecGet(spec, "bfp-map-px")))));
+   if (!IllumPreviewOf(spec, static_cast<long long>(Param(p, "frame", 0)), -1, px, 8, P, err))
       return false;
    std::vector<Control> c;
    FrameControl(P, c);
