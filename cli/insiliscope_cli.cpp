@@ -97,6 +97,10 @@ void Usage()
                "                         (a line '@@isc-estimate key=value ...' for a front end, then the same in words)\n"
                "  --bigtiff 1            write a BigTIFF (64-bit offsets) even below 4 GB; a movie that will not fit\n"
                "                         in a classic TIFF's 4 GB is a BigTIFF by itself\n"
+               "  --strip-rows n         render the movie in strips of n sensor rows (every frame of one strip, then\n"
+               "                         the next; memory for a strip, not the field); 0 (default): in strips only\n"
+               "                         when a side passes 4096 px (up to 16384) or the field passes the memory\n"
+               "                         budget, the strip height from it; -1: never\n"
                "  --serve                one command per stdin line (its arguments separated by tabs), each\n"
                "                         answered as a separate run would be, then a line '@@isc-done <exit code>';\n"
                "                         the process keeps its world and PSF kernel between commands\n");
@@ -128,6 +132,7 @@ int RunCli(int argc, char** argv)
    bool progress = false;   // --progress 1: a line per frame written
    bool estimate = false;   // --estimate 1: the sizes, memory and disk, no movie
    bool bigTiff = false;    // --bigtiff 1: a BigTIFF below 4 GB too
+   long stripRowsArg = 0;   // --strip-rows n: strips of n rows; 0 when needed; -1 never
    sim::ScopeSpec spec;
    settings::Loaded loaded;   // --settings: the files' light history
    for (int i = 1; i < argc; i++) {
@@ -143,6 +148,7 @@ int RunCli(int argc, char** argv)
       if (a == "--progress" && i + 1 < argc) { progress = std::atof(argv[++i]) != 0; continue; }
       if (a == "--estimate" && i + 1 < argc) { estimate = std::atof(argv[++i]) != 0; continue; }
       if (a == "--bigtiff" && i + 1 < argc) { bigTiff = std::atof(argv[++i]) != 0; continue; }
+      if (a == "--strip-rows" && i + 1 < argc) { stripRowsArg = std::atol(argv[++i]); continue; }
       if (a == "--gt-volume" && i + 1 < argc) {
          if (!ParseList(argv[++i], gtVol, 2)) { std::fprintf(stderr, "--gt-volume needs 2 comma-separated numbers\n"); return 2; }
          continue;
@@ -317,9 +323,28 @@ int RunCli(int argc, char** argv)
    unsigned W = 0, H = 0;
    long frames = 0;
    sim::ScopeMovieDims(spec, W, H, frames);
-   const uint64_t fileBytes = TiffWriter::Bytes(W, H, static_cast<uint64_t>(std::max(0L, frames)), 2, 1u << 16);
    const long slots = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
    const int inFlight = static_cast<int>(std::max(1L, std::min(frames, slots)));
+   // A movie in strips (2026-11-20, ScopeMovie.h RenderScopeMovieStrips): asked for, or a side past 4096 px or a field
+   // past the memory budget; not a measurement with a light history (its frames are the live sample's).
+   unsigned stripRows = 0;
+   if (stripRowsArg >= 0 && loaded.history.empty() && sim::ScopeSpecGet(spec, "window-rows") <= 0 &&
+       (stripRowsArg > 0 || sim::ScopeNeedsStrips(spec, inFlight)))
+   {
+      sim::ScopeSpec sensor = spec;
+      sensor["window-rows"] = 1;   // (the strips' sensor cap)
+      sim::ScopeSensorDims(sensor, W, H);
+      stripRows = stripRowsArg > 0 ? static_cast<unsigned>(std::min<long>(stripRowsArg, H)) : sim::ScopeStripRows(spec, inFlight);
+   }
+   const unsigned strips = stripRows ? (H + stripRows - 1) / stripRows : 1;
+   sim::ScopeSpec stripSpec = spec;   // the first strip's window (its memory)
+   if (stripRows)
+   {
+      const unsigned m = sim::ScopeStripMarginPx(spec);
+      stripSpec["window-y0"] = 0;
+      stripSpec["window-rows"] = std::min(H, stripRows + 2 * m);
+   }
+   const uint64_t fileBytes = TiffWriter::Bytes(W, H, static_cast<uint64_t>(std::max(0L, frames)), 2, 1u << 16);
    std::error_code fsErr;
    const std::filesystem::path outDir =
       out.empty() ? std::filesystem::current_path(fsErr) : std::filesystem::absolute(std::filesystem::path(out), fsErr).parent_path();
@@ -329,10 +354,11 @@ int RunCli(int argc, char** argv)
    if (estimate) {
       sim::ScopeMemoryEstimate e;
       std::string eerr;
-      const double mem = sim::EstimateScopeMemory(spec, inFlight, e, eerr) ? e.Total() : -1.0;
+      const double mem = sim::EstimateScopeMemory(stripSpec, inFlight, e, eerr) ? e.Total() : -1.0;
       const double budget = sim::MemoryBudgetBytes(), ram = sim::PhysicalMemoryBytes();
       std::printf("@@isc-estimate width=%u height=%u frames=%ld file=%.0f bigtiff=%d memory=%.0f budget=%.0f ram=%.0f "
-                  "disk-free=%.0f\n", W, H, frames, static_cast<double>(fileBytes), willBeBig ? 1 : 0, mem, budget, ram, diskFree);
+                  "disk-free=%.0f strip-rows=%u strips=%u\n", W, H, frames, static_cast<double>(fileBytes), willBeBig ? 1 : 0, mem,
+                  budget, ram, diskFree, stripRows ? stripRows : H, strips);
       std::printf("%ux%u px x %ld frames: a %.2f GB TIFF%s\n", W, H, frames, fileBytes / 1e9,
                   willBeBig ? " (a BigTIFF: past a classic TIFF's 4 GB)" : "");
       if (mem >= 0)
@@ -341,7 +367,9 @@ int RunCli(int argc, char** argv)
       else
          std::printf("memory: no estimate (%s)\n", eerr.c_str());
       if (diskFree >= 0) std::printf("disk: %.2f GB free in %s\n", diskFree / 1e9, outDir.string().c_str());
-      const std::string over = sim::ScopeMemoryRefusal(spec, inFlight);
+      if (stripRows)
+         std::printf("in %u strips of %u rows (the memory above is a strip's)\n", strips, stripRows);
+      const std::string over = sim::ScopeMemoryRefusal(stripSpec, inFlight);
       if (!over.empty()) std::printf("warning: %s\n", over.c_str());
       if (diskFree >= 0 && diskFree < static_cast<double>(fileBytes)) std::printf("warning: not enough disk space for the TIFF\n");
       return 0;
@@ -360,15 +388,17 @@ int RunCli(int argc, char** argv)
       {
          sim::ScopeMemoryEstimate e;
          std::string eerr;
-         if (sim::EstimateScopeMemory(spec, inFlight, e, eerr))
+         if (sim::EstimateScopeMemory(stripSpec, inFlight, e, eerr))
             std::printf("ISC_MEMORY estimate %.1f MB: base %.1f, kernels %.1f, dyes %.1f (%.4g dyes in %.0f um2), "
                         "images %.1f (%d frames in flight), grids %.1f\n",
                         e.Total() / 1e6, e.baseBytes / 1e6, e.kernelBytes / 1e6, e.dyeBytes / 1e6, e.dyes, e.fieldUm2,
                         e.imageBytes / 1e6, inFlight, e.sceneBytes / 1e6);
       }
-      const std::string over = sim::ScopeMemoryRefusal(spec, inFlight);
+      const std::string over = sim::ScopeMemoryRefusal(stripSpec, inFlight);
       if (!over.empty())
          std::fprintf(stderr, "warning: %s\n", over.c_str());
+      if (stripRows)
+         std::printf("%s: %ux%u px in %u strips of %u rows\n", out.c_str(), W, H, strips, stripRows);
    }
    if (!gtOut.empty()) {
       std::filesystem::create_directories(std::filesystem::path(gtOut), fsErr);   // (an error shows when its files are written)
@@ -440,11 +470,21 @@ int RunCli(int argc, char** argv)
    sim::ScopeMovieInfo info;
    std::string err;
    bool writeOk = true;
-   const bool ok = sim::RenderScopeMovie(spec, [&](long f, const std::vector<uint16_t>& adu) {
-      writeOk = tif.Page(adu, info.width, info.height, f == 0 ? info.description + " version=" ISC_VERSION : "");
-      if (writeOk) written(f);
-      return writeOk;
-   }, info, err);
+   long stripCalls = 0, shown = -1;
+   const bool ok = stripRows
+      ? sim::RenderScopeMovieStrips(spec, stripRows, [&](long f, unsigned y0, unsigned n, const uint16_t* px) {
+           writeOk = y0 == 0 ? tif.PageRows(px, n, W, H, f == 0 ? info.description + " version=" ISC_VERSION : "")
+                             : tif.Rows(static_cast<uint64_t>(f), y0, n, px);
+           // the progress as frames: the share of all strips' frames written
+           const long done = ++stripCalls / static_cast<long>(strips) - 1;
+           if (writeOk && done > shown) { shown = done; written(done); }
+           return writeOk;
+        }, info, err)
+      : sim::RenderScopeMovie(spec, [&](long f, const std::vector<uint16_t>& adu) {
+           writeOk = tif.Page(adu, info.width, info.height, f == 0 ? info.description + " version=" ISC_VERSION : "");
+           if (writeOk) written(f);
+           return writeOk;
+        }, info, err);
    if (!writeOk) return writeFailed();
    if (!ok) { std::fprintf(stderr, "%s\n", err.c_str()); return 1; }
    if (!tif.Close()) return writeFailed();

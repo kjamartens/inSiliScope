@@ -265,3 +265,7 @@ Upcoming ideas:
   `test_sim.py`, `viewer_sim.mjs`, `settings_unit.mjs`. Next: [ ] a GPU path, [ ] the slide's per-frame fringes under
   maps, [ ] a faster focused coherent beam (a full pupil: minutes; the field's reach over the whole volume),
   [ ] emission-side maps (a detection pupil), [ ] the imager background's map on more than 32 nodes cheaply.
+- Large records (2026-11-20, branch `large-records`, docs/dev/LARGE_RECORDS.md, spec/PORT.md 32): [x] A: the Record's
+  frames and ground truth on the browser's disk storage (OPFS) as made, [x] B: movies in strips (engine windows of the
+  sensor, cli `--strip-rows`, the module's strips, the ground truth per strip; ctest `strips`, `strips_unit.mjs`),
+  [ ] C: a Record field larger than live, centred on the stage (the box's size, the beam notice, the outline).

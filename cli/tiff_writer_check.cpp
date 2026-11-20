@@ -6,6 +6,7 @@
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 #include "tiff_writer.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -129,6 +130,54 @@ void RoundTrip(const std::string& path, bool bigTiff, uint64_t expected, bool wa
             path + ": descriptions (a short one in place)");
 }
 
+std::string FileBytes(const std::string& path)
+{
+   std::string s;
+   std::FILE* f = std::fopen(path.c_str(), "rb");
+   if (!f) return s;
+   char b[65536];
+   size_t n;
+   while ((n = std::fread(b, 1, sizeof b, f)) > 0) s.append(b, n);
+   std::fclose(f);
+   return s;
+}
+
+// A movie in strips (PageRows, then Rows per later strip) = the same pages written whole, byte for byte.
+void Strips(const std::string& dir, bool bigTiff)
+{
+   const uint32_t w = 37, h = 11, n = 4, rows = 4;   // strips of 4, 4 and 3 rows
+   std::vector<std::vector<uint16_t>> frames;
+   for (uint32_t k = 0; k < n; ++k) {
+      std::vector<uint16_t> px(static_cast<size_t>(w) * h);
+      for (size_t i = 0; i < px.size(); ++i) px[i] = static_cast<uint16_t>(k * 977 + i * 3 + 1);
+      frames.push_back(px);
+   }
+   const std::string whole = dir + (bigTiff ? "/tiff_whole_big.tif" : "/tiff_whole.tif"),
+                     strips = dir + (bigTiff ? "/tiff_strips_big.tif" : "/tiff_strips.tif");
+   {
+      TiffWriter t(whole, 0, bigTiff);
+      for (uint32_t k = 0; k < n; ++k) t.Page(frames[k], w, h, k == 0 ? "the description of the movie" : "");
+      Check(t.Close(), whole + ": written");
+   }
+   {
+      TiffWriter t(strips, 0, bigTiff);
+      bool ok = true;
+      for (uint32_t y0 = 0; y0 < h; y0 += rows)
+         for (uint32_t k = 0; k < n; ++k) {
+            const uint32_t r = std::min(rows, h - y0);
+            const uint16_t* px = frames[k].data() + static_cast<size_t>(y0) * w;
+            ok = ok && (y0 == 0 ? t.PageRows(px, r, w, h, k == 0 ? "the description of the movie" : "") : t.Rows(k, y0, r, px));
+         }
+      Check(ok && t.Close() && t.pages() == n, strips + ": written in strips " + t.error());
+      TiffWriter u(dir + "/tiff_rows_outside.tif");
+      u.PageRows(frames[0].data(), 2, w, h, "");
+      Check(!u.Rows(0, 10, 2, frames[0].data()) && u.error().find("not in it") != std::string::npos,
+            "rows past a page refused: " + u.error());
+   }
+   const std::string a = FileBytes(whole), b = FileBytes(strips);
+   Check(!a.empty() && a == b, strips + " = " + whole + " byte for byte");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -173,6 +222,8 @@ int main(int argc, char** argv)
    RoundTrip(dir + "/tiff_classic.tif", false, 0, false);
    RoundTrip(dir + "/tiff_big_forced.tif", true, 0, true);
    RoundTrip(dir + "/tiff_big_expected.tif", false, 5000000000ull, true);   // nothing large written: the size decides
+   Strips(dir, false);
+   Strips(dir, true);
    {
       TiffWriter t(dir + "/no_such_folder/x.tif");
       Check(!t.ok() && t.error().find("cannot open") != std::string::npos, "a missing folder: " + t.error());

@@ -140,6 +140,13 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   chains the text), the live producer publishes black frames (`CInSiliScopeCamera::MemoryRefusal`, cached per settings
   / light / size). The cli prints `ISC_MEMORY estimate` with `ISC_TIMING=1` and warns. Large fields stay slow (the core
   makes every dye of the field): DNA-PAINT 2048 px ~4 min / 3 frames, WideField 2048 px > 10 min a frame.
+- **Large records (2026-11-20, branch `large-records`, docs/dev/LARGE_RECORDS.md, spec/PORT.md 32, spec/ALGORITHM.md
+  "Movies in strips"):** A: the viewer's Record writes its frames and ground truth into the browser's disk storage (OPFS)
+  as made ("write frames to disk", on by default). B: a fresh-sample movie that does not fit renders in strips of
+  sensor rows (`RenderScopeMovieStrips`: each strip a window `window-y0` / `window-rows` of the sensor with margins,
+  everything over the field the sensor's; sides up to 16384 px; `ScopeStripRows` from the memory budget; cli
+  `--strip-rows`; module `isc_movie_strips` / `isc_movie_plan` / `Module.onMovieRows`): blinks, beads, slide, SIM,
+  drift bit for bit with the whole movie, WideField / BrightField within rounding (ctest `strips`, `strips_unit.mjs`).
 - **Usage counts (2026-10-21, [docs/privacy.md](docs/privacy.md)):** Umami Cloud (cookieless, website id in
   `web/live/usage.js` and `overrides/partials/integrations/analytics/custom.html`, keep them in step), only on
   kjamartens.github.io and never with Do Not Track / GPC / `localStorage umami.disabled`. The viewer calls `iscTrack(name,

@@ -113,6 +113,17 @@ public:
    std::vector<Label> labels;
    std::vector<Frame> frames;
    std::vector<Emitter> emitters;
+   // A movie rendered in strips (2026-11-20, docs/dev/LARGE_RECORDS.md; the movie's window-y0 / window-rows): each
+   // window keeps the blinks, beads and dyes whose centre lies in the rows it owns (ownY0 <= y < ownY1, window px,
+   // the pixel's centre at y; the first and last strips own beyond the sensor's edges), with their camera y on the
+   // sensor (+ rowY0); only the first adds the frames' rows. off: the whole field.
+   struct Window
+   {
+      bool on = false, frames = true;
+      double ownY0 = -std::numeric_limits<double>::infinity(), ownY1 = std::numeric_limits<double>::infinity();
+      unsigned rowY0 = 0;
+      bool Owns(double yPx) const { return !on || (yPx + 0.5 >= ownY0 && yPx + 0.5 < ownY1); }
+   } window;
    unsigned width = 0, height = 0;
    double pixelNm = 0;
    // The world box the movies queried (um; their FOV, margin and z range): the density volume's extent.

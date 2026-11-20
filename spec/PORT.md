@@ -1533,3 +1533,22 @@ goldens, `ISC_WORLD_VERSION` and the ABI unchanged; default outputs unchanged (`
   lattice image 40, SIM2D 17, the Bessel beam 22-32, the radial / azimuthal rings 72 / 56 (163 / 148 before the reach
   of 99.9 % of the power), the line focus image 59 (95), the underfilled scan 27; the heap up to 2.3 GB (it never
   shrinks). A full-pupil coherent spot: ~2 min natively.
+
+
+## 32. Large records: frames on disk, movies in strips, a larger field (2026-11-20)
+
+docs/dev/LARGE_RECORDS.md (the plan and the user's decisions). No core change: goldens, `ISC_WORLD_VERSION` and the ABI
+unchanged; every movie that is not rendered in strips is unchanged (ctest, `adapter_pixel_hash` the same as before the
+branch).
+
+- **A. The viewer's Record on disk:** "write frames to disk" (on by default) writes the frames into the browser's disk
+  storage (OPFS, `navigator.storage`; a sync access handle in the worker) as they are made, and the ground truth's
+  files beside them; Save downloads disk-backed Blobs (web/live/live.js `DISK`, `diskStore`; web/index.html
+  `diskOpen` / `diskWrite`); without the storage the frames stay in memory as before.
+- **B. Strips:** spec/ALGORITHM.md "Movies in strips". Engine `ScopeSensorDims`, `ScopeWindowRows`, `window-y0` /
+  `window-rows`, `ScopeStripMarginPx`, `ScopeStripRows`, `ScopeNeedsStrips`, `RenderScopeMovieStrips`;
+  `Excitation::ImagerMap(..., rowY0, sensorH)`, `NoiseSetup` / the noise maps' `keepY0` / `keepRows`, `ApplyNoiseChain`'s
+  `pixelBase`, `GroundTruth::Window`. cli `--strip-rows n` (0: when needed; -1 never), `--estimate`'s `strip-rows=`
+  and `strips=`; `TiffWriter::PageRows` / `Rows`. Module `isc_movie_strips`, `isc_movie_plan`, `Module.onMovieRows`;
+  `isc_scope_gt_run` in strips when the movie needs them. Checks: ctest `strips` (~9 s), `tiff_writer` (strips = whole,
+  byte for byte), `tests/web/strips_unit.mjs` (the module, 6 s, CI `viewer-js`).

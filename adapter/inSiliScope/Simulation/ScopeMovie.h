@@ -216,9 +216,19 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
 
 // The largest FOV side, pixels (the spec's size and height).
 constexpr double kMaxFovPx = 4096;
+// The largest sensor side of a movie rendered in strips (a window, window-rows > 0: docs/dev/LARGE_RECORDS.md).
+constexpr double kMaxStripFovPx = 16384;
 
-// Frame size and count of a spec (no rendering): w = size, h = height (0: = size), each 1..kMaxFovPx.
+// Frame size and count of a spec (no rendering): w = size, h = height (0: = size), each 1..kMaxFovPx; with a window
+// (window-rows > 0) h is the window's rows.
 void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frames);
+// The whole sensor (2026-11-20): w = size, h = height (0: = size), each 1..kMaxFovPx (kMaxStripFovPx with a window).
+void ScopeSensorDims(const ScopeSpec& spec, unsigned& w, unsigned& h);
+// A window of the sensor (window-y0, window-rows; docs/dev/LARGE_RECORDS.md): its first row and rows, within the
+// sensor; none: 0 and the sensor's height. A window renders those rows as a camera of its own, with everything
+// defined over the field (the beam, the background's grid, the beads, the regime switches, the camera's maps) the
+// whole sensor's, so the windows of a sensor together give its movie.
+void ScopeWindowRows(const ScopeSpec& spec, unsigned& y0, unsigned& rows);
 
 // What a render of the spec would hold in memory at its peak, bytes (2026-11-18), estimated before it runs: the
 // labelled dyes in the field (counted in sample windows of the world, scaled to the field: the core generates every
@@ -451,6 +461,29 @@ void ScopeLights(const ScopeSpec& spec, bool& epi, bool& trans);
 // lamp wavelength through one noise chain, none = dark frames.
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress = nullptr);
+
+// ---- a movie in strips (2026-11-20, docs/dev/LARGE_RECORDS.md part B) ----
+// The sensor's rows in strips, every frame of strip 1, then of strip 2, ...: each strip a window of the sensor
+// (window-y0 / window-rows, ScopeWindowRows) with a margin of rows on each side that is rendered and cropped away
+// (ScopeStripMarginPx: the PSF's and the mean field's reach and the drift, so every light reaching a strip's rows is
+// in its window). onRows(f, y0, rows, px) gets frame f's sensor rows y0 .. y0 + rows - 1 (rows x width samples, in
+// order of the strips); false stops. The strips' frames are the whole movie's: blinks, beads, background and camera
+// noise to the last bits of rounding (positions in the window's frame), the FFT paths (mean field, BrightField)
+// within rounding, binned blink frames decided per strip (its own density). A ground truth (ActiveGroundTruth) keeps
+// what each strip owns (GroundTruth::Window), its frame rows once, the emitters sorted by frame at the end.
+using ScopeRows = std::function<bool(long f, unsigned y0, unsigned rows, const uint16_t* px)>;
+// The margin, rows (each side).
+unsigned ScopeStripMarginPx(const ScopeSpec& spec);
+// The strip height for a memory budget (bytes; 0: this machine's, MemoryBudgetBytes, or 2.5 GB in WebAssembly): the
+// whole sensor when it fits, else the largest power-of-two share whose window's estimate (EstimateScopeMemory) fits,
+// at least 4 margins. framesInFlight as EstimateScopeMemory's.
+unsigned ScopeStripRows(const ScopeSpec& spec, int framesInFlight, double budgetBytes = 0);
+// Whether a movie needs strips: a side past kMaxFovPx, or ScopeStripRows below the sensor's height.
+bool ScopeNeedsStrips(const ScopeSpec& spec, int framesInFlight, double budgetBytes = 0);
+// stripRows 0: ScopeStripRows. info: the first strip's, with the sensor's height. A spec with a window of its own is
+// refused.
+bool RenderScopeMovieStrips(const ScopeSpec& spec, unsigned stripRows, const ScopeRows& onRows, ScopeMovieInfo& info,
+                            std::string& err, const ScopeProgress* progress = nullptr);
 
 // BrightField (modality 1): the transmitted-light image at the spec's focus
 // (BrightfieldScene), times bf-photons-per-px-per-sec x exposure, then the

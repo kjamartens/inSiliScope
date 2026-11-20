@@ -59,8 +59,10 @@ struct PixelOffsetMap
    unsigned height = 0;
    std::vector<float> offset; // ADU, size width*height
 
+   // keepY0, keepRows (2026-11-20; 0 rows: all): a window's rows of the w x h sensor's map -- every pixel's draws are
+   // made (the sequence is the sensor's), the window's kept: the map is w x keepRows.
    void Generate(unsigned w, unsigned h, double offsetMeanAdu, double offsetStdAdu,
-                  std::mt19937_64& rng);
+                  std::mt19937_64& rng, unsigned keepY0 = 0, unsigned keepRows = 0);
 };
 
 // A static per-pixel read-noise map (sCMOS-style: every pixel has its own
@@ -77,7 +79,7 @@ struct PixelReadNoiseMap
    std::vector<float> readNoiseElectrons; // electrons rms, size width*height
 
    void Generate(unsigned w, unsigned h, double nominalReadNoiseElectrons, double stdFraction,
-                  std::mt19937_64& rng);
+                  std::mt19937_64& rng, unsigned keepY0 = 0, unsigned keepRows = 0);
 };
 
 // A static per-pixel gain map (sCMOS-style pixel-to-pixel conversion-gain
@@ -94,7 +96,7 @@ struct PixelGainMap
    std::vector<float> gainPhotonsPerAdu; // size width*height
 
    void Generate(unsigned w, unsigned h, double nominalGainPhotonsPerAdu, double stdFraction,
-                  std::mt19937_64& rng);
+                  std::mt19937_64& rng, unsigned keepY0 = 0, unsigned keepRows = 0);
 };
 
 // Converts a clean photon-count image (incident photons, background
@@ -129,6 +131,8 @@ struct PixelGainMap
 // current), dark current is added to the Poisson mean alongside CIC.
 // parallel: bands of rows on all cores (the same image; for a single frame,
 // not for frames already made in parallel).
+// pixelBase (2026-11-20): the image's first pixel's index on the sensor (a window's rows: its first row x width), so
+// a window's draws are the sensor's.
 void ApplyNoiseChain(const std::vector<float>& photonImage,
                       std::vector<uint16_t>& outAdu,
                       unsigned width, unsigned height,
@@ -136,6 +140,6 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
                       const PixelOffsetMap& offsetMap,
                       const PixelGainMap& gainMap,
                       const PixelReadNoiseMap& readNoiseMap,
-                      uint32_t noiseSeed, uint32_t frame, bool parallel = false);
+                      uint32_t noiseSeed, uint32_t frame, bool parallel = false, uint32_t pixelBase = 0);
 
 } // namespace sim

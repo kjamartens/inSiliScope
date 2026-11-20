@@ -4430,8 +4430,28 @@ function iscEngine(M) {
   // With d.diskOpen (2026-11-20, the Record's "Write frames to disk"): each frame written to the browser's disk storage
   // (OPFS) at its place in the raw frames file (frame f at f x w x h x 2 bytes) and never posted; the result carries the
   // last frame for the view. A failed write (the storage full) stops the movie like a failed part.
-  function streamFrames(d, post) {
-    const S = { part: null, px: 0, first: 0, n: 0, frames: 0, stopped: '', disk: d.diskOpen || null };
+  // On disk a large field renders in strips (2026-11-20, docs/dev/LARGE_RECORDS.md part B; isc_movie_strips -1: only
+  // when the movie needs them, a side past 4096 px or the field past the module's memory): every frame's rows of one
+  // strip, then the next strip's (Module.onMovieRows), each written at its place in the frames file; a frame is done
+  // when its last strip is (S.frames).
+  function streamFrames(d, post, info) {
+    const S = { part: null, px: 0, first: 0, n: 0, frames: 0, stopped: '', disk: d.diskOpen || null, strips: false };
+    if (S.disk && info) {
+      S.strips = true;
+      M._isc_movie_strips(d.stripRows > 0 ? d.stripRows : -1);
+      M.onMovieRows = (f, y0, rows, pixels) => {
+        const w = M.HEAP32[info / 4], h = M.HEAP32[info / 4 + 1];
+        try {
+          S.px = w * h;
+          diskWrite(S.disk, pixels, (f * h + y0) * w * 2);
+          if (y0 + rows >= h) S.frames = f + 1;
+          return true;
+        } catch (e) {
+          S.stopped = `the disk storage refused frame ${f + 1}, rows ${y0}-${y0 + rows - 1} (${e.name === 'QuotaExceededError' ? 'full' : e.message || e})`;
+          return false;
+        }
+      };
+    }
     M.onMovieFrame = (f, pixels) => {
       if (S.disk) {
         try {
@@ -4467,13 +4487,16 @@ function iscEngine(M) {
   }
   function streamEnd(d, post, S, error, info, t0, extra) {
     M._isc_movie_stream(0);
+    if (S.strips) M._isc_movie_strips(0);
     M.onMovieFrame = null;
+    M.onMovieRows = null;
     M.onMovieProgress = null;
     if (S.part && S.n) post({ type: 'movie-part', id: d.id, first: S.first, n: S.n, frames: S.part.subarray(0, S.n * S.px) }, [S.part.buffer]);
     S.part = null;
     let last = null;
     if (S.disk) {   // the last frame for the view, read back; the file closed (the page reads it)
-      if (S.frames) { last = new Uint16Array(S.px); S.disk.read(last, { at: (S.frames - 1) * S.px * 2 }); }
+      // (a frame past 4096 x 4096 px is not read back: the page shows what it can of it, live.js)
+      if (S.frames && S.px <= 16777216) { last = new Uint16Array(S.px); S.disk.read(last, { at: (S.frames - 1) * S.px * 2 }); }
       diskClose(d);
     }
     if (error && !S.frames) return { type: 'movie', id: d.id, error };
@@ -4878,7 +4901,9 @@ function iscEngine(M) {
         const n = M.lengthBytesUTF8(d.text) + 1, s = M._malloc(n);
         M.stringToUTF8(d.text, s, n);
         let rc;
-        try { rc = M._isc_scope_gt_run(s, d.minPhotons, d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; }
+        // (a large field in strips, as its Record: isc_movie_strips -1)
+        M._isc_movie_strips(-1);
+        try { rc = M._isc_scope_gt_run(s, d.minPhotons, d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; M._isc_movie_strips(0); }
         if (rc < 0) { diskClose(d); return [{ type: 'gt-run', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []]; }
         // d.files = {min, vol, dyeCsv}: the files for the options the box shows, made now (the run kept for others)
         if (!d.files) { diskClose(d); return [{ type: 'gt-run', id: d.id, error: null }, []]; }
@@ -4923,7 +4948,7 @@ function iscEngine(M) {
         const need = d.stream ? 0 : M._isc_scope_movie(s, 0, 0, info, err, 512);
         if (d.stream) {
           progressTo(d, post);
-          const S = streamFrames(d, post), got = M._isc_scope_movie(s, 0, 0, info, err, 512);
+          const S = streamFrames(d, post, info), got = M._isc_scope_movie(s, 0, 0, info, err, 512);
           res = streamEnd(d, post, S, got < 0 ? M.UTF8ToString(err) : '', info, t0);
         } else if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else {

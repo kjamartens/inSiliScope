@@ -1395,7 +1395,47 @@ fiducial beads as on any specimen); its light is the engine's (`Simulation/Slide
 - **Not done:** time. A field that fits may still be slow: the default DNA-PAINT scene took ~4 min for 3 frames at
   2048 px, the WideField label over 10 min for one frame at 2048 px (stopped); BrightField 133 s at 4096 px. The
   core's queries over the whole field (every dye made, its schedule kept) are the cost; tiling them would bound the
-  memory, not the time.
+  memory, not the time (done 2026-11-20 for movies: strips, below).
+
+### Movies in strips (2026-11-20, docs/dev/LARGE_RECORDS.md part B)
+
+A movie that does not fit renders in **strips**: every frame of the sensor's rows 0 .. r-1, then every frame of the
+next r rows, ... (`RenderScopeMovieStrips`, ScopeMovie.h). Memory then follows a strip, not the field: the dyes, the
+per-frame images and the ground truth's dye list of one strip (its emitter rows are kept for the whole movie, ~200 B a
+row). Time stays that of the whole field plus the margins. Fresh-sample movies only (the cli, the viewer's Record):
+live frames and a measurement with a light history render whole.
+
+- **A strip is a window of the sensor** (`window-y0` / `window-rows`, internal spec options of the part "host"): the
+  window's rows render as a camera of their own, and everything defined over the field is the sensor's: the beam (its
+  span `fovSpanUm` and axis, so `illum-fwhm` stays a share of the whole field), the background's collected light
+  (`Excitation::ImagerMap` on the sensor's node grid, the window's rows taken from it), the beads' field and halo, the
+  regime counts (binned or mean-field blinks per um^2 of the field), the survey, the mean field's beam axis
+  (`ExcitePlaneFactor::offY`), the camera's per-pixel maps (`NoiseSetup` runs the sensor's whole draw sequence and keeps
+  the window's rows; the noise draws are counter-based on the sensor's pixel index, `pixelBase`) and the light history's
+  pose. With a window a side may be up to `kMaxStripFovPx` 16384 px (`kMaxFovPx` 4096 without).
+- **Margins:** each window renders m rows beyond its strip on both sides, cropped away: m = ceil((max(PSF kernel
+  half-width, `wf-kernel-um`) + 0.5 um + the drift's xy range) / pixel) + 2, so every light reaching a strip's rows comes
+  from inside its window (the 500 nm core box of the ground truth included).
+- **What is exact:** the core's events of a sub-rect are an in-order subsequence of the whole rect's (blocks visited
+  bx outer, by inner; a block's events sorted; cells, then microtubules, then blocks), so blinks, beads, the slide, SIM,
+  drift, PALM, dSTORM's dose and dark frames give every pixel of the whole movie (ctest `strips`). The FFT paths agree
+  within rounding: the mean field (WideField) ~0.1 % of the pixels one Poisson draw apart (a HILO beam's height bands
+  and a bleach basis are chosen per window: ~1e-4 of the signal), BrightField ~1e-4 of the signal (the multislice over
+  each window with its own margins and FFT size). Binned blink frames are decided per strip (the window's own density
+  of blinks, the emitter cap scaled to its area).
+- **Ground truth:** a blink, bead or dye belongs to the strip whose rows hold its centre (the first and last strips own
+  beyond the sensor's edges; `GroundTruth::Window`); its camera y is the sensor's; frames.csv once (the first strip's);
+  the emitters sorted by frame at the end (stable: within a frame, strip by strip, so the rows' order differs from a
+  whole movie's; the rows are the same). Known differences: a bead's `on_camera` counts the window's pixels; the
+  description's `imager_per_px_per_frame` is the first strip's mean.
+- **The strip height** (`ScopeStripRows`): the whole sensor when its window's estimate (`EstimateScopeMemory`) fits the
+  budget (`MemoryBudgetBytes`, in WebAssembly 2.5 GB of the module's 4 GB heap), else halved until it fits, at least
+  max(64, 4 m) rows. Strips are used when a side passes 4096 px or the whole field passes the budget
+  (`ScopeNeedsStrips`), or when asked (cli `--strip-rows n`).
+- **Writing:** the cli's TIFF writer lays every page out on the first strip (`TiffWriter::PageRows`: the page's first
+  rows, the rest a hole) and fills the later strips' rows in place (`Rows`): the file is byte for byte the one written
+  whole (ctest `tiff_writer`). The viewer writes each strip's rows at their place in the Record's frames file on the
+  browser's disk storage (`Module.onMovieRows`, `isc_movie_strips`).
 
 ## BFP light maps (2026-11-19)
 

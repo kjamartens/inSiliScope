@@ -128,7 +128,7 @@ const char* PartOf(const std::string& n)
             return true;
       return false;
    };
-   if (in({ "disk-cache", "prepare", "illum-geometry", "fresh-basis" }))
+   if (in({ "disk-cache", "prepare", "illum-geometry", "fresh-basis", "window-y0", "window-rows" }))
       return "host";
    if (in({ "x", "y", "z", "focus-um", "frames", "exposure-ms", "start-sec", "frame0" }) || starts("drift-"))
       return "measurement";
@@ -183,12 +183,14 @@ const OptionTable& Options()
          { "world-seed", -1, "cell-field world seed used as is (the viewer's seed); -1 = derive it from seed" },
          { "disk-cache", 1, "per-user cache on disk ($ISC_CACHE_DIR, else %LOCALAPPDATA%/inSiliScope/cache or ~/.cache/insiliscope): 0 = none, 1 = the packed cell positions (a few MB: a rerun with the same seed and cell parameters packs nothing), 2 = also the PSF kernel (one file, up to ~200 MB)" },
          { "prepare", 0, "1 = build the world and the PSF kernel only (warms the caches), no frames" },
+         { "window-y0", 0, "a window of the sensor (window-rows > 0): its first row. The movie renders rows window-y0 .. window-y0 + window-rows - 1 of the size x height sensor as a camera of its own, everything defined over the field (beam, background, beads, regime switches, camera maps) the sensor's: a movie rendered in strips (docs/dev/LARGE_RECORDS.md). Not a user setting" },
+         { "window-rows", 0, "a window of the sensor: its rows (0 = the whole sensor). With a window the sensor may be up to 16384 px a side. Not a user setting" },
          { "fresh-basis", 0, "1 = a movie's mean-field bleach basis is made for it, anchored at its first frame, never taken from an earlier movie: its frames are a function of its request alone (a Record and its reproduction from the settings file); 0 = an earlier movie's basis that holds the frame is used (faster in live, a few ADU apart)" },
          { "x", 0, "FOV centre x, world um (XY stage position)" },
          { "y", 0, "FOV centre y, world um" },
          { "z", 0.5, "Z stage: focal-plane height above the coverslip, um (as the ZStage device; it starts at 0.5)" },
-         { "size", 128, "FOV width, pixels (1..4096; the height too unless height is set)" },
-         { "height", 0, "FOV height, pixels (1..4096; 0 = size: a square FOV)" },
+         { "size", 128, "FOV width, pixels (1..4096, up to 16384 in strips; the height too unless height is set)" },
+         { "height", 0, "FOV height, pixels (1..4096, up to 16384 in strips; 0 = size: a square FOV)" },
          { "frames", 1000, "number of frames" },
          { "exposure-ms", 50, "frame duration, ms (simulated time per frame)" },
          { "start-sec", 60, "simulated time of the first frame after the illumination starts, s (60: past the dSTORM initial ON phase, near steady state)" },
@@ -896,12 +898,36 @@ bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err)
    return true;
 }
 
+void ScopeSensorDims(const ScopeSpec& spec, unsigned& w, unsigned& h)
+{
+   // The camera's sensor: up to 4096 x 4096 (MM Camera.SensorWidthPx / SensorHeightPx); height 0 = square. Rendered in
+   // windows (strips), up to kMaxStripFovPx.
+   const double cap = ScopeSpecGet(spec, "window-rows") > 0 ? kMaxStripFovPx : kMaxFovPx;
+   const double size = ScopeSpecGet(spec, "size"), height = ScopeSpecGet(spec, "height");
+   w = static_cast<unsigned>(std::min(cap, std::max(1.0, size)));
+   h = height > 0 ? static_cast<unsigned>(std::min(cap, std::max(1.0, height))) : w;
+}
+
+void ScopeWindowRows(const ScopeSpec& spec, unsigned& y0, unsigned& rows)
+{
+   unsigned w = 0, h = 0;
+   ScopeSensorDims(spec, w, h);
+   const double r = ScopeSpecGet(spec, "window-rows");
+   if (!(r > 0))
+   {
+      y0 = 0;
+      rows = h;
+      return;
+   }
+   y0 = static_cast<unsigned>(std::min(static_cast<double>(h - 1), std::max(0.0, std::floor(ScopeSpecGet(spec, "window-y0")))));
+   rows = static_cast<unsigned>(std::min(static_cast<double>(h - y0), std::max(1.0, std::round(r))));
+}
+
 void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frames)
 {
-   // The camera's sensor: up to 4096 x 4096 (MM Camera.SensorWidthPx / SensorHeightPx); height 0 = square.
-   const double size = ScopeSpecGet(spec, "size"), height = ScopeSpecGet(spec, "height");
-   w = static_cast<unsigned>(std::min(kMaxFovPx, std::max(1.0, size)));
-   h = height > 0 ? static_cast<unsigned>(std::min(kMaxFovPx, std::max(1.0, height))) : w;
+   unsigned y0 = 0;
+   ScopeSensorDims(spec, w, h);
+   ScopeWindowRows(spec, y0, h);
    frames = static_cast<long>(std::min(100000.0, std::max(1.0, ScopeSpecGet(spec, "frames"))));
    if (ScopeSpecGet(spec, "prepare") >= 1)
       frames = 0;   // prepare: the world and the PSF kernel only
@@ -921,6 +947,7 @@ struct NoiseSetup
    PixelGainMap gainMap;
    PixelReadNoiseMap rnMap;
    uint32_t noiseSeed = 0;
+   uint32_t pixelBase = 0;   // a window's first pixel on the sensor (ApplyNoiseChain)
    NoiseSetup(long seed, unsigned W, unsigned H, const SimulationParams& p)
    {
       std::mt19937_64 rng(static_cast<uint64_t>(seed));
@@ -928,6 +955,16 @@ struct NoiseSetup
       gainMap.Generate(W, H, p.gainPhotonsPerAdu, p.pixelGainStdFraction, rng);
       rnMap.Generate(W, H, p.readNoiseElectrons, p.pixelReadNoiseStdFraction, rng);
       noiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x9E3779B9ULL);
+   }
+   // A window (window-rows): the sensor's maps' rows rowY0 .. rowY0 + H - 1, the noise drawn at the sensor's pixels.
+   NoiseSetup(long seed, unsigned W, unsigned H, unsigned sensorH, unsigned rowY0, const SimulationParams& p)
+   {
+      std::mt19937_64 rng(static_cast<uint64_t>(seed));
+      offsetMap.Generate(W, sensorH, p.offsetAdu, p.offsetStdAdu, rng, rowY0, H);
+      gainMap.Generate(W, sensorH, p.gainPhotonsPerAdu, p.pixelGainStdFraction, rng, rowY0, H);
+      rnMap.Generate(W, sensorH, p.readNoiseElectrons, p.pixelReadNoiseStdFraction, rng, rowY0, H);
+      noiseSeed = static_cast<uint32_t>(static_cast<uint64_t>(seed) ^ 0x9E3779B9ULL);
+      pixelBase = rowY0 * W;
    }
 };
 
@@ -1376,8 +1413,7 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
 {
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
    unsigned W = 0, H = 0;
-   long N = 0;
-   ScopeMovieDims(spec, W, H, N);
+   ScopeSensorDims(spec, W, H);   // (a window: the beam is the sensor's)
    ExcitationSpec e;
    e.profile = static_cast<int>(O("illum-profile"));
    e.fwhmPct = std::min(300.0, std::max(10.0, O("illum-fwhm")));
@@ -1639,6 +1675,11 @@ struct ScopeSetup
    SampleSettings cf;
    SampleQuery q;
    unsigned W = 0, H = 0;
+   // A window of the sensor (window-rows; ScopeWindowRows): H of sensorH rows from rowY0; qWhole the whole sensor's
+   // query. No window: sensorH = H, rowY0 = 0, qWhole = q.
+   unsigned sensorH = 0, rowY0 = 0;
+   bool window = false;
+   SampleQuery qWhole;
    long N = 0;
    long seed = 0;
    double expSec = 0.05, t0Sec = 0.0;
@@ -1678,9 +1719,11 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
 
    const long seed = static_cast<long>(O("seed"));
-   unsigned W, H;
+   unsigned W, H, sensorW, sensorH, rowY0, rows;
    long N;
    ScopeMovieDims(spec, W, H, N);
+   ScopeSensorDims(spec, sensorW, sensorH);
+   ScopeWindowRows(spec, rowY0, rows);
    const double expSec = std::max(1e-6, O("exposure-ms") / 1000.0);
    const double t0Sec = std::max(0.0, O("start-sec"));
    const int specimen = ScopeSpecimen(spec);
@@ -1797,7 +1840,8 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    const double um = p.pixelSizeNm / 1000.0, margin = 2.0;
    SampleQuery q;
    q.originXUm = O("x") - W * um / 2;
-   q.originYUm = O("y") - H * um / 2;
+   // (a window: its first row's place on the sensor)
+   q.originYUm = rowY0 > 0 ? O("y") - sensorH * um / 2 + rowY0 * um : O("y") - sensorH * um / 2;
    q.x0Um = q.originXUm - margin;
    q.x1Um = q.originXUm + W * um + margin;
    q.y0Um = q.originYUm - margin;
@@ -1815,6 +1859,14 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
    S.q = q;
    S.W = W;
    S.H = H;
+   S.sensorH = sensorH;
+   S.rowY0 = rowY0;
+   S.window = sensorH != H;
+   // The whole sensor's query (= q without a window): the beads, the regime switches' counts.
+   S.qWhole = q;
+   S.qWhole.originYUm = O("y") - sensorH * um / 2;
+   S.qWhole.y0Um = S.qWhole.originYUm - margin;
+   S.qWhole.y1Um = S.qWhole.originYUm + sensorH * um + margin;
    S.N = N;
    S.seed = seed;
    S.expSec = expSec;
@@ -1845,6 +1897,11 @@ static bool MakeScopeSetup(const ScopeSpec& spec, ScopeSetup& S, std::string& er
       S.q.y1Um -= b.yLo / 1000.0;
       if (S.q.zHalfRangeUm > 0.0)
          S.q.zHalfRangeUm += std::max(-b.zLo, b.zHi) / 1000.0;
+      S.qWhole.x0Um = S.q.x0Um;
+      S.qWhole.x1Um = S.q.x1Um;
+      S.qWhole.y0Um -= b.yHi / 1000.0;
+      S.qWhole.y1Um -= b.yLo / 1000.0;
+      S.qWhole.zHalfRangeUm = S.q.zHalfRangeUm;
    }
    return true;
 }
@@ -3647,6 +3704,7 @@ struct FluorescenceMovie::Impl
    std::vector<Population> pops;
    bool anyBlinks = false;
    double imagerPerFrame = 0, bg = 0, fovArea = 0, zStage = 0;
+   double windowArea = 0;   // the rows rendered (a window's; = fovArea without one)
    std::unique_ptr<FiducialMovie> fid;   // the beads (none: nullptr)
    std::unique_ptr<SlideMovie> slide;    // the fluorescent slide (none: nullptr)
    // A shaped excitation (not Uniform): the factor of a dye state at (xUm,
@@ -3906,7 +3964,9 @@ struct FluorescenceMovie::Impl
          if (ov > 0.0)
             nOn += std::min(ov, 1.0);
       }
-      return nOn / fovArea > S.blinkBinnedDensityPerUm2 || nOn > S.blinkBinnedMaxEmitters;
+      // (a window: its own events per its area, the emitter cap scaled to its share of the sensor -- the one switch a
+      // window decides for itself, docs/dev/LARGE_RECORDS.md; no window: windowArea = fovArea)
+      return nOn / windowArea > S.blinkBinnedDensityPerUm2 || nOn > S.blinkBinnedMaxEmitters * (windowArea / fovArea);
    }
    // Main group gi's blinks of frame f are splatted one by one (neither
    // binned nor mean-field).
@@ -4367,11 +4427,13 @@ void FluorescenceMovie::Impl::Survey(Population& p, double zMin, double zMax)
    const MapClock& mc = mp.s[static_cast<size_t>(st)];
    const Group& g = groups[p.group];
    std::vector<double> zs;
+   // (a window: the whole sensor's raster, so it switches as the whole movie does; positions in the window's frame)
+   const SampleQuery& Q = S.qWhole;
    if (MapZDependent(mp, st))
-      cache.SlabQuantiles(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, st, kSurveyHeights, zs);
+      cache.SlabQuantiles(Q.x0Um, Q.y0Um, Q.x1Um, Q.y1Um, zMin, zMax, st, kSurveyHeights, zs);
    if (zs.empty())
       zs.push_back(S.q.zCullCentreUm);
-   std::vector<double> key = { static_cast<double>(mp.serial), S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, S.q.originXUm,
+   std::vector<double> key = { static_cast<double>(mp.serial), Q.x0Um, Q.y0Um, Q.x1Um, Q.y1Um, S.q.originXUm,
                                S.q.originYUm, static_cast<double>(st), static_cast<double>(p.state), shaped ? 1.0 : 0.0 };
    key.insert(key.end(), zs.begin(), zs.end());
    if (shaped)
@@ -4395,8 +4457,8 @@ void FluorescenceMovie::Impl::Survey(Population& p, double zMin, double zMax)
    {
       sp = MovieCache::SurveyPoints();
       std::vector<double> bd(mc.bound.size());
-      for (double y = S.q.y0Um + kSurveyStepUm / 2; y < S.q.y1Um; y += kSurveyStepUm)
-         for (double x = S.q.x0Um + kSurveyStepUm / 2; x < S.q.x1Um; x += kSurveyStepUm)
+      for (double y = Q.y0Um + kSurveyStepUm / 2; y < Q.y1Um; y += kSurveyStepUm)
+         for (double x = Q.x0Um + kSurveyStepUm / 2; x < Q.x1Um; x += kSurveyStepUm)
             for (double z : zs)
             {
                ++sp.n;
@@ -4640,6 +4702,9 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
          pf->offX = std::round((slot.anchorX - S.q.originXUm) / 0.25) * 0.25;
          pf->offY = std::round((slot.anchorY - S.q.originYUm) / 0.25) * 0.25;
       }
+      // A window of the sensor (a movie in strips): the beam's axis is the sensor's, the scene's is the window's centre.
+      if (S.window)
+         pf->offY += ((S.H - 1) / 2.0 - (S.sensorH - 1) / 2.0 + S.rowY0) * um;
       // Not the focus (exciteKey's last entry: the factor reads world heights), nor the pivot (it follows the focus)
       // unless the beam is tilted: with them every focus step re-made the scene's weights and its bleach basis, 170 ms
       // per z step of a live WideField scrub (2026-10-14). A HILO sheet does move with the focus.
@@ -5109,6 +5174,7 @@ struct BgJob
    std::vector<double> key;   // everything but the focus, and then k
    ExcitationSpec es;
    unsigned W = 0, H = 0;
+   unsigned rowY0 = 0, sensorH = 0;   // a window's first row and the sensor's rows (0: no window); ImagerMap's grid
    double um = 0, axisX = 0, axisY = 0, H0 = 0, expSec = 0, backgroundPhotons = 0;
    std::vector<ImagerSource> sources;
    double nodesPerScale = 3;   // Excitation::ImagerMap's grid (the background's; the slide's finer)
@@ -5117,7 +5183,8 @@ struct BgJob
 BgSlice MakeBgSlice(const BgJob& j)
 {
    const Excitation ex(j.es);
-   const std::vector<double> imMap = ex.ImagerMap(j.W, j.H, j.um, j.axisX, j.axisY, j.H0, j.sources, j.nodesPerScale);
+   const std::vector<double> imMap =
+      ex.ImagerMap(j.W, j.H, j.um, j.axisX, j.axisY, j.H0, j.sources, j.nodesPerScale, j.rowY0, j.sensorH);
    BgSlice s;
    const size_t n = static_cast<size_t>(j.W) * j.H;
    s.lat.resize(n);
@@ -5503,7 +5570,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    m.shaped = !S.excite.Uniform();
    const bool hostMap = history != nullptr && light != nullptr;
    m.axisX = (S.W - 1) / 2.0 * um;
-   m.axisY = (S.H - 1) / 2.0 * um;
+   // (a window: the sensor's centre row, in the window's frame)
+   m.axisY = S.window ? ((S.sensorH - 1) / 2.0 - S.rowY0) * um : (S.H - 1) / 2.0 * um;
    {
       const ExcitationSpec es = ScopeExcitationSpec(spec);
       // (The pivot at kExciteKeyPivot, the focus last: the plane factor's key leaves the focus out.)
@@ -5575,7 +5643,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // movie mean-field throughout queries none. Not for a map's light-driven
    // clock under drift (its weighted scene does not follow the drift; a GLOBAL
    // clock, the same everywhere, renders unweighted).
-   m.fovArea = S.W * S.H * um * um;
+   m.fovArea = S.W * S.sensorH * um * um;
+   m.windowArea = S.W * S.H * um * um;
    bool queryBlinks = false;
    const bool blinkMfPossible = S.blinkMeanFieldDensityPerUm2 < 1e9 || S.blinkMeanFieldMaxEmitters < 1e9;
    for (Group& g : m.groups)
@@ -5590,10 +5659,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          const double focus = S.q.zCullCentreUm, slabHalf = S.meanFieldSlabNm / 2000;
          const double zMin = S.q.zHalfRangeUm > 0 ? focus - S.q.zHalfRangeUm : -inf;
          const double zMax = S.q.zHalfRangeUm > 0 ? focus + S.q.zHalfRangeUm : inf;
-         const double ox = S.q.originXUm, oy = S.q.originYUm;
+         // (counted over the whole sensor: a window switches as the whole movie does)
+         const SampleQuery& Q = S.qWhole;
+         const double ox = Q.originXUm, oy = Q.originYUm;
          const double sLo = std::max(zMin, focus - slabHalf), sHi = std::min(zMax, focus + slabHalf);
-         g.nZ = m.cache.CountSlab(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << g.structure);
-         g.nSlab = sHi > sLo ? m.cache.CountSlab(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << g.structure) : 0;
+         g.nZ = m.cache.CountSlab(Q.x0Um, Q.y0Um, Q.x1Um, Q.y1Um, zMin, zMax, 1 << g.structure);
+         g.nSlab = sHi > sLo ? m.cache.CountSlab(ox, oy, ox + S.W * um, oy + S.sensorH * um, sLo, sHi, 1 << g.structure) : 0;
          if (g.nZ < 0 || g.nSlab < 0)
          {
             err = "cell-field dye count failed";
@@ -5607,8 +5678,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             const MapClock& mc = m.map->s[static_cast<size_t>(g.structure)];
             std::vector<double> bd(mc.bound.size());
             double a = 0, b = 0;
-            ClockPairAt(*m.map, g.structure, true, S.q.originXUm + (S.W - 1) * um / 2,
-                        S.q.originYUm + (S.H - 1) * um / 2, focus, a, b, bd.data());
+            ClockPairAt(*m.map, g.structure, true, S.qWhole.originXUm + (S.W - 1) * um / 2,
+                        S.qWhole.originYUm + (S.sensorH - 1) * um / 2, focus, a, b, bd.data());
             BlinkClockAt(mc, a, b, bd.data(), S.t0Sec, g.refClock, g.refRate, g.refSegs);
          }
          else
@@ -5717,7 +5788,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    {
       const auto tFid = TimingClock::now();
       std::vector<double> rows;
-      if (!source.Fiducials(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, rows))
+      // (a window: every bead of the sensor -- a bead's halo reaches across the field)
+      if (!source.Fiducials(S.qWhole.x0Um, S.qWhole.y0Um, S.qWhole.x1Um, S.qWhole.y1Um, rows))
       {
          err = "fiducial query failed";
          return false;
@@ -5851,7 +5923,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             hr.nz = F.kernel.nz;   // the bead kernel's planes (BeadKernel::Splat takes a halo of as many)
             hr.zStepNm = F.kernel.zStepNm;
             hr.oversampling = 1;
-            hr.kernelHalfWidthPx = BeadHaloHalfWidthPx(S.W, S.H, pixelNm,
+            hr.kernelHalfWidthPx = BeadHaloHalfWidthPx(S.W, S.sensorH, pixelNm,
                                                        F.kernel.halfWidthOversampled / std::max(1, F.kernel.oversampling));
             const auto tHalo = TimingClock::now();
             if (!BeadHaloFor(hr, F.halo, psfErr))
@@ -5911,7 +5983,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // nZ in the query rect and z range, nSlab in the FOV within the focal slab.
    const double inf = std::numeric_limits<double>::infinity();
    const double focus = S.q.zCullCentreUm, slabHalf = S.meanFieldSlabNm / 2000;
-   m.fovArea = S.W * S.H * um * um;
+   m.fovArea = S.W * S.sensorH * um * um;
    const double zMin = S.q.zHalfRangeUm > 0 ? focus - S.q.zHalfRangeUm : -inf;
    const double zMax = S.q.zHalfRangeUm > 0 ? focus + S.q.zHalfRangeUm : inf;
    m.pops.clear();
@@ -5930,10 +6002,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          states.push_back(ISC_STATE_PRE);
       if (states.empty())
          continue;
-      const double ox = S.q.originXUm, oy = S.q.originYUm;
-      const long nZ = m.cache.CountSlab(S.q.x0Um, S.q.y0Um, S.q.x1Um, S.q.y1Um, zMin, zMax, 1 << s);
+      // (over the whole sensor: a window switches as the whole movie does)
+      const SampleQuery& Q = S.qWhole;
+      const double ox = Q.originXUm, oy = Q.originYUm;
+      const long nZ = m.cache.CountSlab(Q.x0Um, Q.y0Um, Q.x1Um, Q.y1Um, zMin, zMax, 1 << s);
       const double sLo = std::max(zMin, focus - slabHalf), sHi = std::min(zMax, focus + slabHalf);
-      const long nSlab = sHi > sLo ? m.cache.CountSlab(ox, oy, ox + S.W * um, oy + S.H * um, sLo, sHi, 1 << s) : 0;
+      const long nSlab = sHi > sLo ? m.cache.CountSlab(ox, oy, ox + S.W * um, oy + S.sensorH * um, sLo, sHi, 1 << s) : 0;
       if (nZ < 0 || nSlab < 0)
       {
          err = "cell-field dye count failed";
@@ -6111,6 +6185,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                const BlinkEvent& e = windows[wi];
                if (e.structure != p.structure || e.state != p.state)
                   continue;
+               if (!gt->window.Owns(e.yUm * 1000.0 / S.p.pixelSizeNm))
+                  continue;   // (a strip's: another strip's dye)
                GroundTruth::Dye d;
                d.label = label;
                d.id = e.id;
@@ -6245,6 +6321,11 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       job.es = ScopeExcitationSpec(spec);
       job.W = S.W;
       job.H = S.H;
+      if (S.window)
+      {
+         job.rowY0 = S.rowY0;
+         job.sensorH = S.sensorH;
+      }
       job.um = um;
       job.axisX = m.axisX;
       job.axisY = m.axisY;
@@ -6268,6 +6349,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
             job.key.push_back(l.nm);
             job.key.push_back(l.share);
          }
+      }
+      if (S.window)   // (a window's slice: the sensor's grid, its rows)
+      {
+         job.key.push_back(-1.0);
+         job.key.push_back(job.rowY0);
+         job.key.push_back(job.sensorH);
       }
       std::vector<double> im, lat;
       BlendedBgSlice(job, im, lat);
@@ -6325,6 +6412,11 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                job.es = ScopeExcitationSpec(spec);
                job.W = S.W;
                job.H = S.H;
+               if (S.window)
+               {
+                  job.rowY0 = S.rowY0;
+                  job.sensorH = S.sensorH;
+               }
                job.um = um;
                job.axisX = m.axisX;
                job.axisY = m.axisY;
@@ -6341,6 +6433,12 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                {
                   job.key.push_back(l.nm);
                   job.key.push_back(l.share);
+               }
+               if (S.window)
+               {
+                  job.key.push_back(-1.0);
+                  job.key.push_back(job.rowY0);
+                  job.key.push_back(job.sensorH);
                }
                std::vector<double> lat;
                BlendedBgSlice(job, map, lat);
@@ -6586,11 +6684,11 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                     "exposure_ms=%g start_sec=%g frames=%ld focus_um=%g lasers=",
                     S.seed, S.cf.seed, O("x"), O("y"), O("z"), W, pixelNm, S.expSec * 1000, S.t0Sec, N, O("focus-um"));
       d = b;
-      if (H != W)
+      if (S.sensorH != W)
       {
-         // A non-square FOV (a square one's description is as before).
+         // A non-square FOV (a square one's description is as before; a window's: the sensor's).
          const size_t at = d.find(" pixel_nm=");
-         std::snprintf(b, sizeof b, " height=%u", H);
+         std::snprintf(b, sizeof b, " height=%u", S.sensorH);
          d.insert(at, b);
       }
       for (size_t l = 0; l < S.lp.lasers.size(); ++l)
@@ -6670,7 +6768,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    const bool noPixels = !opt.onPhotons && ActiveGroundTruth() && ActiveGroundTruth()->framesUnused;
    std::unique_ptr<NoiseSetup> noisePtr;
    if (!opt.onPhotons && !noPixels)
-      noisePtr.reset(new NoiseSetup(S.seed, W, H, S.p));
+      noisePtr.reset(S.window ? new NoiseSetup(S.seed, W, H, S.sensorH, S.rowY0, S.p) : new NoiseSetup(S.seed, W, H, S.p));
    const CameraNoiseParams cam = S.p.Camera();
    TimingSum tBlinks, tPops, tNoise, tWrite;
    double tFid = 0;   // the beads' part of tPops
@@ -7059,7 +7157,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                fr.patternAngle = static_cast<int>(info.patternStates[3 * static_cast<size_t>(f)]);
                fr.patternPhase = static_cast<int>(info.patternStates[3 * static_cast<size_t>(f) + 1]);
             }
-            gt->frames.push_back(fr);
+            if (gt->window.frames)   // (a movie in strips: the first strip's)
+               gt->frames.push_back(fr);
             gt->frameBase = gtBase + f + 1;   // (the next movie's frames follow this one's)
             // The frame's non-blink light: the frame before its blinks, with its continuous light and no beads.
             const std::vector<float>& gtBg = gtOther[static_cast<size_t>(k)];
@@ -7093,6 +7192,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   if (one.empty())
                      continue;
                   const FrameEmitter& em = one[0];
+                  if (!gt->window.Owns(em.yPx))
+                     continue;   // (a movie in strips: another strip's)
                   if (!binned && (em.photons < m.S.blinkMinPhotons || em.photons <= 0))
                      continue;   // not drawn (blink-min-photons)
                   if (em.photons < gt->minCorePhotons)
@@ -7115,7 +7216,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   r.yUm = e.yUm + S.q.originYUm;
                   r.zUm = e.zNm / 1000.0 + S.q.zRefUm;
                   r.xPx = em.xPx;
-                  r.yPx = em.yPx;
+                  r.yPx = em.yPx + gt->window.rowY0;
                   r.zFocusNm = e.zNm - zf * 1000.0;
                   r.onFraction = em.overlap;
                   r.detected = em.photons;
@@ -7151,6 +7252,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   const double ph = phs[b];
                   if (!(ph >= gt->minCorePhotons))
                      continue;
+                  if (!gt->window.Owns(e.yUm * 1000.0 / pixelNm + gdy))
+                     continue;   // (a movie in strips: another strip's)
                   GtBeadFp& bf = gtBeadFp[c][b];
                   const double xPx = e.xUm * 1000.0 / pixelNm + gdx, yPx = e.yUm * 1000.0 / pixelNm + gdy;
                   if (!(bf.zf == zf && bf.dx == gdx && bf.dy == gdy))
@@ -7172,7 +7275,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                   r.yUm = e.yUm + S.q.originYUm;
                   r.zUm = e.zNm / 1000.0 + S.q.zRefUm;
                   r.xPx = xPx;
-                  r.yPx = yPx;
+                  r.yPx = yPx + gt->window.rowY0;
                   r.zFocusNm = e.zNm - zf * 1000.0;
                   r.detected = ph;
                   r.onCamera = ph * fp.onCamera;
@@ -7201,7 +7304,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
       else if (!opt.onPhotons)
          ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
             ApplyNoiseChain(photons[k], adu[k], W, H, cam, noisePtr->offsetMap, noisePtr->gainMap, noisePtr->rnMap,
-                            noisePtr->noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)));
+                            noisePtr->noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)), false, noisePtr->pixelBase);
          });
       tNoise.Stop();
       tWrite.Start();
@@ -7345,7 +7448,8 @@ static void GroundTruthPlainFrame(const ScopeSetup& S, const ScopeSpec& spec, lo
    }
    fr.focusUm = z;
    fr.focusWorldUm = S.q.zRefUm + zf;
-   gt->frames.push_back(fr);
+   if (gt->window.frames)   // (a movie in strips: the first strip's)
+      gt->frames.push_back(fr);
    gt->frameBase++;
 }
 // Whether the thread's ground truth drops the frames (GroundTruth::framesUnused).
@@ -7435,7 +7539,7 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
                  bs.absorptionPerUm, flux, p.drift.xyNmPerSqrtSec, p.drift.zNmPerSqrtSec);
    info.description = desc;
    DriftInfo(S, info);
-   NoiseSetup noise(S.seed, W, H, p);
+   const NoiseSetup noise = S.window ? NoiseSetup(S.seed, W, H, S.sensorH, S.rowY0, p) : NoiseSetup(S.seed, W, H, p);
    std::vector<uint16_t> adu;
    TimingSum tNoise, tWrite;
    for (long f = 0; f < N; f++)
@@ -7443,7 +7547,7 @@ static bool BrightfieldFrames(const ScopeSpec& spec, const ScopeSetup& S, const 
       const std::vector<float>& photons = lamp.At(scene, S, f);
       tNoise.Start();
       ApplyNoiseChain(photons, adu, W, H, p.Camera(), noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
-                      static_cast<uint32_t>(f));
+                      static_cast<uint32_t>(f), false, noise.pixelBase);
       tNoise.Stop();
       tWrite.Start();
       GroundTruthPlainFrame(S, spec, f);
@@ -8102,7 +8206,7 @@ static bool RenderDarkMovie(const ScopeSpec& spec, const std::function<bool(long
    const bool noPixels = GroundTruthNoPixels();
    std::unique_ptr<NoiseSetup> noise;
    if (!noPixels)
-      noise.reset(new NoiseSetup(S.seed, S.W, S.H, S.p));
+      noise.reset(S.window ? new NoiseSetup(S.seed, S.W, S.H, S.sensorH, S.rowY0, S.p) : new NoiseSetup(S.seed, S.W, S.H, S.p));
    const std::vector<float> photons(static_cast<size_t>(S.W) * S.H, 0.0f);
    std::vector<uint16_t> adu;
    if (noPixels)
@@ -8111,7 +8215,7 @@ static bool RenderDarkMovie(const ScopeSpec& spec, const std::function<bool(long
    {
       if (!noPixels)
          ApplyNoiseChain(photons, adu, S.W, S.H, S.p.Camera(), noise->offsetMap, noise->gainMap, noise->rnMap,
-                         noise->noiseSeed, static_cast<uint32_t>(f));
+                         noise->noiseSeed, static_cast<uint32_t>(f), false, noise->pixelBase);
       GroundTruthPlainFrame(S, spec, f);
       if (!onFrame(f, adu))
          break;
@@ -8144,7 +8248,7 @@ static bool RenderCombinedMovie(const ScopeSpec& spec,
    if (!lamp.Begin(spec, S, cache.brightfield, err))
       return false;
    const double qeLamp = SampleAt(S.lp.qe, ScopeSpecGet(spec, "bf-wavelength-nm"));
-   NoiseSetup noise(S.seed, S.W, S.H, S.p);
+   const NoiseSetup noise = S.window ? NoiseSetup(S.seed, S.W, S.H, S.sensorH, S.rowY0, S.p) : NoiseSetup(S.seed, S.W, S.H, S.p);
    const CameraNoiseParams cam = S.p.Camera();
    std::vector<float> sum;
    std::vector<uint16_t> adu;
@@ -8155,7 +8259,7 @@ static bool RenderCombinedMovie(const ScopeSpec& spec,
       for (size_t i = 0; i < fl.size(); ++i)
          sum[i] = fl[i] + static_cast<float>(bf[i] * qeLamp);
       ApplyNoiseChain(sum, adu, S.W, S.H, cam, noise.offsetMap, noise.gainMap, noise.rnMap, noise.noiseSeed,
-                      static_cast<uint32_t>(f));
+                      static_cast<uint32_t>(f), false, noise.pixelBase);
       return onFrame(f, adu);
    };
    if (!fm.Render(onFrame, info, err, progress, &opt))
@@ -8373,6 +8477,144 @@ bool RenderScopePhotons(const ScopeSpec& spec, const ScopePhotonSink& onPhotons,
    FluorescenceFrameOptions opt;
    opt.onPhotons = onPhotons;
    return fm.Begin(spec, false, err, nullptr, hist, light) && fm.Render(noFrames, info, err, progress, &opt);
+}
+
+// ---- a movie in strips (ScopeMovie.h) ----
+
+unsigned ScopeStripMarginPx(const ScopeSpec& spec)
+{
+   auto O = [&](const char* n) { return ScopeSpecGet(spec, n); };
+   const double um = std::max(1e-3, O("pixel-nm") / 1000.0);
+   // The farthest a light reaches into a strip from outside it: a blink's or a per-dye splat's kernel, the mean
+   // field's kernel, the 500 nm core box of the ground truth; plus the drift's xy range.
+   double reach = std::max(O("psf-kernel-half-width-nm") / 1000.0, O("wf-kernel-um")) + 0.5;
+   ScopeSetup S;
+   std::string err;
+   if (MakeScopeSetup(spec, S, err) && S.driftOn)
+      reach += S.driftRange.MaxXyNm() / 1000.0;
+   return static_cast<unsigned>(std::ceil(reach / um)) + 2;
+}
+
+unsigned ScopeStripRows(const ScopeSpec& spec, int framesInFlight, double budgetBytes)
+{
+   unsigned W = 0, H = 0;
+   ScopeSpec whole = spec;
+   whole.erase("window-y0");
+   whole["window-rows"] = 1;   // (the strips' sensor cap)
+   ScopeSensorDims(whole, W, H);
+   whole.erase("window-rows");
+   double budget = budgetBytes > 0 ? budgetBytes : MemoryBudgetBytes();
+#if defined(__EMSCRIPTEN__)
+   if (!(budget > 0))
+      budget = 2.5 * 1073741824.0;   // (the viewer module's heap is 4 GB; the browser's rest)
+#endif
+   const unsigned m = ScopeStripMarginPx(whole), least = std::min(H, std::max(64u, 4 * m));
+   if (!(budget > 0))
+      return H;
+   for (unsigned rows = H;; rows = (rows + 1) / 2)
+   {
+      if (rows <= least)
+         return least;
+      ScopeSpec w = whole;
+      w["window-y0"] = 0;
+      w["window-rows"] = std::min(H, rows + 2 * m);
+      ScopeMemoryEstimate est;
+      std::string err;
+      if (!(budget > 0) || (EstimateScopeMemory(w, framesInFlight, est, err) && est.Total() <= budget))
+         return rows;
+   }
+}
+
+bool ScopeNeedsStrips(const ScopeSpec& spec, int framesInFlight, double budgetBytes)
+{
+   ScopeSpec whole = spec;
+   whole.erase("window-y0");
+   whole["window-rows"] = 1;
+   unsigned W = 0, H = 0;
+   ScopeSensorDims(whole, W, H);
+   if (W > kMaxFovPx || H > kMaxFovPx)
+      return true;
+   whole.erase("window-rows");
+   return ScopeStripRows(whole, framesInFlight, budgetBytes) < H;
+}
+
+bool RenderScopeMovieStrips(const ScopeSpec& spec, unsigned stripRows, const ScopeRows& onRows, ScopeMovieInfo& info,
+                            std::string& err, const ScopeProgress* progress)
+{
+   if (ScopeSpecGet(spec, "window-rows") > 0)
+   {
+      err = "a movie in strips makes its own windows (window-rows is set)";
+      return false;
+   }
+   ScopeSpec whole = spec;
+   whole["window-rows"] = 1;   // (the strips' sensor cap: kMaxStripFovPx)
+   unsigned W = 0, H = 0;
+   ScopeSensorDims(whole, W, H);
+   whole.erase("window-rows");
+   const unsigned rows = stripRows > 0 ? std::min(stripRows, H) : ScopeStripRows(whole, 32);
+   const unsigned m = ScopeStripMarginPx(whole);
+   const unsigned strips = (H + rows - 1) / rows;
+   GroundTruth* const gt = ActiveGroundTruth();
+   const long gtBase = gt ? gt->frameBase : 0;
+   const size_t gtFrom = gt ? gt->emitters.size() : 0;
+   const GroundTruth::Window gtWas = gt ? gt->window : GroundTruth::Window();
+   const auto t0 = std::chrono::steady_clock::now();
+   bool ok = true, stopped = false;
+   for (unsigned s = 0; s < strips && ok && !stopped; ++s)
+   {
+      const unsigned y0 = s * rows, y1 = std::min(H, y0 + rows);
+      const unsigned wy0 = y0 > m ? y0 - m : 0, wy1 = std::min(H, y1 + m);
+      ScopeSpec w = spec;
+      w["window-y0"] = wy0;
+      w["window-rows"] = wy1 - wy0;
+      if (gt)
+      {
+         gt->frameBase = gtBase;   // (every strip's frames are the movie's)
+         gt->window.on = true;
+         gt->window.frames = s == 0;
+         gt->window.rowY0 = wy0;
+         gt->window.ownY0 = s == 0 ? -std::numeric_limits<double>::infinity() : static_cast<double>(y0 - wy0);
+         gt->window.ownY1 = s + 1 == strips ? std::numeric_limits<double>::infinity() : static_cast<double>(y1 - wy0);
+      }
+      ScopeProgress stripProgress;
+      if (progress)
+         stripProgress = [&](const char* stage, double frac, const std::string& detail) {
+            (*progress)(stage, (s + std::max(0.0, std::min(1.0, frac))) / strips, detail);
+         };
+      ScopeMovieInfo si;
+      const unsigned skip = y0 - wy0, n = y1 - y0;
+      ok = RenderScopeMovie(
+         w,
+         [&](long f, const std::vector<uint16_t>& adu) {
+            if (s == 0 && f == 0)
+            {
+               info = si;   // (the description, before the first rows: a host writes it with them)
+               info.height = H;
+            }
+            if (!onRows(f, y0, n, adu.data() + static_cast<size_t>(skip) * W))
+            {
+               stopped = true;
+               return false;
+            }
+            return true;
+         },
+         si, err, progress ? &stripProgress : nullptr);
+      if (s == 0)
+         info = si;
+      else
+         info.blinks += si.blinks;
+   }
+   if (gt)
+   {
+      gt->window = gtWas;
+      gt->frameBase = gtBase + info.frames;
+      // frame-major (each strip's rows in frame order, the strips in order within a frame)
+      std::stable_sort(gt->emitters.begin() + static_cast<std::ptrdiff_t>(gtFrom), gt->emitters.end(),
+                       [](const GroundTruth::Emitter& a, const GroundTruth::Emitter& b) { return a.frame < b.frame; });
+   }
+   info.height = H;
+   info.totalSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+   return ok;
 }
 
 } // namespace sim

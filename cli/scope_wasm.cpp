@@ -52,10 +52,18 @@ EM_JS(int, isc_js_movie_frame, (const uint16_t* px, double n, double f), {
    const p = (px >>> 0) / 2;
    return Module.onMovieFrame(f, HEAPU16.subarray(p, p + n)) ? 1 : 0;
 });
+// A movie in strips (isc_movie_strips): Module.onMovieRows(f, y0, rows, pixels) gets frame f's sensor rows y0 ..
+// y0 + rows - 1 (a view, rows x width samples: copied before the next call), strip by strip; false stops.
+EM_JS(int, isc_js_movie_rows, (const uint16_t* px, double n, double f, double y0, double rows), {
+   if (!Module.onMovieRows) return 0;
+   const p = (px >>> 0) / 2;
+   return Module.onMovieRows(f, y0, rows, HEAPU16.subarray(p, p + n)) ? 1 : 0;
+});
 #else
 static void isc_js_movie_progress(const char*, double, const char*) {}
 static int isc_js_gt_file(const char*, const char*, double) { return 0; }
 static int isc_js_movie_frame(const uint16_t*, double, double) { return 1; }
+static int isc_js_movie_rows(const uint16_t*, double, double, double, double) { return 1; }
 #endif
 
 namespace {
@@ -142,6 +150,43 @@ ISC_API void isc_timing(int32_t on) { sim::TimingForced() = on != 0; }
 // call.
 static bool g_streamFrames = false;
 ISC_API void isc_movie_stream(int32_t on) { g_streamFrames = on != 0; }
+// A streamed isc_scope_movie in strips (2026-11-20, docs/dev/LARGE_RECORDS.md part B; ScopeMovie.h
+// RenderScopeMovieStrips): 0 the whole movie (as before), -1 strips when the movie needs them (a side past 4096 px or
+// the field past the memory budget: ScopeNeedsStrips; the height from ScopeStripRows), n > 0 strips of n rows. The
+// rows go to Module.onMovieRows. The page sets it around one call.
+static int32_t g_stripRows = 0;
+ISC_API void isc_movie_strips(int32_t rows) { g_stripRows = rows; }
+
+// The frames a movie in flight holds (ScopeMovie's batches, as the cli's).
+static int StripFramesInFlight(long n) { return static_cast<int>(std::max(1L, std::min(n, 32L))); }
+
+// How a movie of `spec` would render (the Record box's estimate): out[0..3] = the sensor's width and height (up to
+// 16384 in strips), the strip height (= the height: the whole movie), the margin rows each strip renders on each side.
+// rows as isc_movie_strips. 0, or -1 on a bad spec.
+ISC_API int32_t isc_movie_plan(const char* spec, int32_t rows, int32_t* out)
+{
+   try {
+      sim::ScopeSpec s;
+      std::string err;
+      if (!spec || !sim::ParseScopeSpec(spec, s, err)) return -1;
+      unsigned w = 0, h = 0;
+      long n = 0;
+      sim::ScopeMovieDims(s, w, h, n);
+      const int inFlight = StripFramesInFlight(n);
+      unsigned strip = h;
+      if (rows > 0 || (rows < 0 && sim::ScopeNeedsStrips(s, inFlight)))
+      {
+         sim::ScopeSpec sensor = s;
+         sensor["window-rows"] = 1;
+         sim::ScopeSensorDims(sensor, w, h);
+         strip = rows > 0 ? std::min(static_cast<unsigned>(rows), h) : sim::ScopeStripRows(s, inFlight);
+      }
+      if (out) { out[0] = (int32_t)w; out[1] = (int32_t)h; out[2] = (int32_t)strip; out[3] = (int32_t)sim::ScopeStripMarginPx(s); }
+      return 0;
+   } catch (...) {
+      return -1;
+   }
+}
 
 // Named options, one per line: name \t default (%.17g) \t help \t part (ScopeOptionPart: instrument, settings, sample,
 // measurement, host) \t the names its value may be given by, separated by '|' (empty: a number). Returns the length
@@ -202,18 +247,30 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
       unsigned w, h;
       long n;
       sim::ScopeMovieDims(s, w, h, n);
-      const double need = static_cast<double>(w) * h * n;
       const bool stream = g_streamFrames;
+      unsigned stripRows = 0;
+      if (stream && (g_stripRows > 0 || (g_stripRows < 0 && sim::ScopeNeedsStrips(s, StripFramesInFlight(n)))))
+      {
+         sim::ScopeSpec sensor = s;
+         sensor["window-rows"] = 1;   // (the strips' sensor cap)
+         sim::ScopeSensorDims(sensor, w, h);
+         stripRows = g_stripRows > 0 ? std::min(static_cast<unsigned>(g_stripRows), h) : sim::ScopeStripRows(s, StripFramesInFlight(n));
+      }
+      const double need = static_cast<double>(w) * h * n;
       if (need > 2.0e9 && !stream) return fail("movie too large");
       if (info) { info[0] = (int32_t)w; info[1] = (int32_t)h; info[2] = (int32_t)n; info[3] = info[4] = info[5] = 0; }
       if (!stream && (!out || capPixels < need)) return static_cast<int32_t>(need);
       sim::ScopeMovieInfo mi;
       Progress prog;
-      const bool ok = sim::RenderScopeMovie(s, [&](long f, const std::vector<uint16_t>& adu) {
-         if (stream) return isc_js_movie_frame(adu.data(), static_cast<double>(adu.size()), static_cast<double>(f)) != 0;
-         std::memcpy(out + static_cast<size_t>(f) * w * h, adu.data(), adu.size() * 2);
-         return true;
-      }, mi, err, &prog.fn);
+      const bool ok = stripRows
+         ? sim::RenderScopeMovieStrips(s, stripRows, [&](long f, unsigned y0, unsigned rows, const uint16_t* px) {
+              return isc_js_movie_rows(px, static_cast<double>(rows) * w, static_cast<double>(f), y0, rows) != 0;
+           }, mi, err, &prog.fn)
+         : sim::RenderScopeMovie(s, [&](long f, const std::vector<uint16_t>& adu) {
+              if (stream) return isc_js_movie_frame(adu.data(), static_cast<double>(adu.size()), static_cast<double>(f)) != 0;
+              std::memcpy(out + static_cast<size_t>(f) * w * h, adu.data(), adu.size() * 2);
+              return true;
+           }, mi, err, &prog.fn);
       if (!ok) return fail(err);
       if (info) {
          info[3] = static_cast<int32_t>(mi.blinks);
@@ -711,6 +768,41 @@ ISC_API int32_t isc_scope_gt_run(const char* settingsJson, double runMin, int32_
       settings::MovieRun run;
       bool filesSaid = false;
       isc_js_movie_progress("setup", 0, "");
+      // A fresh sample that needs strips (a large field, isc_movie_strips' rule): rendered in strips, each strip's
+      // ground truth (GroundTruth::Window).
+      unsigned stripRows = 0, strips = 1;
+      if (loaded.recordFrom < 0 && loaded.history.empty() && g_stripRows != 0 &&
+          (g_stripRows > 0 || sim::ScopeNeedsStrips(loaded.spec, StripFramesInFlight(total))))
+      {
+         sim::ScopeSpec sensor = loaded.spec;
+         sensor["window-rows"] = 1;
+         unsigned w = 0, h = 0;
+         sim::ScopeSensorDims(sensor, w, h);
+         stripRows = g_stripRows > 0 ? std::min(static_cast<unsigned>(g_stripRows), h) : sim::ScopeStripRows(loaded.spec, StripFramesInFlight(total));
+         strips = (h + stripRows - 1) / stripRows;
+      }
+      if (stripRows)
+      {
+         sim::GroundTruthScope scope(&gt);
+         Progress pr;
+         long calls = 0;
+         sim::ScopeMovieInfo mi;
+         const double all = static_cast<double>(std::max(1L, total)) * strips;
+         if (!sim::RenderScopeMovieStrips(loaded.spec, stripRows, [&](long, unsigned, unsigned, const uint16_t*) {
+                const double frac = std::min(1.0, ++calls / all);
+                if (frac < 1)
+                   pr.fn("ground truth", frac, "{\"frame\":" + std::to_string(static_cast<long>(frac * total)) +
+                                                  ",\"frames\":" + std::to_string(total) + "}");
+                else if (!filesSaid)
+                {
+                   isc_js_movie_progress("files", 1, "");
+                   filesSaid = true;
+                }
+                return true;
+             }, mi, g_gtErr))
+            return -1;
+      }
+      else
       {
          sim::GroundTruthScope scope(&gt);
          Progress pr;

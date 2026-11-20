@@ -155,7 +155,10 @@ sample's next frames, the ones the viewer would take next.
 
 Large movies: `--estimate 1` prints what a movie would take and stops (its size, the TIFF's bytes, the memory estimate
 against this machine's budget, the free disk space). A movie that does not fit on the disk is refused before it
-renders; one over the memory budget renders with a warning. A TIFF past 4 GB is written as a **BigTIFF** (64-bit
+renders. One over the memory budget, or with a side past 4096 px (up to 16384), renders in **strips**: all frames of
+the top rows, then of the next rows, ..., so the memory is that of a strip (`--strip-rows n` sets the strip height,
+`-1` turns strips off). The frames are those of the movie rendered whole (blinks and beads to the last bit, WideField
+and BrightField within rounding). A TIFF past 4 GB is written as a **BigTIFF** (64-bit
 offsets; `--bigtiff 1` forces it): open it in Fiji with Bio-Formats, in napari or with tifffile, as plain ImageJ cannot.
 Below 4 GB the TIFF is the classic one. (Before 2026-11-19 a TIFF past 2 GB was written with broken offsets on
 Windows: only its first ~2 GB of frames could be read.)
