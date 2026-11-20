@@ -986,7 +986,40 @@ function recField() {
   const w = side($('lv_recW').value) || live, h = side($('lv_recH').value) || w;
   return { w, h, live, larger: !$('lv_recLive').checked && (w !== live || h !== live) };
 }
+// What stops a Record before it starts, said in the box (lv_recMsg) as the numbers are typed, and again when Start is
+// refused (recRefused: the box reopens with the reason; the info line alone was easy to miss): the frames past the
+// room the browser gives this page's disk storage (recRoom, asked when the box opens), a field past 4096 px without it.
+let recRoom = null;
+const recBytes = () => {
+  const f = recField(), live = $('lv_recLive').checked, w = live ? f.live : f.w, h = live ? f.live : f.h;
+  return { w, h, n: Math.max(1, Math.round(+$('lv_recN').value || 0)), bytes: Math.max(1, Math.round(+$('lv_recN').value || 0)) * w * h * 2 };
+};
+const gbText = b => (b / 1e9 < 0.1 ? (b / 1e9).toFixed(3) : (b / 1e9).toFixed(1)) + ' GB';
+function recProblem(room = recRoom) {
+  const { w, h, n, bytes } = recBytes(), disk = DISK.ok && $('lv_recDisk').checked;
+  if (!disk && Math.max(w, h) > REC_WHOLE_SIDE)
+    return `A field past ${REC_WHOLE_SIDE} px renders in strips, which write to the disk storage: tick "write frames to disk"` +
+      (DISK.ok ? '.' : ' (this browser offers no disk storage to this page).');
+  if (disk && room !== null && bytes > room)
+    return `Not enough disk storage: ${n} frames of ${w} × ${h} px are ${gbText(bytes)}, this browser lets the page store ` +
+      `${gbText(room)} (at most ${Math.floor(room / (w * h * 2))} frames of this field). Record fewer frames or a smaller ` +
+      'field, or free disk space (the browser\'s share grows with it).';
+  return '';
+}
+function syncRecMsg(text = recProblem()) {
+  const m = $('lv_recMsg');
+  m.textContent = text;
+  m.hidden = !text;
+}
+function recRefused(text) {
+  REC.msg = 'not recorded: ' + text;
+  showInfo();
+  $('lv_recPop').hidden = false;
+  syncRecField();
+  syncRecMsg(text);
+}
 function syncRecField() {
+  syncRecMsg();
   const f = recField(), note = $('lv_recFieldNote'), open = !$('lv_recPop').hidden;
   $('lv_recW').placeholder = $('lv_recH').placeholder = String(f.live);
   self.ISC_REC_FIELD = open && f.larger ? { w: f.w, h: f.h } : null;
@@ -1092,26 +1125,20 @@ async function startRec() {
   const bytes = n * fw * fh * 2, gb = bytes / 1e9;
   // the frames to the disk storage: room for them (the saved .tif or .zip is a Blob of the same file)
   let disk = DISK.ok && $('lv_recDisk').checked ? { dir: DISK.newDir() } : null;
-  if (!disk && Math.max(fw, fh) > REC_WHOLE_SIDE) {
-    REC.msg = `not recorded: a field past ${REC_WHOLE_SIDE} px renders in strips, which write to the disk storage ` +
-      '(tick "write frames to disk"' + (DISK.ok ? ')' : '; this browser offers no disk storage to this page)');
-    showInfo();
-    return;
-  }
+  const early = recProblem(null);   // (the field; the room is asked below)
+  if (early) { recRefused(early); return; }
   if (disk) {
     REC.starting = true;
+    let refused = '';
     try {
       await DISK.sweep(PLAY.disk ? [PLAY.disk.dir] : []);   // (the recording shown stays: a download may read it)
-      const room = await DISK.room();
-      if (bytes > room) {
-        REC.msg = `not recorded: ${gb.toFixed(1)} GB of frames, the browser lets this page store ${(room / 1e9).toFixed(1)} GB more ` +
-          '(free disk space, or untick "write frames to disk" to keep them in memory)';
-        showInfo();
-        return;
-      }
+      recRoom = await DISK.room();
+      refused = recProblem(recRoom);
     } catch (e) { disk = null; }
     finally { REC.starting = false; }
+    if (refused) { recRefused(refused); return; }
   }
+  syncRecMsg('');
   closePlayer();
   Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n, got: 0, store: null, disk, diskFrames: 0,
     field: $('lv_recLive').checked || !field.larger ? null : { size: fw, height: fh },
@@ -1475,6 +1502,7 @@ $('lv_playSave').addEventListener('click', openSave);
 const recPop = (open) => {
   $('lv_recPop').hidden = !open;
   syncRecField();
+  if (open && DISK.ok) DISK.room().then(r => { recRoom = r; if (!$('lv_recPop').hidden) syncRecMsg(); }).catch(() => {});
   if (open) { $('lv_recN').focus(); $('lv_recN').select(); }
 };
 $('lv_rec').addEventListener('click', () => { if (REC.on) startRec(); else recPop($('lv_recPop').hidden); });
