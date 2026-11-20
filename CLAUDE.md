@@ -733,7 +733,11 @@ region's centroid), `coherent` (0 / 1), `T` / `duty`, `scanX` / `scanY` / `scanR
 path; the viewer decodes PNG to an 8-bit TIFF, `bfpFileBytes`, and sends it to every engine, `isc_bfp_map_file`).
 `sim-type` 6 LightSheet (`sheet-thickness-um` 3 *estimate*, `sheet-width-um`; a pick sets `illum-bfp` 0.9), 7 RingTIRF
 (64 slots, a pick 1.03), 8 Maps; options `bfp-maps` (a **text option**: `ScopeSpec::text`, `key="..."` in a spec; the
-served cli reads lines, so `BfpOneLine`), `bfp-slots`, `bfp-cycle-frames`, `bfp-z-sample-um` 12, `bfp-map-px` (the BFP panel's drawing, 512 px a side). Coherent
+served cli reads lines, so `BfpOneLine`), `bfp-slots`, `bfp-cycle-frames`, `bfp-z-sample-um` 12, `bfp-map-px` (the BFP panel's drawing, 512 px a side), `bfp-samples-per-period` (2026-11-20: N, the
+one accuracy, `Renderer.BfpSamplesPerPeriod`, Quality Fast 6 / Realistic 12 / Exhaustive 24: N samples per the finest
+fringe on a tile over the FOV + 2 um (`BfpVolume::t`, `InTile`; the window keeps 6, 512 a side), N per axial beat /
+evanescent decay, 512 N / 6 pupil samples where lit light meets a hard edge (`Analysis::edge`: the rim, a step in a
+resolved region); tile within 1 GB native / 256 MB WASM, else coarser and `SamplingNote` says so). Coherent
 light is a numerical pupil field by chirp-Z per z plane (`BfpField.*` `BfpLight`, memoized: 512 MB WASM / 2 GB native;
 the pupil grid's period from the reach of 99.9 % of the propagating power, `kReachPower`; slots that rotate / shift one
 field are one field, the shift as one sparse bicubic kernel), incoherent points plane waves over the field stop's

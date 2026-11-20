@@ -1420,8 +1420,31 @@ through the pupil as the legacy beam at the line's setting; editing Expert, the 
   200 um and took a focused ring's pupil to 1387^2 (31 s natively, 163 s in the viewer's worker); 655^2 now, the light
   within 9e-4 of the peak. A full-pupil coherent spot still needs ~1200^2 (minutes): its power reaches steep angles.
 - **Incoherent points**: a plane wave each, over the field stop's footprint (`illum-profile`, `illum-fwhm`), centred
-  at f tan(ray angle) and sheared along its direction with height; a coarse pupil (128 per axis) when nothing is
-  coherent.
+  at f tan(ray angle) and sheared along its direction with height; a coarse pupil (128 x N / 6 per axis) when nothing
+  is coherent.
+- **Sampling: one accuracy** (2026-11-20, the user's choice: one high value instead of a set of caps). N =
+  `bfp-samples-per-period` (`Renderer.BfpSamplesPerPeriod`, Expert; `Renderer.Quality` Fast 6, Realistic 12,
+  Exhaustive 24) samples per the light's finest period: laterally per the finest fringe 2 pi / (k span) (and per half
+  the incoherent footprint's scale), along z per axial beat 2 pi / dg and per evanescent decay depth (the 0.5 um and
+  1 um caps for light without beats stay); N = 6 was the grid before. **Lateral: a tile.** The window (FOV / 2 + 3 um
+  up to 1.5 FOV, out to the light's reach) keeps at most 6 per period and 512 a side; a tile over the field of view
+  plus 2 um (`kTileMarginUm`) takes N, its own field computed onto its grid (`BfpVolume::t`, read where all its
+  bicubic taps lie on it, `InTile`; `PlaneMeanPrep::tslice` alike). Outside the field of view the light matters only
+  for dyes whose halo reaches in and for the light history's neighbours. Fast (N = 6) makes no tile. The tile and one
+  field's planes for it stay within a budget (1 GB natively, 256 MB in WASM, shared by the lines; `tileBudgetMB`): a
+  tile that does not fit is made 5 % coarser at a time, and `BfpLight::SamplingNote` says so (the setup JSON's
+  `maps.sampling_note`, the BFP panel's caption). **The pupil: edges.** A smooth lit region is sampled well at the
+  period's spacing (a spot at u = 0.9: 2e-5 of the peak whatever the pupil count); a hard edge is not: the sum over the
+  pupil converges only as du where lit light is cut (a RingTIRF spot at 1.03 under the rim at u = 1.047 with NA 1.4:
+  1.1 % rms at 10 x 15 samples, 3.5e-4 at 70 x 107). An edge is lit light (above 1e-4 of the peak) next to the rim, or
+  a neighbour 100 x darker within a region the analysis raster resolves (rms radius >= 2 raster samples; an unresolved
+  spot looks like a step and is smooth); the pupil then takes 512 x N / 6 samples across (`kEdgePupil`, at most 4097).
+  Measured (128 px field, 640 nm, native 12 threads, against N = 48 or 32; rms / max of the peak in the focal plane):
+  epi and HILO spots 1e-4 -> 3e-5 -> 4e-6 (N 6 / 12 / 24; 0.01 s), the light sheet 1.6e-4 -> 4e-5, RingTIRF 3.9e-3 ->
+  9.8e-4 -> 3.5e-4 (0.4 / 0.7 / 1.5 s), a half pupil 1e-4 -> 7.8e-5 -> 2.5e-5 (x-z 1.2e-3 -> 4.3e-4 -> 5e-5),
+  an incoherent annulus 2.4e-4 -> 9.4e-5 -> 1.4e-5, SIM2D as maps 4.2e-3 -> 4e-4 -> 5.9e-5 (0.8 / 1.5 / 2.9 s; 194 / 343
+  / 787 MB), a Bessel ring 8.7e-5 -> 8e-6 (4 / 10 s), a scanned disc 1.4e-4 / 2.4e-3 x-z -> 3e-4 / 8.4e-4 (3 / 27 s).
+  In the single-thread viewer module at N 12: a spot, the sheet ~0.2 s, RingTIRF 7.5 s (3 at N 6), SIM2D as maps 14 s.
 - **Time:** `bfp-slots` S (t = (s + 0.5) / S; 64 when a map depends on t) and `bfp-cycle-frames` (0: every slot in
   every exposure; n: slot s in frame floor(s n / S)). Shortcuts, each checked against the direct sums (ctest
   `bfp_maps`): slots that are one field rotated (RingTIRF: 64 slots in 0.04 s instead of 1.8 s) and slots that are one

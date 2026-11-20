@@ -233,11 +233,15 @@ public:
          std::vector<Term> terms;
       };
       bool ok = false, flat = false;            // flat: !(b > a)
-      // BFP light maps: the plane's mean on a grid (bicubic).
+      // BFP light maps: the plane's mean on a grid (bicubic) over the window, and on the tiles' finer one over the field
+      // of view (tn 0: none).
       bool mapped = false;
       int sn = 0;
       double sx0 = 0, sdx = 1;
       std::vector<float> slice;
+      int tn = 0;
+      double tx0 = 0, tdx = 1;
+      std::vector<float> tslice;
       double ba = 0;                            // b - a
       std::vector<Comp> comps;
       std::vector<Line> lines;

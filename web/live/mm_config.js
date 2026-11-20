@@ -10,6 +10,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismModerate",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 2.0,
@@ -19,6 +20,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 3.0,
@@ -28,6 +30,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 1.0,
@@ -37,6 +40,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ComaStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 5.0,
@@ -46,6 +50,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ComaWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 4.0,
@@ -55,6 +60,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ExtendedRange",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 11.0,
@@ -64,6 +70,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ExtendedRangeStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 12.0,
@@ -73,6 +80,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "MixedRealisticObjective",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 9.0,
@@ -82,6 +90,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "None",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 0.0,
@@ -91,6 +100,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SaddlePoint",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 10.0,
@@ -100,6 +110,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SphericalStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 7.0,
@@ -109,6 +120,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SphericalWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 6.0,
@@ -118,6 +130,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "TrefoilModerate",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 8.0,
@@ -132,6 +145,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Kinetix22",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "camera-preset": 0.0,
        "camera-type": 0.0,
@@ -155,6 +169,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "iXonUltra897",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "camera-preset": 1.0,
        "camera-type": 1.0,
@@ -183,6 +198,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AF647 dSTORM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
@@ -208,6 +224,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ATTO655 DNA-PAINT",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
@@ -233,6 +250,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "BrightField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
@@ -252,6 +270,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SIM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
@@ -282,6 +301,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
@@ -307,6 +327,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEos3.2 PALM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
@@ -337,6 +358,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Extreme",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 50.0,
        "drift-xy-speed-nm-per-sec": 250.0,
@@ -349,6 +371,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "High",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 5.0,
        "drift-xy-speed-nm-per-sec": 25.0,
@@ -361,6 +384,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Low",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.4,
        "drift-xy-speed-nm-per-sec": 2.0,
@@ -373,6 +397,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Medium",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 1.0,
        "drift-xy-speed-nm-per-sec": 5.0,
@@ -385,6 +410,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Off",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.0,
        "drift-xy-speed-nm-per-sec": 0.0,
@@ -402,6 +428,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Epi",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 0.0,
@@ -411,6 +438,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "HILO",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 0.95,
@@ -420,6 +448,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "TIRF",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 1.03,
@@ -452,6 +481,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.40 Oil",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -466,6 +496,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.49 Oil TIRF",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -480,6 +511,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.20 Water",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
@@ -494,6 +526,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.42 Oil",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -514,6 +547,7 @@ self.ISC_MM_CONFIG = {
       "name": "Exhaustive",
       "set": {
        "bf-quality": 4.0,
+       "bfp-samples-per-period": 24.0,
        "blink-min-photons": 0.0,
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
@@ -528,6 +562,7 @@ self.ISC_MM_CONFIG = {
       "name": "Fast",
       "set": {
        "bf-quality": 1.0,
+       "bfp-samples-per-period": 6.0,
        "blink-min-photons": 100.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
@@ -542,6 +577,7 @@ self.ISC_MM_CONFIG = {
       "name": "Realistic",
       "set": {
        "bf-quality": 3.0,
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
@@ -560,6 +596,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Beads",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -569,6 +606,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "CellField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -578,6 +616,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Nanorulers",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -587,6 +626,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Slide",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -622,6 +662,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismModerate",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 2.0,
@@ -631,6 +672,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 3.0,
@@ -640,6 +682,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 1.0,
@@ -649,6 +692,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ComaStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 5.0,
@@ -658,6 +702,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ComaWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 4.0,
@@ -667,6 +712,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ExtendedRange",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 11.0,
@@ -676,6 +722,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ExtendedRangeStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 12.0,
@@ -685,6 +732,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "MixedRealisticObjective",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 9.0,
@@ -694,6 +742,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "None",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 0.0,
@@ -703,6 +752,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SaddlePoint",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 10.0,
@@ -712,6 +762,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SphericalStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 7.0,
@@ -721,6 +772,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SphericalWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 6.0,
@@ -730,6 +782,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "TrefoilModerate",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 8.0,
@@ -753,6 +806,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Kinetix22",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "camera-preset": 0.0,
        "camera-type": 0.0,
@@ -776,6 +830,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "iXonUltra897",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "camera-preset": 1.0,
        "camera-type": 1.0,
@@ -804,6 +859,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AF647 dSTORM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
@@ -829,6 +885,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ATTO655 DNA-PAINT",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
@@ -854,6 +911,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "BrightField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
@@ -873,6 +931,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SIM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
@@ -903,6 +962,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
@@ -928,6 +988,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField + BrightField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
@@ -953,6 +1014,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEos3.2 PALM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
@@ -983,6 +1045,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Extreme",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 50.0,
        "drift-xy-speed-nm-per-sec": 250.0,
@@ -995,6 +1058,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "High",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 5.0,
        "drift-xy-speed-nm-per-sec": 25.0,
@@ -1007,6 +1071,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Low",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.4,
        "drift-xy-speed-nm-per-sec": 2.0,
@@ -1019,6 +1084,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Medium",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 1.0,
        "drift-xy-speed-nm-per-sec": 5.0,
@@ -1031,6 +1097,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Off",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.0,
        "drift-xy-speed-nm-per-sec": 0.0,
@@ -1048,6 +1115,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Epi",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 0.0,
@@ -1057,6 +1125,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "HILO",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 0.95,
@@ -1066,6 +1135,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "TIRF",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 1.03,
@@ -1098,6 +1168,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.40 Oil",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -1112,6 +1183,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.49 Oil TIRF",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -1126,6 +1198,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.20 Water",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
@@ -1140,6 +1213,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.42 Oil",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -1160,6 +1234,7 @@ self.ISC_MM_CONFIG = {
       "name": "Exhaustive",
       "set": {
        "bf-quality": 4.0,
+       "bfp-samples-per-period": 24.0,
        "blink-min-photons": 0.0,
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
@@ -1174,6 +1249,7 @@ self.ISC_MM_CONFIG = {
       "name": "Fast",
       "set": {
        "bf-quality": 1.0,
+       "bfp-samples-per-period": 6.0,
        "blink-min-photons": 100.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
@@ -1188,6 +1264,7 @@ self.ISC_MM_CONFIG = {
       "name": "Realistic",
       "set": {
        "bf-quality": 3.0,
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
@@ -1206,6 +1283,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Beads",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -1215,6 +1293,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "CellField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -1224,6 +1303,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Nanorulers",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -1233,6 +1313,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Slide",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -1269,6 +1350,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismModerate",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 2.0,
@@ -1278,6 +1360,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 3.0,
@@ -1287,6 +1370,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AstigmatismWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 1.0,
@@ -1296,6 +1380,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ComaStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 5.0,
@@ -1305,6 +1390,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ComaWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 4.0,
@@ -1314,6 +1400,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ExtendedRange",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 11.0,
@@ -1323,6 +1410,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ExtendedRangeStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 12.0,
@@ -1332,6 +1420,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "MixedRealisticObjective",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 9.0,
@@ -1341,6 +1430,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "None",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 0.0,
@@ -1350,6 +1440,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SaddlePoint",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 10.0,
@@ -1359,6 +1450,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SphericalStrong",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 7.0,
@@ -1368,6 +1460,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SphericalWeak",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 6.0,
@@ -1377,6 +1470,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "TrefoilModerate",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-zernike-preset": 8.0,
@@ -1400,6 +1494,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Kinetix22",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "camera-preset": 0.0,
        "camera-type": 0.0,
@@ -1423,6 +1518,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "iXonUltra897",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "camera-preset": 1.0,
        "camera-type": 1.0,
@@ -1451,6 +1547,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "AF647 dSTORM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 4.0,
        "em-filter": 13.0,
@@ -1476,6 +1573,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "ATTO655 DNA-PAINT",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
@@ -1501,6 +1599,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "BrightField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 14.0,
@@ -1520,6 +1619,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "SIM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
@@ -1550,6 +1650,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
@@ -1575,6 +1676,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEGFP WideField + BrightField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 2.0,
        "em-filter": 2.0,
@@ -1600,6 +1702,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "mEos3.2 PALM",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "dichroic": 7.0,
        "em-filter": 10.0,
@@ -1630,6 +1733,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Extreme",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 50.0,
        "drift-xy-speed-nm-per-sec": 250.0,
@@ -1642,6 +1746,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "High",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 5.0,
        "drift-xy-speed-nm-per-sec": 25.0,
@@ -1654,6 +1759,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Low",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.4,
        "drift-xy-speed-nm-per-sec": 2.0,
@@ -1666,6 +1772,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Medium",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 1.0,
        "drift-xy-speed-nm-per-sec": 5.0,
@@ -1678,6 +1785,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Off",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "drift-xy-nm-per-sqrt-sec": 0.0,
        "drift-xy-speed-nm-per-sec": 0.0,
@@ -1695,6 +1803,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Epi",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 0.0,
@@ -1704,6 +1813,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "HILO",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 0.95,
@@ -1713,6 +1823,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "TIRF",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "illum-bfp": 1.03,
@@ -1745,6 +1856,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.40 Oil",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -1759,6 +1871,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "100x NA 1.49 Oil TIRF",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -1773,6 +1886,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.20 Water",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.333,
@@ -1787,6 +1901,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "60x NA 1.42 Oil",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "immersion-index": 1.518,
@@ -1807,6 +1922,7 @@ self.ISC_MM_CONFIG = {
       "name": "Exhaustive",
       "set": {
        "bf-quality": 4.0,
+       "bfp-samples-per-period": 24.0,
        "blink-min-photons": 0.0,
        "fid-clumps-as-one": 0.0,
        "psf-halo-cut": 0.0,
@@ -1821,6 +1937,7 @@ self.ISC_MM_CONFIG = {
       "name": "Fast",
       "set": {
        "bf-quality": 1.0,
+       "bfp-samples-per-period": 6.0,
        "blink-min-photons": 100.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 1e-05,
@@ -1835,6 +1952,7 @@ self.ISC_MM_CONFIG = {
       "name": "Realistic",
       "set": {
        "bf-quality": 3.0,
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "psf-halo-cut": 3e-06,
@@ -1853,6 +1971,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Beads",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -1862,6 +1981,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "CellField",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -1871,6 +1991,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Nanorulers",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -1880,6 +2001,7 @@ self.ISC_MM_CONFIG = {
      {
       "name": "Slide",
       "set": {
+       "bfp-samples-per-period": 12.0,
        "blink-min-photons": 50.0,
        "fid-clumps-as-one": 1.0,
        "sim-frame-pattern-continuous": 0.0,
@@ -1977,6 +2099,10 @@ self.ISC_MM_TIERS = {
 "bfp-cycle-frames": {
 "tier": "Expert",
 "prop": "Lasers.BfpCycleFrames"
+},
+"bfp-samples-per-period": {
+"tier": "Expert",
+"prop": "Renderer.BfpSamplesPerPeriod"
 },
 "bfp-slots": {
 "tier": "Expert",
@@ -3324,6 +3450,7 @@ self.ISC_MM_TIERS = {
 "Objective.ZernikeCoefficients": "Expert",
 "Objective.ZernikePreset": "Basic",
 "Renderer.BeadClumpsAsOne": "Expert",
+"Renderer.BfpSamplesPerPeriod": "Expert",
 "Renderer.BfpZSampleUm": "Expert",
 "Renderer.BlinkBinnedDensityPerUm2": "Expert",
 "Renderer.BlinkBinnedMaxEmitters": "Expert",
@@ -6515,6 +6642,15 @@ self.ISC_MM_CFG = {
 },
 {
 "dev": "Renderer",
+"prop": "BfpSamplesPerPeriod",
+"tier": "Expert",
+"kind": "num",
+"opts": {
+"bfp-samples-per-period": null
+}
+},
+{
+"dev": "Renderer",
 "prop": "BfpZSampleUm",
 "tier": "Expert",
 "kind": "num",
@@ -7794,6 +7930,7 @@ self.ISC_MM_CFG = {
 "bf-sub": "0",
 "bf-upscale": "0",
 "bf-wavelength-nm": "550",
+"bfp-samples-per-period": "12",
 "bit-depth": "16",
 "blink-min-photons": "50",
 "camera-preset": "0",

@@ -31,7 +31,9 @@ namespace sim {
 // WideField 256 px 2.3-2.6x faster a frame, the noise-free photons 0.25-0.9 % rms from
 // 25 nm's in epi, HILO, SIM2D/3D, a 40 nm pixel (2.5 % at most on bright pixels),
 // against a shot noise of 7-40 %; TIRF caps it, ScopeMovie.cpp kTirfPlanesPerDecay)
-// per level.
+// and the BFP light maps' samples per the light's finest period
+// (bfp-samples-per-period: Fast 6, Realistic 12, Exhaustive 24; 2026-11-20, the
+// user's choice of one accuracy; BfpField.h) per level.
 struct QualityPreset
 {
    const char* name;
@@ -44,11 +46,12 @@ struct QualityPreset
    double clumpsAsOne;
    double framePattern;
    double wfPlaneNm;
+   double bfpSamples;
 };
 constexpr QualityPreset kQualityPresets[] = {
-   { "Fast", 1, 4, 30, 1, 1e-5, 100, 1, 0, 100 },
-   { "Realistic", 3, 6, 15, 1, 3e-6, 50, 1, 0, 100 },
-   { "Exhaustive", 4, 8, 0, 2, 0.0, 0, 0, 1, 25 },
+   { "Fast", 1, 4, 30, 1, 1e-5, 100, 1, 0, 100, 6 },
+   { "Realistic", 3, 6, 15, 1, 3e-6, 50, 1, 0, 100, 12 },
+   { "Exhaustive", 4, 8, 0, 2, 0.0, 0, 0, 1, 25, 24 },
 };
 
 // SampleHolder.DriftPreset (Off .. Extreme): xy and z drift speed (nm/s) and

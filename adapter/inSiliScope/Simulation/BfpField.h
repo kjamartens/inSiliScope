@@ -34,6 +34,19 @@
 //                given focus. Power: the cycle mean through the pupil = the
 //                legacy beam's (its epi envelope's power, Parseval), per line.
 //
+//                Sampling (2026-11-20): one accuracy, N = samples per the
+//                light's finest period (bfp-samples-per-period; Renderer.Quality
+//                Fast 6, Realistic 12, Exhaustive 24). The lateral grid takes N
+//                samples per the finest fringe (and per the incoherent
+//                footprint's scale / 2) on a tile over the field of view plus
+//                kTileMarginUm, the rest of the window today's 6 (at most 512 a
+//                side); the axial beats and evanescent decays N per period /
+//                decay; the pupil the period's spacing, and 512 x N / 6 samples
+//                across it where lit light meets a hard edge (the pupil's rim, a
+//                step in a map: a Riemann sum over an edge converges only as
+//                du). The tile and its field stay within a memory budget: a
+//                tile that does not fit is made coarser and the info says so.
+//
 //                Shortcuts (exact): scanX / scanY / scanRot (functions of t
 //                only) shift and rotate one field per slot instead of computing
 //                each; slots with the same lit points share a field.
@@ -67,9 +80,12 @@ struct BfpLightParams
    int slots = 0;                   // 0: 64 when something depends on t, else 1
    int cycleFrames = 0;             // 0: every slot in every frame; n: the cycle spans n frames
    double zSampleUm = 12;           // the volume's z range (above it the top plane, sheared)
+   double samplesPerPeriod = 12;    // N: samples per the light's finest period (laterally, axially, the pupil's edges)
+   double tileBudgetMB = 0;         // the fine tile's memory, all lines (0: 1 GB native, 256 MB in WASM)
 };
 
-// One part of the light: planes on a lateral grid, z (relative: from the focal plane), the shear between planes.
+// One part of the light: planes on a lateral grid, z (relative: from the focal plane), the shear between planes; and
+// optionally a finer tile of the same planes over the middle (the field of view), read where it reaches.
 struct BfpVolume
 {
    double x0 = 0, y0 = 0, dx = 1;
@@ -79,11 +95,19 @@ struct BfpVolume
    bool extendTop = true, extendBottom = true;   // beyond the end planes: the end plane sheared (false: 0)
    double sx = 0, sy = 0;
    std::vector<float> v;   // nz x ny x nx
+   double tx0 = 0, tdx = 0;   // the tile: tn x tn from (tx0, tx0) in steps tdx (tn 0: none)
+   int tn = 0;
+   std::vector<float> t;   // nz x tn x tn
    int Nz() const { return static_cast<int>(z.size()); }
-   double Plane(int k, double x, double y) const;   // bicubic, 0 outside the grid
+   double Plane(int k, double x, double y) const;   // bicubic (the tile inside its own taps), 0 outside the grid
    double At(double x, double y, double z, double pivot) const;
    double ZAbs(int k, double pivot) const { return z[static_cast<size_t>(k)] + (relative ? pivot : 0.0); }
-   size_t Bytes() const { return v.size() * sizeof(float); }
+   // Inside the tile with every bicubic tap on it.
+   bool InTile(double x, double y) const
+   {
+      return tn > 0 && x >= tx0 + tdx && y >= tx0 + tdx && x <= tx0 + (tn - 2) * tdx && y <= tx0 + (tn - 2) * tdx;
+   }
+   size_t Bytes() const { return (v.size() + t.size()) * sizeof(float); }
 };
 
 // The light of a frame state (or the cycle mean) at one line: the sum of its parts.
@@ -140,6 +164,9 @@ public:
    std::shared_ptr<const BfpLight> Slim() const;
    bool IsSlim() const { return slim_; }
    const std::string& Info() const { return info_; }
+   // The sampling in words when it fell short of N (a tile made coarser to fit the memory budget, the pupil capped);
+   // empty when the light was sampled as asked.
+   const std::string& SamplingNote() const { return samplingNote_; }
 
 private:
    struct Line
@@ -158,7 +185,7 @@ private:
    bool evanescent_ = false, propagating_ = false;
    double evanescentShare_ = 0, reachUm_ = 0;
    bool slim_ = false;
-   std::string info_;
+   std::string info_, samplingNote_;
 };
 
 // The built-in equations of the light-map types (sim-type LightSheet, RingTIRF, Maps), and their slots.

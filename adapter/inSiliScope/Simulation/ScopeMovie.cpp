@@ -301,6 +301,7 @@ const OptionTable& Options()
          { "bfp-slots", 0, "Lasers.BfpSlots: the BFP light maps' time slots per cycle (t = (s + 0.5) / slots; 0 = 64 when a map depends on t, else 1)" },
          { "bfp-cycle-frames", 0, "Lasers.BfpCycleFrames: the maps' cycle in frames: 0 = the whole cycle in every exposure (the slots add up: a scan within the exposure), n = the cycle spans n frames (slot s lit in frame s n / slots: stepped, as SIM)" },
          { "bfp-z-sample-um", 12, "Renderer.BfpZSampleUm: the maps' light is computed this far from the focal plane (propagating) or the coverslip (evanescent); beyond, its end plane carries on along the light's mean direction" },
+         { "bfp-samples-per-period", 12, "Renderer.BfpSamplesPerPeriod: the BFP light maps' sampling, samples per the light's finest period: laterally over the field of view (the window beyond at most 6), along z per axial beat and evanescent decay, and 512 x this / 6 pupil samples across where lit light meets a hard edge (Quality Fast 6, Realistic 12, Exhaustive 24); a field of view too fine for the memory is sampled coarser (the setup's maps note says so)" },
          { "bfp-map-px", 512, "the Microscope view's BFP drawing, pixels per side (over 1.1 x the pupil); no Micro-Manager row (MM has no such readout)" },
          { "sheet-thickness-um", 3, "Lasers.SheetThicknessUm: the LightSheet type's thickness, FWHM across the beam (estimate)" },
          { "sheet-width-um", 0, "Lasers.SheetWidthUm: the LightSheet type's width along y, FWHM (0 = the beam's, illum-fwhm)" },
@@ -1440,6 +1441,7 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
          p.slots = O("bfp-slots") > 0 ? static_cast<int>(O("bfp-slots")) : BfpTypeSlots(simType);
          p.cycleFrames = std::max(0, static_cast<int>(O("bfp-cycle-frames")));
          p.zSampleUm = std::max(1.0, O("bfp-z-sample-um"));
+         p.samplesPerPeriod = std::max(2.0, O("bfp-samples-per-period"));
          e.maps = BfpLight::Make(p, e.mapsError);
       }
    }

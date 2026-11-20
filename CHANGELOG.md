@@ -19,6 +19,10 @@ Any light in the objective's back focal plane:
   polarized rings, a line scan, SIM2D, lattices and more from images in `bfp_maps/`), map images, settings files that
   carry the images; the Microscope view's Illumination profile follows the focus (its height moves with Z, the focus
   dashed and marked on the slider); the Back focal plane panel draws the pupil at 512 x 512 (Expert: BFP drawing).
+- **One sampling setting** for the maps' light: `Renderer.BfpSamplesPerPeriod` (cli/viewer `bfp-samples-per-period`;
+  Quality Fast 6, Realistic 12, Exhaustive 24) samples per the light's finest period -- a finer tile over the field of
+  view, z per axial beat and evanescent decay, and a finer pupil where lit light meets a hard edge (RingTIRF's spot under
+  the pupil's rim: 1 % -> 0.1 % at Realistic). A tile too fine for the memory is made coarser and the BFP panel says so.
 - A focused coherent beam over a large part of the pupil takes seconds natively and up to a minute or more in the
   viewer to make (once per light).
 

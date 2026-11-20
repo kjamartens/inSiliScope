@@ -435,6 +435,7 @@ void Field()
       p.na = 1.49;
       p.bfp = 1.06;
       p.slots = 16;
+      p.samplesPerPeriod = 6;   // (the shortcut's check: the per-slot fields at the Fast sampling)
       double s1 = 0, s2 = 0;
       auto R = Make(p, BfpTypeEquations(SIM_RING_TIRF), &s1);
       auto D = Make(p, "c = cos(2*pi*t); s = sin(2*pi*t)\nI = exp(-2*((ux - bfp*c)^2 + (uy - bfp*s)^2)/w^2)\n"
@@ -509,6 +510,67 @@ void Field()
             }
          const double cs = std::sqrt(1 - 0.81), fw = hi - lo;
          Check(std::fabs(fw - 3.0 / cs) < 0.05 * 3.0 / cs, "the sheet's width on a plane " + Num(fw) + " (" + Num(3.0 / cs) + ")");
+      }
+   }
+}
+
+// The sampling (2026-11-20): one accuracy N (samples per the light's finest period); a tile over the field of view, the
+// pupil fine where lit light meets a hard edge, the memory budget.
+void Sampling()
+{
+   // A HILO spot at N 12: a tile over the field of view; it and the window's grid sample the same light.
+   {
+      BfpLightParams p = Base();
+      p.bfp = 0.9;
+      p.samplesPerPeriod = 6;
+      auto C = Make(p, kSpot);
+      p.samplesPerPeriod = 12;
+      auto F = Make(p, kSpot);
+      if (C && F)
+      {
+         const BfpVolume& V = F->Mean(0).parts[0];
+         Check(V.tn > 0 && V.tdx < V.dx && C->Mean(0).parts[0].tn == 0,
+               "N 12: a tile finer than the window (" + Num(V.tdx) + " um, window " + Num(V.dx) + " um), none at N 6");
+         Check(V.tn > 0 && -V.tx0 >= p.fovSpanUm / 2 && -V.tx0 <= p.fovSpanUm / 2 + 3.0,
+               "the tile covers the field of view and its margin (" + Num(-V.tx0) + " um)");
+         double worst = 0, peak = 0;
+         for (double x = -6; x <= 6; x += 0.37)
+            for (double y : { -3.0, 0.0, 2.5 })
+               for (double z : { 0.0, 0.5, 2.0 })
+               {
+                  const double a = F->Mean(0).At(x, y, z, 0.5), b = C->Mean(0).At(x, y, z, 0.5);
+                  peak = std::max(peak, b);
+                  worst = std::max(worst, std::fabs(a - b));
+               }
+         Check(worst < 2e-3 * peak, "the tile = the window's grid within 2e-3 of the peak (" + Num(worst / peak) + ")");
+         // Read across the tile's edge: no step.
+         const double e = -V.tx0 - V.tdx, a = F->Mean(0).At(e - 1e-6, 0, 0.5, 0.5), b = F->Mean(0).At(e + 1e-6, 0, 0.5, 0.5);
+         Check(std::fabs(a - b) < 2e-3 * peak, "the tile's edge joins the window's grid (" + Num(std::fabs(a - b) / peak) + ")");
+      }
+   }
+   // The pupil: a hard edge (a step in a map, the rim) takes 512 x N / 6 samples across it; a smooth spot the period's.
+   {
+      BfpLightParams p = Base();
+      p.samplesPerPeriod = 12;
+      auto H = Make(p, "I = ux < 0; coherent = 0; pol = unpolarized");
+      auto S = Make(p, kSpot);
+      Check(H && H->Info().find("edges") != std::string::npos && H->Info().find("pupil 519 x 1025") != std::string::npos,
+            "a half pupil: edges, 1025 samples across (" + (H ? H->Info() : std::string()) + ")");
+      Check(S && S->Info().find("edges") == std::string::npos, "a Gaussian spot: no edge (" + (S ? S->Info() : std::string()) + ")");
+   }
+   // The budget: a tile that does not fit is sampled coarser, and the light says so.
+   {
+      BfpLightParams p = Base();
+      p.bfp = 0.9;
+      p.samplesPerPeriod = 48;
+      p.tileBudgetMB = 0.5;
+      auto L = Make(p, kSpot);
+      Check(L && !L->SamplingNote().empty() && L->SamplingNote().find("memory") != std::string::npos,
+            "over the budget: said (" + (L ? L->SamplingNote() : std::string()) + ")");
+      if (L)
+      {
+         const BfpVolume& V = L->Mean(0).parts[0];
+         Check(V.Bytes() <= size_t(0.5 * 1048576), "over the budget: the volume within it (" + Num(V.Bytes() / 1048576.0) + " MB)");
       }
    }
 }
@@ -625,6 +687,7 @@ int main()
    Parser();
    Images();
    Field();
+   Sampling();
    InExcitation();
    const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
    std::printf("bfp_maps: %s (%d failure%s), %.2f s\n", g_fail ? "FAILED" : "ok", g_fail, g_fail == 1 ? "" : "s", sec);

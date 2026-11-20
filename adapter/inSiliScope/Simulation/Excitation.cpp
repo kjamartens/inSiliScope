@@ -823,13 +823,32 @@ void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const Exc
       // The plane's mean on the finest of the lines' grids over the window; PlaneMeanAt reads it bicubically.
       p.mapped = true;
       const BfpLight* L = spec_.maps.get();
-      double dx = 1e9, half = 0.0;
+      double dx = 1e9, half = 0.0, tdx = 1e9, thalf = 0.0;
       for (int l = 0; l < L->LineCount(); ++l)
          for (const BfpVolume& V : L->Mean(l).parts)
          {
             dx = std::min(dx, V.dx);
             half = std::max(half, -V.x0);
+            if (V.tn > 0)
+            {
+               tdx = std::min(tdx, V.tdx);
+               thalf = std::max(thalf, -V.tx0);
+            }
          }
+      p.tn = 0;
+      p.tslice.clear();
+      if (tdx < dx && thalf > 0.0)
+      {
+         p.tn = 2 * static_cast<int>(std::ceil(thalf / tdx)) + 1;
+         p.tdx = tdx;
+         p.tx0 = -(p.tn - 1) / 2 * tdx;
+         p.tslice.assign(static_cast<size_t>(p.tn) * p.tn, 0.0f);
+         ParallelFor(static_cast<unsigned>(p.tn), [&](unsigned j) {
+            for (int i = 0; i < p.tn; ++i)
+               p.tslice[static_cast<size_t>(j) * p.tn + i] =
+                  static_cast<float>(MapPlaneMean(p.tx0 + i * tdx, p.tx0 + j * tdx, z0, z1, shares, false));
+         });
+      }
       if (!(dx < 1e9))
       {
          p.ok = false;
@@ -917,7 +936,10 @@ double Excitation::PlaneMeanAt(double x, double y, const PlaneMeanPrep& p) const
 {
    if (p.mapped)
    {
-      const double v = BfpBicubic(p.slice.data(), p.sn, p.sn, p.sx0, p.sx0, p.sdx, x, y);
+      const bool inTile = p.tn > 0 && x >= p.tx0 + p.tdx && y >= p.tx0 + p.tdx && x <= p.tx0 + (p.tn - 2) * p.tdx &&
+                          y <= p.tx0 + (p.tn - 2) * p.tdx;
+      const double v = inTile ? BfpBicubic(p.tslice.data(), p.tn, p.tn, p.tx0, p.tx0, p.tdx, x, y)
+                              : BfpBicubic(p.slice.data(), p.sn, p.sn, p.sx0, p.sx0, p.sdx, x, y);
       return v > 0.0 ? v : 0.0;
    }
    const size_t N = p.comps.size();

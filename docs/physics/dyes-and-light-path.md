@@ -297,6 +297,15 @@ coherent beam over the whole pupil takes from seconds to minutes: its steep rays
 finer than a few nodes are smoothed in the dose, ~10 % at the extremes of a 400 nm fringe), the imager background on
 32; the fluorescent slide takes the cycle mean, not each frame's fringes.
 
+**Sampling.** One setting sets how finely the maps' light is computed: `Renderer.BfpSamplesPerPeriod` (cli/viewer
+`bfp-samples-per-period`, set by `Renderer.Quality`: Fast 6, Realistic 12, Exhaustive 24) samples per the light's finest
+period -- across the field of view (a finer tile over it plus 2 µm; the window beyond keeps at most 6 and 512 samples a
+side), along z per axial beat and per evanescent decay depth, and, where lit light meets a hard edge in the pupil (its
+rim, a step in a map), 512 × this / 6 pupil samples across. At Realistic a spot's light is within ~3·10⁻⁵ of a much finer
+computation, RingTIRF ~10⁻³, SIM2D as maps 4·10⁻⁴ (Fast 4·10⁻³); it costs time and memory (RingTIRF 7.5 s in the viewer
+without threads, 3 s at Fast). A field of view too fine for the memory (1 GB natively, 256 MB in the viewer) is sampled
+coarser, and the BFP panel's caption says so.
+
 ## The DNA-PAINT imager background
 
 Unbound imager in the illuminated volume adds an offset per pixel and second of

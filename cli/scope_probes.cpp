@@ -425,6 +425,7 @@ bool PresetsJson(const std::string& path, std::string& err)
       j.KNum("fid-clumps-as-one", q.clumpsAsOne);
       j.KNum("sim-frame-pattern-continuous", q.framePattern);
       j.KNum("wf-plane-nm", q.wfPlaneNm);
+      j.KNum("bfp-samples-per-period", q.bfpSamples);
       j.Close('}');
    }
    j.Close(']');

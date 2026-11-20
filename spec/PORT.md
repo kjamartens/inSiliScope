@@ -1507,12 +1507,14 @@ goldens, `ISC_WORLD_VERSION` and the ABI unchanged; default outputs unchanged (`
   the slots' rotation and shift shortcuts, the volumes, the memo), `Excitation` maps mode (`Mapped()`, `MapAt`, the
   depth tents per plane as components, `Slimmed()`), `LightHistory` (`depthFor` for any component with a depth table;
   `kLightMapNodes`; closed chapters slimmed). Options `bfp-maps`, `bfp-slots`, `bfp-cycle-frames`, `bfp-z-sample-um`,
-  `bfp-map-px`, `sheet-thickness-um`, `sheet-width-um`; timing phase `fl.bfp-maps` (pupil, window, planes, fields,
-  slots, states, time, MB); the memory estimate adds the volumes.
+  `bfp-samples-per-period` (2026-11-20: N, the one accuracy; Quality 6 / 12 / 24; the tile over the field of view
+  `BfpVolume::t`, the pupil's edge rule, `SamplingNote`), `bfp-map-px`, `sheet-thickness-um`, `sheet-width-um`; timing
+  phase `fl.bfp-maps` (pupil (", edges"), window, planes, fields, tile, slots, states, time, MB); the memory estimate
+  adds the volumes.
 - **MM:** `Lasers.Pattern` LightSheet / RingTIRF / Maps (a pick sets `BfpPosition` 0.9 / 1.03 and clears the typed
   maps), `Lasers.BfpMaps` (Expert, one line; refused when it does not compile or names an image not in the store),
-  `BfpSlots`, `BfpCycleFrames` (Expert), `SheetThicknessUm`, `SheetWidthUm` (Advanced), `Renderer.BfpZSampleUm`
-  (Expert). MM reads images by path (`img("C:/maps/ring.tif")`).
+  `BfpSlots`, `BfpCycleFrames` (Expert), `SheetThicknessUm`, `SheetWidthUm` (Advanced), `Renderer.BfpZSampleUm`,
+  `Renderer.BfpSamplesPerPeriod` (Expert; set by `Renderer.Quality`). MM reads images by path (`img("C:/maps/ring.tif")`).
 - **Viewer:** the Pattern's three types; `mv_bfp-maps` (Expert textarea, applied on leaving it or Ctrl+Enter; shows the
   type's equations from the setup job), an Examples list (`web/live/bfp_examples.js`: 9 equation and 6 image examples,
   the PNGs in `web/bfp_maps/` made by `tools/gen_bfp_map_images.py`), Map images… (PNG decoded to an 8-bit TIFF,

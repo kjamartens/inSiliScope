@@ -102,6 +102,7 @@ void ExcitationBeamsJson(Json& j, const sim::Excitation& ex, int simType)
       j.KStr("equations", L ? L->Params().text : std::string());
       j.KStr("error", es.mapsError);
       j.KStr("info", L ? L->Info() : std::string());
+      j.KStr("sampling_note", L ? L->SamplingNote() : std::string());
       j.KNum("slots", L ? L->Slots() : 0);
       j.KNum("period", L ? L->Period() : 1);
       j.KBool("evanescent", L && L->Evanescent());
@@ -384,6 +385,8 @@ static void MapsPreview(const sim::Excitation& ex, const sim::ExcitationShares& 
                  L->Period() > 1 ? (", state " + std::to_string(st) + " of " + std::to_string(L->Period())).c_str() : "",
                  L->ComputeSec(), L->Bytes() / 1048576.0);
    out.mapsCaption = b;
+   if (!L->SamplingNote().empty())
+      out.mapsCaption += "; " + L->SamplingNote();
 }
 
 bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int n, int nz, IllumPreview& out,

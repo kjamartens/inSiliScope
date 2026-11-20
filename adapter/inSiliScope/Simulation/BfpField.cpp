@@ -33,9 +33,14 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kDeg = kPi / 180.0;
 constexpr int kAnalysisPx = 256;      // the analysis raster over the pupil square
 constexpr int kMaxSide = 512;         // lateral samples per side of a volume
-constexpr int kMaxPupil = 2048;       // pupil samples per axis
+constexpr int kMaxPupil = 2048;       // pupil samples per axis for the period (more: "capped, light may wrap")
+constexpr int kMaxEdgePupil = 4097;   // ... for the edges
 constexpr int kMaxPlanes = 256;       // per part
-constexpr int kIncoherentPupil = 128; // pupil samples per axis when no light is coherent (each point its own plane wave)
+constexpr int kIncoherentPupil = 128; // x N / 6: pupil samples per axis when no light is coherent (each point its own plane wave)
+constexpr int kEdgePupil = 512;       // x N / 6: pupil samples across it when lit light meets a hard edge
+constexpr double kEdgeStep = 1e-2;    // a step: a lit point's neighbour below this x its intensity (a resolved region)
+constexpr double kTileMarginUm = 2.0; // the fine tile: the field of view plus this on every side
+constexpr int kCoarseN = 6;           // the window's samples per period outside the tile (at most kMaxSide a side)
 constexpr double kLitRel = 1e-8;      // a pupil point counts above this x the peak (amplitude 1e-4)
 constexpr double kSigRel = 1e-4;      // ... and for the geometry (reach, spans, regions)
 // The pupil grid's period keeps all but this share of the propagating light's power out of the window (the steepest
@@ -49,6 +54,17 @@ constexpr int kIncoherentBins = 256;
 constexpr double kUEdge = 1e-3;       // |u| kept this far from 1 (BeamFieldOf's kUGap)
 
 double Snap(double z) { return std::round(z / kZSnap) * kZSnap; }
+
+// The fine tiles' memory (BfpLightParams::tileBudgetMB; 0: 1 GB native, 256 MB in the viewer's 4 GB heap).
+double TileBudgetBytes(const BfpLightParams& p)
+{
+#ifdef __EMSCRIPTEN__
+   const double def = 256;
+#else
+   const double def = 1024;
+#endif
+   return (p.tileBudgetMB > 0 ? p.tileBudgetMB : def) * 1048576.0;
+}
 
 void CubicWeights(double t, double w[4])
 {
@@ -256,6 +272,8 @@ double BfpBicubic(const float* g, int nx, int ny, double x0, double y0, double d
 
 double BfpVolume::Plane(int k, double x, double y) const
 {
+   if (InTile(x, y))
+      return Bicubic(t.data() + static_cast<size_t>(k) * tn * tn, tn, tn, tx0, tx0, tdx, x, y);
    return Bicubic(v.data() + static_cast<size_t>(k) * nx * ny, nx, ny, x0, y0, dx, x, y);
 }
 
@@ -507,6 +525,7 @@ struct BfpBuilder
       int propRegions = 0;
       double tanMax = 0, shiftMax = 0, span = 0, dg = 0, sigMin = 1e9, sbx = 0, sby = 0, wsum = 0;
       double dMin = 1e9, dMax = 0, devMax = 0, uOuter = 0;
+      bool edge = false;   // lit light meets a hard edge (the pupil's rim, a step in a resolved region)
       std::vector<double> tanW = std::vector<double>(kTanBins + 1, 0.0);   // propagating intensity by tan(angle)
    };
 
@@ -644,7 +663,7 @@ struct BfpBuilder
             std::vector<size_t> stack{ q };
             lab[q] = regions;
             double w = 0, mx = 0, my = 0, mxx = 0, myy = 0;
-            bool anyProp = false;
+            bool anyProp = false, rim = false, step = false;
             while (!stack.empty())
             {
                const size_t c = stack.back();
@@ -662,9 +681,16 @@ struct BfpBuilder
                for (const auto& d : nb)
                {
                   const int a = ci + d[0], b = cj + d[1];
-                  if (a < 0 || b < 0 || a >= n || b >= n)
+                  // The rim: a neighbour beyond the pupil. A step: a neighbour far darker than this lit point.
+                  if (a < 0 || b < 0 || a >= n || b >= n ||
+                      std::hypot(-umax + (a + 0.5) * du, -umax + (b + 0.5) * du) > umax)
+                  {
+                     rim = true;
                      continue;
+                  }
                   const size_t qq = static_cast<size_t>(b) * n + a;
+                  if (pts[qq].I < kEdgeStep * I)
+                     step = true;
                   if (lab[qq] < 0 && pts[qq].I > thrS)
                   {
                      lab[qq] = regions;
@@ -681,6 +707,9 @@ struct BfpBuilder
                my /= w;
                const double var = std::max(0.0, mxx / w - mx * mx) + std::max(0.0, myy / w - my * my);
                A.sigMin = std::min(A.sigMin, std::max(du / 2.0, std::sqrt(var / 2.0)));
+               // A step only in a region the raster resolves (an unresolved spot looks like one and is smooth).
+               if (rim || (step && std::sqrt(var / 2.0) >= 2.0 * du))
+                  A.edge = true;
             }
          }
       if (g1 >= g0)
@@ -1057,8 +1086,11 @@ struct BfpBuilder
                bins.push_back(B);
             }
          }
-         const double dxi = std::isfinite(env.scale) ? std::max(dx, std::min(kMaxDxUm, env.scale / 3.0)) : kMaxDxUm;
-         const int nxi = 2 * static_cast<int>(std::ceil((xf0 < 0 ? -xf0 : xf0) / dxi)) + 1;
+         const double dxi = std::isfinite(env.scale)
+                               ? std::max(dx, std::min(kMaxDxUm, 2.0 * env.scale / std::max(2.0, P.samplesPerPeriod)))
+                               : kMaxDxUm;
+         // (two samples past the field's window on each side: its edge points read whole bicubic taps)
+         const int nxi = 2 * (static_cast<int>(std::ceil((xf0 < 0 ? -xf0 : xf0) / dxi)) + 2) + 1;
          const double xi0 = -(nxi - 1) / 2 * dxi;
          const double incScale = (2.0 * kPi / K) * (2.0 * kPi / K) / env.integral;
          ParallelFor(static_cast<unsigned>(nz), [&](unsigned kz) {
@@ -1157,7 +1189,7 @@ struct BfpBuilder
       double powEva = 0, powAll = 0;   // every line's and slot's pupil power, evanescent and in all
       double uOuter = 0, decayPerNm = 0, tanS = 0;
       char buf[512];
-      std::string info;
+      std::string info, note;
       // First pass over every line: pivot dependence (one coherent field with propagating and evanescent light, or
       // several propagating regions in phase at the coverslip).
       struct LineA
@@ -1207,6 +1239,7 @@ struct BfpBuilder
          BfpLight::Line line;
          line.nm = nm;
          const double K = 2.0 * kPi * P.nS / (nm * 1e-3);
+         const double Nq = std::max(2.0, P.samplesPerPeriod);
          if (!(A.Imax > 0))
          {
             line.states.assign(static_cast<size_t>(period), BfpLightField());
@@ -1221,12 +1254,18 @@ struct BfpBuilder
          const double sbx = A.wsum > 0 ? A.sbx / A.wsum : 0.0, sby = A.wsum > 0 ? A.sby / A.wsum : 0.0;
          if (tanS == 0.0)
             tanS = std::hypot(sbx, sby);
-         // The lateral grid.
-         double dx = kMaxDxUm;
-         if (A.span > 0)
-            dx = std::min(dx, 2.0 * kPi / (6.0 * K * A.span));
-         if (A.incoh && std::isfinite(env.scale))
-            dx = std::min(dx, env.scale / 3.0);
+         // The lateral grid: N samples per the finest fringe (and per half the incoherent footprint's scale) wanted;
+         // the window at most kCoarseN of them, kMaxSide a side, a tile over the field of view at N (below).
+         auto lateral = [&](double n) {
+            double d = kMaxDxUm;
+            if (A.span > 0)
+               d = std::min(d, 2.0 * kPi / (n * K * A.span));
+            if (A.incoh && std::isfinite(env.scale))
+               d = std::min(d, 2.0 * env.scale / n);
+            return d;
+         };
+         const double dxWant = lateral(Nq);
+         double dx = std::max(dxWant, lateral(kCoarseN));
          int nxh = static_cast<int>(std::ceil(Wh / dx));
          if (2 * nxh + 1 > kMaxSide)
          {
@@ -1238,10 +1277,11 @@ struct BfpBuilder
          // The plane sets (z grids).
          std::vector<PlaneSet> sets;
          const double zs = std::max(0.5, P.zSampleUm);
-         double dzP = A.dg > 0 ? std::min(0.5, std::max(0.01, kPi / (3.0 * A.dg))) : 0.5;
+         // N planes per axial beat (and per incoherent footprint's walk across its scale / 1.8, per evanescent decay).
+         double dzP = A.dg > 0 ? std::min(0.5, std::max(0.06 / Nq, 2.0 * kPi / (Nq * A.dg))) : 0.5;
          if (A.devMax > 0 && std::isfinite(env.scale))
-            dzP = std::min(dzP, std::max(0.01, 0.3 * env.scale / A.devMax));
-         const double dzE = A.evan ? std::min(0.5, std::max(kZSnap, A.dMin / 6.0)) : 0.5;
+            dzP = std::min(dzP, std::max(0.06 / Nq, 1.8 * env.scale / (Nq * A.devMax)));
+         const double dzE = A.evan ? std::min(0.5, std::max(kZSnap, A.dMin / Nq)) : 0.5;
          const double topE = A.evan ? std::min(zs, 8.0 * A.dMax) : 0.0;
          auto grid = [&](double a, double b, double dz, std::vector<double>& z) {
             const int n = std::max(1, static_cast<int>(std::ceil((b - a) / dz)));
@@ -1316,17 +1356,28 @@ struct BfpBuilder
          const double L1 = 1.1 * (rho + Wf + 2.0 * dx);
          Grid G;
          G.du = 2.0 * kPi / (K * L1);
-         // No coherent light: no field's period to keep beyond the window; the map's own detail is enough.
-         if (!A.coh)
-            G.du = std::max(G.du, 2.0 * umax / kIncoherentPupil);
-         int half = static_cast<int>(std::ceil(umax / G.du));
          bool capped = false;
-         if (2 * half + 1 > kMaxPupil)
+         if (2 * static_cast<int>(std::ceil(umax / G.du)) + 1 > kMaxPupil)
          {
-            half = (kMaxPupil - 1) / 2;
-            G.du = umax / half;
+            G.du = umax / ((kMaxPupil - 1) / 2);
             capped = true;
          }
+         // No coherent light: no field's period to keep beyond the window; the map's own detail is enough.
+         if (!A.coh)
+         {
+            G.du = std::max(G.du, 2.0 * umax / (kIncoherentPupil * Nq / 6.0));
+            capped = false;
+         }
+         if (capped)
+         {
+            std::snprintf(buf, sizeof(buf), "%s%.0f nm: the pupil capped at %d samples (light may wrap round)",
+                          note.empty() ? "" : "; ", nm, kMaxPupil);
+            note += buf;
+         }
+         // Lit light at a hard edge: the sum over the pupil converges only as du there; kEdgePupil x N / 6 across.
+         if (A.edge)
+            G.du = std::min(G.du, 2.0 * umax / std::min(kMaxEdgePupil - 1.0, kEdgePupil * Nq / 6.0));
+         const int half = static_cast<int>(std::ceil(umax / G.du - 1e-9));
          G.M = 2 * half + 1;
          const double a = 2.0 * umax / kAnalysisPx;
          G.mx0 = std::max(0, static_cast<int>(std::floor((A.ux0 - 2 * a) / G.du)) + half);
@@ -1335,6 +1386,42 @@ struct BfpBuilder
          G.my1 = std::min(G.M - 1, static_cast<int>(std::ceil((A.uy1 + 2 * a) / G.du)) + half);
          const int bw = G.mx1 - G.mx0 + 1, bh = G.my1 - G.my0 + 1;
          const int nxf = 2 * static_cast<int>(std::ceil(Wf / dx)) + 1;
+         // The fine tile over the field of view (plus kTileMarginUm) at N where the window's grid is coarser; it and one
+         // field's planes for it within the budget (shared by the lines), else coarser (said in SamplingNote).
+         double tx0 = 0, tdx = 0;
+         int tn = 0, nxft = 0;
+         if (Nq > kCoarseN && dxWant < 0.999 * dx)
+         {
+            const double Wt = std::min(Wh, P.fovSpanUm / 2.0 + kTileMarginUm);
+            const double Wtf = Wt * (anyRot ? std::sqrt(2.0) : 1.0) + shiftScan;
+            double planes = 0;
+            for (const PlaneSet& ps : sets)
+               planes += static_cast<double>(ps.z.size());
+            const double store = period == 1 ? 1.0 : period + 1.0;
+            const double budget = TileBudgetBytes(P) / std::max<size_t>(1, lines.size());
+            double d = dxWant;
+            for (;;)
+            {
+               const double n = 2.0 * std::ceil(Wt / d) + 1.0, nf = 2.0 * std::ceil(Wtf / d) + 1.0;
+               if (4.0 * planes * (store * n * n + nf * nf) <= budget || d >= dx)
+                  break;
+               d *= 1.05;
+            }
+            if (d < 0.999 * dx)
+            {
+               const int h = static_cast<int>(std::ceil(Wt / d));
+               tdx = d;
+               tn = 2 * h + 1;
+               tx0 = -h * d;
+               nxft = 2 * static_cast<int>(std::ceil(Wtf / d)) + 1;
+            }
+            if (d > 1.001 * dxWant)
+            {
+               std::snprintf(buf, sizeof(buf), "%s%.0f nm: sampled at %.0f nm over the field of view, %.0f nm wanted (memory)",
+                             note.empty() ? "" : "; ", nm, (tn > 0 ? tdx : dx) * 1e3, dxWant * 1e3);
+               note += buf;
+            }
+         }
          // The points on the field grid: once (nothing but the scans and the timing depends on t), else per slot.
          std::vector<std::vector<Pt>> fpts(static_cast<size_t>(tdep ? S : 1));
          for (size_t e = 0; e < fpts.size(); ++e)
@@ -1395,6 +1482,13 @@ struct BfpBuilder
             v.extendTop = ps.extendTop;
             v.extendBottom = ps.extendBottom;
             v.v.assign(static_cast<size_t>(ps.z.size()) * nx * nx, 0.0f);
+            if (tn > 0)
+            {
+               v.tx0 = tx0;
+               v.tdx = tdx;
+               v.tn = tn;
+               v.t.assign(static_cast<size_t>(ps.z.size()) * tn * tn, 0.0f);
+            }
             return v;
          };
          line.states.resize(static_cast<size_t>(period));
@@ -1409,15 +1503,22 @@ struct BfpBuilder
          size_t fieldsMade = 0;
          for (size_t f = 0; f < masks.size(); ++f)
          {
-            FieldPlanes FP;
             const int e = fieldPts[f];
-            ComputeField(nm, G, fpts[static_cast<size_t>(e)], masks[f], A.Imax, sets, nxf, dx, pivot, FP);
-            fieldsMade++;
+            for (int layer = 0; layer < (tn > 0 ? 2 : 1); ++layer)
+            {
+            // The layer: the window's grid (0) or the tile's over the field of view (1), each its own field window.
+            const bool tile = layer == 1;
+            const double lx0 = tile ? tx0 : x0, ldx = tile ? tdx : dx;
+            const int lnx = tile ? tn : nx, lnxf = tile ? nxft : nxf;
+            FieldPlanes FP;
+            ComputeField(nm, G, fpts[static_cast<size_t>(e)], masks[f], A.Imax, sets, lnxf, ldx, pivot, FP);
+            if (!tile)
+               fieldsMade++;
             // Slots that only shift this field (no rotation) add up to one sparse kernel of bicubic taps per state and
             // plane set, convolved once (a scan of S slots: S x 16 taps per pixel became the kernel's distinct taps,
             // a line scan's ~4 x its length): the same sum, negative ringing clipped from the sum, not per slot.
             std::vector<std::map<std::pair<int, int>, double>> shiftK(static_cast<size_t>(period) * sets.size());
-            for (int s = 0; s < S; ++s)
+            for (int s = 0; !tile && s < S; ++s)
                if (fieldOf[static_cast<size_t>(s)] == static_cast<int>(f))
                {
                   powEva += FP.powerEva;
@@ -1431,27 +1532,31 @@ struct BfpBuilder
                const double w = 1.0 / std::max(1, slotsInState[static_cast<size_t>(st)]);
                const double th = sRot[static_cast<size_t>(s)], c = std::cos(th), sn = std::sin(th);
                const double ddx = sDx[static_cast<size_t>(s)], ddy = sDy[static_cast<size_t>(s)];
-               const bool identity = std::fabs(std::remainder(th, 2.0 * kPi)) < 1e-12 && ddx == 0.0 && ddy == 0.0 && nxf == nx;
+               const bool identity = std::fabs(std::remainder(th, 2.0 * kPi)) < 1e-12 && ddx == 0.0 && ddy == 0.0 && lnxf == lnx;
                for (size_t k = 0; k < sets.size(); ++k)
                {
                   BfpVolume& V = line.states[static_cast<size_t>(st)].parts[k];
+                  std::vector<float>& dst = tile ? V.t : V.v;
                   const std::vector<float>& src = FP.fam[k];
                   const int nz = V.Nz();
                   // The slot's direction (rotated) and its light, for the state's mean direction.
-                  double pw = FP.power[k];
-                  shearW[static_cast<size_t>(st)][3 * k] += w * pw * (c * FP.sx[k] - sn * FP.sy[k]);
-                  shearW[static_cast<size_t>(st)][3 * k + 1] += w * pw * (sn * FP.sx[k] + c * FP.sy[k]);
-                  shearW[static_cast<size_t>(st)][3 * k + 2] += w * pw;
+                  if (!tile)
+                  {
+                     const double pw = FP.power[k];
+                     shearW[static_cast<size_t>(st)][3 * k] += w * pw * (c * FP.sx[k] - sn * FP.sy[k]);
+                     shearW[static_cast<size_t>(st)][3 * k + 1] += w * pw * (sn * FP.sx[k] + c * FP.sy[k]);
+                     shearW[static_cast<size_t>(st)][3 * k + 2] += w * pw;
+                  }
                   if (identity)
                   {
-                     for (size_t q = 0; q < V.v.size(); ++q)
-                        V.v[q] += static_cast<float>(w * src[q]);
+                     for (size_t q = 0; q < dst.size(); ++q)
+                        dst[q] += static_cast<float>(w * src[q]);
                      continue;
                   }
                   if (std::fabs(std::remainder(th, 2.0 * kPi)) < 1e-12)
                   {
                      // out(p, q) += w x sum of taps src(p + i - 1 + a, q + j - 1 + b), as Bicubic at X - d.
-                     const double ox = (x0 - ddx - FP.x0) / dx, oy = (x0 - ddy - FP.x0) / dx;
+                     const double ox = (lx0 - ddx - FP.x0) / ldx, oy = (lx0 - ddy - FP.x0) / ldx;
                      const int i = static_cast<int>(std::floor(ox)), j = static_cast<int>(std::floor(oy));
                      double wx[4], wy[4];
                      CubicWeights(ox - i, wx);
@@ -1464,17 +1569,17 @@ struct BfpBuilder
                      continue;
                   }
                   ParallelFor(static_cast<unsigned>(nz), [&](unsigned kz) {
-                     const float* sp = src.data() + static_cast<size_t>(kz) * nxf * nxf;
-                     float* dp = V.v.data() + static_cast<size_t>(kz) * nx * nx;
-                     for (int q = 0; q < nx; ++q)
-                        for (int p = 0; p < nx; ++p)
+                     const float* sp = src.data() + static_cast<size_t>(kz) * lnxf * lnxf;
+                     float* dp = dst.data() + static_cast<size_t>(kz) * lnx * lnx;
+                     for (int q = 0; q < lnx; ++q)
+                        for (int p = 0; p < lnx; ++p)
                         {
-                           const double X = x0 + p * dx, Y = x0 + q * dx;
+                           const double X = lx0 + p * ldx, Y = lx0 + q * ldx;
                            // The light rotated by th after its shift: the source point R(-th) X - d.
                            const double xs = c * X + sn * Y - ddx, ys = -sn * X + c * Y - ddy;
-                           const double val = Bicubic(sp, nxf, nxf, FP.x0, FP.x0, dx, xs, ys);
+                           const double val = Bicubic(sp, lnxf, lnxf, FP.x0, FP.x0, ldx, xs, ys);
                            if (val > 0)
-                              dp[static_cast<size_t>(q) * nx + p] += static_cast<float>(w * val);
+                              dp[static_cast<size_t>(q) * lnx + p] += static_cast<float>(w * val);
                         }
                   });
                }
@@ -1486,19 +1591,20 @@ struct BfpBuilder
                std::vector<std::pair<std::pair<int, int>, double>> taps(shiftK[sk].begin(), shiftK[sk].end());
                const size_t k = sk % sets.size();
                BfpVolume& V = line.states[sk / sets.size()].parts[k];
+               std::vector<float>& dst = tile ? V.t : V.v;
                const std::vector<float>& src = FP.fam[k];
                ParallelFor(static_cast<unsigned>(V.Nz()), [&](unsigned kz) {
-                  const float* sp = src.data() + static_cast<size_t>(kz) * nxf * nxf;
-                  float* dp = V.v.data() + static_cast<size_t>(kz) * nx * nx;
-                  std::vector<double> acc(static_cast<size_t>(nx) * nx, 0.0);
+                  const float* sp = src.data() + static_cast<size_t>(kz) * lnxf * lnxf;
+                  float* dp = dst.data() + static_cast<size_t>(kz) * lnx * lnx;
+                  std::vector<double> acc(static_cast<size_t>(lnx) * lnx, 0.0);
                   for (const auto& t : taps)
                   {
                      const int ax = t.first.first, ay = t.first.second;
-                     const int p0 = std::max(0, -ax), p1 = std::min(nx, nxf - ax);
-                     for (int q = std::max(0, -ay); q < std::min(nx, nxf - ay); ++q)
+                     const int p0 = std::max(0, -ax), p1 = std::min(lnx, lnxf - ax);
+                     for (int q = std::max(0, -ay); q < std::min(lnx, lnxf - ay); ++q)
                      {
-                        const float* r = sp + static_cast<size_t>(q + ay) * nxf + ax;
-                        double* o = acc.data() + static_cast<size_t>(q) * nx;
+                        const float* r = sp + static_cast<size_t>(q + ay) * lnxf + ax;
+                        double* o = acc.data() + static_cast<size_t>(q) * lnx;
                         for (int p = p0; p < p1; ++p)
                            o[p] += t.second * r[p];
                      }
@@ -1507,6 +1613,7 @@ struct BfpBuilder
                      if (acc[q] > 0)
                         dp[q] += static_cast<float>(acc[q]);
                });
+            }
             }
          }
          // Scale to the reference power; the states' directions; the cycle mean.
@@ -1519,6 +1626,8 @@ struct BfpBuilder
                BfpVolume& V = line.states[static_cast<size_t>(st)].parts[k];
                for (float& x : V.v)
                   x = static_cast<float>(x * cNorm);
+               for (float& x : V.t)
+                  x = static_cast<float>(x * cNorm);
                const auto& sw = shearW[static_cast<size_t>(st)];
                if (sets[k].fam != FAM_EVA && sw[3 * k + 2] > 0)
                {
@@ -1528,6 +1637,8 @@ struct BfpBuilder
                BfpVolume& Mv = line.mean.parts[k];
                for (size_t q = 0; q < V.v.size(); ++q)
                   Mv.v[q] += V.v[q] / static_cast<float>(period);
+               for (size_t q = 0; q < V.t.size(); ++q)
+                  Mv.t[q] += V.t[q] / static_cast<float>(period);
                Mv.sx += V.sx / period;
                Mv.sy += V.sy / period;
             }
@@ -1580,10 +1691,16 @@ struct BfpBuilder
          for (const PlaneSet& ps : sets)
             planes += ps.z.size();
          std::snprintf(buf, sizeof(buf),
-                       "%s%.0f nm: pupil %d x %d (du %.4g%s), window %.1f um at %.3g um (%d px), %zu planes, %zu field%s",
-                       info.empty() ? "" : "; ", nm, bw, bh, G.du, capped ? ", capped: light may wrap" : "", 2.0 * Wh, dx,
-                       nx, planes, fieldsMade, fieldsMade == 1 ? "" : "s");
+                       "%s%.0f nm: pupil %d x %d (du %.4g%s%s), window %.1f um at %.3g um (%d px), %zu planes, %zu field%s",
+                       info.empty() ? "" : "; ", nm, bw, bh, G.du, A.edge ? ", edges" : "",
+                       capped ? ", capped: light may wrap" : "", 2.0 * Wh, dx, nx, planes, fieldsMade,
+                       fieldsMade == 1 ? "" : "s");
          info += buf;
+         if (tn > 0)
+         {
+            std::snprintf(buf, sizeof(buf), ", tile %.1f um at %.3g um (%d px)", tn * tdx - tdx, tdx, tn);
+            info += buf;
+         }
          out.lines_.push_back(std::move(line));
       }
       out.evanescent_ = anyEvan;
@@ -1597,6 +1714,7 @@ struct BfpBuilder
       std::snprintf(buf, sizeof(buf), "; %d slot%s, %d state%s, %.2f s, %.1f MB", S, S == 1 ? "" : "s", period,
                     period == 1 ? "" : "s", out.computeSec_, out.Bytes() / 1048576.0);
       out.info_ = info + buf;
+      out.samplingNote_ = note;
       return true;
    }
 };
@@ -1626,7 +1744,8 @@ uint64_t KeyOf(const BfpLightParams& p, const BfpProgram& prog, bool withPivot, 
       h = Mix(h, nm);
    for (double v : { p.lambdaRefNm, p.na, p.nS, p.nI, p.fObjUm, p.bfp, p.envFwhmUm, static_cast<double>(p.profile),
                      p.fovSpanUm, p.anchorFocus ? 1.0 : 0.0, p.sheetTUm, p.sheetWUm, static_cast<double>(p.slots),
-                     static_cast<double>(p.cycleFrames), p.zSampleUm })
+                     static_cast<double>(p.cycleFrames), p.zSampleUm, p.samplesPerPeriod,
+                     TileBudgetBytes(p) })
       h = Mix(h, v);
    for (const std::string& name : prog.Images())
    {

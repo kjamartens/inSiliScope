@@ -1576,7 +1576,8 @@ std::vector<PropDef> BuildTable()
                 h.State().Option("blink-min-photons") == q.minPhotons &&
                 h.State().Option("fid-clumps-as-one") == q.clumpsAsOne &&
                 h.State().Option("sim-frame-pattern-continuous") == q.framePattern &&
-                h.State().wideField[WF_Z_PLANE_NM].load() == q.wfPlaneNm)
+                h.State().wideField[WF_Z_PLANE_NM].load() == q.wfPlaneNm &&
+                h.State().Option("bfp-samples-per-period") == q.bfpSamples)
                return std::string(q.name);
          return std::string("Custom");
       };
@@ -1595,6 +1596,7 @@ std::vector<PropDef> BuildTable()
                h.State().SetOption("fid-clumps-as-one", q.clumpsAsOne);
                h.State().SetOption("sim-frame-pattern-continuous", q.framePattern);
                h.State().wideField[WF_Z_PLANE_NM] = q.wfPlaneNm;
+               h.State().SetOption("bfp-samples-per-period", q.bfpSamples);
                h.Notify("bf-quality");
                h.Notify("psf-oversampling");
                h.Notify("psf-max-sample-nm");
@@ -1604,6 +1606,7 @@ std::vector<PropDef> BuildTable()
                h.Notify("fid-clumps-as-one");
                h.Notify("sim-frame-pattern-continuous");
                h.Notify("wf-plane-nm");
+               h.Notify("bfp-samples-per-period");
                return true;
             }
          return false;
@@ -1654,6 +1657,13 @@ std::vector<PropDef> BuildTable()
               "The PSF kernel's samples are made only as fine as keeps them at most this far apart, nm: samples per "
               "pixel = min(PsfOversampling, ceil(pixel / this)), so a small pixel does not multiply the kernel's size "
               "(Quality: Fast 30, Realistic 15, Exhaustive 0 = no limit).");
+      ThenNumber(d, quality);
+      add(d);
+      d = Opt(R, "BfpSamplesPerPeriod", Tier::Expert, "bfp-samples-per-period", 2, 64,
+              "Lasers.BfpMaps: the light's samples per its finest period -- laterally over the field of view (the "
+              "window beyond: at most 6), along z per axial beat and evanescent decay; the pupil 512 x this / 6 "
+              "samples across where lit light meets a hard edge (Quality: Fast 6, Realistic 12, Exhaustive 24). A "
+              "field of view too fine for the memory is sampled coarser.");
       ThenNumber(d, quality);
       add(d);
       add(Opt(R, "BfpZSampleUm", Tier::Expert, "bfp-z-sample-um", 1, 100,
