@@ -122,6 +122,17 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     check(frames.length === 9 && /^frame,t_start_s,exposure_s,stage_x_um/.test(frames[0]), `gt/frames.csv: a row per frame (${frames.length - 1})`);
     const closed = await page.evaluate(() => document.getElementById('setDlg').hidden && /saved insiliscope_live_64x64x8\.zip/.test(document.getElementById('lv_info').title));
     check(closed, 'the box closes, the info names the saved zip');
+    // "write frames to disk" (on by default): the recording's frames file and the ground truth's spool on the disk
+    // storage (OPFS), the zip made from them (the cli checks below: the same bytes)
+    const opfs = await page.evaluate(async () => {
+      const dir = liveState.play.disk && liveState.play.disk.dir;
+      if (!dir) return null;
+      const d = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('isc-rec')).getDirectoryHandle(dir), out = [];
+      for await (const [n, h] of d.entries()) out.push(`${n} ${(await h.getFile()).size}`);
+      return out.sort();
+    });
+    check(!!opfs && opfs.some(f => /^frames\.raw 65536$/.test(f)) && opfs.some(f => /^gt-\d+\.spool [1-9]/.test(f)),
+      `the recording on the disk storage: ${opfs ? opfs.join(', ') : 'none'}`);
     // its open_in_napari.py opens it in napari (stood in for: tests/web/napari_open_check.py)
     {
       const zp = path.join(dir, 'recording_for_napari.zip');

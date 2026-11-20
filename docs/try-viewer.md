@@ -132,8 +132,13 @@ through it step by step.
   it ([napari](ground-truth.md#open-it-in-napari)). Nothing is saved by itself. A recording is a fresh sample: a movie starting at
   that time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
-  Live, Snap and ↺ wait while it records. A recording is held in the browser tab's memory, so its size is bounded
-  by that, not by a fixed cap. If the tab runs out, the recording stops and keeps the frames so far. A movie past
+  Live, Snap and ↺ wait while it records. With **write frames to disk** (in the box, on by default) the frames, and
+  later the ground truth's files, are written to the browser's own disk storage for this page as they are made, not
+  held in the tab's memory, so a recording is bounded by the disk space the browser gives the page (checked before it
+  starts); Save then makes the .tif or .zip from those files. The tab's last recording stays there until the next
+  Record, and recordings of closed tabs are deleted. A browser without that storage (some private windows) keeps the
+  frames in memory, as with the box unticked: then the tab's memory bounds the recording. If the storage or the
+  memory runs out, the recording stops and keeps the frames so far. A movie past
   4 GB is saved as a **BigTIFF**: open it in Fiji with Bio-Formats, in napari or with tifffile, as plain ImageJ
   cannot. For very large movies, `insiliscope_cli` or `tools/isc_render.py` on the saved settings write straight
   to disk ([Quickstart](quickstart.md)).

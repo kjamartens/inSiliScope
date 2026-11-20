@@ -310,6 +310,17 @@ try {
     'fresh: the header says a fresh recording, its spec is the 20-frame movie from the box\'s start time (default 0 s)');
   check(fresh.info.t === tBefore, `fresh: the live sample's time stays: ${tBefore.toFixed(2)} -> ${fresh.info.t.toFixed(2)} s`);
   console.log(`      fresh record ${fresh.recSec.toFixed(1)} s for 20 frames (wall)`);
+  // "write frames to disk" (on by default, 2026-11-20): the frames went to the disk storage (OPFS); the same Record
+  // with them in memory gives the same frames byte for byte
+  const onDisk = () => page.evaluate(() => !!(liveState.play.store && liveState.play.store.disk));
+  const setDisk = on => page.evaluate(v => { const c = document.getElementById('lv_recDisk'); c.checked = v; c.dispatchEvent(new Event('change')); }, on);
+  const framesOf = r => r.buf.subarray(r.pages[0].data);
+  check(await onDisk(), 'fresh: the frames were written to the browser\'s disk storage (OPFS), not held in the tab');
+  await setDisk(false);
+  const mem = await record();
+  check(!(await onDisk()) && Buffer.compare(framesOf(mem), framesOf(fresh)) === 0 && mem.pages.length === 20,
+    `fresh: with "write frames to disk" off (in memory) the same ${(framesOf(mem).length / 1e6).toFixed(2)} MB of frames byte for byte`);
+  await setDisk(true);
 
   // "continue the live sample": the frames go on from the live sample
   await page.evaluate(() => { const c = document.getElementById('lv_recLive'); c.checked = true; c.dispatchEvent(new Event('change')); });
@@ -317,6 +328,7 @@ try {
   const cont = await record();
   const dc = fileChecks(cont, 'continue');
   check(/\ninsiliscope=live recording\n/.test(dc.desc || ''), 'continue: the header says a live recording');
+  check(await onDisk(), 'continue: the chunks\' frames were written to the disk storage at their places');
   check(Math.abs(cont.info.t - (t2 + 20 * cont.info.exp / 1000)) < 1e-6, `continue: the sample's time runs on by 20 frames: ${t2.toFixed(2)} -> ${cont.info.t.toFixed(2)} s`);
   const recMs = await page.evaluate(() => liveState.rec.engineMs / 20);
   console.log(`      continue record ${cont.recSec.toFixed(1)} s for 20 frames (wall); engine ${recMs.toFixed(1)} ms/frame; info: ${cont.info.text.split('\n').pop()}`);

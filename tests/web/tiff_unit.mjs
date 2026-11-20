@@ -105,6 +105,13 @@ for (const pxUm of [0, 0.1]) {
 }
 check(same(await bytes(writeTiff16(parts, w, h, 4, desc, 0.1)), await bytes(oldWriteTiff16(movie, w, h, 4, desc, 0.1))),
   'the first 4 of 6 frames from parts = the old writer\'s');
+// a recording on the disk storage: its frames file as one Blob (all frames, or the first 4)
+{
+  const file = new Blob([movie]);
+  check(same(await bytes(writeTiff16([file], w, h, n, desc, 0.1)), await bytes(oldWriteTiff16(movie, w, h, n, desc, 0.1))) &&
+        same(await bytes(writeTiff16([file], w, h, 4, desc, 0.1)), await bytes(oldWriteTiff16(movie, w, h, 4, desc, 0.1))),
+    'the frames as a Blob (a frames file on the disk storage): all 6 and the first 4 = the old writer\'s');
+}
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'isc-tiff-'));
 const bigFile = await bytes(writeTiff16(parts, w, h, n, desc, 0.1, true));

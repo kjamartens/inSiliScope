@@ -823,6 +823,7 @@ self.iscCoi = (() => {
         <div id="lv_recPop" class="popover" hidden role="dialog" aria-label="Record">
           <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
           <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
+          <div class="recrow" id="lv_recDiskRow"><label title="On (default): the frames (and the ground truth's files) are written to this browser's own disk storage as they are made, not held in the tab's memory, so a recording is bounded by the disk, not the memory; Save makes the .tif or .zip from that file. This tab's last recording stays there until the next Record; recordings of closed tabs are deleted. Off: the frames are kept in memory, as before."><input type="checkbox" id="lv_recDisk" checked> write frames to disk</label></div>
           <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
         </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button><span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span><div id="lv_info"></div></div>
       <!-- the setup, the stage and the display side by side -->
@@ -4426,9 +4427,23 @@ function iscEngine(M) {
   // parts of ~32 MB of whole frames, each posted as a 'movie-part' (transferred) when full, so the heap never holds the
   // movie (2026-11-19: a Record had every frame in the 4 GB heap beside the engine, and was capped at 1 GB). A part
   // that cannot be allocated stops the movie: its frames so far stay (the result's stopped).
+  // With d.diskOpen (2026-11-20, the Record's "Write frames to disk"): each frame written to the browser's disk storage
+  // (OPFS) at its place in the raw frames file (frame f at f x w x h x 2 bytes) and never posted; the result carries the
+  // last frame for the view. A failed write (the storage full) stops the movie like a failed part.
   function streamFrames(d, post) {
-    const S = { part: null, px: 0, first: 0, n: 0, frames: 0, stopped: '' };
+    const S = { part: null, px: 0, first: 0, n: 0, frames: 0, stopped: '', disk: d.diskOpen || null };
     M.onMovieFrame = (f, pixels) => {
+      if (S.disk) {
+        try {
+          S.px = pixels.length;
+          diskWrite(S.disk, pixels, f * S.px * 2);
+          S.frames = f + 1;
+          return true;
+        } catch (e) {
+          S.stopped = `the disk storage refused frame ${f + 1} (${e.name === 'QuotaExceededError' ? 'full' : e.message || e})`;
+          return false;
+        }
+      }
       try {
         if (!S.part) {
           S.px = pixels.length;
@@ -4456,10 +4471,40 @@ function iscEngine(M) {
     M.onMovieProgress = null;
     if (S.part && S.n) post({ type: 'movie-part', id: d.id, first: S.first, n: S.n, frames: S.part.subarray(0, S.n * S.px) }, [S.part.buffer]);
     S.part = null;
+    let last = null;
+    if (S.disk) {   // the last frame for the view, read back; the file closed (the page reads it)
+      if (S.frames) { last = new Uint16Array(S.px); S.disk.read(last, { at: (S.frames - 1) * S.px * 2 }); }
+      diskClose(d);
+    }
     if (error && !S.frames) return { type: 'movie', id: d.id, error };
-    return { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, streamed: true, got: S.frames,
+    return { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, streamed: true, got: S.frames, disk: !!S.disk, last,
+      diskError: d.diskError || '',
       stopped: S.stopped || error || '', w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2],
       blinks: M.HEAP32[info / 4 + 3], dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, ...extra };
+  }
+  // ---- a Record's files on the browser's disk storage (OPFS, 2026-11-20; web/live/live.js REC.disk) ----
+  // d.disk = { path: 'isc-rec/<recording>/<file>', first }: handle() opens the file (a sync access handle, workers only)
+  // before the job runs (d.diskOpen) and the job closes it; a storage that cannot (none in this browser, a private
+  // window) runs the job without (d.diskError: the page keeps the frames in memory).
+  async function diskOpen(path) {
+    let dir = await navigator.storage.getDirectory();
+    const parts = path.split('/');
+    for (const p of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(p, { create: true });
+    const fh = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+    return fh.createSyncAccessHandle();
+  }
+  // view: a typed array (a heap view of the threaded module's shared memory is copied where write() refuses it)
+  function diskWrite(h, view, at) {
+    let k;
+    try { k = h.write(view, { at }); } catch (e) {
+      if (!(e instanceof TypeError)) throw e;
+      k = h.write(view.slice(), { at });
+    }
+    if (k !== view.byteLength) throw new Error(`${k} of ${view.byteLength} bytes written`);
+  }
+  function diskClose(d) {
+    if (!d.diskOpen) return;
+    try { d.diskOpen.flush(); } finally { d.diskOpen.close(); d.diskOpen = null; }
   }
   // A fluorescence movie whose continuous populations start mean-field: each mean-field scene's convolution
   // on WebGPU (web/wf_gpu.js; none: no GPU work), the frames in WASM. Any GPU failure falls back to the CPU
@@ -4524,10 +4569,21 @@ function iscEngine(M) {
     M.stringToUTF8(d.spec, s, n);
     const px = nF > 1 ? M._isc_live_frames(s, nF, d.lit === false ? 0 : 1, info, err, 512) : M._isc_live_frame(s, d.lit === false ? 0 : 1, info, err, 512);
     let res;
-    if (px < 0) res = { type: 'live', id: d.id, error: M.UTF8ToString(err) };
+    if (px < 0) { res = { type: 'live', id: d.id, error: M.UTF8ToString(err) }; diskClose(d); }
     else {
       const v = M.HEAPF64.slice(info / 8, info / 8 + 17), p = M._isc_live_image();
-      res = { type: 'live', id: d.id, spec: d.spec, frames: M.HEAPU16.slice(p / 2, p / 2 + px), w: v[0], h: v[1],
+      // a Record chunk with d.diskOpen: its frames to the disk storage at frame d.disk.first's place, the last one back
+      let frames = null, disk = false, diskError = d.diskError || '';
+      if (d.diskOpen) {
+        const fpx = v[0] * v[1];
+        try {
+          diskWrite(d.diskOpen, M.HEAPU16.subarray(p / 2, p / 2 + px), (d.disk.first || 0) * fpx * 2);
+          frames = M.HEAPU16.slice(p / 2 + px - fpx, p / 2 + px); disk = true;
+        } catch (e) { diskError = `the disk storage refused the frames (${e.name === 'QuotaExceededError' ? 'full' : e.message || e})`; }
+        finally { diskClose(d); }
+      }
+      if (!frames) frames = M.HEAPU16.slice(p / 2, p / 2 + px);
+      res = { type: 'live', id: d.id, spec: d.spec, frames, disk, diskError, w: v[0], h: v[1],
         n: nF, t: v[2] + nF * (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), tStart: v[2], clock: v[3], lit: !!v[4],
         epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
         frame: v[13], pattern: v[16] > 0 ? { frame: v[13], angle: v[14], phase: v[15], period: v[16] } : null,
@@ -4551,6 +4607,9 @@ function iscEngine(M) {
   return { handle, bfpFile };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
+      if (d.disk && !d.diskOpen && !d.diskError)
+        return diskOpen(d.disk.path).then(h => { d.diskOpen = h; return handle(d, post); },
+          e => { d.diskError = String(e && e.message || e || 'no disk storage'); return handle(d, post); });
       const w = d.type === 'movie' || d.type === 'live' || d.type === 'live-replay' || d.type === 'gt' || d.type === 'gt-run' || d.type === 'gt-files' || d.type === 'options' || d.type === 'setup' || d.type === 'panel' || d.type === 'fiducials' || d.type.startsWith('bf-') ? 0 : useWorld(d.seed, d.p);
       if (d.type === 'fiducials') {
         // The fiducial beads whose centre lies in a rect (isc_fiducials_in_window, ABI 15: tx, ty, i, x, y, z (um),
@@ -4779,6 +4838,26 @@ function iscEngine(M) {
         M._free(err);
         return [{ type: 'live-replay', id: d.id, t: M._isc_live_time(), error }, []];
       }
+      // A ground truth's files as they are made: kept ([name, bytes]), or with d.diskOpen appended to one spool file on
+      // the disk storage ([name, {at, size}]: the page reads them as slices of it; 2026-11-20). Returns the files list.
+      const gtSink = files => {
+        let at = 0;
+        // (a write the storage refuses: that file and the rest kept in memory, the reply's diskError says why)
+        M.onGtFile = (name, bytes) => {
+          if (d.diskOpen && !d.diskError) {
+            try { diskWrite(d.diskOpen, bytes, at); files.push([name, { at, size: bytes.length }]); at += bytes.length; return; }
+            catch (e) { d.diskError = `the disk storage refused ${name} (${e.name === 'QuotaExceededError' ? 'full' : e.message || e})`; }
+          }
+          files.push([name, bytes]);
+        };
+        return files;
+      };
+      const gtReply = (type, files, extra) => {
+        const disk = !!d.diskOpen;
+        diskClose(d);
+        return [{ type, id: d.id, files, spool: disk ? d.disk.path : null, diskError: d.diskError || '', ...extra },
+          files.filter(f => f[1] instanceof Uint8Array).map(f => f[1].buffer)];
+      };
       if (d.type === 'gt') {
         // A recording's ground truth (web/live/live.js Save; docs/ground-truth.md): its settings file's movie rendered
         // again with the sink on (isc_scope_gt, = insiliscope_cli --settings --gt-out), the files [[name, bytes], ...]
@@ -4786,11 +4865,11 @@ function iscEngine(M) {
         progressTo(d, post);
         const n = M.lengthBytesUTF8(d.text) + 1, s = M._malloc(n), files = [];
         M.stringToUTF8(d.text, s, n);
-        M.onGtFile = (name, bytes) => files.push([name, bytes]);   // each file out of the heap as it is made
+        gtSink(files);   // each file out of the heap as it is made
         let size;
         try { size = M._isc_scope_gt(s, d.min, d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; M.onGtFile = null; }
-        if (size < 0) return [{ type: 'gt', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
-        return [{ type: 'gt', id: d.id, files }, files.map(f => f[1].buffer)];
+        if (size < 0) { diskClose(d); return [{ type: 'gt', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []]; }
+        return gtReply('gt', files);
       }
       if (d.type === 'gt-run') {
         // The same in two steps (live.js starts this one while the Save box is open): the movie rendered with the sink
@@ -4800,24 +4879,22 @@ function iscEngine(M) {
         M.stringToUTF8(d.text, s, n);
         let rc;
         try { rc = M._isc_scope_gt_run(s, d.minPhotons, d.dyeCsv ? 1 : 0); } finally { M._free(s); M.onMovieProgress = null; }
-        if (rc < 0) return [{ type: 'gt-run', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
+        if (rc < 0) { diskClose(d); return [{ type: 'gt-run', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []]; }
         // d.files = {min, vol, dyeCsv}: the files for the options the box shows, made now (the run kept for others)
-        if (!d.files) return [{ type: 'gt-run', id: d.id, error: null }, []];
-        const files = [], o = d.files;
-        M.onGtFile = (name, bytes) => files.push([name, bytes]);
+        if (!d.files) { diskClose(d); return [{ type: 'gt-run', id: d.id, error: null }, []]; }
+        const files = gtSink([]), o = d.files;
         let size;
         try { size = M._isc_scope_gt_files(o.min, o.vol[0], o.vol[1], o.dyeCsv ? 1 : 0, 1); } finally { M.onGtFile = null; }
-        if (size < 0) return [{ type: 'gt-run', id: d.id, error: null, filesError: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
-        return [{ type: 'gt-run', id: d.id, error: null, files, filesFor: o }, files.map(f => f[1].buffer)];
+        if (size < 0) { diskClose(d); return [{ type: 'gt-run', id: d.id, error: null, filesError: M.UTF8ToString(M._isc_scope_gt_error()) }, []]; }
+        return gtReply('gt-run', files, { error: null, filesFor: o });
       }
       if (d.type === 'gt-files') {
         // The kept run's files (isc_scope_gt_files), each out of the heap as it is made; the run let go.
-        const files = [];
-        M.onGtFile = (name, bytes) => files.push([name, bytes]);
+        const files = gtSink([]);
         let size;
         try { size = M._isc_scope_gt_files(d.min, d.vol[0], d.vol[1], d.dyeCsv ? 1 : 0, 0); } finally { M.onGtFile = null; }
-        if (size < 0) return [{ type: 'gt-files', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []];
-        return [{ type: 'gt-files', id: d.id, files }, files.map(f => f[1].buffer)];
+        if (size < 0) { diskClose(d); return [{ type: 'gt-files', id: d.id, error: M.UTF8ToString(M._isc_scope_gt_error()) }, []]; }
+        return gtReply('gt-files', files);
       }
       if (d.type === 'setup') {
         // A movie spec's resolved setup (isc_scope_setup: JSON of the light path, excitation, labels).
@@ -6720,7 +6797,8 @@ function toggleMoviePlay() {
 }
 // Little-endian baseline TIFF: one uncompressed 16-bit grey page per frame,
 // the spec in the first page's ImageDescription. frames: one typed array, or an array of them holding the frames in
-// order (a recording's parts: the Blob takes them as they are, no copy into one buffer). Past 4 GB (less 64 MB) a
+// order (a recording's parts: the Blob takes them as they are, no copy into one buffer; a part may be a Blob: a
+// recording's frames file on the disk storage). Past 4 GB (less 64 MB) a
 // BigTIFF (64-bit offsets, 2026-11-19: Fiji with Bio-Formats, napari and tifffile open it, plain ImageJ does not);
 // below it the classic file, byte for byte as before. bigTiff: a BigTIFF at any size (the tests).
 // pxUm (optional): the pixel size, as ImageJ writes it (XResolution/YResolution = pixels per unit, ResolutionUnit
@@ -6782,8 +6860,10 @@ function writeTiff16(frames, w, h, n, desc, pxUm, bigTiff) {
   let left = n * px;
   for (const a of Array.isArray(frames) ? frames : [frames]) {
     if (left <= 0) break;
-    const take = Math.min(left, a.length);
-    parts.push(take === a.length ? a : a.subarray ? a.subarray(0, take) : a.slice(0, take));
+    // (a Blob: frames on the disk storage, 2026-11-20 -- its size in bytes)
+    const blob = typeof Blob !== 'undefined' && a instanceof Blob, len = blob ? Math.floor(a.size / 2) : a.length;
+    const take = Math.min(left, len);
+    parts.push(take === len ? a : blob ? a.slice(0, take * 2) : a.subarray ? a.subarray(0, take) : a.slice(0, take));
     left -= take;
   }
   if (left > 0) throw new Error(`writeTiff16: ${n} frames asked, ${n - Math.ceil(left / px)} given`);
