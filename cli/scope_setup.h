@@ -55,7 +55,12 @@ struct Json
       {
          if (c == '"' || c == '\\')
             s += '\\';
-         s += c;
+         if (c == '\n')
+            s += "\\n";   // (text with lines: the BFP maps' equations)
+         else if (c == '\t')
+            s += "\\t";
+         else if (static_cast<unsigned char>(c) >= 0x20)
+            s += c;
       }
       s += '"';
    }
@@ -97,7 +102,7 @@ void SpectrumKey(Json& j, const char* key, const sim::Spectrum& v);
 // tilt_x_deg, tilt_y_deg, amp, phase_turns, pol_deg, ellip_turns, phase_step, nm, u, regime, field_factor, depth_nm
 // per line}] and "pattern" {type, polarization, phases, angles, order, period, frame0, angle, phase, rotation_deg,
 // varies, period_nm per line (the lateral fringe periods, largest first), spot_radius_um (the legacy width's)}.
-void ExcitationBeamsJson(Json& j, const sim::Excitation& ex);
+void ExcitationBeamsJson(Json& j, const sim::Excitation& ex, int simType = -1);   // simType: the spec's (the maps' types)
 // A state's photophysics under the light path, and its spectra (ex, em, detected) when it emits.
 void StateJson(Json& j, const sim::StateData& sd, const sim::StatePhysics& st, const sim::LightPath& lp);
 
@@ -125,12 +130,20 @@ struct IllumPreview
    int n = 0, nz = 0, nxz = 0;   // the x-y (and pupil) side, the x-z image's rows and columns
    double xySpanUm = 0, zMaxUm = 0, uSpan = 0, uMax = 0, uCrit = 1;
    double zUm = 0;   // the x-y section's height above the coverslip (the focus when asked for < 0)
+   double focusUm = 0;   // the focal plane's height above the coverslip (the Z position)
    long long frame = 0;
    int angle = 0, phase = 0, period = 1;
    bool patterned = false;
    std::vector<float> bfp, xy, xz;
    std::vector<double> beams;
    static constexpr int kBeamStride = 9;
+   // BFP light maps (sim-type LightSheet, RingTIRF, Maps): bfp is their intensity over the frame's exposure (its time
+   // slots summed); the other maps in use (non-default where lit) at the frame state's first slot, each n x n as bfp.
+   bool maps = false;
+   std::string mapsCaption, mapsError;
+   std::vector<std::string> mapNames;
+   std::vector<std::vector<float>> mapImages;
+   std::vector<std::pair<float, float>> mapRanges;
 };
 // A part of the x-y or x-z image (a zoomed view): its top-left corner (x0, y0) and side (span) as fractions of the
 // whole image as shown (x from the left, y from the top: the largest y, or z, first). Sampling: ss x ss samples

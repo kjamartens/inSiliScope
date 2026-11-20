@@ -47,6 +47,9 @@ core.snapImage(); img = core.getImage()
 The [Quickstart](quickstart.md#micro-manager) walks through the configuration groups, the targets and their labels,
 the shutters and the caches in more detail.
 
+**From the viewer:** ☰ › **Micro-Manager .cfg…** in the [viewer](try-viewer.md) saves a configuration whose Startup
+preset sets every property to the viewer's settings: load it to image the sample and microscope you set up there.
+
 <!-- properties:start -->
 ## Devices and properties
 
@@ -192,7 +195,7 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `IlluminationProfile` | Basic | Gaussian | `Flat`, `Gaussian`, `FlatTop` | The excitation beam's cross-section: Flat, Gaussian or FlatTop (a disc with a soft edge). |
 | `IlluminationFwhmPct` | Basic | 100 | 10 .. 300 | The beam's FWHM (Gaussian, FlatTop), % of the field of view's longer side (its width when square). |
 | `BfpPosition` | Basic | 0.95 | 0 .. 1.2 | Where the laser spot sits in the objective's back focal plane: 0 = its centre (epi), 1 = the critical angle; between: HILO (an inclined sheet), above: TIRF (an evanescent layer), up to the pupil edge NA / medium index (beyond it no light reaches the sample). Set by Lasers.Preset, the config group Illumination and a Lasers.Pattern pick; a dye, mode or specimen pick leaves it. |
-| `Pattern` | Basic | Off | `Off`, `SIM2D`, `SIM3D`, `LatticeSIM2D`, `LatticeSIM3D`, `Custom` | Structured illumination: the light as coherent beams in the back focal plane, the fringes stepping with the frame. Off: one beam at BfpPosition. SIM2D: two beams at +-BfpPosition, 3 phases x 3 orientations. SIM3D: + the centre beam, 5 phases x 3 orientations. LatticeSIM2D: +-x and +-y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets BfpPosition to the type's radius (2D 0.95; 3D and the lattices 0.9) and PatternPolarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern's cycle mean, each frame's image on its exact pattern. |
+| `Pattern` | Basic | Off | `Off`, `SIM2D`, `SIM3D`, `LatticeSIM2D`, `LatticeSIM3D`, `Custom`, `LightSheet`, `RingTIRF`, `Maps` | Structured illumination: the light as coherent beams in the back focal plane, the fringes stepping with the frame. Off: one beam at BfpPosition. SIM2D: two beams at +-BfpPosition, 3 phases x 3 orientations. SIM3D: + the centre beam, 5 phases x 3 orientations. LatticeSIM2D: +-x and +-y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets BfpPosition to the type's radius (2D 0.95; 3D and the lattices 0.9) and PatternPolarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern's cycle mean, each frame's image on its exact pattern. The BFP light maps (BfpMaps): LightSheet (an inclined light sheet: an elliptical spot at BfpPosition, SheetThicknessUm x SheetWidthUm; a pick sets BfpPosition 0.9), RingTIRF (a spot at BfpPosition turned once round per exposure, unpolarized; a pick sets 1.03), Maps (BfpMaps alone). |
 | `IlluminationRegime` | Advanced (read-only) | HILO |  | Epi, HILO, TIRF, or Clipped (the spot beyond the pupil edge: no light) (read-only). |
 | `IlluminationDepthNm` | Advanced (read-only) | 14973.57262 |  | TIRF: the evanescent field's 1/e intensity depth at the first label's main line; HILO: the sheet's thickness on the axis; -1 in epi (nm, read-only). |
 | `CustomLineNm` | Advanced | 0 | 0 .. 1000 | Wavelength of an extra laser line (nm). |
@@ -206,6 +209,8 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `PatternAngle0Deg` | Advanced | 0 | -180 .. 180 | The first orientation, degrees from the x axis. |
 | `PatternPhase0` | Advanced | 0 | -100 .. 100 | Added to the phase index (fractional allowed): the pattern's starting phase. |
 | `PatternCentreAmp` | Advanced | 1 | 0 .. 10 | The centre beam's field amplitude over the side beams' (SIM3D, LatticeSIM3D; 1, an estimate). |
+| `SheetThicknessUm` | Advanced | 3 | 0.1 .. 50 | Pattern LightSheet: the sheet's thickness, FWHM across the beam (um; 3, an estimate). |
+| `SheetWidthUm` | Advanced | 0 | 0 .. 500 | Pattern LightSheet: the sheet's width along y, FWHM (um; 0 = the beam's, IlluminationFwhmPct). |
 | `PatternFrame` | Advanced (read-only) | 0 |  | The sample's pattern frame counter: the index the next taken frame has in the frame program (every taken frame counts, dark ones too; a sequence start sets it to 0 under PatternRestart = Sequence); each live frame's metadata tag inSiliScope-PatternFrame is the index it was rendered with (read-only). |
 | `PatternRestart` | Advanced | Sequence | `Sequence`, `Never` | When the pattern frame counter restarts at 0: at every sequence start (Live, an acquisition: its frames aligned with the program) or never (the counter runs on across acquisitions). |
 | `PatternState` | Advanced (read-only) | no pattern |  | The frame program's state the next taken frame has: 'angle a phase p, frame f of N' (read-only). |
@@ -214,6 +219,9 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `PatternPhaseDriftTurnsPerSqrtSec` | Expert | 0 | 0 .. 10 | Each beam's phase takes a random walk: its RMS after 1 s (turns; per seed and frame, as the sample drift). 0 = none. |
 | `PatternPhaseDriftTurnsPerSec` | Expert | 0 | -100 .. 100 | Each beam's phase drifts at its phase step x this (turns/s): the pattern slides along its stepping direction. 0 = none. |
 | `Beams` | Expert | 0.95 0 0 0 0 1 0 -999 0 0 0 |  | Every beam of the illumination, one row per beam, rows separated by ';', columns separated by spaces: ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm -- the position in the back focal plane (u units: 1 = the critical angle, beyond it evanescent), the spot's 1/e^2 radius in the pupil (um; 0 = from IlluminationFwhmPct: a Gaussian spot of radius w makes an envelope of 1/e^2 radius lambda f / (pi w), f = TubeLengthMm / Magnification), the bundle's entry tilt (degrees, two axes: the envelope's centre moves by f tan tilt), the field amplitude, the phase (turns), the polarization angle (degrees; 0 s, 90 p; below -180 unpolarized), the ellipticity phase (turns; 0.25 circular), the phase step per phase index (1 / PatternPhases turns) and the laser line the beam carries (nm; 0 = every line). Off shows its one beam; a Pattern its beams; an edit replaces them (Custom: the matrix alone). Example, a 2D SIM pair at 0.95: 0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0 |
+| `BfpMaps` | Expert |  |  | The back focal plane's light as maps over the pupil, statements separated by ';': I (intensity), phase (turns), pol (deg from s; unpolarized), polLab (a lab angle), ellip (turns), tiltX and tiltY (entry angle, deg: the light lands f tan(tilt) off the axis), focus (deg from parallel, towards its lit region's centre), coherent (0 or 1), T and duty (lit while (t - T) mod 1 < duty), scanX, scanY, scanRot (deg; functions of t: one field moved or turned per time slot), in ux, uy, r, phi (rad), nm, t, umax, uc, bfp, w, fwhm, ns, ni, na, f, sheetT, sheetW; functions exp log sqrt abs sin cos tan asin acos atan atan2 hypot min max pow floor ceil round mod step gauss spot clamp if and img("file.tif") (a map image, row 0 = +uy, a page per time slot). Arguments by ';' too (Micro-Manager refuses commas). Example, a ring scanned once per exposure: I = spot(ux - 1.03; uy; 0.1); scanRot = 360*t; pol = unpolarized. Used under Pattern LightSheet, RingTIRF (their own equations shown) and Maps; an edit sets Pattern to Maps. |
+| `BfpSlots` | Expert | 0 | 0 .. 4096 | The BFP maps' time slots per cycle: t = (slot + 0.5) / slots (0 = 64 when a map depends on t, else 1). |
+| `BfpCycleFrames` | Expert | 0 | 0 .. 10000 | The BFP maps' cycle in frames: 0 = the whole cycle in every exposure (the slots add up: a scan within the exposure); n = the cycle spans n frames (slot s lit in frame s n / slots: stepped, as SIM). |
 
 ### TransmittedLamp
 
@@ -320,18 +328,95 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearPoreRingSepNm` | Expert | 50 | 0 .. 150 | Distance between a pore's cytoplasmic and nucleoplasmic ring, nm. |
 | `NuclearPoreCornerSpreadNm` | Expert | 12 | 0 .. 30 | Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm. |
 | `NuclearLaminaPoreExclusionNm` | Expert | 40 | 0 .. 300 | Diameter of the lamina-free disc around each nuclear pore's centre, nm (40). |
+| `PositionJitter` | Expert | 0.8 | 0.1 .. 1 | How far a cell centre may move from its packing block's centre, as a fraction of the block (a jittered grid). |
+| `CellElongationMin` | Expert | 0.5 | 0.1 .. 1 | Short-to-long axis ratio of a cell's footprint, minimum (1 = round). |
+| `CellElongationMax` | Expert | 1 | 0.1 .. 1 | Short-to-long axis ratio of a cell's footprint, maximum (1 = round). |
+| `CellBlobbiness` | Expert | 1.75 | 0 .. 4 | Amplitude of the large lobes of a cell's outline (0 = a smooth ellipse). |
+| `CellRoughness` | Expert | 0.15 | 0 .. 1 | Fine fractal wiggle of a cell's outline (harmonics 6-64), x the blobbiness; 0 = smooth lobes only. |
+| `CellFractalDim` | Expert | 1.35 | 1 .. 2 | Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2. |
+| `NucLongAxisMinUm` | Expert | 8 | 2 .. 30 | Long axis of the nucleus, minimum (um). |
+| `NucLongAxisMaxUm` | Expert | 12 | 2 .. 30 | Long axis of the nucleus, maximum (um). |
+| `NucAxisRatioMin` | Expert | 0.6 | 0.2 .. 1 | Short-to-long axis ratio of the nucleus footprint, minimum. |
+| `NucAxisRatioMax` | Expert | 1 | 0.2 .. 1 | Short-to-long axis ratio of the nucleus footprint, maximum. |
+| `NucHeightMin` | Expert | 0.2 | 0.1 .. 1 | Height of the nucleus as a fraction of its long axis, minimum. |
+| `NucHeightMax` | Expert | 0.3 | 0.1 .. 1 | Height of the nucleus as a fraction of its long axis, maximum. |
+| `NucOffset` | Expert | 0.1 | 0 .. 1 | Random offset of the nucleus from the cell centre, up to this fraction of the cell radius. |
+| `NucMarginUm` | Expert | 0.5 | 0.1 .. 1.5 | Cytoplasm clearance around the sides and top of the nucleus (um). |
+| `CytoRimHeightMinUm` | Expert | 0.2 | 0 .. 2 | Cytoplasm height at the cell edge, minimum (um). |
+| `CytoRimHeightMaxUm` | Expert | 0.5 | 0 .. 2 | Cytoplasm height at the cell edge, maximum (um). |
+| `CytoEdgeRiseMinUm` | Expert | 0.1 | 0 .. 3 | Distance from the edge over which the cytoplasm rises to the rim height, minimum (um). |
+| `CytoEdgeRiseMaxUm` | Expert | 0.5 | 0 .. 3 | Distance from the edge over which the cytoplasm rises to the rim height, maximum (um). |
+| `CytoMidHeightMinUm` | Expert | 2 | 0 .. 6 | Cytoplasm height at the mid-height distance, minimum (um). |
+| `CytoMidHeightMaxUm` | Expert | 3.5 | 0 .. 6 | Cytoplasm height at the mid-height distance, maximum (um). |
+| `CytoMidDistanceMin` | Expert | 0.1 | 0 .. 1 | Distance from the nucleus at which the mid height is reached, fraction of the cell radius, minimum. |
+| `CytoMidDistanceMax` | Expert | 0.3 | 0 .. 1 | Distance from the nucleus at which the mid height is reached, fraction of the cell radius, maximum. |
+| `CytoSlopeCap` | Expert | 2 | 0 .. 3 | Largest rise of the cytoplasm surface per um outside the dome (0 = off). |
+| `CytoDomeSlope` | Expert | 4 | 0 .. 6 | Largest slope of the dome flank over the nucleus (0 = off). |
+| `CytoRelaxUm` | Expert | 1 | 0 .. 3 | Relaxation length of the cytoplasm height (um): h - l^2 lap h = the raw profile; 0 = the raw profile. |
+| `CytoMeshRings` | Expert | 60 | 4 .. 60 | Radial resolution of the cytoplasm's polar mesh. |
+| `CytoMeshAngles` | Expert | 256 | 32 .. 512 | Angular resolution of the cytoplasm's polar mesh (and the cell outline). |
+| `PackingMinGap` | Expert | 1 | 0.6 .. 1.1 | Smallest allowed centre distance of two cells, as a fraction of their combined radius. |
+| `PackingIterations` | Expert | 80 | 4 .. 150 | Packing relaxation steps before cells still stuck are dropped. |
+| `PackingStep` | Expert | 0.55 | 0.1 .. 1 | Fraction of the overlap resolved per packing relaxation step. |
+| `MicrotubuleWobble` | Expert | 0.8 | 0 .. 3 | Strength of the random turning along a microtubule's path. |
+| `MicrotubulePathLength` | Expert | 1.05 | 0.9 .. 1.3 | Microtubule path length relative to the straight start-to-end distance. |
+| `MicrotubuleStepUm` | Expert | 0.05 | 0.05 .. 1 | Step of the microtubule path tracer (um): smaller is smoother and slower. |
+| `MicrotubuleSmoothingUm` | Expert | 1.5 | 1 .. 10 | Smoothing length of a traced microtubule path (um). |
+| `MicrotubuleMinTurnRadiusUm` | Expert | 0.15 | 0 .. 2 | Tightest bend a microtubule may make (um; 0 = no limit). |
+| `MicrotubuleMinSeparationUm` | Expert | 0.05 | 0 .. 0.5 | Distance kept between microtubules (um). |
+| `MicrotubuleMaxZSlope` | Expert | 5 | 1 .. 20 | Largest height change per unit of lateral microtubule path. |
+| `PackingRotation` | Expert | On | `On`, `Off` | Packing may also turn cells (On) or only move them (Off). |
 | `Packing` | Expert | On | `On`, `Off` | Relax the cells into a packed field (Off: their seeded positions). |
 | `AbsorptionPerUm` | Expert | 0 | 0 .. 100 | Absorption of the cell material, per um (0 = unstained). |
+| `Microtubules_DyeFluorescentPct` | Expert | 100 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyeQy` | Expert | 0.3 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyeExtCoeff` | Expert | 125000 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyeOnSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyeOffSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyeBleachProb` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyeInitialOnSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyeActivation405` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyeSpontActivation` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyePrimed` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyePrePhotonBudget` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyePhotonCv` | Expert | 0.5 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Microtubules_DyePhotonBudget` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
 | `Microtubules_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the microtubules' dyes. |
 | `Microtubules_OrientPolarDeg` | Expert | 90 | 0 .. 180 | Fixed dipole: polar angle. |
 | `Microtubules_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
 | `Microtubules_WobbleConeDeg` | Expert | 0 | 0 .. 90 | Dipole wobble cone half-angle. |
 | `Microtubules_Motion` | Expert | Static | `Static` | The dyes' motion. |
+| `NuclearPores_DyeFluorescentPct` | Expert | 100 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyeQy` | Expert | 0.67 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyeExtCoeff` | Expert | 130000 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyeOnSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyeOffSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyeBleachProb` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyeInitialOnSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyeActivation405` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyeSpontActivation` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyePrimed` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyePrePhotonBudget` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyePhotonCv` | Expert | 0.5 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearPores_DyePhotonBudget` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
 | `NuclearPores_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the nuclear pores' dyes. |
 | `NuclearPores_OrientPolarDeg` | Expert | 90 | 0 .. 180 | Fixed dipole: polar angle. |
 | `NuclearPores_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
 | `NuclearPores_WobbleConeDeg` | Expert | 0 | 0 .. 90 | Dipole wobble cone half-angle. |
 | `NuclearPores_Motion` | Expert | Static | `Static` | The dyes' motion. |
+| `NuclearLamina_DyeFluorescentPct` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyeQy` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyeExtCoeff` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyeOnSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyeOffSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyeBleachProb` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyeInitialOnSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyeActivation405` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyeSpontActivation` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyePrimed` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyePrePhotonBudget` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyePhotonCv` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `NuclearLamina_DyePhotonBudget` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
 | `NuclearLamina_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the nuclear lamina' dyes. |
 | `NuclearLamina_OrientPolarDeg` | Expert | 90 | 0 .. 180 | Fixed dipole: polar angle. |
 | `NuclearLamina_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
@@ -362,6 +447,19 @@ Specimen: DNA-origami nanorulers on the coverslip (mount them with SampleHolder)
 | `Roll` | Advanced | Uniform | `Uniform`, `Fixed` | How each rod landed about its own axis: Uniform = a random roll each, Fixed = RollDeg. |
 | `RollDeg` | Advanced | 0 | -360 .. 360 | The fixed roll (Roll = Fixed), deg. |
 | `KeepHeights` | Expert | Off | `On`, `Off` | Off (2D): every strand at the rod axis height; On: the ring's own heights (3D, not validated yet). |
+| `Docking_DyeFluorescentPct` | Expert | 100 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyeQy` | Expert | 0.3 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyeExtCoeff` | Expert | 125000 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyeOnSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyeOffSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyeBleachProb` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyeInitialOnSec` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyeActivation405` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyeSpontActivation` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyePrimed` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyePrePhotonBudget` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyePhotonCv` | Expert | 0.5 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
+| `Docking_DyePhotonBudget` | Expert | 0 |  | A field of this target's dye, over the library's value (0 where it does not apply to the mode; a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead. |
 | `Docking_Orientation` | Expert | Free | `Free`, `Fixed`, `Random` | Dipole orientation of the docking strands' dyes. |
 | `Docking_OrientPolarDeg` | Expert | 90 | 0 .. 180 | Fixed dipole: polar angle. |
 | `Docking_OrientAzimuthDeg` | Expert | 0 | -360 .. 360 | Fixed dipole: azimuth. |
@@ -430,11 +528,17 @@ The dyes: label mode, photophysics readouts, custom dyes.
 | `Dye1_BleachProb` | Expert | 0.07142857143 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_InitialOnSec` | Expert | 2 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_Activation405` | Expert | 60 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye1_SpontActivation` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye1_SpontActivation` | Expert | 1e-05 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_Primed` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_PrePhotonBudget` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye1_PhotonCv` | Expert | 0.5 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye1_PhotonBudget` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye1_PhotonBudget` | Expert | 100000 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye1_PreQy` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye1_PreExtCoeff` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye1_ExPeakNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye1_ExWidthNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye1_EmPeakNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye1_EmWidthNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_Source` | Expert | mEos3.2 | `AF647`, `AF532`, `Cy5`, `ATTO655`, `ATTO542`, `Cy3B`, `mEos3.2`, `Dendra2`, `PAmCherry2`, `mEGFP`, `mScarlet`, `DAPI`, `Hoechst33342`, `Custom` | The library dye this custom dye starts from. |
 | `Dye2_FluorescentPct` | Expert | 60 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_Qy` | Expert | 0.55 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
@@ -442,27 +546,39 @@ The dyes: label mode, photophysics readouts, custom dyes.
 | `Dye2_OnSec` | Expert | 0.05 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_OffSec` | Expert | 0.5 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_BleachProb` | Expert | 0.5 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye2_InitialOnSec` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye2_InitialOnSec` | Expert | 2 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_Activation405` | Expert | 1 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_SpontActivation` | Expert | 1e-05 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_Primed` | Expert | 0.01 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_PrePhotonBudget` | Expert | 200000 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye2_PhotonCv` | Expert | 0.5 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye2_PhotonBudget` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye2_PhotonBudget` | Expert | 100000 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye2_PreQy` | Expert | 0.84 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye2_PreExtCoeff` | Expert | 63400 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye2_ExPeakNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye2_ExWidthNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye2_EmPeakNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye2_EmWidthNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_Source` | Expert | mEGFP | `AF647`, `AF532`, `Cy5`, `ATTO655`, `ATTO542`, `Cy3B`, `mEos3.2`, `Dendra2`, `PAmCherry2`, `mEGFP`, `mScarlet`, `DAPI`, `Hoechst33342`, `Custom` | The library dye this custom dye starts from. |
 | `Dye3_FluorescentPct` | Expert | 80 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_Qy` | Expert | 0.6 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_ExtCoeff` | Expert | 56000 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye3_OnSec` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye3_OffSec` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye3_BleachProb` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye3_InitialOnSec` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye3_Activation405` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye3_SpontActivation` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_OnSec` | Expert | 0.02 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_OffSec` | Expert | 20 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_BleachProb` | Expert | 0.1 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_InitialOnSec` | Expert | 2 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_Activation405` | Expert | 20 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_SpontActivation` | Expert | 1e-05 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_Primed` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_PrePhotonBudget` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
-| `Dye3_PhotonCv` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_PhotonCv` | Expert | 0.5 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 | `Dye3_PhotonBudget` | Expert | 100000 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_PreQy` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_PreExtCoeff` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_ExPeakNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_ExWidthNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_EmPeakNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
+| `Dye3_EmWidthNm` | Expert | 0 |  | A field of this custom dye (a library value until edited; 0 where it does not apply). |
 
 ### Renderer
 
@@ -477,6 +593,8 @@ How the images are computed: quality, GPU, caches, numerics.
 | `PsfModel` | Expert | GibsonLanniZernike | `Gaussian`, `RichardsWolf`, `GibsonLanni`, `GibsonLanniZernike` | The PSF model (GibsonLanniZernike: scalar Gibson-Lanni + Zernike pupil; RichardsWolf/GibsonLanni: JVM). |
 | `PsfOversampling` | Expert | 6 | 1 .. 16 | PSF kernel samples per camera pixel (at most: PsfMaxSampleNm lowers it for a small pixel). |
 | `PsfMaxSampleNm` | Expert | 15 | 0 .. 1000 | The PSF kernel's samples are made only as fine as keeps them at most this far apart, nm: samples per pixel = min(PsfOversampling, ceil(pixel / this)), so a small pixel does not multiply the kernel's size (Quality: Fast 30, Realistic 15, Exhaustive 0 = no limit). |
+| `BfpSamplesPerPeriod` | Expert | 12 | 2 .. 64 | Lasers.BfpMaps: the light's samples per its finest period -- laterally over the field of view (the window beyond: at most 6), along z per axial beat and evanescent decay; the pupil 512 x this / 6 samples across where lit light meets a hard edge (Quality: Fast 6, Realistic 12, Exhaustive 24). A field of view too fine for the memory is sampled coarser. |
+| `BfpZSampleUm` | Expert | 12 | 1 .. 100 | Lasers.BfpMaps: the maps' light is computed this far from the focal plane (propagating light) or the coverslip (evanescent), um; beyond, its end plane carries on along the light's mean direction. |
 | `PsfInterp` | Expert | Cubic | `Nearest`, `Linear`, `Cubic`, `Fft` | Sub-pixel placement of the PSF (Fft: exact, slow, CPU only). |
 | `PsfHaloCut` | Expert | 3e-06 | 0 .. 0.001 | Blink splats leave out camera pixels below this share of the emitter's photons (Quality: Fast 1e-5, Realistic 3e-6, Exhaustive 0 = the whole kernel). WideField and other continuous dyes keep the whole kernel. |
 | `PsfPupilSamples` | Expert | 0 | 0 .. 1024 | GibsonLanniZernike pupil samples per axis (0: as many as the kernel window needs; 64: webSMLM's, folds light back into a wide window). |

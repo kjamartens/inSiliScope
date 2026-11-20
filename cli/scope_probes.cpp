@@ -236,7 +236,7 @@ bool SetupJson(const sim::ScopeSpec& spec, const std::string& path, std::string&
          j.Array(va.data(), va.size());
          // The beams and the pattern (SimPattern.h), and the pattern on the focal plane over the FOV (pattern_xy: x
          // fastest, at the focus pivot; a 121 x 121 grid) for the figures.
-         ExcitationBeamsJson(j, ex);
+         ExcitationBeamsJson(j, ex, static_cast<int>(sim::ScopeSpecGet(spec, "sim-type")));
          {
             const int np = 121;
             const double p0 = -0.5 * fovUm, dp = fovUm / (np - 1), zf = ex.Spec().pivotUm;
@@ -250,6 +250,21 @@ bool SetupJson(const sim::ScopeSpec& spec, const std::string& path, std::string&
             j.Array(ps.data(), ps.size());
             j.Key("pattern_xy");
             j.Array(v2.data(), v2.size());
+         }
+         // The BFP light maps (sim-type LightSheet, RingTIRF, Maps): their intensity over frame 0's exposure as the
+         // viewer's BFP panel draws it (bfp_map: n x n over u in [-span, span], IllumPreview's rows).
+         if (sim::SimTypeIsMaps(static_cast<int>(sim::ScopeSpecGet(spec, "sim-type"))))
+         {
+            IllumPreview P;
+            std::string pe;
+            if (IllumPreviewOf(spec, 0, -1, 128, 8, P, pe) && P.maps)
+            {
+               j.KNum("bfp_map_n", P.n);
+               j.KNum("bfp_map_span", P.uSpan);
+               j.KNum("bfp_map_u_max", P.uMax);
+               j.Key("bfp_map");
+               j.Array(P.bfp.data(), P.bfp.size());
+            }
          }
          j.Close('}');
       }
@@ -410,6 +425,7 @@ bool PresetsJson(const std::string& path, std::string& err)
       j.KNum("fid-clumps-as-one", q.clumpsAsOne);
       j.KNum("sim-frame-pattern-continuous", q.framePattern);
       j.KNum("wf-plane-nm", q.wfPlaneNm);
+      j.KNum("bfp-samples-per-period", q.bfpSamples);
       j.Close('}');
    }
    j.Close(']');

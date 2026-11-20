@@ -28,7 +28,8 @@ constexpr uint32_t kPhaseSeedSalt = 0x53494D50u;   // "SIMP"
 
 const std::vector<std::string>& SimTypeNames()
 {
-   static const std::vector<std::string> v = { "Off", "SIM2D", "SIM3D", "LatticeSIM2D", "LatticeSIM3D", "Custom" };
+   static const std::vector<std::string> v = { "Off",        "SIM2D",      "SIM3D",    "LatticeSIM2D", "LatticeSIM3D",
+                                               "Custom",     "LightSheet", "RingTIRF", "Maps" };
    return v;
 }
 
@@ -58,6 +59,8 @@ double SimTypeDefaultRadius(int type)
    case SIM_3D:
    case SIM_LATTICE_2D:
    case SIM_LATTICE_3D: return 0.9;
+   case SIM_LIGHT_SHEET: return 0.9;   // an inclined sheet (HILO-like)
+   case SIM_RING_TIRF: return 1.03;    // the nanorulers' TIRF position
    default: return 0.0;
    }
 }
@@ -409,7 +412,6 @@ BeamField BeamFieldOf(const Beam& b, double lambdaNm, double nS, double nI, doub
    return f;
 }
 
-namespace {
 // The field of a beam in the lab frame (its own frame rotated by its azimuth, with the frame's sign: a beam and its
 // opposite carry the same lab field, BeamFrameSign).
 void LabField(const BeamField& f, double phi, std::complex<double>& Ex, std::complex<double>& Ey,
@@ -421,6 +423,7 @@ void LabField(const BeamField& f, double phi, std::complex<double>& Ex, std::com
    Ez = g * f.ez;
 }
 
+namespace {
 void CompileRun(const PatternState& st, double lambdaNm, double nS, double nI, double na, bool forceS, bool forceP,
                 double weight, double zRefUm, Pattern& out, bool keepFields)
 {

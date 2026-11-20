@@ -179,10 +179,12 @@ int main()
       PanelContent h;
       Check(MakePanel(base, "illumination", "z=1.5", 1, h, err) && h.header.find("z = 1.50") != std::string::npos,
             "the section's height follows z");
-      PanelContent b;
+      PanelContent b, b2;
       Check(MakePanel(base + "sim-type=SIM2D", "bfp", "frame=4", 2, b, err) &&
-               b.header.find("frame 4 of") != std::string::npos && NumAfter(b.header, "w", 0) == 320,
-            "the back focal plane follows the frame and the scale");
+               b.header.find("frame 4 of") != std::string::npos && NumAfter(b.header, "w", 0) == 512 &&
+               MakePanel(base + "sim-type=SIM2D bfp-map-px=200", "bfp", "frame=4", 1, b2, err) &&
+               NumAfter(b2.header, "w", 0) == 200,
+            "the back focal plane follows the frame; its drawing is bfp-map-px (512) a side at any scale");
    }
 
    // the PSF's kernel and camera image at the focus = MakeScopePsfPreview's middle plane

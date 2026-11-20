@@ -129,6 +129,9 @@
     <ClCompile Include="Simulation\Excitation.cpp" />
     <ClCompile Include="Simulation\MemoryBudget.cpp" />
     <ClCompile Include="Simulation\SimPattern.cpp" />
+    <ClCompile Include="Simulation\BfpExpr.cpp" />
+    <ClCompile Include="Simulation\BfpMaps.cpp" />
+    <ClCompile Include="Simulation\BfpField.cpp" />
     <ClCompile Include="Simulation\Spectra.cpp" />
     <ClCompile Include="Simulation\Fft2d.cpp" />
     <ClCompile Include="Simulation\BinnedBlinks.cpp" />
@@ -190,6 +193,9 @@
     <ClInclude Include="Simulation\LightPath.h" />
     <ClInclude Include="Simulation\Excitation.h" />
     <ClInclude Include="Simulation\SimPattern.h" />
+    <ClInclude Include="Simulation\BfpExpr.h" />
+    <ClInclude Include="Simulation\BfpMaps.h" />
+    <ClInclude Include="Simulation\BfpField.h" />
     <ClInclude Include="Simulation\MemoryReport.h" />
     <ClInclude Include="Simulation\MemoryBudget.h" />
     <ClInclude Include="Simulation\Spectra.h" />

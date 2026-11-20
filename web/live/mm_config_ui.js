@@ -27,6 +27,7 @@ function opticsNow() {
   if (em && +em.value > 0) o.emissionMag = +em.value;
   return o;
 }
+self.ISC_MM_OPTICS = () => opticsNow();   // (the .cfg export: web/live/mm_cfg.js)
 // A camera preset brings its own magnification to the camera (EmissionPath.EmissionMagnification goes with the camera).
 function takeCameraMag(o) {
   const em = $('emissionMag');

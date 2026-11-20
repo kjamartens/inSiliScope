@@ -80,6 +80,11 @@ constexpr double kLightTileUm = 0.25;        // node (i, j) at ((i + 1/2) h, (j 
 constexpr double kLightLatticeErr = 1e-3;    // the most a footprint's bilinear reading is off between nodes (x peak)
 constexpr double kLightPoseTolUm = 0.025;    // a record keeps its first frame's pose while a frame stays this close
 constexpr double kLightReach = 1e-4;         // a footprint reaches out to this fraction of its peak (0 beyond)
+// Under BFP maps the lattice is at most this many nodes across a footprint (2 x the reach): a coherent lattice's mean
+// carries its fine fringes (curvature ~ (2 pi / period)^2), whose kLightLatticeErr lattice over a 30 um light was
+// millions of nodes per plane, gigabytes per chapter (the viewer's live ran out of its heap); coarser, the dose map
+// smooths fringes finer than a few nodes (a 400 nm period at 60 nm nodes: ~10 % at its extremes).
+constexpr double kLightMapNodes = 512;
 constexpr double kLightDepthStepUm = 0.005;  // TIRF's depth tables
 // A DOSE structure's map folds each chapter's closed records into its merged grid (one term per component, 2026-11-13;
 // false: a term per record, as before -- the same doses up to the additions' order).

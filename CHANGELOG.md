@@ -3,6 +3,39 @@
 Versions follow semver; while 0.x, any release may change the output for a given seed. Changes that do are marked
 **seed**. The development log before the first release is in [docs/dev/history.md](docs/dev/history.md).
 
+## v0.1.0-rc23 (changes since v0.1.0-rc22)
+
+Any light in the objective's back focal plane; the viewer's settings as a Micro-Manager configuration; large movies:
+
+- **BFP light maps.** The excitation can be any distribution over the pupil, written as equations (intensity, phase,
+  polarization, entry tilt, focusing, coherence, timing and scans over the pupil and the exposure) or read from images
+  (viewer: PNG or TIFF; cli and Micro-Manager: TIFF). Coherent light is computed as a numerical field (a focused beam
+  has its waist, a sheet its Rayleigh range), incoherent light point by point; the power through the pupil stays the
+  laser's. Default outputs are unchanged.
+- **Two presets on the Pattern select** (Micro-Manager `Lasers.Pattern`, cli `sim-type`): **LightSheet** (an inclined
+  light sheet, `SheetThicknessUm` x `SheetWidthUm`) and **RingTIRF** (the TIRF spot turned once round per exposure),
+  plus **Maps** (the equations alone, Expert: `Lasers.BfpMaps`, `BfpSlots`, `BfpCycleFrames`).
+- **Viewer:** the equations' box with 15 examples (a light sheet, ring TIRF, Bessel beam, radially and azimuthally
+  polarized rings, a line scan, SIM2D, lattices and more from images in `bfp_maps/`), map images, settings files that
+  carry the images; the Microscope view's Illumination profile follows the focus (its height moves with Z, the focus
+  dashed and marked on the slider); the Back focal plane panel draws the pupil at 512 x 512 (Expert: BFP drawing).
+- **One sampling setting** for the maps' light: `Renderer.BfpSamplesPerPeriod` (cli/viewer `bfp-samples-per-period`;
+  Quality Fast 6, Realistic 12, Exhaustive 24) samples per the light's finest period -- a finer tile over the field of
+  view, z per axial beat and evanescent decay, and a finer pupil where lit light meets a hard edge (RingTIRF's spot under
+  the pupil's rim: 1 % -> 0.1 % at Realistic). A tile too fine for the memory is made coarser and the BFP panel says so.
+- A focused coherent beam over a large part of the pupil takes seconds natively and up to a minute or more in the
+  viewer to make (once per light).
+- **Viewer: a Micro-Manager .cfg of its settings** (☰ › Micro-Manager .cfg…): the Expert configuration with a Startup
+  preset that sets every property to the viewer's value. Every viewer setting now has a Micro-Manager property (new
+  Expert rows: the cell shape, per-target dye fields, the custom dye slots' spectra and pre state, BrightField); a
+  browser check fails on a viewer setting without one.
+- **`tools/isc_render.py`** (a window or a command line; `tools/build_isc_render_exe.py` makes a one-file Windows
+  exe): movies from a saved `.isc.json` or `.cfg` at a list of positions to TIFF, with an estimate of disk and memory
+  first, a progress bar per position, optional ground truth, and an unfinished movie named as such.
+- **Large movies:** the cli writes a BigTIFF past 4 GB (64-bit file positions; a file past 2 GB was broken on
+  Windows), refuses a movie the disk cannot hold and says out of memory in words; the viewer's Records stream their
+  frames out of the engine (no 1 GB cap) and save a BigTIFF past 4 GB.
+
 ## v0.1.0-rc22 (changes since v0.1.0-rc21)
 
 Micro-Manager camera sizes up to 4096 x 4096 px, any width and height, with a memory check before anything renders:

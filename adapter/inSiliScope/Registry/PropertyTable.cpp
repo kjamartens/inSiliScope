@@ -20,6 +20,9 @@
 #include "PropertyTable.h"
 
 #include "../InSiliScopeHub.h"
+#include "../Simulation/BfpExpr.h"
+#include "../Simulation/BfpField.h"
+#include "../Simulation/BfpMaps.h"
 #include "../Simulation/CacheDir.h"
 #include "../Simulation/DyeLibrary.h"
 #include "../Simulation/Excitation.h"
@@ -275,6 +278,7 @@ struct FieldRow
    const char* field;
    const char* suffix;
    std::vector<int> modes;
+   bool slotOnly = false;   // a custom dye's only (its pre state and parametric spectra), not a target's
 };
 const std::vector<FieldRow>& FieldRows()
 {
@@ -293,6 +297,13 @@ const std::vector<FieldRow>& FieldRows()
       { "pre-photon-budget", "PrePhotonBudget", { MODE_PALM } },
       { "photon-cv", "PhotonCv", { MODE_DSTORM, MODE_PALM, MODE_DNA_PAINT } },
       { "photon-budget", "PhotonBudget", { MODE_WIDEFIELD } },
+      // (2026-11-19) the custom dyes' other fields the viewer shows: the pre state and the parametric spectra
+      { "pre-qy", "PreQy", {}, true },
+      { "pre-ext-coeff", "PreExtCoeff", {}, true },
+      { "ex-peak-nm", "ExPeakNm", {}, true },
+      { "ex-width-nm", "ExWidthNm", {}, true },
+      { "em-peak-nm", "EmPeakNm", {}, true },
+      { "em-width-nm", "EmWidthNm", {}, true },
    };
    return rows;
 }
@@ -317,7 +328,31 @@ double FieldValue(const sim::DyeData& d, int mode, const FieldRow& r)
    if (f == "pre-photon-budget") return std::isnan(m.prePhotonBudget) ? 0.0 : m.prePhotonBudget;
    if (f == "photon-cv") return m.photonCV;
    if (f == "photon-budget") return m.photonBudget;
+   if (f == "pre-qy") return d.pre.present ? d.pre.qy : sim::kNaN;
+   if (f == "pre-ext-coeff") return d.pre.present ? d.pre.extCoeff : sim::kNaN;
+   if (f == "ex-peak-nm") return d.main.parametric ? d.main.exPeakNm : sim::kNaN;
+   if (f == "ex-width-nm") return d.main.parametric ? d.main.exWidthNm : sim::kNaN;
+   if (f == "em-peak-nm") return d.main.parametric ? d.main.emPeakNm : sim::kNaN;
+   if (f == "em-width-nm") return d.main.parametric ? d.main.emWidthNm : sim::kNaN;
    return sim::kNaN;
+}
+
+// A number shown as text: MMDevice keeps 4 decimals of a float property, too few for a dye's rates (1e-5 /s) and
+// its library values (a bleach probability of 1/14), which then read back as an edit.
+void AsTextNumber(PropDef& d)
+{
+   auto get = d.get;
+   auto set = d.set;
+   d.kind = PropKind::Text;
+   d.getText = [get](H& h) { return FormatNumber(get(h)); };
+   d.setText = [set](H& h, const std::string& s) {
+      char* end = nullptr;
+      const double v = std::strtod(s.c_str(), &end);
+      if (s.empty() || !end || *end != '\0' || !std::isfinite(v))
+         return false;
+      set(h, v);
+      return true;
+   };
 }
 
 // A custom dye slot's field (prefix "dye<N>"): the user's edit, or its source dye's value in its default mode.
@@ -335,7 +370,11 @@ PropDef SlotField(int slot, const FieldRow& r)
       std::string err;
       if (!sim::MakeEffectiveDye(slots[static_cast<size_t>(slot)].source, slots, {}, -1, eff, err))
          return sim::kNaN;
-      return FieldValue(eff.dye, eff.mode, r);
+      // a field of another mode than the dye's default: its value in the first mode it applies to (the viewer's
+      // userDyeValues; a custom dye's edit applies in whatever mode a target uses it)
+      const int mode = r.modes.empty() || std::find(r.modes.begin(), r.modes.end(), eff.mode) != r.modes.end()
+                          ? eff.mode : r.modes.front();
+      return FieldValue(eff.dye, mode, r);
    };
    d.get = [key, lib](H& h) {
       double v;
@@ -354,11 +393,66 @@ PropDef SlotField(int slot, const FieldRow& r)
       else
          h.State().SetDyeEdit(key, v);
    };
+   AsTextNumber(d);
    return d;
 }
 
 // A target's row-name prefix ("Microtubules", "NuclearPores", "Docking"; the engine's option texts).
 std::string TargetRowName(int s) { return sim::ScopeTargetRow(s); }
+
+// A target's dye field (2026-11-19, the viewer's per-target dye rows): <Target>_Dye<Suffix>, the engine option
+// <prefix>-dye.<field> as a dye edit (SceneState::DyeEdit). It reads the edit, else the value of the dye the label
+// resolves to in its mode (0 where the field does not apply); an edit equal to that value is no edit. A label of a
+// custom dye (Dye1-3: edit the slot) or None takes none. A label or mode change clears the target's edits
+// (InSiliScopeHub::LoadTargetDye), as a dye pick reloads the viewer's rows.
+PropDef TargetDyeField(const char* device, int s, const FieldRow& r)
+{
+   const std::string prefix = sim::TargetAt(s).prefix, key = prefix + "-dye." + r.field;
+   PropDef d = Row(device, TargetRowName(s) + "_Dye" + r.suffix, Tier::Expert, prefix + "-dye.fields",
+                   "A field of this target's dye, over the library's value (0 where it does not apply to the mode; "
+                   "a label or mode change resets it). For a custom dye's label edit Fluorophores Dye1-3 instead.");
+   // the library value: the label as the engine resolves it without this target's edits; NaN for a custom dye or None
+   auto lib = [s, prefix, r](H& h) {
+      sim::ScopeSpec spec = BuildScopeSpec(h.State(), 0, 0, 0, 0, 1);
+      for (auto it = spec.begin(); it != spec.end();)
+         it = it->first.compare(0, prefix.size() + 5, prefix + "-dye.") == 0 ? spec.erase(it) : std::next(it);
+      const double choice = h.State().Option(prefix + "-dye");
+      if (choice >= static_cast<double>(sim::DyeIds().size()))
+         return sim::kNaN;   // a custom dye (its slot's rows) or None
+      sim::EffectiveDye eff;
+      int c = 0;
+      std::string err;
+      if (!sim::ScopeStructureDye(spec, s, eff, c, err))
+         return sim::kNaN;
+      return FieldValue(eff.dye, eff.mode, r);
+   };
+   d.get = [key, lib](H& h) {
+      double v;
+      if (h.State().DyeEdit(key, v))
+         return v;
+      const double l = lib(h);
+      return std::isnan(l) ? 0.0 : l;
+   };
+   d.set = [key, lib](H& h, double v) {
+      const double l = lib(h);
+      if (std::isnan(l))
+         return;
+      if (std::fabs(v - l) <= 1e-6 * std::max(1.0, std::fabs(l)) || FormatNumber(v) == FormatNumber(l))
+         h.State().ClearDyeEdit(key);
+      else
+         h.State().SetDyeEdit(key, v);
+   };
+   AsTextNumber(d);
+   return d;
+}
+
+// A target's dye field rows (Expert): the 13 fields every dye has (not a custom dye's pre state or spectra).
+void AddTargetDyeFieldRows(std::vector<PropDef>& t, const char* device, int s)
+{
+   for (const FieldRow& r : FieldRows())
+      if (!r.slotOnly)
+         t.push_back(TargetDyeField(device, s, r));
+}
 
 // A target's name in lower case, for the help texts ("microtubules", "docking strands").
 std::string TargetWhat(int s)
@@ -801,7 +895,10 @@ std::vector<PropDef> BuildTable()
                               "stepping 2:3). Custom: the Beams matrix alone. A pick sets BfpPosition to the type's "
                               "radius (2D 0.95; 3D and the lattices 0.9) and PatternPolarization to S; past 1 the "
                               "beams are evanescent (TIRF-SIM). The kinetics run on the pattern's cycle mean, each "
-                              "frame's image on its exact pattern.");
+                              "frame's image on its exact pattern. The BFP light maps (BfpMaps): LightSheet (an "
+                              "inclined light sheet: an elliptical spot at BfpPosition, SheetThicknessUm x "
+                              "SheetWidthUm; a pick sets BfpPosition 0.9), RingTIRF (a spot at BfpPosition turned "
+                              "once round per exposure, unpolarized; a pick sets 1.03), Maps (BfpMaps alone).");
          ThenText(d, [](H& h) {
             const int t = static_cast<int>(h.State().Option("sim-type"));
             const double r = sim::SimTypeDefaultRadius(t);
@@ -810,10 +907,16 @@ std::vector<PropDef> BuildTable()
                h.State().SetOption("illum-bfp", r);
                h.Notify("illum-bfp");
             }
-            if (t != sim::SIM_OFF)
+            if (t != sim::SIM_OFF && !sim::SimTypeIsMaps(t))
             {
                h.State().SetOption("sim-polarization", sim::SIM_POL_S);
                h.Notify("sim-polarization");
+            }
+            // A map preset: its own equations (BfpMaps shows them; an edit makes the type Maps).
+            if (t == sim::SIM_LIGHT_SHEET || t == sim::SIM_RING_TIRF)
+            {
+               h.State().SetTextOption("bfp-maps", "");
+               h.Notify("bfp-maps");
             }
             h.Notify("beams");
          });
@@ -903,6 +1006,68 @@ std::vector<PropDef> BuildTable()
             return true;
          };
          add(d);
+      }
+      {
+         // The BFP light maps (spec/ALGORITHM.md "BFP light maps", Simulation/BfpField.h): the equations; the type's
+         // own shown under LightSheet and RingTIRF, an edit makes the type Maps.
+         PropDef d = Row(L, "BfpMaps", Tier::Expert, "bfp-maps",
+                         "The back focal plane's light as maps over the pupil, statements separated by ';': I "
+                         "(intensity), phase (turns), pol (deg from s; unpolarized), polLab (a lab angle), ellip "
+                         "(turns), tiltX and tiltY (entry angle, deg: the light lands f tan(tilt) off the axis), focus "
+                         "(deg from parallel, towards its lit region's centre), coherent (0 or 1), T and duty (lit "
+                         "while (t - T) mod 1 < duty), scanX, scanY, scanRot (deg; functions of t: one field moved or "
+                         "turned per time slot), in ux, uy, r, phi (rad), nm, t, umax, uc, bfp, w, fwhm, ns, ni, na, f, "
+                         "sheetT, sheetW; functions exp log sqrt abs sin cos tan asin acos atan atan2 hypot min max pow "
+                         "floor ceil round mod step gauss spot clamp if and img(\"file.tif\") (a map image, row 0 = "
+                         "+uy, a page per time slot). Arguments by ';' too (Micro-Manager refuses commas). Example, a "
+                         "ring scanned once per exposure: I = spot(ux - 1.03; uy; 0.1); scanRot = 360*t; pol = "
+                         "unpolarized. Used under Pattern LightSheet, RingTIRF (their own equations shown) and Maps; "
+                         "an edit sets Pattern to Maps.");
+         d.kind = PropKind::Text;
+         d.getText = [](H& h) {
+            // (On one line: a property value; the comments left out.)
+            const std::string t = h.State().TextOption("bfp-maps");
+            const int type = static_cast<int>(h.State().Option("sim-type"));
+            return sim::BfpOneLine(t.empty() && sim::SimTypeIsMaps(type) ? sim::BfpTypeEquations(type) : t);
+         };
+         d.setText = [](H& h, const std::string& text) {
+            std::string err;
+            sim::BfpProgram p;
+            if (!text.empty() && !p.Compile(text, err))
+               return false;
+            for (const std::string& name : p.Images())   // (a map image must be there: a file by its path)
+               if (!sim::BfpFindImage(name, err))
+                  return false;
+            const int type = static_cast<int>(h.State().Option("sim-type"));
+            if (sim::SimTypeIsMaps(type) && sim::BfpOneLine(text) == sim::BfpOneLine(sim::BfpTypeEquations(type)))
+            {
+               h.State().SetTextOption("bfp-maps", "");
+               return true;   // the type's own: nothing to keep
+            }
+            h.State().SetTextOption("bfp-maps", text);
+            if (!text.empty() && type != sim::SIM_MAPS)
+            {
+               h.State().SetOption("sim-type", sim::SIM_MAPS);
+               h.Notify("sim-type");
+            }
+            return true;
+         };
+         add(d);
+         d = Opt(L, "BfpSlots", Tier::Expert, "bfp-slots", 0, 4096,
+                 "The BFP maps' time slots per cycle: t = (slot + 0.5) / slots (0 = 64 when a map depends on t, "
+                 "else 1).");
+         d.kind = PropKind::Integer;
+         add(d);
+         d = Opt(L, "BfpCycleFrames", Tier::Expert, "bfp-cycle-frames", 0, 10000,
+                 "The BFP maps' cycle in frames: 0 = the whole cycle in every exposure (the slots add up: a scan "
+                 "within the exposure); n = the cycle spans n frames (slot s lit in frame s n / slots: stepped, as "
+                 "SIM).");
+         d.kind = PropKind::Integer;
+         add(d);
+         add(Opt(L, "SheetThicknessUm", Tier::Advanced, "sheet-thickness-um", 0.1, 50,
+                 "Pattern LightSheet: the sheet's thickness, FWHM across the beam (um; 3, an estimate)."));
+         add(Opt(L, "SheetWidthUm", Tier::Advanced, "sheet-width-um", 0, 500,
+                 "Pattern LightSheet: the sheet's width along y, FWHM (um; 0 = the beam's, IlluminationFwhmPct)."));
       }
       {
          // The frame program's state (read-only): the counter, the state it gives, the fringe period.
@@ -1133,17 +1298,58 @@ std::vector<PropDef> BuildTable()
          "Nuclear lamina points per um^2 of nuclear envelope, uniform by area (2000, an estimate: a random stand-in for "
          "the lamin network). Unlabelled by default: NuclearLamina_Label turns it on.",
          "Diameter of the lamina-free disc around each nuclear pore's centre, nm (40).",
+         "How far a cell centre may move from its packing block's centre, as a fraction of the block (a jittered grid).",
+         "Short-to-long axis ratio of a cell's footprint, minimum (1 = round).",
+         "Short-to-long axis ratio of a cell's footprint, maximum (1 = round).",
+         "Amplitude of the large lobes of a cell's outline (0 = a smooth ellipse).",
+         "Fine fractal wiggle of a cell's outline (harmonics 6-64), x the blobbiness; 0 = smooth lobes only.",
+         "Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2.",
+         "Long axis of the nucleus, minimum (um).",
+         "Long axis of the nucleus, maximum (um).",
+         "Short-to-long axis ratio of the nucleus footprint, minimum.",
+         "Short-to-long axis ratio of the nucleus footprint, maximum.",
+         "Height of the nucleus as a fraction of its long axis, minimum.",
+         "Height of the nucleus as a fraction of its long axis, maximum.",
+         "Random offset of the nucleus from the cell centre, up to this fraction of the cell radius.",
+         "Cytoplasm clearance around the sides and top of the nucleus (um).",
+         "Cytoplasm height at the cell edge, minimum (um).",
+         "Cytoplasm height at the cell edge, maximum (um).",
+         "Distance from the edge over which the cytoplasm rises to the rim height, minimum (um).",
+         "Distance from the edge over which the cytoplasm rises to the rim height, maximum (um).",
+         "Cytoplasm height at the mid-height distance, minimum (um).",
+         "Cytoplasm height at the mid-height distance, maximum (um).",
+         "Distance from the nucleus at which the mid height is reached, fraction of the cell radius, minimum.",
+         "Distance from the nucleus at which the mid height is reached, fraction of the cell radius, maximum.",
+         "Largest rise of the cytoplasm surface per um outside the dome (0 = off).",
+         "Largest slope of the dome flank over the nucleus (0 = off).",
+         "Relaxation length of the cytoplasm height (um): h - l^2 lap h = the raw profile; 0 = the raw profile.",
+         "Radial resolution of the cytoplasm's polar mesh.",
+         "Angular resolution of the cytoplasm's polar mesh (and the cell outline).",
+         "Packing may also turn cells (On) or only move them (Off).",
+         "Smallest allowed centre distance of two cells, as a fraction of their combined radius.",
+         "Packing relaxation steps before cells still stuck are dropped.",
+         "Fraction of the overlap resolved per packing relaxation step.",
+         "Strength of the random turning along a microtubule's path.",
+         "Microtubule path length relative to the straight start-to-end distance.",
+         "Step of the microtubule path tracer (um): smaller is smoother and slower.",
+         "Smoothing length of a traced microtubule path (um).",
+         "Tightest bend a microtubule may make (um; 0 = no limit).",
+         "Distance kept between microtubules (um).",
+         "Largest height change per unit of lateral microtubule path.",
       };
       const char* names[CF_COUNT] = { "ChunkSizeUm", "Occupancy", "CellDiameterMinUm", "CellDiameterMaxUm",
          "MicrotubuleDensityPerUm2", "FocusHeightUm", "ZRangeUm", "NucBaseMinUm", "NucBaseMaxUm", "NucIrregMin",
          "NucIrregMax", "NucBendMin", "NucBendMax", "NucSmooth", "NucThickIrreg", "NucAsym", "NucWidestMin",
          "NucWidestMax", "MicrotubuleStartDecayPct", "MicrotubuleEndDecayPct", "MicrotubuleDirKappa",
          "NuclearPoreDensityPerUm2", "NuclearPoreMinDistNm", "NuclearPoreRadiusNm", "NuclearPoreRingSepNm",
-         "NuclearPoreCornerSpreadNm", "NuclearLaminaDensityPerUm2", "NuclearLaminaPoreExclusionNm" };
+         "NuclearPoreCornerSpreadNm", "NuclearLaminaDensityPerUm2", "NuclearLaminaPoreExclusionNm",
+         "PositionJitter", "CellElongationMin", "CellElongationMax", "CellBlobbiness", "CellRoughness", "CellFractalDim", "NucLongAxisMinUm", "NucLongAxisMaxUm", "NucAxisRatioMin", "NucAxisRatioMax", "NucHeightMin", "NucHeightMax", "NucOffset", "NucMarginUm", "CytoRimHeightMinUm", "CytoRimHeightMaxUm", "CytoEdgeRiseMinUm", "CytoEdgeRiseMaxUm", "CytoMidHeightMinUm", "CytoMidHeightMaxUm", "CytoMidDistanceMin", "CytoMidDistanceMax", "CytoSlopeCap", "CytoDomeSlope", "CytoRelaxUm", "CytoMeshRings", "CytoMeshAngles", "PackingRotation", "PackingMinGap", "PackingIterations", "PackingStep", "MicrotubuleWobble", "MicrotubulePathLength", "MicrotubuleStepUm", "MicrotubuleSmoothingUm", "MicrotubuleMinTurnRadiusUm", "MicrotubuleMinSeparationUm", "MicrotubuleMaxZSlope" };
       const double lo[CF_COUNT] = { 4.0, 0.05, 5.0, 5.0, 0.0, -10.0, 0.0,
-         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 100.0, 0.0 };
+         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.9, 0.0, 0.0, 0.05, 0.5, 0.0, 0.0, 0.0, 20.0, 0.0, 0.0, 100.0, 0.0,
+         0.1, 0.1, 0.1, 0.0, 0.0, 1.0, 2.0, 2.0, 0.2, 0.2, 0.1, 0.1, 0.0, 0.1, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 32.0, 0.0, 0.6, 4.0, 0.1, 0.0, 0.9, 0.05, 1.0, 0.0, 0.0, 1.0 };
       const double hi[CF_COUNT] = { 200.0, 1.0, 100.0, 100.0, 2.0, 10.0, 50.0,
-         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0, 30.0, 500.0, 150.0, 150.0, 30.0, 10000.0, 300.0 };
+         2.0, 2.0, 0.3, 0.3, 1.0, 1.0, 4.0, 0.4, 0.9, 1.0, 1.0, 10.0, 50.0, 10.0, 30.0, 500.0, 150.0, 150.0, 30.0, 10000.0, 300.0,
+         1.0, 1.0, 1.0, 4.0, 1.0, 2.0, 30.0, 30.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.5, 2.0, 2.0, 3.0, 3.0, 6.0, 6.0, 1.0, 1.0, 3.0, 6.0, 3.0, 60.0, 512.0, 1.0, 1.1, 150.0, 1.0, 3.0, 1.3, 1.0, 10.0, 2.0, 0.5, 20.0 };
       // Cell size and densities are everyday physics; packing blocks, slab and shape parameters are expert.
       for (int i : { CF_CELL_DIAM_MIN_UM, CF_CELL_DIAM_MAX_UM, CF_OCCUPANCY, CF_MT_DENSITY, CF_NPC_DENSITY, CF_LAMIN_DENSITY })
          add(Arr(F, names[i], Tier::Advanced, std::string("cf.") + names[i], &SceneState::cellField, i, lo[i], hi[i],
@@ -1158,16 +1364,33 @@ std::vector<PropDef> BuildTable()
                  BF_INDEX_MEDIUM + k, 1.0, 2.0, indexHelp[k]));
       for (int i = 0; i < CF_COUNT; ++i)
          if (i != CF_CELL_DIAM_MIN_UM && i != CF_CELL_DIAM_MAX_UM && i != CF_OCCUPANCY && i != CF_MT_DENSITY &&
-             i != CF_NPC_DENSITY && i != CF_LAMIN_DENSITY)
+             i != CF_NPC_DENSITY && i != CF_LAMIN_DENSITY && i != CF_ALLOW_PACK_ROTATION)
             add(Arr(F, names[i], Tier::Expert, std::string("cf.") + names[i], &SceneState::cellField, i, lo[i], hi[i],
-                    help[i]));
+                    help[i], i == CF_CYTO_RINGS || i == CF_CYTO_THETA || i == CF_RELAX_ITERS));
+      {   // a flag of the core's (0 / 1), shown as On / Off
+         const int i = CF_ALLOW_PACK_ROTATION;
+         PropDef d = Row(F, names[i], Tier::Expert, std::string("cf.") + names[i], help[i]);
+         d.kind = PropKind::Text;
+         d.getText = [](H& h) { return std::string(h.State().cellField[CF_ALLOW_PACK_ROTATION].load() != 0 ? "On" : "Off"); };
+         d.setText = [](H& h, const std::string& s) {
+            if (s != "On" && s != "Off")
+               return false;
+            h.State().cellField[CF_ALLOW_PACK_ROTATION].store(s == "On" ? 1.0 : 0.0);
+            return true;
+         };
+         d.choices = [](H&) { return std::vector<std::string>{ "On", "Off" }; };
+         add(d);
+      }
       add(OnOff(F, "Packing", Tier::Expert, "packing", &SceneState::cellFieldPacking,
                 "Relax the cells into a packed field (Off: their seeded positions)."));
       add(Arr(F, "AbsorptionPerUm", Tier::Expert, "bf-absorption", &SceneState::brightField, BF_ABSORPTION_PER_UM, 0,
               100, "Absorption of the cell material, per um (0 = unstained)."));
       for (int s = 0; s < TargetCount(); ++s)
          if (!std::strcmp(TargetAt(s).specimen, F))
+         {
+            AddTargetDyeFieldRows(t, F, s);
             AddTargetOrientRows(t, F, s);
+         }
    }
 
    // =========================== Nanorulers ===========================
@@ -1209,7 +1432,10 @@ std::vector<PropDef> BuildTable()
                    "yet)."));
       for (int s = 0; s < TargetCount(); ++s)
          if (!std::strcmp(TargetAt(s).specimen, N))
+         {
+            AddTargetDyeFieldRows(t, N, s);
             AddTargetOrientRows(t, N, s);
+         }
    }
 
    // =========================== Fiducials ===========================
@@ -1350,7 +1576,8 @@ std::vector<PropDef> BuildTable()
                 h.State().Option("blink-min-photons") == q.minPhotons &&
                 h.State().Option("fid-clumps-as-one") == q.clumpsAsOne &&
                 h.State().Option("sim-frame-pattern-continuous") == q.framePattern &&
-                h.State().wideField[WF_Z_PLANE_NM].load() == q.wfPlaneNm)
+                h.State().wideField[WF_Z_PLANE_NM].load() == q.wfPlaneNm &&
+                h.State().Option("bfp-samples-per-period") == q.bfpSamples)
                return std::string(q.name);
          return std::string("Custom");
       };
@@ -1369,6 +1596,7 @@ std::vector<PropDef> BuildTable()
                h.State().SetOption("fid-clumps-as-one", q.clumpsAsOne);
                h.State().SetOption("sim-frame-pattern-continuous", q.framePattern);
                h.State().wideField[WF_Z_PLANE_NM] = q.wfPlaneNm;
+               h.State().SetOption("bfp-samples-per-period", q.bfpSamples);
                h.Notify("bf-quality");
                h.Notify("psf-oversampling");
                h.Notify("psf-max-sample-nm");
@@ -1378,6 +1606,7 @@ std::vector<PropDef> BuildTable()
                h.Notify("fid-clumps-as-one");
                h.Notify("sim-frame-pattern-continuous");
                h.Notify("wf-plane-nm");
+               h.Notify("bfp-samples-per-period");
                return true;
             }
          return false;
@@ -1430,6 +1659,16 @@ std::vector<PropDef> BuildTable()
               "(Quality: Fast 30, Realistic 15, Exhaustive 0 = no limit).");
       ThenNumber(d, quality);
       add(d);
+      d = Opt(R, "BfpSamplesPerPeriod", Tier::Expert, "bfp-samples-per-period", 2, 64,
+              "Lasers.BfpMaps: the light's samples per its finest period -- laterally over the field of view (the "
+              "window beyond: at most 6), along z per axial beat and evanescent decay; the pupil 512 x this / 6 "
+              "samples across where lit light meets a hard edge (Quality: Fast 6, Realistic 12, Exhaustive 24). A "
+              "field of view too fine for the memory is sampled coarser.");
+      ThenNumber(d, quality);
+      add(d);
+      add(Opt(R, "BfpZSampleUm", Tier::Expert, "bfp-z-sample-um", 1, 100,
+              "Lasers.BfpMaps: the maps' light is computed this far from the focal plane (propagating light) or the "
+              "coverslip (evanescent), um; beyond, its end plane carries on along the light's mean direction."));
       add(Names(R, "PsfInterp", Tier::Expert, "psf-interp", &SceneState::psfInterp, { "Nearest", "Linear", "Cubic", "Fft" },
                 "Sub-pixel placement of the PSF (Fft: exact, slow, CPU only)."));
       d = Num(R, "PsfHaloCut", Tier::Expert, "psf-halo-cut", &SceneState::psfHaloCut, 0.0, 1e-3,

@@ -17,6 +17,7 @@ Live frames at 128 px, the microtubules WideField (every dye lit: the fringes sh
 
 import os
 import sys
+import tempfile
 import time
 
 import numpy as np
@@ -71,6 +72,19 @@ def fringe(img, period_px, angle_deg):
 def blocks(img, b=8):
     h, w = img.shape
     return img[:h - h % b, :w - w % b].reshape(h // b, b, w // b, b).mean(axis=(1, 3))
+
+
+def write_tiff16(path, img):
+    """A one-page uncompressed 16-bit TIFF (little-endian)."""
+    import struct
+    h, w = img.shape
+    data = np.ascontiguousarray(img, dtype="<u2").tobytes()
+    tags = [(256, 3, w), (257, 3, h), (258, 3, 16), (259, 3, 1), (262, 3, 1), (273, 4, 8), (277, 3, 1), (278, 3, h),
+            (279, 4, len(data))]
+    ifd = struct.pack("<H", len(tags)) + b"".join(struct.pack("<HHI", t, ty, 1) + (struct.pack("<HH", v, 0) if ty == 3 else struct.pack("<I", v))
+                                                 for t, ty, v in tags) + struct.pack("<I", 0)
+    with open(path, "wb") as f:
+        f.write(b"II*\x00" + struct.pack("<I", 8 + len(data)) + data + ifd)
 
 
 def main():
@@ -209,6 +223,55 @@ def main():
     except Exception:
         pass
     print(f"Matrix OK: two beams at 0.3 (period {period2:.0f} nm)")
+    # The BFP light maps (spec/ALGORITHM.md "BFP light maps"): RingTIRF's pick sets 1.03 and keeps the polarization;
+    # BfpMaps shows the type's equations on one line without commas; setting them back keeps the type; an edit makes
+    # the Pattern Maps; a bad text is refused; a map image by its path; LightSheet at 0.9.
+    core.setProperty("Lasers", "Pattern", "Off")
+    core.setProperty("Lasers", "PatternPolarization", "P")
+    core.setProperty("Lasers", "Pattern", "RingTIRF")
+    assert float(core.getProperty("Lasers", "BfpPosition")) == 1.03, "a RingTIRF pick sets BfpPosition 1.03"
+    assert core.getProperty("Lasers", "PatternPolarization") == "P", "a map type's pick keeps the polarization"
+    eq = core.getProperty("Lasers", "BfpMaps")
+    assert "scanRot = 360*t" in eq and "\n" not in eq and "," not in eq, f"RingTIRF's equations: {eq!r}"
+    core.setProperty("Lasers", "BfpMaps", eq)
+    assert core.getProperty("Lasers", "Pattern") == "RingTIRF", "the type's own equations set back keep the type"
+    assert int(float(core.getProperty("Lasers", "BfpSlots"))) == 0 and int(float(core.getProperty("Lasers", "BfpCycleFrames"))) == 0
+    ring = snap(core)
+    core.setProperty("Lasers", "Pattern", "LightSheet")
+    assert float(core.getProperty("Lasers", "BfpPosition")) == 0.9, "a LightSheet pick sets BfpPosition 0.9"
+    assert "Inclined light sheet" not in core.getProperty("Lasers", "BfpMaps"), "comments are dropped on one line"
+    assert "sheetT" in core.getProperty("Lasers", "BfpMaps")
+    sheet = snap(core)
+    core.setProperty("Lasers", "BfpPosition", "0.5")
+    core.setProperty("Lasers", "BfpMaps", "I = r < umax*0.5; coherent = 0")
+    assert core.getProperty("Lasers", "Pattern") == "Maps", "an edit sets the Pattern to Maps"
+    assert core.getProperty("Lasers", "BfpMaps") == "I = r < umax*0.5; coherent = 0"
+    disc = snap(core)
+    for name, f in (("RingTIRF", ring), ("LightSheet", sheet), ("a lit disc", disc)):
+        assert float(np.mean(f)) > dark + 5, f"{name}: no light ({np.mean(f):.1f} vs dark {dark:.1f})"
+    assert float(np.abs(disc - sheet).mean()) > 2 * np.mean(same), "the disc's light should differ from the sheet's"
+    try:
+        core.setProperty("Lasers", "BfpMaps", "I = foo(ux)")
+        sys.exit("BfpMaps accepted an unknown function")
+    except Exception:
+        pass
+    assert core.getProperty("Lasers", "BfpMaps") == "I = r < umax*0.5; coherent = 0", "a refused text leaves the old one"
+    # a map image: the same disc as a 16-bit TIFF (row 0 = +uy), by its path
+    n = 64
+    yy, xx = np.mgrid[0:n, 0:n]
+    img = (np.hypot(xx - (n - 1) / 2, yy - (n - 1) / 2) < n / 4).astype(np.uint16) * 60000
+    path = os.path.join(tempfile.mkdtemp(), "disc.tif").replace("\\", "/")
+    write_tiff16(path, img)
+    core.setProperty("Lasers", "BfpMaps", f'I = img("{path}"); coherent = 0')
+    fimg = snap(core)
+    assert float(np.mean(fimg)) > dark + 5, "the map image: no light"
+    try:
+        core.setProperty("Lasers", "BfpMaps", 'I = img("no/such/file.tif")')
+        sys.exit("BfpMaps accepted a missing image")
+    except Exception:
+        pass
+    core.setProperty("Lasers", "Pattern", "Off")
+    print(f"Maps OK: RingTIRF at 1.03 ({eq[:40]}...), LightSheet at 0.9, an edit -> Maps, refusals, a map image")
     print(f"test_sim OK in {time.time() - t_start:.1f} s")
 
 

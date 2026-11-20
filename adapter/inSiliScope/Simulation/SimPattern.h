@@ -46,10 +46,18 @@
 
 namespace sim {
 
-enum SimType { SIM_OFF = 0, SIM_2D = 1, SIM_3D = 2, SIM_LATTICE_2D = 3, SIM_LATTICE_3D = 4, SIM_CUSTOM = 5 };
+enum SimType
+{
+   SIM_OFF = 0, SIM_2D = 1, SIM_3D = 2, SIM_LATTICE_2D = 3, SIM_LATTICE_3D = 4, SIM_CUSTOM = 5,
+   // BFP light maps (BfpField.h, 2026-11-19): no beam set; the light from equations over the pupil.
+   SIM_LIGHT_SHEET = 6, SIM_RING_TIRF = 7, SIM_MAPS = 8
+};
+// The types whose light is a map set (BfpField.h) rather than beams.
+inline bool SimTypeIsMaps(int type) { return type >= SIM_LIGHT_SHEET && type <= SIM_MAPS; }
 enum SimPolarization { SIM_POL_S = 0, SIM_POL_P = 1, SIM_POL_CIRCULAR = 2, SIM_POL_LINEAR_X = 3, SIM_POL_UNPOLARIZED = 4 };
 enum SimOrder { SIM_ORDER_ANGLE_MAJOR = 0, SIM_ORDER_PHASE_MAJOR = 1 };
-const std::vector<std::string>& SimTypeNames();           // Off, SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D, Custom
+const std::vector<std::string>& SimTypeNames();   // Off, SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D, Custom, LightSheet,
+                                                  // RingTIRF, Maps
 const std::vector<std::string>& SimPolarizationNames();   // S, P, Circular, LinearX, Unpolarized
 const std::vector<std::string>& SimOrderNames();          // AngleMajor, PhaseMajor
 const std::vector<std::string>& SimAnchorNames();         // Focus, Coverslip (sim-anchor: where the beams are in phase)
@@ -155,6 +163,9 @@ struct BeamField
 };
 BeamField BeamFieldOf(const Beam& b, double lambdaNm, double nS, double nI, double na, int polarization,
                       bool forceS = false, bool forceP = false);
+// Its field in the lab frame (x, y, z; the beam's frame rotated by its azimuth phi, with BeamFrameSign).
+void LabField(const BeamField& f, double phi, std::complex<double>& Ex, std::complex<double>& Ey,
+              std::complex<double>& Ez);
 
 // The pattern of one line at a state: I(r) = sum of terms amp x envelope_jl(r) x exp(-z / decay) x cos(qx x + qy y +
 // kz z + phase); a DC term (j == l) has q = kz = 0 and phase 0. Lateral q = k0 n_s (u_j - u_l) in rad/um (x, y um from

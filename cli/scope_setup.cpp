@@ -88,11 +88,31 @@ void PhysicsJson(Json& j, const sim::StatePhysics& st)
 
 } // namespace
 
-void ExcitationBeamsJson(Json& j, const sim::Excitation& ex)
+void ExcitationBeamsJson(Json& j, const sim::Excitation& ex, int simType)
 {
    const sim::ExcitationSpec& es = ex.Spec();
    const sim::BeamSet& set = es.beams;
    const bool patterned = ex.Patterned();
+   // The BFP light maps: their equations (the type's own when bfp-maps is empty), what was made, or why not.
+   if (ex.Mapped())
+   {
+      const sim::BfpLight* L = ex.Maps();
+      j.Key("maps");
+      j.Open('{');
+      j.KStr("equations", L ? L->Params().text : std::string());
+      j.KStr("error", es.mapsError);
+      j.KStr("info", L ? L->Info() : std::string());
+      j.KStr("sampling_note", L ? L->SamplingNote() : std::string());
+      j.KNum("slots", L ? L->Slots() : 0);
+      j.KNum("period", L ? L->Period() : 1);
+      j.KBool("evanescent", L && L->Evanescent());
+      j.KNum("evanescent_share", L ? L->EvanescentShare() : 0.0);
+      j.KBool("propagating", L && L->Propagating());
+      j.KBool("focus_dependent", L && L->PivotDependent());
+      j.KNum("compute_sec", L ? L->ComputeSec() : 0.0);
+      j.KNum("bytes", L ? static_cast<double>(L->Bytes()) : 0.0);
+      j.Close('}');
+   }
    // The beams: a set's (the frame's state: rotated, phased), or the legacy beam as one row.
    std::vector<sim::Beam> beams = patterned ? ex.State().beams : std::vector<sim::Beam>();
    if (!patterned)
@@ -142,7 +162,7 @@ void ExcitationBeamsJson(Json& j, const sim::Excitation& ex)
    j.Close(']');
    j.Key("pattern");
    j.Open('{');
-   j.KStr("type", sim::SimTypeNames()[static_cast<size_t>(patterned ? set.type : 0)]);
+   j.KStr("type", sim::SimTypeNames()[static_cast<size_t>(simType >= 0 ? simType : patterned ? set.type : 0)]);
    j.KStr("polarization", sim::SimPolarizationNames()[static_cast<size_t>(set.polarization)]);
    j.KNum("phases", patterned ? set.phases : 1);
    j.KNum("angles", patterned ? set.angles : 1);
@@ -220,7 +240,7 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
       for (int nm : sim::LaserLines())
          j.KNum(std::to_string(nm).c_str(), ex.DepthNm(nm));
       j.Close('}');
-      ExcitationBeamsJson(j, ex);
+      ExcitationBeamsJson(j, ex, static_cast<int>(sim::ScopeSpecGet(spec, "sim-type")));
       j.Close('}');
    }
 
@@ -283,6 +303,92 @@ bool ViewerSetupJson(const sim::ScopeSpec& spec, std::string& out, std::string& 
    return true;
 }
 
+// The BFP light maps' images (IllumPreview::maps): the intensity summed over the frame state's slots, the other maps in
+// use at its first slot, on the pupil image's grid (u from -uSpan to uSpan, row 0 at the bottom).
+static void MapsPreview(const sim::Excitation& ex, const sim::ExcitationShares& shares, int n, IllumPreview& out)
+{
+   const sim::BfpLight* L = ex.Maps();
+   if (!L)
+      return;
+   const sim::BfpLightParams& prm = L->Params();
+   const int S = std::max(1, L->Slots()), C = prm.cycleFrames, st = ex.MapState();
+   double nm = prm.lambdaRefNm, best = -1;
+   for (const sim::ExcitationLine& l : shares)
+      if (l.share > best)
+      {
+         best = l.share;
+         nm = l.nm;
+      }
+   const double umax = prm.na / prm.nS;
+   // The rasters at the pupil square's own grid (nr per side over [-umax, umax], row 0 = +uy), then onto the image's.
+   const int nr = std::max(16, static_cast<int>(std::lround(n / 1.1)));
+   auto onto = [&](const std::vector<float>& r, std::vector<float>& dst) {
+      dst.assign(static_cast<size_t>(n) * n, 0.0f);
+      for (int j = 0; j < n; ++j)
+         for (int i = 0; i < n; ++i)
+         {
+            const double u = (i + 0.5) / n * 2 * out.uSpan - out.uSpan, v = (j + 0.5) / n * 2 * out.uSpan - out.uSpan;
+            const int ri = static_cast<int>(std::floor((u + umax) / (2 * umax) * nr)),
+                      rj = static_cast<int>(std::floor((umax - v) / (2 * umax) * nr));
+            if (ri >= 0 && rj >= 0 && ri < nr && rj < nr)
+               dst[static_cast<size_t>(j) * n + i] = r[static_cast<size_t>(rj) * nr + ri];
+         }
+   };
+   std::vector<int> slots;
+   for (int s = 0; s < S; ++s)
+   {
+      const int sst = C >= 1 && S > 1 ? static_cast<int>(static_cast<long long>(s) * C / S) : 0;
+      if (sst % std::max(1, L->Period()) == st)
+         slots.push_back(s);
+   }
+   std::vector<float> sumI;
+   std::vector<std::vector<float>> first;
+   std::string err;
+   if (!sim::BfpLight::RasterSum(prm, nr, slots, nm, sumI, first, err))
+      return;
+   const int nSlots = static_cast<int>(slots.size());
+   if (nSlots > 0)
+      for (float& v : sumI)
+         v /= static_cast<float>(nSlots);
+   onto(sumI, out.bfp);
+   // The other maps where they are not their defaults on the lit part (the scan maps are functions of t: in the caption).
+   const std::vector<std::string>& names = sim::BfpMapNames();
+   for (int k = sim::BM_PHASE; k <= sim::BM_DUTY && !first.empty(); ++k)
+   {
+      const double def = sim::BfpMapDefault(k);
+      float lo = 1e30f, hi = -1e30f;
+      bool used = false;
+      for (size_t q = 0; q < sumI.size(); ++q)
+         if (first[sim::BM_I][q] > 0)
+         {
+            const float v = first[static_cast<size_t>(k)][q];
+            if (std::isnan(v))
+               continue;
+            lo = std::min(lo, v);
+            hi = std::max(hi, v);
+            used = used || std::fabs(v - def) > 1e-9;
+         }
+      if (!used)
+         continue;
+      std::vector<float> img;
+      std::vector<float> r = first[static_cast<size_t>(k)];
+      for (size_t q = 0; q < r.size(); ++q)
+         if (!(first[sim::BM_I][q] > 0) || std::isnan(r[q]))
+            r[q] = lo;
+      onto(r, img);
+      out.mapNames.push_back(names[static_cast<size_t>(k)]);
+      out.mapImages.push_back(std::move(img));
+      out.mapRanges.push_back({ lo, hi });
+   }
+   char b[160];
+   std::snprintf(b, sizeof b, "%d time slot%s per exposure%s; %.2f s to make, %.1f MB", nSlots, nSlots == 1 ? "" : "s",
+                 L->Period() > 1 ? (", state " + std::to_string(st) + " of " + std::to_string(L->Period())).c_str() : "",
+                 L->ComputeSec(), L->Bytes() / 1048576.0);
+   out.mapsCaption = b;
+   if (!L->SamplingNote().empty())
+      out.mapsCaption += "; " + L->SamplingNote();
+}
+
 bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int n, int nz, IllumPreview& out,
                     std::string& err, const IllumWindow& xyWin, const IllumWindow& xzWin, int nxz)
 {
@@ -306,14 +412,16 @@ bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int
    out.nxz = nxz;
    out.patterned = ex.Patterned();
    out.frame = frame;
-   out.period = ex.Patterned() ? std::max(1, es.beams.Period()) : 1;
+   out.period = ex.Patterned() ? ex.Period() : 1;
+   out.maps = ex.Mapped();
+   out.mapsError = es.mapsError;
    out.angle = ex.Patterned() ? ex.State().light.angle : 0;
    out.phase = ex.Patterned() ? ex.State().light.phase : 0;
    out.uMax = ex.UMax();
    out.uSpan = 1.1 * ex.UMax();
    out.xySpanUm = 1.5 * R.W * R.p.pixelSizeNm / 1000.0;
    out.zMaxUm = 8.0;
-   // The beams: a set's state (rotated, phased), or the legacy beam as one.
+   // The beams: a set's state (rotated, phased), or the legacy beam as one (none under the maps: their own image).
    std::vector<sim::Beam> beams = ex.Patterned() ? ex.State().beams : std::vector<sim::Beam>();
    if (!ex.Patterned())
    {
@@ -358,11 +466,14 @@ bool IllumPreviewOf(const sim::ScopeSpec& spec, long long frame, double zUm, int
          }
          out.bfp[static_cast<size_t>(j) * n + i] = static_cast<float>(a);
       }
+   if (out.maps)
+      MapsPreview(ex, shares, n, out);
    // The pattern on the plane at the section's height (seen from below; the focus unless one is asked for) and
    // through the axis (from the side), the excitation factor.
    out.xy.assign(static_cast<size_t>(n) * n, 0.0f);
    const double zf = zUm < 0 ? es.pivotUm : zUm;
    out.zUm = zf;
+   out.focusUm = es.pivotUm;
    // A window (rows x cols pixels, row 0 at the bottom; heightUm the whole image's height) of at(x, v): x in um, v the
    // fraction of the whole height measured from the bottom. See IllumWindow for the sampling.
    const bool fringes = ex.Patterned() && beams.size() > 1;

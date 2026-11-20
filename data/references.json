@@ -806,6 +806,28 @@
       "doi": "10.1117/12.336833",
       "use": "structured (laterally modulated) excitation from a diffraction grating, the first description of the method; background for the SIM types",
       "checked": "citation from memory, not verified against the source (not in PubMed): treat the volume and pages as unverified"
+    },
+    "ellefsen2015": {
+      "authors": "Ellefsen KL, Dynes JL, Parker I",
+      "year": 2015,
+      "title": "Spinning-spot shadowless TIRF microscopy",
+      "journal": "PLoS One",
+      "volume": "10",
+      "pages": "e0136055",
+      "doi": "10.1371/journal.pone.0136055",
+      "use": "ring TIRF (the RingTIRF BFP light pattern): the laser spot spun in a circle at the back focal plane's periphery by two galvanometer mirrors, so interference fringes and shadows average out within each exposure (abstract). The engine's ring (one turn per exposure, 64 time slots, unpolarized) is a model choice, not taken from the paper",
+      "checked": "citation and abstract via PubMed (open access, PMC4550233)"
+    },
+    "gustavsson2018": {
+      "authors": "Gustavsson AK, Petrov PN, Lee MY, Shechtman Y, Moerner WE",
+      "year": 2018,
+      "title": "3D single-molecule super-resolution microscopy with a tilted light sheet",
+      "journal": "Nature Communications",
+      "volume": "9",
+      "pages": "123",
+      "doi": "10.1038/s41467-017-02563-4",
+      "use": "a tilted light sheet on a standard inverted microscope for low-background single-molecule imaging in thick cells (abstract): the LightSheet BFP light pattern's example. The engine's sheet is an elliptical spot in the objective's own pupil (an inclined sheet through the imaging objective, HILO-like), not TILT3D's separate illumination objective; its default thickness (3 um) is an estimate",
+      "checked": "citation and abstract via PubMed (open access, PMC5760554)"
     }
   }
 }

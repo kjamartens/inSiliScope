@@ -344,6 +344,7 @@ function onResult(d) {
   const job = L.pending;
   if (!job || d.id !== job.id) return;
   if (d.type === 'movie-progress') { if (job.fresh) onRecProgress(d); return; }
+  if (d.type === 'movie-part') { if (job.fresh) onRecPart(d); return; }
   L.pending = null;
   if (job.type === 'live-replay') { onReplay(d, job); return; }
   if (d.error) { L.err = d.error; L.on = false; if (REC.on) finishRec(); syncButtons(); showInfo(); return; }
@@ -902,8 +903,12 @@ window.addEventListener('resize', drawScale);
 // the box's start time (default 0 s) on the live worker (= "Make movie here", = insiliscope_cli --spec with the header's spec), the live sample untouched;
 // Record again cancels it (the worker is replaced, so the live sample starts afresh). With "continue the live sample"
 // (Advanced): chunks of frames, each one movie on the sample's clock (isc_live_frames; ~2 M pixels per chunk), back to
-// back, the last frame of each chunk shown; Record again stops early and saves the frames so far. At most 1 GB.
-const REC = L.rec = { on: false, stop: false, live: false, n: 0, got: 0, buf: null, w: 0, h: 0, spec: '', tStart: 0,
+// back, the last frame of each chunk shown; Record again stops early and saves the frames so far.
+// The frames (2026-11-19; at most 1 GB before): a fresh sample's stream out of the engine as they are made (the movie
+// job's stream: 'movie-part' messages, ~16 MB each), every recording's kept as the parts they came in (frameStore), so
+// a recording is bounded by the tab's memory, not by one buffer or the engine's 4 GB heap; a part the worker cannot
+// allocate stops the Record with the frames so far. Past 4 GB the saved TIFF is a BigTIFF (writeTiff16).
+const REC = L.rec = { on: false, stop: false, live: false, n: 0, got: 0, store: null, w: 0, h: 0, spec: '', tStart: 0,
   litStart: 0, t0: 0, engineMs: 0, msg: '', now: null, log: null, chunks: [] };
 // the fresh sample's time at its first frame (the movie's start-sec; 0 = the light comes on): not the Start time
 // setting, which live keeps; hidden with "continue the live sample", which runs on from the live sample's time
@@ -916,21 +921,51 @@ $('lv_recN').addEventListener('change', () => store.set('recN', $('lv_recN').val
 $('lv_recT').value = store.get('recT', '0');
 $('lv_recT').addEventListener('change', () => store.set('recT', $('lv_recT').value));
 const recStartSec = () => Math.max(0, +$('lv_recT').value || 0);
+// A recording's frames as the parts they came in (each whole frames, in order): no one buffer of the whole movie.
+function frameStore() {
+  const parts = [];   // { first, n, data }
+  let total = 0, px = 0;
+  return {
+    get n() { return total; },
+    add(data, n) {
+      if (!n) return;
+      px = px || Math.round(data.length / n);
+      parts.push({ first: total, n, data: data.length === n * px ? data : data.subarray(0, n * px) });
+      total += n;
+    },
+    frame(i) {
+      let lo = 0, hi = parts.length - 1;
+      while (lo < hi) { const m = (lo + hi + 1) >> 1; if (parts[m].first <= i) lo = m; else hi = m - 1; }
+      const p = parts[lo], k = i - p.first;
+      return p.data.subarray(k * px, (k + 1) * px);
+    },
+    // the first n frames as arrays in order (writeTiff16 takes them as they are)
+    arrays(n = total) {
+      const out = [];
+      for (const p of parts) {
+        if (p.first >= n) break;
+        out.push(p.first + p.n <= n ? p.data : p.data.subarray(0, (n - p.first) * px));
+      }
+      return out;
+    },
+  };
+}
 function startRec() {
   if (REC.on && !REC.live) {   // cancel the movie: replace the worker (its live sample goes with it)
     if (L.worker) L.worker.terminate();
     L.worker = null; L.pending = null; L.worldKey = null;
     gtStop();   // (its ground truth's run)
-    Object.assign(REC, { on: false, buf: null, msg: 'recording cancelled' });
+    Object.assign(REC, { on: false, store: null, msg: 'recording cancelled' });
     syncButtons(); showInfo();
     return;
   }
   if (REC.on) { REC.stop = true; return; }
   closePlayer();
   const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), side = Math.max(1, +$('mv_size').value || 128);
-  const max = Math.floor(1e9 / (2 * side * side));
-  Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n: Math.min(n, max), got: 0, buf: null,
-    exp: exposureSec(), t0: performance.now(), engineMs: 0, msg: n > max ? `at most ${max} frames of ${side}×${side} px (1 GB)` : '',
+  const gb = n * side * (+($('mv_height') || {}).value || side) * 2 / 1e9;
+  Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n, got: 0, store: null,
+    exp: exposureSec(), t0: performance.now(), engineMs: 0,
+    msg: gb > 2 ? `${gb.toFixed(1)} GB of frames, held in this tab's memory` + (gb > 4 ? ' (saved as a BigTIFF)' : '') : '',
     log: null, chunks: [], pxUm: (+$('mv_pixel-nm').value || 100) / 1000 });
   // the settings as the Record begins (its file: web/live/settings_file.js recordFile)
   // (before the engine's option list has come, its values would be empty: the spec kept, the values made at the end)
@@ -961,7 +996,9 @@ async function recGtEarly() {
 function recMovie() {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; REC.on = false; syncButtons(); showInfo(); return; }
-  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }), fresh: true, t0: performance.now() };
+  REC.store = frameStore();
+  const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1 }), fresh: true,
+    stream: true, t0: performance.now() };
   L.pending = job;
   w.postMessage(job);
 }
@@ -969,33 +1006,42 @@ function onRecProgress(d) {
   REC.got = Math.min(REC.n, Math.floor((d.frac || 0) * REC.n));
   syncButtons(); showInfo();
 }
+// a part of a fresh sample's frames, as the engine made them
+function onRecPart(d) {
+  if (!REC.on || !REC.store) return;
+  REC.store.add(d.frames, d.n);
+  REC.got = Math.min(REC.n, REC.store.n);
+}
 function onRecMovie(d, job) {
   if (!REC.on) return;
-  const px = d.w * d.h, n = Math.min(REC.n, Math.floor(d.frames.length / Math.max(1, px)));
-  Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, buf: d.frames, got: n, engineMs: performance.now() - job.t0,
+  const px = d.w * d.h;
+  if (!d.streamed) REC.store.add(d.frames, Math.min(REC.n, Math.floor(d.frames.length / Math.max(1, px))));
+  const n = Math.min(REC.n, REC.store.n);
+  Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, got: n, engineMs: performance.now() - job.t0,
     gpu: d.gpu && d.gpu !== 'CPU' ? d.gpu : '' });
+  if (d.stopped) REC.msg = `stopped: ${d.stopped}` + (REC.msg ? ' · ' + REC.msg : '');
   L.err = '';
   L.ms = n ? (performance.now() - REC.t0) / n : 0;
   L.frames++;
-  draw({ ...d, frames: d.frames.slice((n - 1) * px, n * px) });
+  if (n) draw({ ...d, frames: REC.store.frame(n - 1).slice() });
   finishRec();
 }
 function recNext() {
-  if (!REC.live) { if (!REC.buf) recMovie(); return; }
+  if (!REC.live) { if (!REC.store) recMovie(); return; }
   if (REC.stop || REC.got >= REC.n) { finishRec(); return; }
   const side = Math.max(1, +$('mv_size').value || 128);
   request(Math.max(1, Math.min(REC.n - REC.got, Math.floor(2e6 / (side * side)), 500)));
 }
 function onRecChunk(d, job) {
   const px = d.w * d.h, n = d.n || 1;
-  if (!REC.buf) {
+  if (!REC.store) {
     Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, tStart: d.tStart !== undefined ? d.tStart : job.t, litStart: d.clock });
-    REC.buf = new Uint16Array(REC.n * px);
+    REC.store = frameStore();
   }
   if (d.w !== REC.w || d.h !== REC.h) { REC.msg = 'the image size changed: stopped'; REC.stop = true; }
   else {
     const k = Math.min(n, REC.n - REC.got);
-    REC.buf.set(d.frames.subarray(0, k * px), REC.got * px);
+    REC.store.add(d.frames.subarray(0, k * px), k);   // (the chunk's frames, transferred: kept as they came)
     REC.got += k;
     REC.chunks.push({ spec: job.spec, n: k, lit: true });
     REC.engineMs += d.workerMs || 0;
@@ -1012,18 +1058,18 @@ function onRecChunk(d, job) {
 function finishRec() {
   const n = REC.got, s = (performance.now() - REC.t0) / 1000;
   REC.on = false;
-  if (n && REC.buf) {
+  if (n && REC.store) {
     REC.msg = `recorded ${n} frames in ${s.toFixed(1)} s, ${(n / s).toFixed(1)} frames/s` +
       (REC.got < REC.n ? ` (stopped at ${n} of ${REC.n})` : '') + (REC.msg ? ' · ' + REC.msg : '');
     openPlayer(n);
   }
   else gtStop();   // (no recording: a ground truth's run begun with it let go)
-  REC.buf = null;
+  REC.store = null;
   syncButtons();
 }
 
 // ---- a finished recording plays in the live view (looping at the frame interval); Save .tif saves it ----
-const PLAY = L.play = { on: false, frames: null, w: 0, h: 0, n: 0, desc: '', i: 0, run: false, timer: 0 };
+const PLAY = L.play = { on: false, store: null, w: 0, h: 0, n: 0, desc: '', i: 0, run: false, timer: 0 };
 function openPlayer(n) {
   const exp = REC.exp || exposureSec();   // the exposure the frames were taken at
   const desc = [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
@@ -1040,7 +1086,7 @@ function openPlayer(n) {
     if (!settings && REC.now && self.iscSettings) settings = self.iscSettings.recordFile({ mode: REC.live ? 'live' : 'fresh', now: REC.now, frames: n,
       log: REC.log || [], chunks: REC.chunks, tSec: L.t }, 'insiliscope-recording');
   } catch (e) { console.warn('the recording\'s settings file:', e); }
-  Object.assign(PLAY, { on: true, frames: REC.buf.subarray(0, n * REC.w * REC.h), w: REC.w, h: REC.h, n, desc, spec: REC.spec,
+  Object.assign(PLAY, { on: true, store: REC.store, w: REC.w, h: REC.h, n, desc, spec: REC.spec,
     exp, pxUm: REC.pxUm || (+$('mv_pixel-nm').value || 100) / 1000, i: 0, run: n > 1, settings, gpu: REC.live ? '' : REC.gpu || '' });
   $('lv_playPos').max = n - 1;
   $('lv_play').hidden = false;
@@ -1053,7 +1099,7 @@ function openPlayer(n) {
 function showPlayFrame(i) {
   const px = PLAY.w * PLAY.h;
   PLAY.i = i;
-  draw({ w: PLAY.w, h: PLAY.h, spec: PLAY.spec, frames: PLAY.frames.subarray(i * px, (i + 1) * px) });
+  draw({ w: PLAY.w, h: PLAY.h, spec: PLAY.spec, frames: PLAY.store.frame(i) });
   $('lv_playPos').value = i;
   $('lv_playN').textContent = `${i + 1}/${PLAY.n}`;
 }
@@ -1076,7 +1122,7 @@ function syncPlay() { $('lv_playBtn').textContent = PLAY.run ? '❚❚' : '▶';
 function closePlayer(keepGt) {
   if (!keepGt) gtStop();   // (a ground truth's run of this recording)
   cancelAnimationFrame(PLAY.timer);
-  Object.assign(PLAY, { on: false, frames: null, run: false });
+  Object.assign(PLAY, { on: false, store: null, run: false });
   $('lv_play').hidden = true;
   $('liveView').classList.remove('playing');
 }
@@ -1195,15 +1241,16 @@ async function openSave() {
 // c = {settings, gt, dyes, minCore}; say(text): progress.
 async function saveRecording(c, name, say = () => {}) {
   iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(PLAY.n), settings: !!c.settings, gt: !!c.gt });
-  const tif = writeTiff16(PLAY.frames, PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
+  const tif = writeTiff16(PLAY.store.arrays(PLAY.n), PLAY.w, PLAY.h, PLAY.n, PLAY.desc, PLAY.pxUm);
+  const bigTiff = tif.size >= 2 ** 32 - 2 ** 26 ? ', a BigTIFF: Fiji with Bio-Formats, napari or tifffile open it' : '';
   if (!c.settings && !c.gt) {
     download(tif, name + '.tif');
-    REC.msg = `saved ${name}.tif (${(tif.size / 1e6).toFixed(1)} MB)`;
+    REC.msg = `saved ${name}.tif (${(tif.size / 1e6).toFixed(1)} MB${bigTiff})`;
     showInfo();
     return;
   }
   const settingsText = playSettingsText();
-  const entries = [{ name: 'movie.tif', data: new Uint8Array(await tif.arrayBuffer()) }];
+  const entries = [{ name: 'movie.tif', data: tif }];   // (a Blob: past 1 GB stored as it is, zip.js)
   if (c.settings) entries.push({ name: 'settings.isc.json', data: settingsText });
   if (c.gt) {
     // The stages of isc_scope_gt: setup (the sample, the PSF: no fraction, often most of the time), the frames (a
@@ -1227,7 +1274,7 @@ async function saveRecording(c, name, say = () => {}) {
     // the converter only beside the dye list it reads (the stacks need none; the page is also in ☰ › Tools)
     if (files.some(([n]) => n === 'dyes.csv'))
       try { const r = await fetch('voxelize.html'); if (r.ok) entries.push({ name: 'gt/voxelize.html', data: await r.text() }); } catch (e) { /* offline: without it */ }
-    say(`Packing ${Math.round(entries.reduce((s, e) => s + (e.data.length || 0), 0) / 1e6)} MB ...`, null);
+    say(`Packing ${Math.round(entries.reduce((s, e) => s + (e.data.size || e.data.length || 0), 0) / 1e6)} MB ...`, null);
   } else say('Packing ...');
   // the napari opener (web/open_in_napari.py): unpacked (or beside the zip), dropped on napari's window, it opens the
   // recording there
@@ -1246,7 +1293,7 @@ async function saveRecording(c, name, say = () => {}) {
   const blob = await self.iscZip.zip(entries);
   download(blob, name + '.zip');
   self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)
-  REC.msg = `saved ${name}.zip (${(blob.size / 1e6).toFixed(1)} MB)`;
+  REC.msg = `saved ${name}.zip (${(blob.size / 1e6).toFixed(1)} MB${bigTiff})`;
   showInfo();
 }
 $('lv_playSave').addEventListener('click', openSave);

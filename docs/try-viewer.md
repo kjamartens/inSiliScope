@@ -132,7 +132,11 @@ through it step by step.
   it ([napari](ground-truth.md#open-it-in-napari)). Nothing is saved by itself. A recording is a fresh sample: a movie starting at
   that time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
-  Live, Snap and ↺ wait while it records; a recording holds at most 1 GB of frames.
+  Live, Snap and ↺ wait while it records. A recording is held in the browser tab's memory, so its size is bounded
+  by that, not by a fixed cap. If the tab runs out, the recording stops and keeps the frames so far. A movie past
+  4 GB is saved as a **BigTIFF**: open it in Fiji with Bio-Formats, in napari or with tifffile, as plain ImageJ
+  cannot. For very large movies, `insiliscope_cli` or `tools/isc_render.py` on the saved settings write straight
+  to disk ([Quickstart](quickstart.md)).
   With **continue the live sample** (in the box, Advanced level; the start time is then hidden) the frames go on from the
   live sample instead: its
   illumination history, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition. They
@@ -198,6 +202,15 @@ through it step by step.
   have taken (bleached and blinking as it was). A file from another release loads with a note that the image may
   differ, and what the viewer could not take is listed. Every value is stored (defaults too) by name, and
   `insiliscope_cli --settings <file>` renders the same frames on the command line.
+- **A Micro-Manager configuration.** **Micro-Manager .cfg…** in the same section of the ☰ menu saves `<name>.cfg`:
+  the shipped Expert configuration with the viewer's seed and a Startup preset that sets every
+  [Micro-Manager property](micro-manager.md) to the viewer's value (the sample, its labels and custom dyes, the cells'
+  shape, the light path and lasers, the pattern and BFP maps, the objective and its aberrations, the camera, the drift,
+  the render quality). Loaded in Micro-Manager, the simulated microscope renders with the viewer's settings, but for
+  the stage position and focus, the movie's length and start time and the viewer's 3 um PSF kernel (Micro-Manager keeps
+  its 7 um one). The light's shutter is the viewer's: the lasers, the lamp for BrightField, or both through the Multi
+  Shutter. The box lists what could not go in (a map image whose name has a comma); map images are not in the file:
+  put them where Micro-Manager finds them.
   The viewer counts anonymous usage (which specimen, mode and Look are picked, Live, Record, saved TIFFs), without
   cookies: [Privacy](privacy.md) lists what is counted and how to turn it off.
   A typed value takes effect 0.5 s after the last key, or at once on Enter. Sliders and number boxes also follow the
@@ -245,8 +258,9 @@ through it step by step.
   with the type's beams, which typed rows replace; the column table and worked examples are on the physics page under
   [Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)). The live sample counts its
   frames (the info line's tooltip shows the frame's place in the cycle, the performance box its angle and phase), a recording
-  of a fresh sample starts at frame 0. The Microscope view's **Back focal plane (BFP)** and **Illumination profile** panels
-  show the beams and the pattern they make for the current settings, each with a slider through the frame program. The preset is also the modality: "BrightField (lasers
+  of a fresh sample starts at frame 0. The same select offers the **BFP light maps** ([BFP light maps](physics/dyes-and-light-path.md#bfp-light-maps)): **LightSheet** (an inclined light sheet; its thickness and width in Advanced) and **RingTIRF** (the TIRF spot turned once round per exposure), and **Maps**: in Expert the box under it holds the light's equations over the pupil (the type's own after a pick; an edit applies on leaving the box or with Ctrl+Enter and makes it Maps), with an **Examples** list (a spot, HILO, the light sheet, ring TIRF, a Bessel beam, radially and azimuthally polarized rings, a line scan, SIM2D, and six from images: lattices, three beams, a line focus, a TIRF annulus, half the pupil), **Map images…** (PNG or TIFF files the equations read with `img("name.png")`; a saved settings file carries them), the time slots and the frames per cycle. A coherent map's light takes from a fraction of a second to minutes to make (a beam focused over most of the pupil is the slow case); it is made once and kept.
+  The Microscope view's **Back focal plane (BFP)** and **Illumination profile** panels
+  show the beams (or the maps' light) and the pattern they make for the current settings, each with a slider through the frame program; the Illumination profile's height follows the focus, which is dashed in its x-z section and marked on its height slider. The preset is also the modality: "BrightField (lasers
   off)" images transmitted light, every other preset fluorescence. The label stays
   available in BrightField. In Advanced, **Custom dyes** starts empty: **+ Add a dye** makes one (up to three) with its
   own name, a library dye to start from, a default mode and every dye value editable; it then appears in the Dye select.

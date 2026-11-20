@@ -4,7 +4,9 @@
 // CompressionStream('deflate-raw') (stored when that is not smaller, or with store: true, or without CompressionStream),
 // CRC-32, UTF-8 names, Zip64 records when a size or offset passes 4 GB or there are more than 65535 entries (zip64:
 // true forces them, for the tests).
-//   await iscZip.zip([{ name: 'a.txt', data: 'text' | Uint8Array, store?: bool }], { zip64?: bool }) -> Blob
+//   await iscZip.zip([{ name: 'a.txt', data: 'text' | Uint8Array | Blob, store?: bool }], { zip64?: bool, blobInline?: bytes }) -> Blob
+// A Blob past BLOB_INLINE (a large recording's TIFF, 2026-11-19) is stored as it is: its CRC read through its stream,
+// the Blob a part of the zip's (no copy of it in memory); a smaller one is read and deflated like the bytes.
 'use strict';
 (function (self) {
   // CRC-32 slice by 8: table k (k * 256 + byte) = the byte's CRC followed by k zero bytes; 8 bytes per step, the rest
@@ -62,6 +64,17 @@
     return w;
   }
   const BIG = 0xFFFFFFFF;
+  const BLOB_INLINE = 1e9;
+  async function crcBlob(blob) {
+    const r = blob.stream().getReader();
+    let c = 0xFFFFFFFF;
+    for (;;) {
+      const { done, value } = await r.read();
+      if (done) break;
+      c = crcUpdate(c, value);
+    }
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
 
   async function zip(entries, opt = {}) {
     const enc = new TextEncoder(), when = dosTime(new Date());
@@ -69,23 +82,27 @@
     let offset = 0;
     let force64 = !!opt.zip64 || entries.length > 65535;
     for (const e of entries) {
-      const data = typeof e.data === 'string' ? enc.encode(e.data) : e.data instanceof Uint8Array ? e.data : new Uint8Array(e.data);
+      const isBlob = typeof Blob !== 'undefined' && e.data instanceof Blob;
+      const whole = isBlob && e.data.size > (opt.blobInline !== undefined ? opt.blobInline : BLOB_INLINE);   // stored, streamed
+      const data = whole ? null : isBlob ? new Uint8Array(await e.data.arrayBuffer()) :
+        typeof e.data === 'string' ? enc.encode(e.data) : e.data instanceof Uint8Array ? e.data : new Uint8Array(e.data);
       const name = enc.encode(e.name);
-      const crc = crc32(data);
-      let body = data, method = 0;
-      if (!e.store && data.length > 64) {
+      const crc = whole ? await crcBlob(e.data) : crc32(data);
+      let body = whole ? e.data : data, method = 0;
+      if (!whole && !e.store && data.length > 64) {
         const z = await deflate(data);
         if (z && z.length < data.length) { body = z; method = 8; }
       }
-      const z64 = force64 || data.length >= BIG || body.length >= BIG || offset >= BIG;
+      const size = whole ? e.data.size : data.length, bodySize = whole ? e.data.size : body.length;
+      const z64 = force64 || size >= BIG || bodySize >= BIG || offset >= BIG;
       // local header (its Zip64 extra: both sizes)
-      const ext = z64 ? rec(20).u16(1).u16(16).u64(data.length).u64(body.length).out : new Uint8Array(0);
+      const ext = z64 ? rec(20).u16(1).u16(16).u64(size).u64(bodySize).out : new Uint8Array(0);
       const local = rec(30 + name.length + ext.length)
         .u32(0x04034b50).u16(z64 ? 45 : 20).u16(0x0800).u16(method).u16(when.time).u16(when.date).u32(crc)
-        .u32(z64 ? BIG : body.length).u32(z64 ? BIG : data.length).u16(name.length).u16(ext.length).bytes(name).bytes(ext).out;
+        .u32(z64 ? BIG : bodySize).u32(z64 ? BIG : size).u16(name.length).u16(ext.length).bytes(name).bytes(ext).out;
       parts.push(local, body);
-      central.push({ name, crc, method, size: data.length, csize: body.length, offset, z64 });
-      offset += local.length + body.length;
+      central.push({ name, crc, method, size, csize: bodySize, offset, z64 });
+      offset += local.length + bodySize;
     }
     const cdStart = offset;
     for (const c of central) {

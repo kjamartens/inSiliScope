@@ -240,6 +240,72 @@ and is never dark), and the [fluorescent slide](../samples/slide.md) shows the f
 at every height's defocus: in a thick layer only the heights near focus keep their fringe, so its contrast is a
 fraction of the pattern's; a thin layer or TIRF-SIM shows it in full.
 
+## BFP light maps
+
+Beyond spots, the light in the objective's back focal plane can be any distribution, given as **maps over the pupil**
+(`sim-type` Maps, LightSheet or RingTIRF; MM `Lasers.Pattern`; the equations `bfp-maps`, MM `Lasers.BfpMaps`, the
+viewer's Illumination group at Expert; the physics in full: `spec/ALGORITHM.md`, "BFP light maps"). A map is a value
+at every pupil point (ux, uy) in u units (1 = the critical angle, the pupil's edge umax = NA / n<sub>s</sub>):
+
+| map | meaning |
+|---|---|
+| `I` | the intensity (relative; the field's amplitude is its square root) |
+| `phase` | the phase in turns (it matters only within coherent light) |
+| `pol`, `polLab`, `ellip` | the polarization angle (0 s, 90 p; `polLab` a fixed angle in the lab, as a polarizer before scan mirrors), the ellipticity in turns; `pol = unpolarized` the mean of the s and p light |
+| `tiltX`, `tiltY` | the angle at which the light enters the pupil (degrees): where in the sample it lands, f tan(tilt) off the axis |
+| `focus` | the ray's turn towards the centre of its lit region, in degrees from parallel (+ converging): a whole beam converging is `focus` growing linearly from its centre |
+| `coherent` | 1: the light adds as one field (it interferes); 0: each pupil point is light of its own (intensities add) |
+| `T`, `duty` | the timing: lit while (t - T) mod 1 < duty, t the time within the cycle |
+| `scanX`, `scanY`, `scanRot` | a scan: the whole light shifted (degrees of tilt) or turned (degrees) with t |
+
+The equations are statements `name = expression` separated by `;` or new lines (`#` starts a comment), in the
+variables `ux uy r phi` (the pupil position; phi in radians), `t`, `nm` (the laser line), `umax`, `bfp` (the BFP
+slider), `w` (the legacy beam's spot radius in u), `fwhm`, `ns`, `na`, `f` (the objective's focal length, µm),
+`sheetT`, `sheetW` and names of one's own, with the usual operators and functions (`exp sqrt sin atan2 min max step
+gauss spot if ...`; arguments separate by `,` or `;`, since Micro-Manager refuses commas in a property).
+`img("name.png")` reads a **map image**: its square is the pupil from -umax to umax, the top row at +uy, the grey value
+the map's value (any value scale: `I` is relative). The viewer reads PNG and TIFF (Map images…, or its Examples list),
+the cli and Micro-Manager TIFF; a settings file carries the images its equations name.
+
+**Coherent light** is a numerical field: the pupil's complex field (amplitude, phase, the tilt and focus turned into
+phase, the polarization through the same Fresnel and evanescent fields as a beam's) transformed to the sample plane by
+plane, propagating and evanescent alike, so a focused beam has its waist and a sheet its Rayleigh range. **Incoherent
+light** is a plane wave per pupil point over the field stop's footprint (`illum-profile`, `illum-fwhm`), landing where
+its ray angle points. **Time:** `bfp-slots` samples the cycle (t = (s + 0.5) / slots; 64 when a map depends on t);
+`bfp-cycle-frames` 0 puts the whole cycle into every exposure (a scanned ring, a line scan), n spreads it over n frames
+(stepped, as SIM). **Power:** whatever the shape, the light through the pupil carries the laser's power at the sample,
+as the single beam does.
+
+The **presets**: **LightSheet** (an elliptical coherent spot at the BFP position, 0.9 on a pick: an inclined sheet
+through the sample, `sheet-thickness-um` 3 across (*estimate*) by `sheet-width-um` along y (0 = the field's width),
+Advanced; after the tilted sheets of [[gustavsson2018](../references.md#gustavsson2018)], here through the imaging
+objective itself) and **RingTIRF** (the beam's spot at the BFP position, 1.03 on a pick, turned once round within
+every exposure, unpolarized: TIRF from every direction at once, without the single spot's fringes and shadows
+[[ellefsen2015](../references.md#ellefsen2015)]). A pick writes the type's equations into the box; an edit makes it
+Maps. A map's one spot is not the legacy beam bit for bit: the map's field on the focal plane is the pupil's Fourier
+transform, so a round spot lands round, where the legacy beam is a round beam projected onto the plane (stretched along
+x by 1 / cos θ).
+
+<!-- fig:bfp-maps -->
+
+<!-- fig:bfp-map-images -->
+
+**What the dyes see** is as under SIM: each frame's exact light for the emission, the cycle mean for the kinetics and
+the imager background. **Limits:** the light is made on the CPU (no GPU path), once per light and kept (a focused
+coherent beam over the whole pupil takes from seconds to minutes: its steep rays reach far up the volume, which
+`bfp-z-sample-um`, 12 µm, bounds); the light history keeps its dose on at most 512 nodes across the light (fringes
+finer than a few nodes are smoothed in the dose, ~10 % at the extremes of a 400 nm fringe), the imager background on
+32; the fluorescent slide takes the cycle mean, not each frame's fringes.
+
+**Sampling.** One setting sets how finely the maps' light is computed: `Renderer.BfpSamplesPerPeriod` (cli/viewer
+`bfp-samples-per-period`, set by `Renderer.Quality`: Fast 6, Realistic 12, Exhaustive 24) samples per the light's finest
+period -- across the field of view (a finer tile over it plus 2 µm; the window beyond keeps at most 6 and 512 samples a
+side), along z per axial beat and per evanescent decay depth, and, where lit light meets a hard edge in the pupil (its
+rim, a step in a map), 512 × this / 6 pupil samples across. At Realistic a spot's light is within ~3·10⁻⁵ of a much finer
+computation, RingTIRF ~10⁻³, SIM2D as maps 4·10⁻⁴ (Fast 4·10⁻³); it costs time and memory (RingTIRF 7.5 s in the viewer
+without threads, 3 s at Fast). A field of view too fine for the memory (1 GB natively, 256 MB in the viewer) is sampled
+coarser, and the BFP panel's caption says so.
+
 ## The DNA-PAINT imager background
 
 Unbound imager in the illuminated volume adds an offset per pixel and second of
@@ -335,5 +401,5 @@ The three regimes at a low, medium and high imager concentration:
 ## Where it lives
 
 `adapter/inSiliScope/Simulation/Spectra.*`, `LightPath.*`, `DyeLibrary.*` (data generated into `DyeLibraryData.inc` by
-`tools/gen_dye_library.mjs`), `ScopeMovie.*` (`FluorescenceMovie`), `BinnedBlinks.*` and `BlinkExpectation.*`. The core's label model (ABI 10) is in
+`tools/gen_dye_library.mjs`), `ScopeMovie.*` (`FluorescenceMovie`), `BinnedBlinks.*` and `BlinkExpectation.*`; the BFP light maps in `BfpExpr.*` (the equations), `BfpMaps.*` (the map images) and `BfpField.*` (the light they make). The core's label model (ABI 10) is in
 `core/src/dyes.*`; spec/PORT.md section 16 has the details.

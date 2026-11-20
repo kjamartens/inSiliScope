@@ -6,12 +6,34 @@
 'use strict';
 (function () {
 const FORMAT = 'insiliscope-settings', VERSION = 1;
-// "k=v k=v" -> Map (the viewer writes numbers)
+// "k=v k=v" -> Map: numbers, and the text options' quoted strings (k="..." with \" \\ \n escapes, = ParseScopeSpec)
 const parseSpec = text => {
   const m = new Map();
-  for (const t of text.split(/[\s,;]+/)) { const i = t.indexOf('='); if (i > 0) m.set(t.slice(0, i), +t.slice(i + 1)); }
+  const s = String(text || '');
+  let i = 0;
+  while (i < s.length) {
+    while (i < s.length && /[\s,;]/.test(s[i])) i++;
+    if (i >= s.length) break;
+    const eq = s.indexOf('=', i), sep = s.slice(i).search(/[\s,;]/), end = sep < 0 ? s.length : i + sep;
+    if (eq > i && eq < end && s[eq + 1] === '"') {
+      let v = '', k = eq + 2;
+      for (; k < s.length && s[k] !== '"'; k++) {
+        if (s[k] === '\\' && k + 1 < s.length) { k++; v += s[k] === 'n' ? '\n' : s[k]; } else v += s[k];
+      }
+      m.set(s.slice(i, eq), v);
+      i = k + 1;
+      continue;
+    }
+    const t = s.slice(i, end), j = t.indexOf('=');
+    if (j > 0) m.set(t.slice(0, j), +t.slice(j + 1));
+    i = end;
+  }
   return m;
 };
+// A text value quoted for a spec (= ScopeQuoteText).
+const quoteText = v => '"' + String(v).replace(/\r/g, '').replace(/[\\"]/g, c => '\\' + c).replace(/\n/g, '\\n') + '"';
+// One key's spec text: a number as is, a string quoted.
+const specPair = (k, v) => k + '=' + (typeof v === 'string' ? quoteText(v) : v);
 // The part of a key (= ScopeOptionPart, ScopeMovie.cpp): the engine's table for its named options, p.* sample, zern.*
 // instrument, the dye field overrides (<prefix>-dye.<field>, dye<N>.<field>) sample; null: none.
 function partOf(eng, k) {
@@ -30,6 +52,8 @@ function toName(eng, k, v) {
 }
 // A file's value as the option's number (= ScopeOptionValue: a number, a name, Typical / DyeDefault / Global); NaN.
 function fromName(eng, k, v) {
+  const o0 = eng.get(k);
+  if (o0 && o0.text) return typeof v === 'string' ? v : '';   // a text option (bfp-maps): the string itself
   if (typeof v === 'number') return v;
   if (typeof v === 'boolean') return v ? 1 : 0;
   if (typeof v !== 'string') return NaN;
@@ -77,7 +101,7 @@ function replaySpecs(eng, records, sampleSpec) {
     for (const [k, raw] of Object.entries(r.set || {})) { if (raw === null) m.delete(k); else m.set(k, fromName(eng, k, raw)); }
     const s = new Map(m);
     for (const [k, v] of sample) s.set(k, v);
-    out.push({ spec: [...s].map(([k, v]) => k + '=' + v).join(' '), n: Math.max(1, r.n | 0), lit: r.lit !== false });
+    out.push({ spec: [...s].map(([k, v]) => specPair(k, v)).join(' '), n: Math.max(1, r.n | 0), lit: r.lit !== false });
   }
   return out;
 }
@@ -103,5 +127,24 @@ function readFile(text, here) {
   for (const p of Object.values(file.parts)) if (p && p.values) for (const [o, n] of Object.entries(RENAMED)) if (o in p.values) { p.values[n] = p.values[o]; delete p.values[o]; }
   return { file, warnings };
 }
-self.iscSettingsCore = { FORMAT, VERSION, parseSpec, partOf, toName, fromName, idOf, historyOut, replaySpecs, recordSpecs, readFile };
+// The BFP maps' images a part's text options name (img("name")), as the part's "files": base64 by name, from the
+// viewer's store (a Map name -> bytes, self.ISC_BFP_FILES); filesIn reads them back ([name, bytes], bad ones left out).
+const toB64 = b => { let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+function filesOf(values, store) {
+  const out = {};
+  for (const v of Object.values(values || {}))
+    if (typeof v === 'string')
+      for (const m of v.matchAll(/img\(\s*"([^"]+)"/g))
+        if (store && store.has(m[1])) out[m[1]] = toB64(store.get(m[1]));
+  return Object.keys(out).length ? out : null;
+}
+function filesIn(part) {
+  const out = [];
+  for (const [name, b64] of Object.entries((part && part.files) || {})) {
+    try { const s = atob(b64), b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); if (b.length) out.push([name, b]); }
+    catch (e) { /* not base64: left out */ }
+  }
+  return out;
+}
+self.iscSettingsCore = { FORMAT, VERSION, parseSpec, quoteText, specPair, partOf, toName, fromName, idOf, historyOut, replaySpecs, recordSpecs, readFile, filesOf, filesIn };
 })();

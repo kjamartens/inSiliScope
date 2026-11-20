@@ -183,6 +183,13 @@ rows exist in a session; a row above it is never created and its setting keeps i
 `docs/micro-manager.md`) and, if a config group sets it, the configs (`tools/gen_mm_configs.py`, checked by
 `tools/test_mm_configs.py`); docs; a gallery entry if it changes the image (not for caches or preparation switches).
 
+**A new viewer setting** (an engine option the viewer sends, a world parameter `p.*`): a property for it (above), or a
+line in `tools/mm_cfg_map.py` `VIEWER_ONLY` saying why Micro-Manager has none -- `tests/web/viewer_mm_cfg.mjs` fails on
+a viewer option neither covers. `tools/gen_mm_configs.py` then learns its row for the viewer's .cfg export (the table
+`self.ISC_MM_CFG` in `web/live/mm_config.js`); `tools/test_viewer_cfg.py` loads the export in Micro-Manager and
+compares the spec. A number with more than 4 significant decimals (a dye's rates) is a text row (`AsTextNumber`):
+MMDevice keeps 4 decimals of a float property.
+
 **A new target in a specimen:** the core geometry; its entry in `data/specimens.json` (name, option prefix, core
 structure) and its `typicalLabels` per mode (with references); its engine options (`<prefix>-*`);
 its label rows (`TargetLabel(device, s)` in the specimen's block of the registry).
@@ -213,4 +220,5 @@ per-target rows are `<Target>_<Name>`; sensor-specific rows are `sCMOS_` / `EMCC
 | `InSiliScopeXYStage.*`, `InSiliScopeZStage.*` | the stages |
 | `tools/isc_mm.py` | loading the devices in pymmcore-plus (the test scripts) |
 | `config/inSiliScope_{Basic,Advanced,Expert}.cfg` | the shipped configurations (release assets): devices, roles, the Channel / Objective / Aberrations / Camera / Quality / Drift / Specimen / Illumination groups (+ `BfpPosition`, Advanced and up), startup, pixel sizes per objective x camera; written by `tools/gen_mm_configs.py` (never by hand; `--check`), loaded and checked by `tools/test_mm_configs.py` |
+| `tools/mm_cfg_map.py`, `web/live/mm_cfg.js` | the viewer's Micro-Manager .cfg export: the option -> property table learnt from the registry (in `gen_mm_configs.py`), and the writer |
 | `docs/micro-manager.md` (its "Devices and properties" section) | every device and property with tier, default, values and help; written by `tools/gen_property_reference.py` from the registry (the Test row `Renderer.Test_WriteRegistryTo` exports it) |

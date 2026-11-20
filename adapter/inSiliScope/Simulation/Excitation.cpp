@@ -46,8 +46,12 @@ void Excitation::Make(const ExcitationSpec& s)
    envs_.clear();
    patterns_.clear();
    state_ = PatternState();
-   patterned_ = !s.beams.beams.empty();
-   if (patterned_)
+   mapped_ = s.maps != nullptr || !s.mapsError.empty();
+   mapState_ = 0;
+   patterned_ = mapped_ || !s.beams.beams.empty();
+   if (mapped_)
+      MakeMapped(s);
+   else if (patterned_)
       MakePatterned(s);
    else
       MakeLegacy(s);
@@ -232,8 +236,159 @@ void Excitation::MakePatterned(const ExcitationSpec& s)
    SetFrame(s.frame);
 }
 
+// BFP light maps (BfpField.h): the light is the maps' volumes; the components are the cycle mean's planes (at most
+// kMapHistoryPlanes per part, evenly), each with its tent in z, for the light history.
+namespace {
+constexpr int kMapHistoryPlanes = 24;
+constexpr double kMapTirfShare = 0.95;   // the evanescent share of the pupil's power the maps' regime calls TIRF
+} // namespace
+
+void Excitation::MakeMapped(const ExcitationSpec& s)
+{
+   profile_ = s.profile;
+   fwhmUm_ = std::max(1e-6, (s.fwhmPct / 100.0) * s.fovSpanUm);
+   nS_ = s.nMed;
+   nI_ = s.nImm;
+   na_ = s.na;
+   zp_ = s.pivotUm;
+   uMax_ = s.na / nS_;
+   sig_ = fwhmUm_ / 2.3548;
+   r0_ = fwhmUm_ / 2.0;
+   edge_ = std::max(1e-6, kFlatTopEdge * r0_);
+   flatTop0_ = 1.0 / (1.0 + std::exp(-r0_ / edge_));
+   uniform_ = false;
+   const BfpLight* L = s.maps.get();
+   bool any = false;
+   if (L)
+      for (int l = 0; l < L->LineCount(); ++l)
+         any = any || !L->Mean(l).parts.empty();
+   clipped_ = !any;
+   u_ = L ? L->UOuter() : 0.0;
+   // TIRF when nearly all the light is evanescent (a spot just past the critical angle leaves a little of its tail
+   // below it: that light is still made, propagating, but the regime is the bulk's).
+   tirf_ = L && L->Evanescent() && L->EvanescentShare() >= kMapTirfShare;
+   tanS_ = L ? L->TanS() : 0.0;
+   const double sinI = std::min(1.0, u_ * nS_ / nI_);
+   cosI_ = std::sqrt(std::max(0.0, 1.0 - sinI * sinI));
+   regime_ = clipped_ ? REGIME_CLIPPED : (tirf_ ? REGIME_TIRF : (u_ > 1e-3 ? REGIME_HILO : REGIME_EPI));
+   tilted_ = L && L->Propagating() && tanS_ > 0.0;
+   reachUm_ = L ? (L->ReachUm() > 0.0 ? std::min(L->ReachUm(), L->HalfWindowUm() * std::sqrt(2.0)) : L->HalfWindowUm() * std::sqrt(2.0)) : 0.0;
+   if (L)
+      for (int l = 0; l < L->LineCount(); ++l)
+      {
+         const BfpLightField& M = L->Mean(l);
+         for (size_t k = 0; k < M.parts.size(); ++k)
+         {
+            const BfpVolume& V = M.parts[k];
+            const int nz = V.Nz();
+            std::vector<int> pick;
+            const int stride = std::max(1, (nz + kMapHistoryPlanes - 1) / kMapHistoryPlanes);
+            for (int i = 0; i < nz; i += stride)
+               pick.push_back(i);
+            if (!pick.empty() && pick.back() != nz - 1)
+               pick.push_back(nz - 1);
+            for (size_t q = 0; q < pick.size(); ++q)
+            {
+               Component c;
+               c.F = 1.0;
+               c.cosI = 1.0;
+               c.u = u_;
+               c.sx = V.sx;
+               c.sy = V.sy;
+               c.tanS = std::hypot(V.sx, V.sy);
+               c.reachUm = reachUm_;
+               c.curvature = L->Curvature();
+               c.depthTable = true;
+               c.mapLine = l;
+               c.mapPart = static_cast<int>(k);
+               c.mapPlane = pick[q];
+               c.zMid = V.ZAbs(pick[q], zp_);
+               c.openBottom = q == 0 && V.extendBottom;
+               c.openTop = q + 1 == pick.size() && V.extendTop;
+               c.zLo = q > 0 ? V.ZAbs(pick[q - 1], zp_) : c.zMid;
+               c.zHi = q + 1 < pick.size() ? V.ZAbs(pick[q + 1], zp_) : c.zMid;
+               // A plane whose tent lies below the coverslip carries nothing the sample sees.
+               if (!c.openTop && c.zHi <= 0.0 && q + 1 < pick.size())
+                  continue;
+               comps_.push_back(c);
+               envs_.push_back(Envelope());
+            }
+         }
+      }
+   if (comps_.empty())
+   {
+      Component c;
+      c.clipped = true;
+      comps_.push_back(c);
+      envs_.push_back(Envelope());
+   }
+   F_ = 0.0;
+   if (L && !clipped_)
+   {
+      for (int l = 0; l < L->LineCount(); ++l)
+         F_ += L->Mean(l).At(0.0, 0.0, zp_, zp_);
+      F_ /= L->LineCount();
+   }
+   SetFrame(s.frame);
+}
+
+int Excitation::Period() const
+{
+   if (mapped_)
+      return spec_.maps ? std::max(1, spec_.maps->Period()) : 1;
+   return patterned_ ? std::max(1, spec_.beams.Period()) : 1;
+}
+
+double Excitation::MapShare(int line, const ExcitationShares& shares) const
+{
+   const BfpLight* L = spec_.maps.get();
+   double s = 0.0;
+   if (L)
+      for (const ExcitationLine& l : shares)
+         if (L->LineOf(l.nm) == line)
+            s += l.share;
+   return s;
+}
+
+double Excitation::MapAt(double x, double y, double z, const ExcitationShares& shares, bool mean) const
+{
+   const BfpLight* L = spec_.maps.get();
+   if (!L || clipped_ || L->IsSlim())
+      return 0.0;
+   double s = 0.0;
+   for (const ExcitationLine& l : shares)
+   {
+      if (!(l.share != 0.0))
+         continue;
+      const int li = L->LineOf(l.nm);
+      s += l.share * (mean ? L->Mean(li) : L->State(li, mapState_)).At(x, y, z, zp_);
+   }
+   return s;
+}
+
+double Excitation::MapPlaneMean(double x, double y, double z0, double z1, const ExcitationShares& shares, bool mean) const
+{
+   const double a = std::max(0.0, z0), b = std::max(a, z1);
+   if (!(b - a > 1e-9))
+      return MapAt(x, y, a, shares, mean);
+   // 4-point Gauss-Legendre over the plane (the volume is piecewise linear in z between its planes).
+   static const double gx[4] = { -0.8611363115940526, -0.3399810435848563, 0.3399810435848563, 0.8611363115940526 };
+   static const double gw[4] = { 0.3478548451374538, 0.6521451548625461, 0.6521451548625461, 0.3478548451374538 };
+   double v = 0.0;
+   for (int k = 0; k < 4; ++k)
+      v += gw[k] * MapAt(x, y, 0.5 * (a + b) + 0.5 * (b - a) * gx[k], shares, mean);
+   return 0.5 * v;
+}
+
 void Excitation::SetFrame(long long frame)
 {
+   if (mapped_)
+   {
+      spec_.frame = frame;
+      const int n = Period();
+      mapState_ = n > 1 ? static_cast<int>(((frame % n) + n) % n) : 0;
+      return;
+   }
    if (!patterned_)
       return;
    spec_.frame = frame;
@@ -254,6 +409,8 @@ void Excitation::Compile()
 
 const Pattern* Excitation::PatternOf(double nm) const
 {
+   if (mapped_)
+      return nullptr;
    for (const auto& p : patterns_)
       if (p.first == nm)
          return &p.second;
@@ -293,16 +450,30 @@ double Excitation::ProfileAt(double xp, double y) const
 double Excitation::ComponentDecayUm(int j, double nm) const
 {
    const Component& c = comps_[static_cast<size_t>(j)];
+   if (c.depthTable)
+      return 0.0;
    return 1e-3 * nm / (4.0 * kPi * nS_ * std::sqrt(c.u * c.u - 1.0));
+}
+
+double Excitation::ComponentDepthTopUm(int j) const
+{
+   const Component& c = comps_[static_cast<size_t>(j)];
+   if (!c.depthTable)
+      return -1.0;
+   return c.openTop ? c.zMid : c.zHi;
 }
 
 double Excitation::DecayUm(double nm) const
 {
+   if (mapped_)
+      return spec_.maps ? spec_.maps->DecayPerNm() * nm : 0.0;
    return 1e-3 * nm / (4.0 * kPi * nS_ * std::sqrt(u_ * u_ - 1.0));
 }
 
 double Excitation::ReachUm(double frac) const
 {
+   if (mapped_)
+      return reachUm_;
    double r = 0.0;
    for (size_t j = 0; j < comps_.size(); ++j)
    {
@@ -322,15 +493,37 @@ double Excitation::ReachUm(double frac) const
 
 double Excitation::MaxCurvature() const
 {
+   if (mapped_)
+      return spec_.maps ? spec_.maps->Curvature() : 0.0;
    double k = 0.0;
    for (const Component& c : comps_)
       k = std::max(k, c.curvature);
    return k;
 }
 
+std::shared_ptr<const Excitation> Excitation::Slimmed() const
+{
+   if (!mapped_ || !spec_.maps || spec_.maps->IsSlim())
+      return nullptr;
+   auto e = std::make_shared<Excitation>(*this);
+   e->spec_.maps = spec_.maps->Slim();
+   return e;
+}
+
 double Excitation::ComponentLateral(int j, double x, double y, double z) const
 {
    const Component& c = comps_[static_cast<size_t>(j)];
+   if (c.depthTable)
+   {
+      // The cycle mean's plane, sheared along the light's mean direction from its height (none in a slim copy).
+      const auto& parts = spec_.maps->Mean(c.mapLine).parts;
+      if (static_cast<size_t>(c.mapPart) >= parts.size())
+         return 0.0;
+      const BfpVolume& V = parts[static_cast<size_t>(c.mapPart)];
+      const double d = z - c.zMid;
+      const double v = V.Plane(c.mapPlane, x - d * c.sx, y - d * c.sy);
+      return v > 0.0 ? v : 0.0;
+   }
    const Envelope& e = envs_[static_cast<size_t>(j)];
    if (c.azimuth == 0.0 && c.ox == 0.0 && c.oy == 0.0)
       return EnvelopeAt(e, (x - (c.tirf ? 0.0 : z - zp_) * c.tanS) * c.cosI, y);
@@ -345,9 +538,48 @@ double Excitation::Lateral(double x, double y, double z) const
    return ComponentLateral(0, x, y, z);
 }
 
+namespace {
+// A map plane's tent at z (1 at its height, 0 at its neighbours'; an open end stays 1 beyond it).
+double Tent(const Excitation::Component& c, double z)
+{
+   if (z <= c.zMid)
+   {
+      if (c.openBottom || !(c.zMid > c.zLo))
+         return c.openBottom ? 1.0 : (z == c.zMid ? 1.0 : 0.0);
+      return z <= c.zLo ? 0.0 : (z - c.zLo) / (c.zMid - c.zLo);
+   }
+   if (c.openTop || !(c.zHi > c.zMid))
+      return c.openTop ? 1.0 : 0.0;
+   return z >= c.zHi ? 0.0 : (c.zHi - z) / (c.zHi - c.zMid);
+}
+// Its integral over [a, b] (piecewise linear: the trapezoids between its breakpoints).
+double TentIntegral(const Excitation::Component& c, double a, double b)
+{
+   if (!(b > a))
+      return 0.0;
+   double pts[5] = { a, c.zLo, c.zMid, c.zHi, b };
+   std::sort(pts + 1, pts + 4);
+   double s = 0.0, prev = a;
+   for (int k = 1; k < 5; ++k)
+   {
+      const double q = std::min(b, std::max(a, pts[k]));
+      if (q > prev)
+      {
+         s += 0.5 * (Tent(c, prev) + Tent(c, q)) * (q - prev);
+         prev = q;
+      }
+   }
+   if (b > prev)
+      s += 0.5 * (Tent(c, prev) + Tent(c, b)) * (b - prev);
+   return s;
+}
+} // namespace
+
 double Excitation::ComponentDepth(int j, double z, const ExcitationShares& shares) const
 {
    const Component& c = comps_[static_cast<size_t>(j)];
+   if (c.depthTable)
+      return Tent(c, z) * MapShare(c.mapLine, shares);
    if (!c.tirf)
       return 1.0;
    double s = 0.0;
@@ -364,6 +596,11 @@ double Excitation::Depth(double z, const ExcitationShares& shares) const
 double Excitation::ComponentDepthMean(int j, double z0, double z1, const ExcitationShares& shares) const
 {
    const Component& c = comps_[static_cast<size_t>(j)];
+   if (c.depthTable)
+   {
+      const double a = z0, b = std::max(z0, z1);
+      return (b > a ? TentIntegral(c, a, b) / (b - a) : Tent(c, a)) * MapShare(c.mapLine, shares);
+   }
    if (!c.tirf)
       return 1.0;
    const double a = std::max(0.0, z0), b = std::max(a, z1);
@@ -385,6 +622,8 @@ double Excitation::DepthMean(double z0, double z1, const ExcitationShares& share
 
 double Excitation::MeanAt(double x, double y, double z, const ExcitationShares& shares) const
 {
+   if (mapped_)
+      return MapAt(x, y, z, shares, true);
    if (clipped_)
       return 0.0;
    double s = 0.0;
@@ -400,6 +639,8 @@ double Excitation::MeanAt(double x, double y, double z, const ExcitationShares& 
 
 double Excitation::MeanPlaneMean(double x, double y, double z0, double z1, const ExcitationShares& shares) const
 {
+   if (mapped_)
+      return MapPlaneMean(x, y, z0, z1, shares, true);
    if (clipped_)
       return 0.0;
    const double zc = std::max(0.0, (z0 + z1) / 2);
@@ -431,6 +672,8 @@ void Excitation::FrameEnvelopes(double x, double y, double z, std::vector<double
 
 double Excitation::At(double x, double y, double z, const ExcitationShares& shares) const
 {
+   if (mapped_)
+      return MapAt(x, y, z, shares, false);
    if (!patterned_)
       return clipped_ ? 0.0 : F_ * Lateral(x, y, z) * Depth(z, shares);
    if (clipped_)
@@ -450,6 +693,16 @@ double Excitation::At(double x, double y, double z, const ExcitationShares& shar
 
 double Excitation::AtBall(double x, double y, double z, double rUm, const ExcitationShares& shares) const
 {
+   if (mapped_)
+   {
+      // The ball's mean by the six axis points at r sqrt(3 / 5) (exact for quadratics); the centre for no radius.
+      if (!(rUm > 0))
+         return MapAt(x, y, z, shares, false);
+      const double a = rUm * std::sqrt(0.6);
+      return (MapAt(x + a, y, z, shares, false) + MapAt(x - a, y, z, shares, false) + MapAt(x, y + a, z, shares, false) +
+              MapAt(x, y - a, z, shares, false) + MapAt(x, y, z + a, shares, false) + MapAt(x, y, z - a, shares, false)) /
+             6.0;
+   }
    if (!patterned_ || !(rUm > 0))
       return At(x, y, z, shares);
    if (clipped_)
@@ -465,6 +718,9 @@ double Excitation::AtBall(double x, double y, double z, double rUm, const Excita
 
 double Excitation::DcAtBall(double x, double y, double z, double rUm, const ExcitationShares& shares) const
 {
+   // Maps: no separate incoherent part (the frame's light is the volume): the same as AtBall, the ratio 1.
+   if (mapped_)
+      return AtBall(x, y, z, rUm, shares);
    if (!patterned_)
       return At(x, y, z, shares);
    if (clipped_)
@@ -502,6 +758,9 @@ double Sinc(double x)
 double Excitation::PlaneMean(double x, double y, double z0, double z1, double cellUm,
                              const ExcitationShares& shares) const
 {
+   // Maps: the plane's mean over z (the cell's lateral extent is below the volume's grid: left out).
+   if (mapped_)
+      return MapPlaneMean(x, y, z0, z1, shares, false);
    if (!patterned_)
    {
       if (clipped_)
@@ -555,8 +814,57 @@ void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const Exc
    p.ok = patterned_ && !clipped_;
    p.comps.clear();
    p.lines.clear();
+   p.mapped = false;
+   p.slice.clear();
    if (!p.ok)
       return;
+   if (mapped_)
+   {
+      // The plane's mean on the finest of the lines' grids over the window; PlaneMeanAt reads it bicubically.
+      p.mapped = true;
+      const BfpLight* L = spec_.maps.get();
+      double dx = 1e9, half = 0.0, tdx = 1e9, thalf = 0.0;
+      for (int l = 0; l < L->LineCount(); ++l)
+         for (const BfpVolume& V : L->Mean(l).parts)
+         {
+            dx = std::min(dx, V.dx);
+            half = std::max(half, -V.x0);
+            if (V.tn > 0)
+            {
+               tdx = std::min(tdx, V.tdx);
+               thalf = std::max(thalf, -V.tx0);
+            }
+         }
+      p.tn = 0;
+      p.tslice.clear();
+      if (tdx < dx && thalf > 0.0)
+      {
+         p.tn = 2 * static_cast<int>(std::ceil(thalf / tdx)) + 1;
+         p.tdx = tdx;
+         p.tx0 = -(p.tn - 1) / 2 * tdx;
+         p.tslice.assign(static_cast<size_t>(p.tn) * p.tn, 0.0f);
+         ParallelFor(static_cast<unsigned>(p.tn), [&](unsigned j) {
+            for (int i = 0; i < p.tn; ++i)
+               p.tslice[static_cast<size_t>(j) * p.tn + i] =
+                  static_cast<float>(MapPlaneMean(p.tx0 + i * tdx, p.tx0 + j * tdx, z0, z1, shares, false));
+         });
+      }
+      if (!(dx < 1e9))
+      {
+         p.ok = false;
+         return;
+      }
+      p.sn = 2 * static_cast<int>(std::ceil(half / dx)) + 1;
+      p.sdx = dx;
+      p.sx0 = -(p.sn - 1) / 2 * dx;
+      p.slice.assign(static_cast<size_t>(p.sn) * p.sn, 0.0f);
+      ParallelFor(static_cast<unsigned>(p.sn), [&](unsigned j) {
+         for (int i = 0; i < p.sn; ++i)
+            p.slice[static_cast<size_t>(j) * p.sn + i] =
+               static_cast<float>(MapPlaneMean(p.sx0 + i * dx, p.sx0 + j * dx, z0, z1, shares, false));
+      });
+      return;
+   }
    const double a = std::max(0.0, z0), b = std::max(a, z1), zc = std::max(0.0, (z0 + z1) / 2);
    p.flat = !(b > a);
    p.ba = b - a;
@@ -626,6 +934,14 @@ void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const Exc
 
 double Excitation::PlaneMeanAt(double x, double y, const PlaneMeanPrep& p) const
 {
+   if (p.mapped)
+   {
+      const bool inTile = p.tn > 0 && x >= p.tx0 + p.tdx && y >= p.tx0 + p.tdx && x <= p.tx0 + (p.tn - 2) * p.tdx &&
+                          y <= p.tx0 + (p.tn - 2) * p.tdx;
+      const double v = inTile ? BfpBicubic(p.tslice.data(), p.tn, p.tn, p.tx0, p.tx0, p.tdx, x, y)
+                              : BfpBicubic(p.slice.data(), p.sn, p.sn, p.sx0, p.sx0, p.sdx, x, y);
+      return v > 0.0 ? v : 0.0;
+   }
    const size_t N = p.comps.size();
    double* env = p.env.data();
    for (size_t j = 0; j < N; ++j)
@@ -673,6 +989,25 @@ double Excitation::Column(double x, double y, double H, const ExcitationShares& 
 {
    if (clipped_ || !(H > 0.0))
       return 0.0;
+   if (mapped_)
+   {
+      // The cycle mean's column: finely where the light is computed (and the evanescent decays are), coarser above.
+      const double zTop = std::min(H, std::max(0.0, zp_ + spec_.maps->Params().zSampleUm));
+      double s = 0.0;
+      const int n1 = 256, n2 = 64;
+      for (int i = 0; i < n1; ++i)
+      {
+         const double z = (i + 0.5) * zTop / n1;
+         s += MapAt(x, y, z, shares, true) * zTop / n1;
+      }
+      if (H > zTop)
+         for (int i = 0; i < n2; ++i)
+         {
+            const double z = zTop + (i + 0.5) * (H - zTop) / n2;
+            s += MapAt(x, y, z, shares, true) * (H - zTop) / n2;
+         }
+      return s;
+   }
    double total = 0.0;
    for (size_t j = 0; j < comps_.size(); ++j)
    {
@@ -866,6 +1201,9 @@ double Excitation::ImagerColumnAt(double x, double y, double Hc, const std::vect
 {
    if (clipped_ || !(Hc > 0.0))
       return 0.0;
+   if (mapped_)
+      return MappedCollected(x, y, Hc, imagers, CollectionRingsFor(nS_, nI_, na_, rings, fresnel), RingDirs(dirs), ratio,
+                             tirfSteps, 0.0);
    return CollectedAt(x, y, Intervals(Hc, imagers, ratio, tirfSteps), CollectionRingsFor(nS_, nI_, na_, rings, fresnel),
                       RingDirs(dirs), 0.0);
 }
@@ -876,7 +1214,7 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
    std::vector<double> out(static_cast<size_t>(W) * H, 0.0);
    if (clipped_ || !(Hc > 0.0) || imagers.empty())
       return out;
-   if (profile_ == ILLUM_FLAT)
+   if (profile_ == ILLUM_FLAT && !mapped_)
    {
       for (unsigned j = 0; j < H; j++)
          for (unsigned i = 0; i < W; i++)
@@ -889,14 +1227,23 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
       return out;
    }
    double scaleUm = profile_ == ILLUM_GAUSSIAN ? envs_[0].sig : envs_[0].edge;
-   for (const Envelope& e : envs_)
-      scaleUm = std::min(scaleUm, profile_ == ILLUM_GAUSSIAN ? e.sig : e.edge);
+   if (mapped_)
+   {
+      // The maps' light: its curvature sets the scale (a scale s has curvature ~1 / s^2), at most the beam's.
+      const double k = MaxCurvature();
+      scaleUm = profile_ == ILLUM_GAUSSIAN ? sig_ : (profile_ == ILLUM_FLATTOP ? edge_ : 2.0);
+      if (k > 0)
+         scaleUm = std::min(scaleUm, 1.0 / std::sqrt(k));
+   }
+   else
+      for (const Envelope& e : envs_)
+         scaleUm = std::min(scaleUm, profile_ == ILLUM_GAUSSIAN ? e.sig : e.edge);
    const double g = std::max(um, scaleUm / nodesPerScale);
    auto axis = [&](unsigned n) -> unsigned {
       if (n <= 1)
          return 1;
       return static_cast<unsigned>(
-         std::min(static_cast<double>(kCollectNodes), std::max(2.0, std::ceil((n - 1) * um / g) + 1)));
+         std::min(static_cast<double>(mapped_ ? kMapCollectNodes : kCollectNodes), std::max(2.0, std::ceil((n - 1) * um / g) + 1)));
    };
    const unsigned nx = axis(W), ny = axis(H);
    auto nodeAt = [&](unsigned k, unsigned nn, unsigned n) { return nn <= 1 ? 0.0 : (n - 1) * um * k / (nn - 1); };
@@ -908,7 +1255,9 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
    ParallelFor(ny, [&](unsigned b) {
       for (unsigned a = 0; a < nx; a++)
          node[static_cast<size_t>(b) * nx + a] =
-            CollectedAt(nodeAt(a, nx, W) - axisX, nodeAt(b, ny, H) - axisY, ivs, rings, ds, small);
+            mapped_ ? MappedCollected(nodeAt(a, nx, W) - axisX, nodeAt(b, ny, H) - axisY, Hc, imagers, rings, ds,
+                                      kCollectRatio, kCollectTirfSteps, small)
+                    : CollectedAt(nodeAt(a, nx, W) - axisX, nodeAt(b, ny, H) - axisY, ivs, rings, ds, small);
    });
    // Pixel p of n on nn nodes: the node below it and the fraction towards the next.
    auto cellOf = [](unsigned p, unsigned n, unsigned nn, unsigned& k, double& fr) {
@@ -942,8 +1291,75 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
    return out;
 }
 
+double Excitation::MappedCollected(double x, double y, double Hc, const std::vector<ImagerSource>& imagers,
+                                   const CollectionRings& rings, const std::vector<double>& ds, double ratio, int nTirf,
+                                   double small) const
+{
+   // The maps' light per imager (the shares differ): intervals fine over the evanescent decays (when there are any),
+   // then growing from the focus as the beam's; each interval's light at its middle, defocused onto (x, y) by the rings.
+   const BfpLight* L = spec_.maps.get();
+   std::vector<std::pair<double, double>> ivs;   // (middle, width)
+   double top = 0.0;
+   if (L->Evanescent())
+   {
+      double dMax = 0.0;
+      for (const ImagerSource& im : imagers)
+         for (const ExcitationLine& l : im.shares)
+            dMax = std::max(dMax, L->DecayPerNm() * l.nm);
+      top = std::min(Hc, 30.0 * dMax);
+      for (int i = 0; i < nTirf; i++)
+         ivs.push_back({ top * (i + 0.5) / nTirf, top / nTirf });
+   }
+   if (L->Propagating())
+   {
+      auto add = [&](double a, double b) {
+         a = std::max(a, top);
+         if (b > a)
+            ivs.push_back({ 0.5 * (a + b), b - a });
+      };
+      const double f = std::min(Hc, std::max(0.0, zp_)), reach = std::max(f, Hc - f);
+      double e0 = 0.0, e1 = kCollectDz0;
+      while (e0 < reach)
+      {
+         add(std::max(0.0, f - e1), f - e0);
+         add(f + e0, std::min(Hc, f + e1));
+         e0 = e1;
+         e1 *= ratio;
+      }
+   }
+   const size_t nr = rings.tans.size(), nd = ds.size() / 2;
+   double total = 0.0;
+   for (const ImagerSource& im : imagers)
+   {
+      double s = 0.0;
+      for (const auto& iv : ivs)
+      {
+         const double dz = std::fabs(iv.first - zp_);
+         double b = 0.0;
+         for (size_t r = 0; r < nr; ++r)
+         {
+            const double rho = dz * rings.tans[r];
+            if (rho < small)
+            {
+               b += rings.weights[r] * MapAt(x, y, iv.first, im.shares, true);
+               continue;
+            }
+            double rr = 0.0;
+            for (size_t k = 0; k < nd; k++)
+               rr += MapAt(x + rho * ds[2 * k], y + rho * ds[2 * k + 1], iv.first, im.shares, true);
+            b += rings.weights[r] * (rr / static_cast<double>(nd));
+         }
+         s += iv.second * b;
+      }
+      total += im.rate * s;
+   }
+   return total;
+}
+
 double Excitation::DepthNm(double lambdaNm) const
 {
+   if (mapped_)
+      return tirf_ ? DecayUm(lambdaNm) * 1000.0 : -1.0;
    return tirf_ ? DecayUm(lambdaNm) * 1000.0
                 : (!clipped_ && tanS_ > 0.0 && profile_ != ILLUM_FLAT ? fwhmUm_ / (tanS_ * cosI_) * 1000.0 : -1.0);
 }

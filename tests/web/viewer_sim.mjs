@@ -6,7 +6,7 @@
 // left view) shows the program's period and beam count, its slider steps the frame, the height slider moves the section
 // seen from below, Esc and back in shows it at once, the open panel follows a settings change; a snap's info carries the
 // pattern state and the live sample's counter steps per frame; LatticeSIM3D's five beams and its section's change with
-// height; Off again.
+// height; Off again; the BFP light maps (RingTIRF, an edit, an error, a map image, LightSheet).
 //   node tests/web/viewer_sim.mjs [--channel=chrome] [--swiftshader]
 import { runViewer } from './browser.mjs';
 
@@ -36,7 +36,7 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
     .then(() => true, async () => { check(false, why + ': ' + JSON.stringify(await big())); return false; });
   const ctl = (name, v) => page.evaluate(([n, x]) => { const s = document.querySelector(`#scopeHost > .pnl.big .pnlCtl input[data-name=${n}]`);
     s.value = x; s.dispatchEvent(new Event('input')); }, [name, v]);
-  const reset = name => page.evaluate(n => document.querySelector(`#scopeHost > .pnl.big .pnlCtl input[data-name=${n}]`).nextElementSibling
+  const reset = name => page.evaluate(n => document.querySelector(`#scopeHost > .pnl.big .pnlCtl input[data-name=${n}]`).closest('.pc').querySelector('.pcV')
     .dispatchEvent(new MouseEvent('dblclick')), name);
   const lit = () => page.evaluate(() => [...document.querySelectorAll('#scopeHost > .pnl.big canvas')].map(c => {
     const a = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < a.length; i += 4) if (a[i] + a[i + 1] + a[i + 2] > 60) n++; return n; }));
@@ -112,6 +112,65 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   await page.waitForFunction(() => /one beam/.test(document.getElementById('patternReadout').textContent), null, { timeout: 90000 });
   const off = await page.evaluate(() => ({ spec: movieSpec(), rows: document.getElementById('simBeams').value.split(';').length }));
   check(/ sim-type=0( |$)/.test(off.spec) && off.rows === 1, 'Off: one beam row, sim-type=0');
+
+  // The BFP light maps (spec/ALGORITHM.md "BFP light maps"): RingTIRF's pick sets 1.03 and leaves the polarization;
+  // the box shows its equations (the setup's), the spec carries none; the readout and the BFP panel; an edit makes the
+  // Pattern Maps with the text in the spec; an error shows; a map image; LightSheet forgets the text; the BFP position
+  // below 0.05 leaves a map type on; Off.
+  await set('mv_sim-polarization', '2');
+  await set('mv_sim-type', '7');
+  await page.waitForFunction(() => /time slots/.test(document.getElementById('bfpMapsMsg').textContent) &&
+    /TIRF/.test(document.getElementById('bfpReadout').textContent), null, { timeout: 90000 });
+  const ring = await page.evaluate(() => ({ bfp: +document.getElementById('mv_illum-bfp').value, pol: document.getElementById('mv_sim-polarization').value,
+    spec: movieSpec(), box: document.getElementById('mv_bfp-maps').value, msg: document.getElementById('bfpMapsMsg').textContent,
+    readout: document.getElementById('bfpReadout').textContent }));
+  check(ring.bfp === 1.03 && ring.pol === '2' && / sim-type=7( |$)/.test(ring.spec) && !/bfp-maps=/.test(ring.spec) &&
+    /scanRot = 360\*t/.test(ring.box) && /^64 time slots/.test(ring.msg) && /evanescent \(TIRF\)/.test(ring.readout),
+    `RingTIRF: BFP position 1.03, the polarization kept, its equations in the box, none in the spec ("${ring.msg}"; "${ring.readout}")`);
+  await page.evaluate(() => scopeView.set(true));
+  await page.waitForFunction(() => +document.getElementById('scopeHost').dataset.panels > 0, null, { timeout: 60000 });
+  await page.evaluate(() => scopeView.open('bfp'));
+  const bfpOk = await page.waitForFunction(() => { const b = document.querySelector('#scopeHost > .pnl.big[data-panel=bfp]');
+    return b && !b.classList.contains('busy') && /RingTIRF/.test(b.querySelector('.pnlTitle').textContent) && /64 time slots/.test(b.textContent); },
+    null, { timeout: 90000 }).then(() => true, () => false);
+  const ringPx = bfpOk ? await lit() : [];
+  check(bfpOk && ringPx.length >= 1 && ringPx[0] > 100, `the BFP panel: RingTIRF's maps, 64 time slots (${ringPx.join(', ')} lit px)`);
+  await page.evaluate(() => { scopeView.close(); scopeView.set(false); });
+  const edit = async text => { await page.evaluate(t => { const el = document.getElementById('mv_bfp-maps'); el.value = t; el.dispatchEvent(new Event('change', { bubbles: true })); }, text); };
+  await edit('I = r < umax*0.9\ncoherent = 0\nscanX = 0.2*sin(2*pi*t); scanY = 0.2*cos(2*pi*t)');
+  await page.waitForFunction(() => /propagating/.test(document.getElementById('bfpReadout').textContent), null, { timeout: 90000 });
+  const clsm = await page.evaluate(() => ({ sim: document.getElementById('mv_sim-type').value, bfp: +document.getElementById('mv_illum-bfp').value, spec: movieSpec() }));
+  check(clsm.sim === '8' && clsm.bfp === 1.03 && / bfp-maps="I = r < umax\*0\.9\\ncoherent = 0\\nscanX/.test(clsm.spec),
+    `an edit (CLSM-like): the Pattern Maps, the BFP position kept, the text quoted in the spec`);
+  await edit('I = foo(ux)');
+  await page.waitForFunction(() => /^Not made: .*foo/.test(document.getElementById('bfpMapsMsg').textContent), null, { timeout: 90000 })
+    .then(() => check(true, 'an unknown function: "Not made", the box marked'), () => check(false, 'an unknown function: no error shown'));
+  // a map image: a 32 x 32 16-bit TIFF of a ring, then I = img("ring.tif")
+  await page.evaluate(() => {
+    const n = 32, px = new Uint16Array(n * n);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) px[y * n + x] = Math.abs(Math.hypot(x - 15.5, y - 15.5) / 16 - 0.6) < 0.08 ? 60000 : 0;
+    const off = 8 + px.byteLength, tags = [[256, 3, n], [257, 3, n], [258, 3, 16], [259, 3, 1], [262, 3, 1], [273, 4, 8], [277, 3, 1], [278, 3, n], [279, 4, px.byteLength]];
+    const buf = new ArrayBuffer(off + 2 + tags.length * 12 + 4), dv = new DataView(buf);
+    dv.setUint16(0, 0x4949); dv.setUint16(2, 42, true); dv.setUint32(4, off, true);
+    new Uint8Array(buf, 8, px.byteLength).set(new Uint8Array(px.buffer));
+    dv.setUint16(off, tags.length, true);
+    tags.forEach(([t, ty, v], i) => { const o = off + 2 + i * 12; dv.setUint16(o, t, true); dv.setUint16(o + 2, ty, true); dv.setUint32(o + 4, 1, true);
+      if (ty === 3) dv.setUint16(o + 8, v, true); else dv.setUint32(o + 8, v, true); });
+    iscSendBfpFile('ring.tif', new Uint8Array(buf));
+  });
+  await edit('I = img("ring.tif")\ncoherent = 0');
+  await page.waitForFunction(() => /s to make/.test(document.getElementById('bfpMapsMsg').textContent), null, { timeout: 90000 })
+    .then(() => check(true, 'a map image (img("ring.tif")): made'), async () => check(false, 'a map image: ' + await page.evaluate(() => document.getElementById('bfpMapsMsg').textContent)));
+  await set('mv_sim-type', '6');
+  await page.waitForFunction(() => /Inclined light sheet/.test(document.getElementById('mv_bfp-maps').value), null, { timeout: 90000 })
+    .then(() => true, () => false);
+  const sheet = await page.evaluate(() => ({ bfp: +document.getElementById('mv_illum-bfp').value, spec: movieSpec(), user: ISC_MAPS.user }));
+  check(sheet.bfp === 0.9 && sheet.user === null && !/bfp-maps=/.test(sheet.spec) && / sim-type=6( |$)/.test(sheet.spec),
+    'LightSheet: BFP position 0.9, the typed text forgotten, its own equations shown');
+  await set('mv_illum-bfp', '0.02');
+  const parked = await page.evaluate(() => document.getElementById('mv_sim-type').value);
+  check(parked === '6', `the BFP position at 0.02 leaves LightSheet on (${parked})`);
+  await set('mv_sim-type', '0');
 
   // The beams at the BFP's centre (below 0.05) with a pattern on: the pattern Off (epi); back above, the pattern again,
   // at the position set (not the type's radius)

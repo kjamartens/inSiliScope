@@ -804,7 +804,8 @@
         const r = document.createElement('label');
         r.className = 'pc';
         r.title = c.note || '';
-        r.innerHTML = '<span class="pcL"></span><input type="range" autocomplete="off"><span class="pcV"></span>';
+        // (the slider in .pcR: a fixed mark .pcM may lie under it, a control's mark: the illumination's focus)
+        r.innerHTML = '<span class="pcL"></span><span class="pcR"><span class="pcM" hidden></span><input type="range" autocomplete="off"></span><span class="pcV"></span>';
         r.querySelector('.pcL').textContent = c.label;
         const inp = r.querySelector('input'), val = r.querySelector('.pcV');
         inp.dataset.name = c.name;
@@ -831,7 +832,11 @@
       if (!inp) continue;
       inp.min = c.min; inp.max = c.max; inp.step = c.step;
       if (document.activeElement !== inp) inp.value = c.value;
-      inp.nextElementSibling.textContent = (+inp.value).toFixed(decimals(c.step)) + (c.unit ? ' ' + c.unit : '');
+      const row = inp.closest('.pc'), mk = row.querySelector('.pcM');
+      row.querySelector('.pcV').textContent = (+inp.value).toFixed(decimals(c.step)) + (c.unit ? ' ' + c.unit : '');
+      const f = Number.isFinite(c.mark) && c.max > c.min ? (c.mark - c.min) / (c.max - c.min) : NaN;
+      mk.hidden = !(f >= 0 && f <= 1);
+      if (!mk.hidden) { mk.style.setProperty('--f', f); mk.title = c.markNote || ''; }
     }
     const peaks = {};
     for (const v of h.views) if (v.type === 'image') peaks[v.name] = peakOf(data, v);

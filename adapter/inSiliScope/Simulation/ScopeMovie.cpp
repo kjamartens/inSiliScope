@@ -155,7 +155,7 @@ const char* PartOf(const std::string& n)
       return "sample";
    // how the instrument is driven: the light, the filters in place, the camera's settings, the render quality
    if (starts("laser-") || starts("wf-") || starts("mean-field-") || starts("blink-") || starts("bf-") ||
-       starts("sim-") || (starts("psf-") && !starts("psf-sample-")) ||
+       starts("sim-") || starts("bfp-") || starts("sheet-") || (starts("psf-") && !starts("psf-sample-")) ||
        in({ "light-preset", "ex-filter", "dichroic", "em-filter", "illum-bfp", "modality", "light-epi", "light-trans",
             "size", "height", "em-gain", "z-range-um" }))
       return "settings";
@@ -285,7 +285,7 @@ const OptionTable& Options()
          { "illum-fwhm", 100, "Lasers.IlluminationFwhmPct: the FWHM of the beam (Gaussian, FlatTop), % of the field of view's longer side (its width when square)" },
          { "illum-bfp", 0, "Lasers.BfpPosition: the laser spot in the back focal plane, from its centre (0, epi) to the critical angle (1); between: HILO, above: TIRF up to the pupil edge NA / n_medium (beyond it no light reaches the sample). Unset: that of the light preset (DNA-PAINT: HILO; the nanorulers: TIRF)" },
          { "illum-geometry", 0, "deprecated, ignored (was Lasers.IlluminationGeometry: Epi; illum-bfp replaces it)" },
-         { "sim-type", 0, "Lasers.Pattern: structured illumination, the light as coherent beams in the back focal plane (spec/ALGORITHM.md \"Structured illumination\"): 0 Off (one beam at illum-bfp), 1 SIM2D (two beams at +-illum-bfp, 3 phases x 3 angles), 2 SIM3D (+ the centre beam, 5 phases x 3 angles), 3 LatticeSIM2D (+-x, +-y, 9 phases), 4 LatticeSIM3D (+ the centre, 13 phases stepped 2:3), 5 Custom (the beam matrix alone); names accepted. The pattern's phase and angle step with the frame (the frame program); the kinetics run on the cycle mean (the beams' incoherent sum)" },
+         { "sim-type", 0, "Lasers.Pattern: structured illumination, the light as coherent beams in the back focal plane (spec/ALGORITHM.md \"Structured illumination\"): 0 Off (one beam at illum-bfp), 1 SIM2D (two beams at +-illum-bfp, 3 phases x 3 angles), 2 SIM3D (+ the centre beam, 5 phases x 3 angles), 3 LatticeSIM2D (+-x, +-y, 9 phases), 4 LatticeSIM3D (+ the centre, 13 phases stepped 2:3), 5 Custom (the beam matrix alone); the BFP light maps (spec/ALGORITHM.md \"BFP light maps\", bfp-maps): 6 LightSheet (an inclined light sheet: an elliptical spot at illum-bfp, sheet-thickness-um x sheet-width-um), 7 RingTIRF (the spot at illum-bfp turned once round per exposure), 8 Maps (bfp-maps alone; empty: the one beam as a map); names accepted. The pattern's phase and angle step with the frame (the frame program); the kinetics run on the cycle mean (the beams' incoherent sum)" },
          { "sim-polarization", 0, "Lasers.PatternPolarization: every beam's polarization, 0 S (perpendicular to its plane of incidence: full fringe contrast, the lattice's orthogonal pairs; LatticeSIM3D's centre beam linear diagonal under S and P), 1 P, 2 Circular, 3 LinearX (the pupil field along the lab x axis), 4 Unpolarized (the mean of the S and P patterns); names accepted" },
          { "sim-anchor", 0, "Lasers.PatternAnchor: the plane the beams are in phase at, which the pattern's axial structure is fixed to: 0 Focus (a grating or SLM conjugate to the focal plane: the fringes move with the focus and the sample moves through them, by the stage or the objective alike), 1 Coverslip (the fringes fixed to the sample: an illumination that does not move with the focus); the evanescent decay is from the coverslip either way; names accepted" },
          { "sim-phases", 0, "Lasers.PatternPhases: phase steps per angle (0 = the type's: 3, 5, 9, 13)" },
@@ -298,6 +298,13 @@ const OptionTable& Options()
          { "sim-phase-drift-turns-per-sec", 0, "Lasers.PatternPhaseDriftTurnsPerSec: each beam's phase drifts at its phase step x this (turns/s): the pattern slides along its stepping direction" },
          { "tube-length-mm", 200, "Objective.TubeLengthMm: the tube lens' focal length; the objective's focal length is it over the magnification, the pupil's radius that x NA (a beam's spot size and tilt map to the sample through it)" },
          { "magnification", 100, "Objective.Magnification: the objective's (the pupil geometry; the pixel size stays pixel-nm)" },
+         { "bfp-slots", 0, "Lasers.BfpSlots: the BFP light maps' time slots per cycle (t = (s + 0.5) / slots; 0 = 64 when a map depends on t, else 1)" },
+         { "bfp-cycle-frames", 0, "Lasers.BfpCycleFrames: the maps' cycle in frames: 0 = the whole cycle in every exposure (the slots add up: a scan within the exposure), n = the cycle spans n frames (slot s lit in frame s n / slots: stepped, as SIM)" },
+         { "bfp-z-sample-um", 12, "Renderer.BfpZSampleUm: the maps' light is computed this far from the focal plane (propagating) or the coverslip (evanescent); beyond, its end plane carries on along the light's mean direction" },
+         { "bfp-samples-per-period", 12, "Renderer.BfpSamplesPerPeriod: the BFP light maps' sampling, samples per the light's finest period: laterally over the field of view (the window beyond at most 6), along z per axial beat and evanescent decay, and 512 x this / 6 pupil samples across where lit light meets a hard edge (Quality Fast 6, Realistic 12, Exhaustive 24); a field of view too fine for the memory is sampled coarser (the setup's maps note says so)" },
+         { "bfp-map-px", 512, "the Microscope view's BFP drawing, pixels per side (over 1.1 x the pupil); no Micro-Manager row (MM has no such readout)" },
+         { "sheet-thickness-um", 3, "Lasers.SheetThicknessUm: the LightSheet type's thickness, FWHM across the beam (estimate)" },
+         { "sheet-width-um", 0, "Lasers.SheetWidthUm: the LightSheet type's width along y, FWHM (0 = the beam's, illum-fwhm)" },
          { "frame0", 0, "the movie's first frame's index in the sample's frame sequence (the frame program: a live producer passes its running counter here; a stack starts at 0). Not a user setting" },
          { "chamber-height-um", 100, "Lasers.ChamberHeightUm: depth of the imager solution over the coverslip (estimate: a tape/flow chamber), um; the DNA-PAINT free-imager background is its column integral of the excitation (epi: all of it; HILO: the sheet; TIRF: ~ the penetration depth)" },
          { "ex-filter", idx(ExcitationFilterIds(), DefaultExcitationFilter()), "ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)" },
@@ -588,6 +595,8 @@ const std::vector<std::string>* ScopeOptionNames(const std::string& name)
 
 const char* ScopeOptionPart(const std::string& name)
 {
+   if (IsScopeTextOption(name))
+      return "settings";   // the light in the back focal plane, as sim-*
    if (name.compare(0, 2, "p.") == 0 && name.size() > 2)
       return "sample";
    if (ZernikeKeyIndex(name) >= 0 || BeamKeyIndex(name, nullptr) >= 0)
@@ -615,6 +624,59 @@ bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value)
       return true;
    }
    return false;
+}
+
+const std::vector<ScopeTextOption>& ScopeTextOptions()
+{
+   static const std::vector<ScopeTextOption> v = {
+      { "bfp-maps", "", "Lasers.BfpMaps: the back focal plane's light as maps over the pupil (spec/ALGORITHM.md \"BFP light maps\"): statements I = ...; phase = ...; pol = ...; ellip = ...; tiltX = ...; tiltY = ...; focus = ...; coherent = ...; T = ...; duty = ...; scanX = ...; scanY = ...; scanRot = ... in ux, uy, r, phi, nm, t and the light's numbers, ';' or newlines between them, img(\"file.tif\") a map image. Used under sim-type LightSheet, RingTIRF and Maps; empty = the type's own equations" },
+   };
+   return v;
+}
+
+bool IsScopeTextOption(const std::string& name)
+{
+   for (const ScopeTextOption& o : ScopeTextOptions())
+      if (name == o.name)
+         return true;
+   return false;
+}
+
+bool ScopeSpecSetText(ScopeSpec& spec, const std::string& name, const std::string& value)
+{
+   if (!IsScopeTextOption(name))
+      return false;
+   spec.text[name] = value;
+   return true;
+}
+
+std::string ScopeSpecGetText(const ScopeSpec& spec, const char* name)
+{
+   auto it = spec.text.find(name);
+   if (it != spec.text.end())
+      return it->second;
+   for (const ScopeTextOption& o : ScopeTextOptions())
+      if (!std::strcmp(o.name, name))
+         return o.value;
+   return std::string();
+}
+
+std::string ScopeQuoteText(const std::string& v)
+{
+   std::string o = "\"";
+   for (char c : v)
+   {
+      if (c == '"' || c == '\\')
+      {
+         o += '\\';
+         o += c;
+      }
+      else if (c == '\n')
+         o += "\\n";
+      else if (c != '\r')
+         o += c;
+   }
+   return o + "\"";
 }
 
 double ScopeSpecGet(const ScopeSpec& spec, const char* name)
@@ -778,7 +840,45 @@ bool ParseScopeSpec(const std::string& text, ScopeSpec& spec, std::string& err)
    size_t i = 0;
    while (i < text.size())
    {
-      while (i < text.size() && (text[i] == ' ' || text[i] == ',' || text[i] == ';' || text[i] == '\n')) i++;
+      while (i < text.size() && (text[i] == ' ' || text[i] == ',' || text[i] == ';' || text[i] == '\n' || text[i] == '\r' ||
+                                 text[i] == '\t'))
+         i++;
+      // A text option: name="..." (\" \\ \n escaped), its value up to the closing quote.
+      {
+         size_t q = i;
+         while (q < text.size() && text[q] != '=' && text[q] != ' ' && text[q] != ',' && text[q] != ';' && text[q] != '\n')
+            q++;
+         if (q + 1 < text.size() && text[q] == '=' && text[q + 1] == '"')
+         {
+            const std::string name = text.substr(i, q - i);
+            std::string v;
+            size_t k = q + 2;
+            bool closed = false;
+            for (; k < text.size(); ++k)
+            {
+               const char c = text[k];
+               if (c == '\\' && k + 1 < text.size())
+               {
+                  const char d = text[++k];
+                  v += d == 'n' ? '\n' : d;
+               }
+               else if (c == '"')
+               {
+                  closed = true;
+                  break;
+               }
+               else
+                  v += c;
+            }
+            if (!closed || !ScopeSpecSetText(spec, name, v))
+            {
+               err = !closed ? "an unclosed quote in option '" + name + "'" : "bad option '" + name + "'";
+               return false;
+            }
+            i = k + 1;
+            continue;
+         }
+      }
       size_t j = i;
       while (j < text.size() && text[j] != ' ' && text[j] != ',' && text[j] != ';' && text[j] != '\n') j++;
       if (j == i) break;
@@ -1212,8 +1312,8 @@ BeamSet ScopeBeamSet(const ScopeSpec& spec)
       if (j >= 0)
          rows[j].push_back({ c, kv.second });
    }
-   if (type == SIM_OFF && rows.empty())
-      return BeamSet();   // the legacy single beam (Excitation::Make's old path)
+   if ((type == SIM_OFF && rows.empty()) || SimTypeIsMaps(type))
+      return BeamSet();   // the legacy single beam (Excitation::Make's old path); the BFP light maps carry no beams
    BeamSet set = MakeBeams(type, ScopeBfpPosition(spec), pol, O("sim-centre-amp"));
    if (O("sim-phases") > 0)
       set.phases = static_cast<int>(O("sim-phases"));
@@ -1233,6 +1333,12 @@ BeamSet ScopeBeamSet(const ScopeSpec& spec)
 // beams, their polarization, the angles -- not the phases, the order or the drift.
 std::string ScopeBeamMeanKey(const ExcitationSpec& e)
 {
+   if (e.maps)
+   {
+      char b[64];
+      std::snprintf(b, sizeof b, ";maps%016llx", static_cast<unsigned long long>(e.maps->Hash()));
+      return b;
+   }
    if (e.beams.beams.empty())
       return std::string();
    char b[96];
@@ -1245,6 +1351,14 @@ std::string ScopeBeamMeanKey(const ExcitationSpec& e)
 // a beam set changes; 2026-10-31: an Off movie after a SIM2D movie in one process took the pair's map).
 void AppendBeamKey(std::vector<double>& key, const ExcitationSpec& e)
 {
+   if (e.maps)
+   {
+      // The maps' content hash in two exact halves (a double holds 32 bits exactly).
+      key.push_back(-1.0);
+      key.push_back(static_cast<double>(e.maps->Hash() >> 32));
+      key.push_back(static_cast<double>(e.maps->Hash() & 0xffffffffull));
+      key.push_back(e.pivotUm);
+   }
    key.push_back(static_cast<double>(e.beams.beams.size()));
    if (e.beams.beams.empty())
       return;
@@ -1276,7 +1390,9 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
    e.pivotUm = O("focus-um") + O("z");
    e.beams = ScopeBeamSet(spec);
    e.anchorFocus = O("sim-anchor") == 0;
-   if (!e.beams.beams.empty())
+   const int simType = static_cast<int>(O("sim-type"));
+   const bool maps = SimTypeIsMaps(simType);
+   if (!e.beams.beams.empty() || maps)
    {
       // A beam set: the pupil's geometry, the lines the pattern is made for (the strongest at the sample sets the
       // envelope widths of a spot size), the phase drift's seed and frame time, the first frame.
@@ -1299,6 +1415,35 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
       e.seed = static_cast<uint32_t>(static_cast<long>(O("seed")));
       e.expSec = std::max(1e-6, O("exposure-ms") / 1000.0);
       e.frame = static_cast<long long>(O("frame0"));
+      if (maps)
+      {
+         // The BFP light maps (BfpField.h): the equations (bfp-maps; empty: the type's own), the lit lines.
+         BfpLightParams p;
+         p.text = ScopeSpecGetText(spec, "bfp-maps");
+         if (p.text.find_first_not_of(" \t\r\n;") == std::string::npos)
+            p.text = BfpTypeEquations(simType);
+         for (const LaserLine& l : lines)
+            if (l.kWPerCm2 > 0)
+               p.lines.push_back(l.nm);
+         p.lambdaRefNm = e.lambdaRefNm;
+         p.na = e.na;
+         p.nS = e.nMed;
+         p.nI = e.nImm;
+         p.fObjUm = e.fObjUm;
+         p.bfp = e.bfp;
+         p.envFwhmUm = e.fwhmPct / 100.0 * e.fovSpanUm;
+         p.profile = e.profile;
+         p.fovSpanUm = e.fovSpanUm;
+         p.pivotUm = e.pivotUm;
+         p.anchorFocus = e.anchorFocus;
+         p.sheetTUm = std::max(0.05, O("sheet-thickness-um"));
+         p.sheetWUm = O("sheet-width-um") > 0 ? O("sheet-width-um") : p.envFwhmUm;
+         p.slots = O("bfp-slots") > 0 ? static_cast<int>(O("bfp-slots")) : BfpTypeSlots(simType);
+         p.cycleFrames = std::max(0, static_cast<int>(O("bfp-cycle-frames")));
+         p.zSampleUm = std::max(1.0, O("bfp-z-sample-um"));
+         p.samplesPerPeriod = std::max(2.0, O("bfp-samples-per-period"));
+         e.maps = BfpLight::Make(p, e.mapsError);
+      }
    }
    return e;
 }
@@ -4361,6 +4506,14 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
                dMin = d;
          }
       }
+      // The BFP light maps: their shortest evanescent decay (any evanescent part, also beside propagating light).
+      if (S.excite.Mapped() && S.excite.Maps() && S.excite.Maps()->Evanescent())
+         for (const ExcitationLine& l : g.shares)
+         {
+            const double d = S.excite.Maps()->DecayPerNm() * l.nm;
+            if (d > 0.0 && (dMin == 0.0 || d < dMin))
+               dMin = d;
+         }
       if (dMin > 0.0)
          ws.grid.zPlaneNm = std::max(5.0, std::min(ws.grid.zPlaneNm, 1000.0 * dMin / kTirfPlanesPerDecay));
    }
@@ -5374,9 +5527,17 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
                k.push_back(BeamColumn(bm, c));
          m.exciteKey.insert(m.exciteKey.end() - 1, k.begin(), k.end());
       }
+      if (es.maps)
+      {
+         // The BFP light maps: their content (BfpLight::Hash: the equations, files, geometry and lines; the focus too
+         // when the light depends on it).
+         std::vector<double> k;
+         AppendBeamKey(k, es);
+         m.exciteKey.insert(m.exciteKey.end() - 1, k.begin(), k.end());
+      }
       m.varies = S.excite.Varies();
       m.driftsPhase = es.beams.driftTurnsPerSqrtSec > 0 || es.beams.driftTurnsPerSec != 0;
-      m.period = std::max(1, es.beams.Period());
+      m.period = S.excite.Period();
       // Every state's Excitation made here (ExciteFor memoizes lazily; frames render in parallel batches and the
       // beads' frame scale reads it per frame).
       if (m.varies)
@@ -6222,7 +6383,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       // A structured pattern: the fringes over the layer per pattern state (SlideFringes), each height's through the
       // PSF at its defocus -- the kernel at the geometry's first dye's wavelength (ScopePsfRequest, memoized), the
       // Gaussian PSF's OTF without one.
-      if (S.excite.Patterned())
+      // (The BFP light maps: the slide under their cycle mean, no fringes per frame: a limit.)
+      if (S.excite.Patterned() && !S.excite.Mapped())
       {
          for (size_t g = 0; g < SM->geos.size(); ++g)
          {
@@ -6582,7 +6744,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          }
       // The slide under a pattern: the batch's fringes, the least recently used beyond kSlideFringeStates let go (a
       // phase drift is a state per frame, ~3 MB each at 256 px: a long movie held them all; 2026-10-31).
-      if (m.slide && S.excite.Patterned())
+      if (m.slide && S.excite.Patterned() && !S.excite.Mapped())
       {
          SlideMovie& SM = *m.slide;
          std::vector<long> batchStates;
@@ -7716,6 +7878,9 @@ bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryE
    }
    if (!epi)
       return true;
+   // The BFP light maps: their volumes (computed here, memoized: the render takes the same).
+   if (S.excite.Maps())
+      out.sceneBytes += static_cast<double>(S.excite.Maps()->Bytes());
    // The labelled targets: a PSF stack each, their dyes counted by kind.
    int blinkMask = 0, contMask = 0, kernels = 0;
    for (size_t s = 0; s < S.labels.size(); ++s)

@@ -64,6 +64,46 @@ enum CellFieldNumber
    // param.
    CF_LAMIN_DENSITY,
    CF_LAMIN_NPC_EXCL_NM,
+   // The rest of the cell field's geometry (2026-11-19, every viewer setting in Micro-Manager): core parameters of
+   // the same names (g_CellFieldCoreParam); CF_ALLOW_PACK_ROTATION is a flag (0 / 1).
+   CF_JITTER,
+   CF_CELL_ELONG_MIN,
+   CF_CELL_ELONG_MAX,
+   CF_CELL_BLOB,
+   CF_CELL_ROUGH,
+   CF_CELL_FRACTAL_DIM,
+   CF_NUC_LONG_MIN,
+   CF_NUC_LONG_MAX,
+   CF_NUC_RATIO_MIN,
+   CF_NUC_RATIO_MAX,
+   CF_NUC_HEIGHT_MIN,
+   CF_NUC_HEIGHT_MAX,
+   CF_NUC_OFFSET_FRAC,
+   CF_NUC_MARGIN,
+   CF_CYTO_RIM_HEIGHT_MIN,
+   CF_CYTO_RIM_HEIGHT_MAX,
+   CF_CYTO_EDGE_RISE_MIN,
+   CF_CYTO_EDGE_RISE_MAX,
+   CF_CYTO_MID_HEIGHT_MIN,
+   CF_CYTO_MID_HEIGHT_MAX,
+   CF_CYTO_MID_DISTANCE_MIN,
+   CF_CYTO_MID_DISTANCE_MAX,
+   CF_CYTO_MAX_SLOPE,
+   CF_CYTO_DOME_SLOPE,
+   CF_CYTO_RELAX_UM,
+   CF_CYTO_RINGS,
+   CF_CYTO_THETA,
+   CF_ALLOW_PACK_ROTATION,
+   CF_PACK_FRAC,
+   CF_RELAX_ITERS,
+   CF_RELAX_DAMPING,
+   CF_MT_WOBBLE_TURN,
+   CF_MT_WOBBLE_FACTOR,
+   CF_MT_STEP_LEN,
+   CF_MT_SMOOTH_LEN,
+   CF_MT_MIN_TURN_RADIUS,
+   CF_MT_MIN_SEPARATION,
+   CF_MT_MAX_Z_SLOPE,
    CF_COUNT
 };
 // The core parameter each CellField number sets as is (nullptr: handled by hand in BuildSampleSettings).
@@ -238,6 +278,10 @@ struct SceneState
    void ClearDyeEditsWithPrefix(const std::string& prefix);
    std::map<std::string, double> Options() const;
    std::map<std::string, double> DyeEdits() const;
+   // The engine's text options (sim::ScopeTextOptions: bfp-maps); empty = the option's default.
+   std::string TextOption(const std::string& option) const;
+   void SetTextOption(const std::string& option, const std::string& v);
+   std::map<std::string, std::string> TextOptions() const;
    // Each target's effective mode at its last dye load (index = sim::TargetAt; the labelling suggestion follows it, the
    // camera preset's gain follows the mounted specimen's first target: MountedMode).
    static constexpr int kMaxTargets = 8;
@@ -256,6 +300,7 @@ private:
    mutable std::mutex optionMutex_;
    std::map<std::string, double> options_;
    std::map<std::string, double> dyeEdits_;
+   std::map<std::string, std::string> textOptions_;
 };
 
 } // namespace isc

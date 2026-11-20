@@ -75,6 +75,24 @@ for (const z64 of [false, true]) {
   const f = path.join(dir, z64 ? 'z64.zip' : 'plain.zip');
   fs.writeFileSync(f, buf);
 }
+// A Blob entry (the Record's TIFF, 2026-11-19): a small one read and deflated like bytes; one past blobInline stored
+// as it is, its CRC from its stream (the Blob a part of the zip's), in a plain and a Zip64 archive.
+{
+  const tifLike = new Uint8Array(5000).map((_, i) => (i % 300 < 200 ? 0 : (i * 31) & 255));
+  for (const z64 of [false, true]) {
+    const small = tifLike.subarray(0, 2000);
+    const blob = await Z.zip([{ name: 'small.tif', data: new Blob([small]) },
+      { name: 'movie.tif', data: new Blob([tifLike.subarray(0, 2500), tifLike.subarray(2500)]) },
+      { name: 'after.txt', data: 'after the movie' }], { zip64: z64, blobInline: 3000 });
+    const r = read(new Uint8Array(await blob.arrayBuffer()));
+    const crc = x => zlib.crc32 ? zlib.crc32(x) : Z.crc32(x);
+    const ok = r.entries.length === 3 && r.entries[0].method === 8 && r.entries[1].method === 0 &&
+      [small, tifLike].every((want, i) => r.entries[i].crc === crc(want) && r.entries[i].size === want.length &&
+        r.entries[i].data.length === want.length && r.entries[i].data.every((b, j) => b === want[j])) &&
+      new TextDecoder().decode(r.entries[2].data) === 'after the movie';
+    check(ok, `${z64 ? 'Zip64: ' : ''}a Blob entry: a small one deflated, one past blobInline stored and streamed, the entry after it in place`);
+  }
+}
 // CRC-32 slice by 8 (zip.js and voxelize.html's zip stream) = the one-table loop (and node:zlib's), on buffers of every
 // length 0..80, random 1 MB ones and voxelize's streamed in uneven chunks.
 {

@@ -91,6 +91,15 @@
     <ClCompile Include="Simulation\SimPattern.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\BfpExpr.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\BfpMaps.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
+    <ClCompile Include="Simulation\BfpField.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\Spectra.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -250,6 +259,15 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\SimPattern.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\BfpExpr.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\BfpMaps.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\BfpField.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\MemoryReport.h">

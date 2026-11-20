@@ -204,6 +204,25 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   view a band up to the thickness; `#hud` `data-slide`). Checks: ctest `slide` (`cli/slide_check.cpp`, ~1 s), `world_checks.fiducials` (a slide world),
   `tools/test_specimens.py` (Slide), `tests/web/viewer_nanorulers.mjs` (the slide); figure `slide-bleach`, gallery
   `slide-sample`, `slide-af647`, `slide-tirf`, `slide-bleached`. Timing phases `fl.slide-setup`, `fl.slide`.
+- **Micro-Manager .cfg from the viewer (2026-11-19, branch `bfp-light-maps`):** ☰ `#menuSetup` › Micro-Manager .cfg…
+  (`#lv_setCfg`, `openMmCfg` in settings_file.js) saves `<name>.cfg` = the shipped Expert config (`ISC_MM_CFG.template`)
+  with the seed and a Startup preset setting every property to the viewer's value (`web/live/mm_cfg.js` `write`,
+  page-free); loaded in MM, `Renderer.WriteScopeSpecTo` = `movieSpec()` but for `VIEWER_ONLY` (x/y/z, frames,
+  start-sec, world-seed, psf-kernel-half-width-nm (the user's choice: MM keeps 7000), bfp-map-px, the drawing's `p.*`,
+  prepare). The option -> property table `self.ISC_MM_CFG` (in `web/live/mm_config.js`) is learnt from the adapter by
+  `tools/mm_cfg_map.py` inside `gen_mm_configs.py`: every row nudged on a fresh Expert hub, the most specific row per
+  option, order mode -> label -> combinations -> members, each combination's `sets`, the fresh hub's values, `ALIASES`
+  (the viewer's `p.chunkSize` = `chunk-um`, ...); specials (zern.* -> `ZernikeCoefficients`, beam.* -> `Beams`,
+  bfp-maps as one line with ';' for the commas, the pixel size from the optics, exposure and size, the light ->
+  Core-Shutter). MMDevice keeps 4 decimals of a float property: the dye fields are text numbers (`AsTextNumber`), a
+  value Micro-Manager has already (fresh, a combination's, the engine's default) is not written rounded. New MM rows
+  for it (all Expert, the user's choice): the cell shape (38 `CellField` rows on `g_CellFieldCoreParam`), per-target
+  dye fields `<Target>_Dye<Field>` (key `<prefix>-dye.fields`, cleared by a label pick), the custom dye slots'
+  parametric spectra and pre state; `SceneSettings` writes the BrightField `bf-*` options. **Coverage check:**
+  `tests/web/viewer_mm_cfg.mjs` (~26 s, browser) fails on any viewer option (MOVIE_KEYS, `p.*`, spec keys) with no
+  property, special writer or VIEWER_ONLY line -- a new viewer setting needs an MM row (spec/MM_DEVICES.md 9). Checks:
+  `tests/web/mm_cfg_unit.mjs` (0.01 s, CI `viewer-js`), `ADAPTER_DIR=<dll dir> python tools/test_viewer_cfg.py` (~32 s:
+  four scenarios' .cfg loaded in pymmcore-plus, the spec key by key). Usage event `mm-cfg`.
 - **Save and load settings (2026-10-28, [docs/dev/SAVE_SETTINGS.md](docs/dev/SAVE_SETTINGS.md)):** `<name>.isc.json` in
   mixable parts -- instrument, settings, sample, measurement (with the sample's light history), view (viewer only).
   Every engine option has a part (`PartOf` in `ScopeMovie.cpp`, `ScopeOptionPart`; `Options()` throws on a new option
@@ -329,7 +348,13 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   (`foldSettings`, class `setShut` on `#wrap`; 2026-11-13: folded at every launch, the panel keeps `--live-w` either way, so the
   live strip takes the column's room and the world view keeps its size); a search unfolds it; on a phone both are plain boxes again); the search highlights matching rows (`.opt.hit`, the column's too) and opens every group with a match; render paths/time/drift and the performance in the settings' section Simulation
   (group `perf`, Expert, `lv_perfBox`; with Image formation);
-  **● Record** (2026-10-14): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
+  **● Record** (2026-10-14; large recordings 2026-11-19: a fresh sample's frames stream out of the engine as made, `isc_movie_stream` +
+  `Module.onMovieFrame` -> 'movie-part' messages of ~16 MB (`streamFrames` / `streamEnd` in the worker, the job's `stream`),
+  every recording kept as its parts (`frameStore`; no 1 GB cap, no frame in the 4 GB heap past its part; a part the
+  worker cannot allocate stops the Record with the frames so far), `writeTiff16` takes the parts into the Blob as
+  they are and writes a BigTIFF past 4 GB less 64 MB (classic below, byte for byte), zip.js stores a Blob past 1 GB
+  streamed (CRC from its stream); checks `tests/web/tiff_unit.mjs` (0.5 s: the old writer's bytes, a BigTIFF read back
+  and by tifffile, a 4.4 GB layout through a counting Blob), `zip_unit.mjs` (Blob entries)): a box under the button asks for N; the recording then plays in the live view (`#lv_play`,
   `PLAY`), Save .tif writes it (nothing saved by itself); by default a fresh sample (one `movie` job of N frames from the box's
   `lv_recT` start time, default 0 s (2026-11-03; not `mv_start-sec`, which live keeps), on the live worker = "Make movie here" = `insiliscope_cli --spec`; the live sample untouched; Record again cancels by
   replacing the worker); with "continue the live sample" (Advanced, `lv_recLive`, off by default; the user's choice,
@@ -405,7 +430,25 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   parallel frame paths = serial); `tools/` -- `gen_jsmath.py`,
   `adapter_pixel_hash.py` (+ `adapter_pixel_hash_ref.txt`), `test_insiliscope.py`, `test_cellfield_stage.py`,
   `test_history.py`, `test_specimens.py`, `test_fiducials.py`, `test_mm_configs.py`, `isc_mm.py`,
-  `gen_mm_configs.py`, `gen_property_reference.py`, `psf_parity_check/`.
+  `gen_mm_configs.py`, `gen_property_reference.py`, `psf_parity_check/`, `isc_render.py` (2026-11-19: a tkinter
+  window / command line over `insiliscope_cli --serve`: a `.isc.json` (`--settings`) or a `.cfg` (loaded in pymmcore-plus,
+  Core-Shutter opened, `Renderer.WriteScopeSpecTo` -> `--spec`), positions x y z, exposure, frames, start time -> one
+  TIFF per position; a viewer file and its .cfg export give the same frames within a few ADU: the PSF kernel width;
+  `tools/build_isc_render_exe.py` makes `dist/inSiliScope Render.exe`, PyInstaller one-file windowed, in the venv
+  `build/isc_render_venv` (pyinstaller, pymmcore 12.5.0.75.0, numpy: a hidden import, pymmcore's C module needs it),
+  carrying the cli, the DLL, `mmgr_dal_Utilities.dll` and the VC++ runtime; ~15 s; the exe's frames = the script's bit for bit; a frames bar per position from the cli's `--progress 1`: `@@isc-frame k` as frame k is written, frames unchanged;
+  `--dist <dir>` builds beside a running exe). Large movies (2026-11-19): `cli/tiff_writer.h` writes 64-bit file
+  positions (Windows' `ftell` broke TIFFs past 2 GB: offsets 0xFFFFFFFF) and a BigTIFF when the movie's expected bytes
+  (`TiffWriter::Bytes`) pass 4 GB less 64 MB (`--bigtiff 1` forces it; Fiji with Bio-Formats, napari, tifffile read it,
+  plain ImageJ 1.54f does not), below it the classic file byte for byte; a classic page past 4 GB is refused, every page
+  flushed and checked (`error()` names the file, page, MB written, the system's reason); ctest `tiff_writer`
+  (`cli/tiff_writer_check.cpp`, 1 s; `--big <dir>` writes and reads a 4.7 GB one, 7 s on a compressed NTFS folder). The
+  cli: `--estimate 1` (`@@isc-estimate width= height= frames= file= bigtiff= memory= budget= ram= disk-free=`, then in
+  words), refuses a movie the disk cannot hold before rendering, makes `--gt-out`'s folder, says out of memory
+  (`RunCliGuarded`: `std::bad_alloc` -> exit 3, other exceptions exit 4). isc_render: the estimate before the first
+  position (disk: stop; memory over the budget: a question, `--yes`), `--gt` / Save ground truth (`<tif stem>_gt/`),
+  a cli that ends early reported with its exit code in words (`CRASHES`: 0xC0000409, 0xE06D7363, ...) and its last 12
+  lines, an unfinished movie renamed `_incomplete_<n>of<N>.tif` or removed with no frame, warnings / errors coloured.
 
 ## Rules for core (why each exists is in docs/dev/m0-feasibility.md)
 
@@ -681,6 +724,34 @@ the user's choice): `BeamFrameSign` negates the s and p frame of the left half-p
 carry the same lab field (a grating's orders; before, opposite fields put SIM3D's first-order fringe at zero in focus;
 ctest `sim_pattern`). Figures `sim-patterns`, `sim-cycle`, `sim-spot`; gallery `sim-2d`,
 `sim-3d`, `sim-lattice-3d`. Not yet: the GPU mean field under a pattern, the exact per-frame dose.
+
+**BFP light maps (2026-11-19, branch `bfp-light-maps`, spec/ALGORITHM.md "BFP light maps", spec/PORT.md 31,
+docs/physics/dyes-and-light-path.md "BFP light maps"):** the light in the BFP as maps over the pupil (u units, umax =
+NA / n_s): `I`, `phase` (turns), `pol` / `polLab` / `ellip`, `tiltX` / `tiltY` (deg), `focus` (deg, towards the lit
+region's centroid), `coherent` (0 / 1), `T` / `duty`, `scanX` / `scanY` / `scanRot`; equations (`Simulation/BfpExpr.*`,
+`;` or `,` between arguments: MMCore refuses commas) and images (`img("name")`, `BfpMaps.*`: a TIFF store by name, else a
+path; the viewer decodes PNG to an 8-bit TIFF, `bfpFileBytes`, and sends it to every engine, `isc_bfp_map_file`).
+`sim-type` 6 LightSheet (`sheet-thickness-um` 3 *estimate*, `sheet-width-um`; a pick sets `illum-bfp` 0.9), 7 RingTIRF
+(64 slots, a pick 1.03), 8 Maps; options `bfp-maps` (a **text option**: `ScopeSpec::text`, `key="..."` in a spec; the
+served cli reads lines, so `BfpOneLine`), `bfp-slots`, `bfp-cycle-frames`, `bfp-z-sample-um` 12, `bfp-map-px` (the BFP panel's drawing, 512 px a side), `bfp-samples-per-period` (2026-11-20: N, the
+one accuracy, `Renderer.BfpSamplesPerPeriod`, Quality Fast 6 / Realistic 12 / Exhaustive 24: N samples per the finest
+fringe on a tile over the FOV + 2 um (`BfpVolume::t`, `InTile`; the window keeps 6, 512 a side), N per axial beat /
+evanescent decay, 512 N / 6 pupil samples where lit light meets a hard edge (`Analysis::edge`: the rim, a step in a
+resolved region); tile within 1 GB native / 256 MB WASM, else coarser and `SamplingNote` says so). Coherent
+light is a numerical pupil field by chirp-Z per z plane (`BfpField.*` `BfpLight`, memoized: 512 MB WASM / 2 GB native;
+the pupil grid's period from the reach of 99.9 % of the propagating power, `kReachPower`; slots that rotate / shift one
+field are one field, the shift as one sparse bicubic kernel), incoherent points plane waves over the field stop's
+footprint; the power through the pupil = the legacy beam's. `Excitation` maps mode (`Mapped()`, `Slimmed()` for closed
+chapters), the light history's components = depth tents per plane (lattice <= `kLightMapNodes` 512 across the reach),
+the imager map on `kMapCollectNodes` 32. Not bit for bit with the legacy beam on purpose (a round spot lands round). MM
+`Lasers.BfpMaps` (Expert, one line; refuses a bad text or a missing image), `BfpSlots`, `BfpCycleFrames`,
+`SheetThicknessUm`, `SheetWidthUm`, `Renderer.BfpZSampleUm`. Viewer: `mv_bfp-maps` textarea (Expert), the Examples list
+(`web/live/bfp_examples.js`, PNGs `web/bfp_maps/` by `tools/gen_bfp_map_images.py [--check]`), Map images…, settings
+files carry the images (`part.files`, `filesOf` / `filesIn`); the Microscope view's Illumination profile follows the
+focus (`followFocus`; the focus dashed, a slider mark `Control::mark`). Checks: ctest `bfp_maps` (~2 s), `cli_settings`,
+`tools/test_sim.py`, `tests/web/viewer_sim.mjs`, `settings_unit.mjs`; figures `bfp-maps`, `bfp-map-images`; gallery
+`light-sheet`, `ring-tirf`. Slow: a focused coherent beam over much of the pupil (radial ring 12 s native, 72 s in the
+single-thread viewer module; a full pupil ~2 min native). Not yet: GPU, the slide's per-frame fringes under maps.
 
 **Exact light history (2026-10-15/16, core ABI 14, spec/ALGORITHM.md "Exact light history", spec/PORT.md 23; branch
 `claude/exact-dose`):** every dye of every consumer reads its kinetics at the dose at its own (x, y, z), smooth in all

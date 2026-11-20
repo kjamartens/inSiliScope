@@ -2,6 +2,8 @@
 // Settings files (settings_file.h): a small JSON reader for their shape and the light history's replay.
 #include "settings_file.h"
 
+#include "BfpMaps.h"
+
 #include "insiliscope/version.h"
 
 #include <algorithm>
@@ -161,6 +163,33 @@ struct Parser
 };
 
 // A value of a file (a number, a name, true/false) as the option's number; false for one the engine cannot take.
+// Base64 (RFC 4648, padding optional, white space skipped); false on any other character.
+bool Base64Decode(const std::string& s, std::vector<uint8_t>& out)
+{
+   out.clear();
+   uint32_t acc = 0;
+   int bits = 0;
+   for (char c : s)
+   {
+      int v;
+      if (c >= 'A' && c <= 'Z') v = c - 'A';
+      else if (c >= 'a' && c <= 'z') v = c - 'a' + 26;
+      else if (c >= '0' && c <= '9') v = c - '0' + 52;
+      else if (c == '+') v = 62;
+      else if (c == '/') v = 63;
+      else if (c == '=' || c == ' ' || c == '\n' || c == '\r' || c == '\t') continue;
+      else return false;
+      acc = (acc << 6) | static_cast<uint32_t>(v);
+      bits += 6;
+      if (bits >= 8)
+      {
+         bits -= 8;
+         out.push_back(static_cast<uint8_t>((acc >> bits) & 0xFF));
+      }
+   }
+   return true;
+}
+
 bool OptionNumber(const std::string& key, const Json& v, double& out)
 {
    if (v.type == Json::Number) { out = v.num; return true; }
@@ -255,11 +284,31 @@ bool ReadText(const std::string& text, const std::vector<std::string>& partsIn, 
             double v = 0;
             if (kv.second.type == Json::Null)
                continue;
+            if (sim::IsScopeTextOption(kv.first))
+            {
+               // A text option (bfp-maps): its string as given.
+               if (kv.second.type != Json::String)
+                  out.warnings.push_back(name + "." + kv.first + ": not text (left out)");
+               else
+                  sim::ScopeSpecSetText(out.spec, kv.first, kv.second.str);
+               continue;
+            }
             if (!OptionNumber(kv.first, kv.second, v) || !sim::ScopeSpecSet(out.spec, kv.first, v))
                out.warnings.push_back(name + "." + kv.first + ": not an option of this engine (left out)");
             else if (sim::ScopeOptionPart(kv.first) && name != sim::ScopeOptionPart(kv.first))
                out.warnings.push_back(name + "." + kv.first + ": belongs to the " + sim::ScopeOptionPart(kv.first) + " part here");
          }
+      // The BFP maps' images a part carries (img("name"): the viewer's uploads), base64 by name: into the store.
+      if (const Json* files = part->Get("files"))
+         if (files->type == Json::Object)
+            for (const auto& kv : files->obj)
+            {
+               std::vector<uint8_t> bytes;
+               if (kv.second.type != Json::String || !Base64Decode(kv.second.str, bytes) || bytes.empty())
+                  out.warnings.push_back(name + ".files." + kv.first + ": not base64 (left out)");
+               else
+                  sim::BfpRegisterImage(kv.first, bytes.data(), bytes.size());
+            }
       if (name != "measurement")
          continue;
       out.haveMeasurement = true;
@@ -289,6 +338,14 @@ bool ReadText(const std::string& text, const std::vector<std::string>& partsIn, 
             for (const auto& kv : set->obj)
             {
                double v = 0;
+               if (sim::IsScopeTextOption(kv.first))
+               {
+                  if (kv.second.type == Json::Null)
+                     cur.text.erase(kv.first);
+                  else if (kv.second.type == Json::String)
+                     cur.text[kv.first] = kv.second.str;
+                  continue;
+               }
                if (kv.second.type == Json::Null) { cur.erase(kv.first); continue; }
                if (!OptionNumber(kv.first, kv.second, v) || !sim::ScopeSpecSet(cur, kv.first, v))
                {
@@ -329,6 +386,12 @@ sim::ScopeSpec RunSpec(const Loaded& s, size_t i)
       const char* part = sim::ScopeOptionPart(kv.first);
       if (part && !std::strcmp(part, "sample"))
          spec[kv.first] = kv.second;
+   }
+   for (const auto& kv : s.spec.text)
+   {
+      const char* part = sim::ScopeOptionPart(kv.first);
+      if (part && !std::strcmp(part, "sample"))
+         spec.text[kv.first] = kv.second;
    }
    // A recorded run: its mean-field bleach basis its own, as the viewer's Record made it (fresh-basis).
    if (s.recordFrom >= 0 && static_cast<long>(i) >= s.recordFrom)

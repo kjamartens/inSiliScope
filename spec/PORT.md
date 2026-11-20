@@ -1490,3 +1490,46 @@ mean-field; DNA-PAINT moves 60-150 ms. Every frame stays the same, bit for bit:
 - Tried and dropped: the live mean-field anchor (`AnchorMeanField`) with a wider reach (no gain; frames 0.3-0.5 % rms
   off), fewer dyes (1e-3 of the labelling: moves ~40 ms but no signal). Left: the next frame's bleach basis (~100 ms in
   the viewer), a new row of dye tiles (~220 ms), the per-dye switch's splat sums (~520 ms once).
+
+## 31. BFP light maps (2026-11-19)
+
+Arbitrary light in the back focal plane (spec/ALGORITHM.md "BFP light maps"; branch `bfp-light-maps`). No core change:
+goldens, `ISC_WORLD_VERSION` and the ABI unchanged; default outputs unchanged (`bfp-maps` is read only under `sim-type`
+6-8; `adapter_pixel_hash` the same).
+
+- **Text options in the spec:** `ScopeSpec` (ScopeMovie.h) carries a `text` map beside the numbers; `ParseScopeSpec`
+  reads `key="..."` (`\"`, `\\`, `\n` escapes); `ScopeSpecText`, `Renderer.WriteScopeSpecTo`, `isc_scope_options`
+  (kind `text`) and settings files (`cli/settings_file.*`, `web/live/settings_core.js` `quoteText` / `specPair`) write
+  them; a settings part's `files` holds the map images its text names (base64; `filesOf` / `filesIn`). The served cli
+  reads tab-separated lines: an equation goes on one line, `;` between statements (`BfpOneLine`).
+- **Engine:** `BfpExpr.*` (the equations), `BfpMaps.*` (map rasters, the image store `BfpRegisterImage` /
+  `BfpFindImage`, a TIFF reader), `BfpField.*` (`BfpLight::Make`: the analysis, the pupil grid, the fields by chirp-Z,
+  the slots' rotation and shift shortcuts, the volumes, the memo), `Excitation` maps mode (`Mapped()`, `MapAt`, the
+  depth tents per plane as components, `Slimmed()`), `LightHistory` (`depthFor` for any component with a depth table;
+  `kLightMapNodes`; closed chapters slimmed). Options `bfp-maps`, `bfp-slots`, `bfp-cycle-frames`, `bfp-z-sample-um`,
+  `bfp-samples-per-period` (2026-11-20: N, the one accuracy; Quality 6 / 12 / 24; the tile over the field of view
+  `BfpVolume::t`, the pupil's edge rule, `SamplingNote`), `bfp-map-px`, `sheet-thickness-um`, `sheet-width-um`; timing
+  phase `fl.bfp-maps` (pupil (", edges"), window, planes, fields, tile, slots, states, time, MB); the memory estimate
+  adds the volumes.
+- **MM:** `Lasers.Pattern` LightSheet / RingTIRF / Maps (a pick sets `BfpPosition` 0.9 / 1.03 and clears the typed
+  maps), `Lasers.BfpMaps` (Expert, one line; refused when it does not compile or names an image not in the store),
+  `BfpSlots`, `BfpCycleFrames` (Expert), `SheetThicknessUm`, `SheetWidthUm` (Advanced), `Renderer.BfpZSampleUm`,
+  `Renderer.BfpSamplesPerPeriod` (Expert; set by `Renderer.Quality`). MM reads images by path (`img("C:/maps/ring.tif")`).
+- **Viewer:** the Pattern's three types; `mv_bfp-maps` (Expert textarea, applied on leaving it or Ctrl+Enter; shows the
+  type's equations from the setup job), an Examples list (`web/live/bfp_examples.js`: 9 equation and 6 image examples,
+  the PNGs in `web/bfp_maps/` made by `tools/gen_bfp_map_images.py`), Map images… (PNG decoded to an 8-bit TIFF,
+  `bfpFileBytes`; sent to every engine worker, `isc_bfp_map_file`), the BFP readout's map wording; the Microscope
+  view's BFP panel shows the maps' intensity, the Illumination panel follows the focus (its height moves with Z; the
+  focus dashed in the x-z, a fixed mark on the z slider, `Control::mark`).
+- **Setup JSON / probes:** `excitation.maps` (equations, error, slots, period, evanescent share, compute time, bytes);
+  probes `bfp_map`, `bfp_map_n`, `bfp_map_span`, `bfp_map_u_max`. Figures `bfp-maps`, `bfp-map-images`.
+- **Checks:** ctest `bfp_maps` (parser and errors, TIFF = equation, the field vs the analytic beams within 1 % rms,
+  unpolarized, tilt shift, focus waist, power, the shortcuts vs the direct sums, the tents, a slim copy; ~2 s),
+  `cli_settings` (a part's files), `tools/test_sim.py` (Maps), `tests/web/viewer_sim.mjs` (the maps section),
+  `settings_unit.mjs` (text options, files).
+- **Speed** (128 px, the first frame with the light made; later frames 0.01-0.3 s): natively LightSheet 0.02 s,
+  RingTIRF 0.07 s, a focused radial ring 12 s, the image line focus 6 s. The viewer's single-thread module under Node
+  (every example in turn on one live sample): epi 9.9 s (with the world), HILO 0.7, sheet 1.5, ring 1.8, the hexagonal
+  lattice image 40, SIM2D 17, the Bessel beam 22-32, the radial / azimuthal rings 72 / 56 (163 / 148 before the reach
+  of 99.9 % of the power), the line focus image 59 (95), the underfilled scan 27; the heap up to 2.3 GB (it never
+  shrinks). A full-pupil coherent spot: ~2 min natively.

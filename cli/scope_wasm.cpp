@@ -1,6 +1,7 @@
 // WASM exports of the scope movie (sim::RenderScopeMovie) for the viewer:
 // the same render code as the inSiliScope camera and insiliscope_cli, in
 // the viewer's module next to the core's C ABI.
+#include "BfpMaps.h"
 #include "GroundTruth.h"
 #include "LiveScope.h"
 #include "MemoryReport.h"
@@ -21,6 +22,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <new>
 #include <string>
 
 namespace isc { void SetWorldThreads(int n); }   // (core/src/parallel.h: the core's thread count)
@@ -41,9 +43,19 @@ EM_JS(int, isc_js_gt_file, (const char* name, const char* data, double size), {
    Module.onGtFile(UTF8ToString(name >>> 0), HEAPU8.slice(p, p + size));
    return 1;
 });
+// A movie's frames to the page as they are made (isc_movie_stream on): Module.onMovieFrame(f, pixels) copies frame f
+// out of the heap (a view: copied before the next frame); false stops the movie. A Record's frames no longer wait in
+// the heap for the movie's end (2026-11-19: a Record was capped at 1 GB, and every frame in a 4 GB heap beside the
+// engine's caches).
+EM_JS(int, isc_js_movie_frame, (const uint16_t* px, double n, double f), {
+   if (!Module.onMovieFrame) return 1;
+   const p = (px >>> 0) / 2;
+   return Module.onMovieFrame(f, HEAPU16.subarray(p, p + n)) ? 1 : 0;
+});
 #else
 static void isc_js_movie_progress(const char*, double, const char*) {}
 static int isc_js_gt_file(const char*, const char*, double) { return 0; }
+static int isc_js_movie_frame(const uint16_t*, double, double) { return 1; }
 #endif
 
 namespace {
@@ -125,6 +137,12 @@ extern "C" {
 // environment; lines go to stderr (the console in a browser, Node's stderr).
 ISC_API void isc_timing(int32_t on) { sim::TimingForced() = on != 0; }
 
+// isc_scope_movie and isc_wf_movie hand each frame to Module.onMovieFrame (isc_js_movie_frame) instead of writing out:
+// called with out = 0 they render at once, at any length, and return 0 (-1 on a failure). The page sets it around one
+// call.
+static bool g_streamFrames = false;
+ISC_API void isc_movie_stream(int32_t on) { g_streamFrames = on != 0; }
+
 // Named options, one per line: name \t default (%.17g) \t help \t part (ScopeOptionPart: instrument, settings, sample,
 // measurement, host) \t the names its value may be given by, separated by '|' (empty: a number). Returns the length
 // (without the terminating 0); writes at most cap bytes.
@@ -141,12 +159,23 @@ ISC_API int32_t isc_scope_options(char* out, int32_t cap)
             names += (i ? "|" : "") + (*list)[i];
       s += std::string(o.name) + "\t" + v + "\t" + o.help + "\t" + sim::ScopeOptionPart(o.name) + "\t" + names + "\n";
    }
+   // The text options (bfp-maps): a sixth field "text"; their default is a string.
+   for (const sim::ScopeTextOption& o : sim::ScopeTextOptions())
+      s += std::string(o.name) + "\t" + o.value + "\t" + o.help + "\t" + sim::ScopeOptionPart(o.name) + "\t\ttext\n";
    if (out && cap > 0) {
       const size_t n = std::min(s.size(), static_cast<size_t>(cap - 1));
       std::memcpy(out, s.data(), n);
       out[n] = 0;
    }
    return static_cast<int32_t>(s.size());
+}
+
+// A BFP map image file for img("name") in bfp-maps (BfpMaps.h): its bytes (a TIFF) under its name; n = 0 removes it.
+// Returns 0.
+ISC_API int32_t isc_bfp_map_file(const char* name, const uint8_t* data, int32_t n)
+{
+   sim::BfpRegisterImage(name ? name : "", data, n > 0 ? static_cast<size_t>(n) : 0);
+   return 0;
 }
 
 // Renders the movie of `spec` ("k=v k=v ...", see ScopeMovie.h) into out
@@ -174,12 +203,14 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
       long n;
       sim::ScopeMovieDims(s, w, h, n);
       const double need = static_cast<double>(w) * h * n;
-      if (need > 2.0e9) return fail("movie too large");
+      const bool stream = g_streamFrames;
+      if (need > 2.0e9 && !stream) return fail("movie too large");
       if (info) { info[0] = (int32_t)w; info[1] = (int32_t)h; info[2] = (int32_t)n; info[3] = info[4] = info[5] = 0; }
-      if (!out || capPixels < need) return static_cast<int32_t>(need);
+      if (!stream && (!out || capPixels < need)) return static_cast<int32_t>(need);
       sim::ScopeMovieInfo mi;
       Progress prog;
       const bool ok = sim::RenderScopeMovie(s, [&](long f, const std::vector<uint16_t>& adu) {
+         if (stream) return isc_js_movie_frame(adu.data(), static_cast<double>(adu.size()), static_cast<double>(f)) != 0;
          std::memcpy(out + static_cast<size_t>(f) * w * h, adu.data(), adu.size() * 2);
          return true;
       }, mi, err, &prog.fn);
@@ -189,7 +220,9 @@ ISC_API int32_t isc_scope_movie(const char* spec, uint16_t* out, int32_t capPixe
          info[4] = static_cast<int32_t>(mi.dyes);
          info[5] = std::isfinite(mi.halfTimeSec) ? static_cast<int32_t>(std::min(2.0e9, mi.halfTimeSec * 1000.0)) : -1;
       }
-      return static_cast<int32_t>(need);
+      return stream ? 0 : static_cast<int32_t>(need);
+   } catch (const std::bad_alloc&) {
+      return fail("out of memory");
    } catch (...) {
       return fail("exception");
    }
@@ -429,12 +462,14 @@ ISC_API int32_t isc_wf_movie(int32_t h, uint16_t* out, int32_t capPixels, int32_
       long n;
       sim::ScopeMovieDims(w->spec, W, H, n);
       const double need = static_cast<double>(W) * H * n;
+      const bool stream = g_streamFrames;
       if (info) { info[0] = (int32_t)W; info[1] = (int32_t)H; info[2] = (int32_t)n; info[3] = info[4] = info[5] = 0; }
-      if (!out || capPixels < need) return static_cast<int32_t>(need);
+      if (!stream && (!out || capPixels < need)) return static_cast<int32_t>(need);
       sim::ScopeMovieInfo mi;
       std::string err;
       Progress prog;
       const bool ok = w->movie.Render([&](long f, const std::vector<uint16_t>& adu) {
+         if (stream) return isc_js_movie_frame(adu.data(), static_cast<double>(adu.size()), static_cast<double>(f)) != 0;
          std::memcpy(out + static_cast<size_t>(f) * W * H, adu.data(), adu.size() * 2);
          return true;
       }, mi, err, &prog.fn);
@@ -444,7 +479,9 @@ ISC_API int32_t isc_wf_movie(int32_t h, uint16_t* out, int32_t capPixels, int32_
          info[4] = static_cast<int32_t>(mi.dyes);
          info[5] = std::isfinite(mi.halfTimeSec) ? static_cast<int32_t>(std::min(2.0e9, mi.halfTimeSec * 1000.0)) : -1;
       }
-      return static_cast<int32_t>(need);
+      return stream ? 0 : static_cast<int32_t>(need);
+   } catch (const std::bad_alloc&) {
+      return Fail(errOut, errCap, "out of memory");
    } catch (...) {
       return Fail(errOut, errCap, "exception");
    }
