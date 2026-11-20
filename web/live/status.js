@@ -92,7 +92,7 @@ function refreshSetup() {
   try { spec = setupSpec(); } catch (e) { return; }
   if (spec === specKey || spec === asked) return;
   asked = spec;
-  setupJob(spec).then(s => { if (asked === spec) { S = s; specKey = spec; update(); } }, () => { if (asked === spec) asked = ''; });
+  setupJob(spec, x => x === setupSpec()).then(s => { if (asked === spec) { S = s; specKey = spec; update(); } }, () => { if (asked === spec) asked = ''; });
 }
 // (the viewer's readout: a label's spectra in dye_main / dye_pre, its physics in main / pre, null when it emits
 // nothing; the lines on with their power, the excitation filter's T per nm; the depth per line)
