@@ -8548,6 +8548,27 @@ unsigned ScopeStripMarginPx(const ScopeSpec& spec)
    return static_cast<unsigned>(std::ceil(reach / um)) + 2;
 }
 
+namespace {
+// The strips' memory budget: the host's, else MemoryBudgetBytes (in WebAssembly 2.5 GB of the module's 4 GB heap).
+double StripBudgetBytes(double budgetBytes)
+{
+   double budget = budgetBytes > 0 ? budgetBytes : MemoryBudgetBytes();
+#if defined(__EMSCRIPTEN__)
+   if (!(budget > 0))
+      budget = 2.5 * 1073741824.0;   // (the viewer module's heap is 4 GB; the browser's rest)
+#endif
+   return budget;
+}
+// The share of it a strip's dyes may hold (2026-11-23): the core lets the blocks a query has finished with go past
+// that many dyes (SampleSource::SetDyeHardCap, core ABI 21), so a strip's dyes are walked through, not held whole (a
+// strip of a dense 1600 px field held ~3 GB of dyes, one of a 5000 px field ~8 GB).
+constexpr double kStripDyeShare = 0.2;
+double StripDyeHardCap(double budget)
+{
+   return budget > 0 ? std::max(4e6, kStripDyeShare * budget / kEstBlinkDyeBytes) : 1e15;
+}
+} // namespace
+
 unsigned ScopeStripRows(const ScopeSpec& spec, int framesInFlight, double budgetBytes)
 {
    unsigned W = 0, H = 0;
@@ -8556,14 +8577,12 @@ unsigned ScopeStripRows(const ScopeSpec& spec, int framesInFlight, double budget
    whole["window-rows"] = 1;   // (the strips' sensor cap)
    ScopeSensorDims(whole, W, H);
    whole.erase("window-rows");
-   double budget = budgetBytes > 0 ? budgetBytes : MemoryBudgetBytes();
-#if defined(__EMSCRIPTEN__)
-   if (!(budget > 0))
-      budget = 2.5 * 1073741824.0;   // (the viewer module's heap is 4 GB; the browser's rest)
-#endif
+   const double budget = StripBudgetBytes(budgetBytes);
    const unsigned m = ScopeStripMarginPx(whole), least = std::min(H, std::max(64u, 4 * m));
    if (!(budget > 0))
       return H;
+   // A strip's dyes are held up to the hard cap's (RenderScopeMovieStrips), the rest walked through.
+   const double dyeCapBytes = StripDyeHardCap(budget) * kEstBlinkDyeBytes;
    for (unsigned rows = H;; rows = (rows + 1) / 2)
    {
       if (rows <= least)
@@ -8573,7 +8592,8 @@ unsigned ScopeStripRows(const ScopeSpec& spec, int framesInFlight, double budget
       w["window-rows"] = std::min(H, rows + 2 * m);
       ScopeMemoryEstimate est;
       std::string err;
-      if (!(budget > 0) || (EstimateScopeMemory(w, framesInFlight, est, err, true) && est.Total() <= budget))
+      if (EstimateScopeMemory(w, framesInFlight, est, err, true) &&
+          est.Total() - est.dyeBytes + std::min(est.dyeBytes, dyeCapBytes) <= budget)
          return rows;
    }
 }
@@ -8606,6 +8626,18 @@ bool RenderScopeMovieStrips(const ScopeSpec& spec, unsigned stripRows, const Sco
    whole.erase("window-rows");
    const unsigned rows = stripRows > 0 ? std::min(stripRows, H) : ScopeStripRows(whole, 32);
    const unsigned m = ScopeStripMarginPx(whole);
+   // The strips' dyes walked through past the hard cap (StripDyeHardCap), the cap lifted after.
+   struct HardCap
+   {
+      explicit HardCap(double dyes) { Set(dyes); }
+      ~HardCap() { Set(1e15); }
+      static void Set(double dyes)
+      {
+         MovieCache& cache = SharedMovieCache();
+         std::lock_guard<std::mutex> lock(cache.mutex);
+         cache.source.SetDyeHardCap(dyes);
+      }
+   } hardCap(StripDyeHardCap(StripBudgetBytes(0)));
    const unsigned strips = (H + rows - 1) / rows;
    GroundTruth* const gt = ActiveGroundTruth();
    const long gtBase = gt ? gt->frameBase : 0;

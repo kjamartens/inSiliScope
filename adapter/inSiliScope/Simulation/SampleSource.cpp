@@ -114,6 +114,7 @@ bool SampleSource::Configure(const SampleSettings& s, std::string& err)
          return false;
       }
       isc_world_set_dye_cache(w, kDyeCacheDyes);
+      isc_world_set_dye_cache_hard(w, dyeHardCap_);
       isc_world_free(world_);
       world_ = w;
       settings_ = s;
@@ -220,6 +221,13 @@ bool SampleSource::ContinuousRows(double x0, double y0, double x1, double y1, do
       cap = n + n / 4;
       rows.resize(static_cast<size_t>(cap) * ISC_EVENT_STRIDE);
    }
+}
+
+void SampleSource::SetDyeHardCap(double dyes)
+{
+   dyeHardCap_ = dyes;
+   if (world_)
+      isc_world_set_dye_cache_hard(world_, dyes);
 }
 
 void SampleSource::TrimDyeCache(double xUm, double yUm)

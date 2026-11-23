@@ -15,6 +15,9 @@ Large recordings:
 - **Long Records in strips no longer run out of memory:** a strip's height now counts the movie's blinks (they grow with
   its length), the cached dyes of one strip are let go before the next, and a movie keeps one copy of its blinks instead
   of up to four (a 1600 px, 1000-frame DNA-PAINT Record stopped with "out of memory" about a quarter of the way through).
+  A strip no longer holds all its fluorophores at once either: they are made as the strip is walked and let go after
+  (a 1600 px Record over dense cells, or a 5000 px one, ran out of memory in its first strip). Core ABI 21
+  (`isc_world_set_dye_cache_hard`); the webSMLM block's ABI is 21 (sync it into webSMLM).
 - **Movies in strips:** a movie whose field does not fit in memory, or has a side past 4096 px (up to 16384), renders
   in strips of rows (all frames of one strip, then the next). The frames are those of the field rendered whole (blinks,
   beads and the camera noise to the last bit; WideField and BrightField within rounding). cli `--strip-rows n`

@@ -1554,7 +1554,11 @@ branch).
 - **B. Strips:** spec/ALGORITHM.md "Movies in strips" (2026-11-20 follow-up: the strip height counts the movie's blinks,
   `EstimateScopeMemory(..., movieEvents)`; the dye cache emptied between strips, `SampleSource::TrimDyeCache`; one copy
   of a movie's blinks, the core's `EventRowsOut` and `SampleSource::ReleaseBuffersOver` let large query buffers go;
-  every output unchanged). Engine `ScopeSensorDims`, `ScopeWindowRows`, `window-y0` /
+  every output unchanged). 2026-11-23: **core ABI 21** `isc_world_set_dye_cache_hard(w, maxDyes)` (default 1e15 = none):
+  past it a query lets the blocks it has finished with go, down to the usual cap; strips set it (`StripDyeHardCap`,
+  20 % of the budget) so a strip's dyes are walked through (a 5000 px Record ran out of the viewer's heap in its first
+  strip). Answers unchanged, in order (world_checks `caches`); goldens and `ISC_WORLD_VERSION` unchanged; the viewer's
+  ABI check reads 21; the webSMLM block's `abiVersion` 21. Engine `ScopeSensorDims`, `ScopeWindowRows`, `window-y0` /
   `window-rows`, `ScopeStripMarginPx`, `ScopeStripRows`, `ScopeNeedsStrips`, `RenderScopeMovieStrips`;
   `Excitation::ImagerMap(..., rowY0, sensorH)`, `NoiseSetup` / the noise maps' `keepY0` / `keepRows`, `ApplyNoiseChain`'s
   `pixelBase`, `GroundTruth::Window`. cli `--strip-rows n` (0: when needed; -1 never), `--estimate`'s `strip-rows=`

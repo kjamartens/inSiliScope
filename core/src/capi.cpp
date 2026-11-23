@@ -307,10 +307,26 @@ int32_t isc_dye_details_in_window(IscWorld* w, double x0, double y0, double x1, 
    }
 }
 
+namespace {
+// A dye count as a size_t, saturated (size_t is 32-bit in WebAssembly: 1e15, "none", overflowed it).
+size_t DyeCount(double dyes)
+{
+   const double top = (double)std::numeric_limits<size_t>::max();
+   return dyes >= top ? std::numeric_limits<size_t>::max() : (size_t)dyes;
+}
+} // namespace
+
 int32_t isc_world_set_dye_cache(IscWorld* w, double maxDyes)
 {
    if (!w || !(maxDyes >= 0) || !std::isfinite(maxDyes)) return -1;
-   w->w.SetDyeCacheCap((size_t)std::min(maxDyes, 1e15));
+   w->w.SetDyeCacheCap(DyeCount(std::min(maxDyes, 1e15)));
+   return 0;
+}
+
+int32_t isc_world_set_dye_cache_hard(IscWorld* w, double maxDyes)
+{
+   if (!w || !(maxDyes >= 0) || !std::isfinite(maxDyes)) return -1;
+   w->w.SetDyeCacheHardCap(DyeCount(std::min(maxDyes, 1e15)));
    return 0;
 }
 

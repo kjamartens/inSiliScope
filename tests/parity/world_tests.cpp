@@ -779,6 +779,29 @@ void CacheUnderLoad(LabelMode mode, const char* name)
    for (int f = 1; f < 10; f++) { ev.clear(); w.EventsInWindow(x0, y0, x1, y1, -INF, INF, f * fd, (f + 1) * fd, ev); }
    Check(built > 0 && w.Stats().dyeBlocks == built, N + "window larger than the dye cache: blocks built once, not per query",
          Fmt("%ld blocks after the first frame, %ld after 10", built, w.Stats().dyeBlocks));
+   // ABI 21: with a hard cap below the window's dyes, a query lets the blocks it has finished with go as it walks;
+   // the events are the same, in the same order (frame by frame and over all ten frames at once), and the blocks
+   // are made again on every query.
+   {
+      World h = Labelled(seed, p, lab, 48, cap), r = Labelled(seed, p, lab, 48, cap);
+      h.SetDyeCacheHardCap(cap);
+      std::string diff;
+      std::vector<WorldEvent> eh, er;
+      for (int f = 0; f < 10 && diff.empty(); f++) {
+         eh.clear(); er.clear();
+         h.EventsInWindow(x0, y0, x1, y1, -INF, INF, f * fd, (f + 1) * fd, eh);
+         r.EventsInWindow(x0, y0, x1, y1, -INF, INF, f * fd, (f + 1) * fd, er);
+         diff = DiffOrdered(eh, er);
+         if (!diff.empty()) diff = Fmt("frame %d: ", f) + diff;
+      }
+      eh.clear(); er.clear();
+      h.EventsInWindow(x0, y0, x1, y1, -INF, INF, 0, 10 * fd, eh);
+      r.EventsInWindow(x0, y0, x1, y1, -INF, INF, 0, 10 * fd, er);
+      if (diff.empty()) diff = DiffOrdered(eh, er);
+      Same(diff, N + "hard dye cap below the window: the same events in the same order");
+      Check(!eh.empty() && h.Stats().dyeBlocks > 5 * r.Stats().dyeBlocks, N + "hard dye cap below the window: blocks let go and made again",
+            Fmt("%ld blocks built under the hard cap vs %ld without", h.Stats().dyeBlocks, r.Stats().dyeBlocks));
+   }
    // A shifted window (a focus move) builds only the blocks it did not have: eviction waits for the end of the query,
    // so the blocks the old and new windows share survive it.
    {

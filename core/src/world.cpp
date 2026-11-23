@@ -510,7 +510,21 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
             if (needs(*batch[k].b)) work.push_back(k);
          ParallelFor(work.size(), 2, [&](size_t w) { prep(*batch[work[w]].b); });
       }
-      for (const Item& it : batch) fn(*it.b);
+      for (const Item& it : batch) {
+         fn(*it.b);
+         it.b->done = query_;
+      }
+      // ABI 21: past the hard cap, the blocks this query has finished with go (each block is walked once a query;
+      // the earlier cells' blocks lie behind this one's in the LRU), down to the cap: a window of more dyes than fit
+      // in memory (a wide strip of a large movie) is walked through, not held whole.
+      if (dyeCount_ > dyeHardCap_)
+         while (dyeCount_ > dyeCap_ && !dyeLru_.empty() &&
+                (dyeLru_.back().second.used != query_ || dyeLru_.back().second.done == query_)) {
+            dyeCount_ -= dyeLru_.back().second.dyes.size();
+            dyeIndex_.erase(dyeLru_.back().first);
+            dyeLru_.pop_back();
+            evictions_++;
+         }
    }
    assetPrebuilt_.clear();
    // Evict least recently used blocks only now, and never one this query

@@ -30,6 +30,7 @@
 #include <chrono>
 #include <functional>
 #include <cstdint>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -170,6 +171,8 @@ public:
    double SurfaceHeightAt(double x, double y);
    // Dye cache cap (dyes); a smaller one takes effect at the next query.
    void SetDyeCacheCap(size_t dyes) { dyeCap_ = dyes; }
+   // ABI 21: past this many dyes a query lets the blocks it has finished with go (EvictFinished).
+   void SetDyeCacheHardCap(size_t dyes) { dyeHardCap_ = dyes; }
    uint32_t Seed() const { return seed_; }
 
    // Cells (packed pose) whose footprint circle (rOuter) intersects the rect
@@ -360,6 +363,7 @@ private:
       std::vector<PersistentEvent> pEvents;
       long pBin0 = 0, pBin1 = 0;
       uint64_t used = 0;                    // last query that touched the block
+      uint64_t done = 0;                    // last query that has finished with it (ForEachDyeBlock, ABI 21)
       uint32_t phase = 0;                   // per-block hash, staggers the extensions
       bool generated = false;               // dyes filled in (ForEachDyeBlock)
       // The kinetics history the schedule fields above (scheduled ... pBin1)
@@ -506,6 +510,7 @@ private:
    std::unique_ptr<FiducialField> fiducials_;   // every specimen
    size_t assetCap_;
    size_t dyeCap_;
+   size_t dyeHardCap_ = std::numeric_limits<size_t>::max();   // (none; size_t is 32-bit in WebAssembly)
    std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> blocks_;
    // LRU of cell assets, most recent first
    std::list<std::pair<std::pair<int32_t, int32_t>, std::unique_ptr<CellAssets>>> assets_;

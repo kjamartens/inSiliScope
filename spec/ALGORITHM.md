@@ -1445,6 +1445,16 @@ live frames and a measurement with a light history render whole.
   viewer's heap 2.0 -> 2.8 -> 3.0 GB over the first strips at 1600 px; now 2.0 -> 2.1). A movie keeps one copy of its
   blinks (the per-group lists; the merged list was a second, the query's rows a third, the core's list a fourth: the
   host's buffer and the core's are let go after a query past 32 MB).
+- **Dyes within a strip** (2026-11-23, core ABI 21): one core query held every dye of its window until it ended (the
+  dye cache evicts only then, so that a query never drops a block it has not reached); a strip of a wide or dense field
+  is a large window (a 5000 px field's 308-row strip ~1.5e8 dyes, ~8 GB; the viewer ran out of its 4 GB heap in the
+  first strip, and at 1600 px over dense cells too, the least strip height being the floor). Strips now set a hard cap
+  (`isc_world_set_dye_cache_hard`, `SampleSource::SetDyeHardCap`): past it, after each cell's blocks are walked, the
+  blocks the query has finished with are let go down to the usual cap (each block is walked once a query, and the
+  earlier cells' blocks lie behind the current one's in the LRU), so a strip's dyes are walked through, not held. The
+  cap is 20 % of the budget at `kEstBlinkDyeBytes` a dye (`StripDyeHardCap`: ~9.8 M dyes in the viewer), and the strip
+  height counts the dyes up to it only. Every answer is the same, in the same order (world_checks `caches`); the cost
+  is that each query over a strip makes its dyes again. Live frames and whole movies have no hard cap.
 - **Writing:** the cli's TIFF writer lays every page out on the first strip (`TiffWriter::PageRows`: the page's first
   rows, the rest a hole) and fills the later strips' rows in place (`Rows`): the file is byte for byte the one written
   whole (ctest `tiff_writer`). The viewer writes each strip's rows at their place in the Record's frames file on the

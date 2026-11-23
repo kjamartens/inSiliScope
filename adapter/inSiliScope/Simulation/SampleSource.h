@@ -198,10 +198,15 @@ public:
    // Lets every dye block go but those near (xUm, yUm) (a movie in strips between its strips, 2026-11-20: the last
    // strip's dyes stayed cached while the next one's were made, ~1 GB more heap in the viewer at 1600 px).
    void TrimDyeCache(double xUm, double yUm);
+   // The dyes a query may hold before it lets the blocks it has finished with go (core ABI 21; 1e15 = none, the
+   // default): a movie in strips sets it for its strips (a strip of a wide field held ~1.5e8 dyes at 5000 px). Kept
+   // for a world made later.
+   void SetDyeHardCap(double dyes);
 
 private:
    IscWorld* world_ = nullptr;
    SampleSettings settings_;
+   double dyeHardCap_ = 1e15;
    bool cacheDirApplied_ = false;   // settings_.cacheDir given to world_ (a new world starts without)
    double origamiTopUm_ = -1;        // a nanoruler world's isc_origami_heights out[1]; < 0 in a cell field
    std::vector<double> buf_;
