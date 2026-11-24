@@ -4670,17 +4670,17 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // per plane factor (a state's fringes would be another state's; M4 makes the states resident). In GPU mode (the
    // viewer's WebGPU movie) too (2026-10-31): a state's images made at once and its spectra let go, as live does --
    // deferred, every state kept its spectra for the host, and the CPU's images of 13-15 states passed the 2 GB heap.
-   // A host that keeps many scenes (the native server's WebGPU one, ManyScenes) takes the states too (2026-11-24): its
-   // kernel spectra once per kernel store (WidefieldGpuJob::kernelSet), each state's planes under its own geometry.
+   // A host that keeps many scenes (ManyScenes) took the states too (2026-11-24, ac6e2fb), but it lost on the server:
+   // SIM2D WideField 1024 px 90 frames 10.9 s on 32 cores, 16.0 s with an A40 (a state of ~10 frames makes each frame
+   // from its planes, a round trip per frame). The states stay on the CPU; ManyScenes is kept for a later try.
    const bool patterned = S.excite.Patterned();
    if (!accel && !gpuMode && !shifts && !slot.accelTooBig)
       accel = DefaultWidefieldAccelerator();   // (the native cli's and server's, when set; made on its first use)
-   // But a live frame of a stepping pattern (nd.progressive below) stays on the CPU: its states make their next bleach
-   // basis an image per frame (RenderFrameProgressive), which a scene with an accelerator skips -- each state then
-   // rebuilt its basis at once and read it back, and live SIM on the server's GPU was no faster than its CPU (the
-   // user, 2026-11-24). Records and movies of a pattern keep the GPU.
+   // A live frame of a varying light (nd.progressive below) also stays on the CPU, should a varying light not count as
+   // patterned: its states make their next bleach basis an image per frame (RenderFrameProgressive), which a scene with
+   // an accelerator skips (live SIM on the server's GPU was no faster than its CPU, 2026-11-24).
    const bool liveStates = varies && cache.live && !p.meanLight && S.N == 1 && !S.freshBasis;
-   const bool cpuScene = shifts || slot.accelTooBig || (patterned && !(accel && accel->ManyScenes())) || liveStates;
+   const bool cpuScene = shifts || slot.accelTooBig || patterned || liveStates;
    const bool sceneGpu = (gpuMode && !patterned) || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {
@@ -7550,8 +7550,12 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             if (adu[static_cast<size_t>(k)].size() != n)
                adu[static_cast<size_t>(k)].assign(n, 0);
          }
-      else if (gpuSplat && !opt.onPhotons)
+      else if (gpuSplat && !opt.onPhotons &&
+               std::any_of(gpuEms.begin(), gpuEms.begin() + std::min<long>(nb, static_cast<long>(gpuEms.size())),
+                           [](const std::vector<GpuSplatEmitter>& e) { return !e.empty(); }))
       {
+         // (A batch without blinks on the GPU takes the CPU's noise below: the round trip of its images cost more than
+         // the noise, 2026-11-24: WideField 1024 px 200 frames 0.99 s on an A40 against ~0.2 s on 32 cores.)
          // The batch's blinks and noise on the GPU; a failure: those frames' blinks here, the rest on the CPU.
          std::vector<std::vector<GpuSplatEmitter>> part;
          if (static_cast<size_t>(nb) < gpuEms.size())

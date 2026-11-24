@@ -14,7 +14,9 @@
 //            then the halo cut's spans (columns [lo, hi] per (plane, dy)) from word P.spanAt
 //   6  Dyn   words 0..31: the kernel table (KGeo[4] = camera radius, oversampling, block-sum width, offset; KMisc[4] =
 //            plane stride, spans on, first span, buffer); then 8 words per frame (emitter start, count, frame, bgScale,
-//            extra start or 0xffffffff); then the emitters (16 words each, GpuSplatEmitter); then the extra images
+//            extra start or 0xffffffff, tile table start); then the emitters (16 words each, GpuSplatEmitter); then per
+//            frame its extra image and its tile table (per 16 x 16 tile, row-major, the word position of its list, one
+//            more for the end; then the lists: emitter numbers)
 //   7  Out   the frames' ADU, frame k at k * W * H
 
 //// kernel splat_frames
@@ -196,11 +198,15 @@ fn emAt(e: u32) -> Em
    return em;
 }
 
-// The group's 16 x 16 pixels share the frame's emitter list: staged through workgroup memory in chunks of 256 (one
-// record per invocation, 16 KB: WebGPU's default limit), so a record is read once per group, not once per pixel.
+// The group's 16 x 16 pixels (a tile) share the tile's emitter list: the frame's emitters whose footprint (the kernel's
+// halo spans, its cut radius) reaches the tile, in the frame's order, made by the host (2026-11-24: every group walked
+// the whole frame's list, ~16 ns a pixel on an A40 at a few thousand blinks a frame -- as slow as 32 CPU cores).
+// Staged through workgroup memory in chunks of 256 (one record per invocation, 16 KB: WebGPU's default limit), so a
+// record is read once per group, not once per pixel. A pixel sums the same emitters in the same order as before.
 const CHUNK = 256u;
 var<workgroup> sEm: array<Em, 256>;
 var<workgroup> sCount: u32;
+var<workgroup> sStart: u32;
 
 @compute @workgroup_size(16, 16, 1)
 fn splat_frames(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_invocation_index) li: u32,
@@ -217,9 +223,16 @@ fn splat_frames(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
                      bitcast<f32>(Stat[4u * i + 3u]));
    }
    let fa = 32u + 8u * gid.z;
-   let emStart = Dyn[fa];
-   if (li == 0u) { sCount = Dyn[fa + 1u]; }
+   // The tile's list: Dyn[tileAt + t] .. Dyn[tileAt + t + 1] are the word positions of its emitter numbers.
+   let tileAt = Dyn[fa + 5u];
+   let t = gid.y * ((P.W + 15u) / 16u) + gid.x;
+   if (li == 0u)
+   {
+      sStart = Dyn[tileAt + t];
+      sCount = Dyn[tileAt + t + 1u] - Dyn[tileAt + t];
+   }
    let emCount = workgroupUniformLoad(&sCount);
+   let listStart = workgroupUniformLoad(&sStart);
    let frame = Dyn[fa + 2u];
    let bgScale = bitcast<f32>(Dyn[fa + 3u]);
    let extra = Dyn[fa + 4u];
@@ -231,7 +244,7 @@ fn splat_frames(@builtin(global_invocation_id) id: vec3<u32>, @builtin(local_inv
    for (var e0 = 0u; e0 < emCount; e0 += CHUNK)
    {
       let cnt = min(CHUNK, emCount - e0);
-      if (li < cnt) { sEm[li] = emAt(emStart + e0 + li); }
+      if (li < cnt) { sEm[li] = emAt(Dyn[listStart + e0 + li]); }
       workgroupBarrier();
       for (var k = 0u; k < cnt; k++)
       {

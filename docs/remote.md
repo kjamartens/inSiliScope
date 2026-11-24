@@ -183,10 +183,10 @@ or why it found none (`GPU: none: …`), and then the CPU computes everything as
 
 | | GPU | CPU |
 |---|---|---|
-| WideField labels (also under SIM patterns) | the dye planes' images | the bleaching, everything else |
+| WideField labels | the dye planes' images | the bleaching, everything else; under a SIM pattern all of it |
 | dSTORM, PALM, DNA-PAINT blinks in Records and movies | the blinks' PSFs | which blinks light up |
-| Camera noise of Records and movies | all of it | |
-| The live view | WideField images (without a SIM pattern) | blinks and noise; under a SIM pattern all of it (its states make their images a part per frame, which is faster there) |
+| Camera noise of Records and movies | frames with blinks on the GPU | the rest (faster there) |
+| The live view | WideField images (without a SIM pattern) | blinks and noise; under a SIM pattern all of it |
 | Ground truth, BrightField, the Gaussian PSF | | all of it |
 
 **What it needs:** an NVIDIA, AMD or Intel GPU with its Vulkan driver (NVIDIA's usual driver includes it;

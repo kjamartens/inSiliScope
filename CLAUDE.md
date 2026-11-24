@@ -299,15 +299,16 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   (`isc_gpu::Device` in `cli/gpu_select.h`, made on first use: each forked connection its own; the listener only probes
   in a child, `isc_gpu::Probe`), `MakeWebGpuBackend` with the kernels of `WidefieldGpu.wgsl` and `SplatGpu.wgsl` (cli/CMakeLists.txt
   embeds both). `WidefieldGpuHost` (the WideField algorithm over a `GpuBackend`: D3D11 in the adapter, WebGPU here; the
-  backend's mutex serializes every host) as `SetDefaultWidefieldAccelerator`: mean-field scenes, a pattern's state
-  scenes too when the backend keeps >= 16 (`ManyScenes`; kernel spectra per `KernelStore` serial, pool up to 3 GB,
+  backend's mutex serializes every host) as `SetDefaultWidefieldAccelerator`: mean-field scenes (a pattern's state
+  scenes stay on the CPU: taken when the backend kept >= 16, `ManyScenes`, they lost on jupiter, 2026-11-24; pool up to 3 GB,
   `ISC_GPU_POOL_MB`). `SplatGpuHost` (`Simulation/SplatGpu.*`, the WGSL twin of the adapter's GpuSimD3D11 HLSL: the
   same `GpuSplatEmitter` records, block sums, halo spans, pcg4d noise) as `SetDefaultBlinkSplatGpu`: in
   `FluorescenceMovie::Render`, a movie that applies its own noise and has no ground truth sends each frame's splatted
   blinks (groups with a diffraction kernel, <= 4) as records and the rest of its light as an extra image; the GPU adds
-  the blinks and the noise (no blinks: the noise alone); a kernel past one binding takes a buffer per range of planes;
+  the blinks and the noise (a batch without GPU blinks: the CPU's noise); the host bins each frame's emitters per 16 x 16
+  tile (the halo spans' box per plane, the cut radius; the frame's order kept: the same sums as the whole list); a kernel past one binding takes a buffer per range of planes;
   a failed batch splats on the CPU. Live frames keep the CPU's splat and noise (LiveScope's own noise via onPhotons).
-  Frames within float rounding (server_check `--gpu`: `near`). A live frame of a stepping pattern keeps its state scenes on the CPU (`liveStates` in ScopeMovie.cpp: their basis made a part per frame, which a scene with an accelerator skips; live SIM on the GPU was no faster, 2026-11-24); `tests/remote/hpc_check.sh` (a server's report: build at a ref, cli movies and `live_bench` frames GPU off vs on; `live_bench` is built without the tests and in `remote.sh build`). Server `--gpu auto` (default) / `off`, cli `--gpu`
+  Frames within float rounding (server_check `--gpu`: `near`). A live frame of a varying light keeps its scenes on the CPU too (`liveStates`: their basis made a part per frame, which a scene with an accelerator skips); `tests/remote/hpc_check.sh` (a server's report: build at a ref, cli movies and `live_bench` frames GPU off vs on; `live_bench` is built without the tests and in `remote.sh build`). Server `--gpu auto` (default) / `off`, cli `--gpu`
   (default off), `$ISC_GPU`, launcher `serve --gpu`; release tarball `lib/libwgpu_native.so` + licenses (release.yml,
   sha256 pinned; `remote.sh build` fetches it too). Checks: ctest `wf_gpu_webgpu` (WideField + the splat's self-check,
   skips without a GPU), `server_check.mjs --gpu`. Not yet: the BFP maps on the GPU.

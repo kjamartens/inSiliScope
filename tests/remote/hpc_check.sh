@@ -8,7 +8,7 @@
 # 5. live frames (live_bench, the viewer's live path): the GPU off and on, timed, the frames hashed.
 # Settings: ISC_REF (remote-server), ISC_THREADS (32 per run), SKIP_BUILD (0), KEEP (0: the work folder is removed),
 # QUICK (0; 1: small fields, a smoke test of the script itself).
-# Takes ~2-4 min after the build (the build: a few minutes).
+# Takes ~3-5 min after the build (the build: a minute or a few).
 set -u
 REF=${ISC_REF:-remote-server}
 RAW=https://raw.githubusercontent.com/kjamartens/inSiliScope/$REF
@@ -16,7 +16,8 @@ L=$HOME/.isc-remote.sh
 D=${ISC_REMOTE_HOME:-$HOME/.local/share/insiliscope}/dev
 T=$(mktemp -d "${TMPDIR:-/tmp}/isc-check-XXXXXX") || exit 1
 export ISC_THREADS=${ISC_THREADS:-32}
-if [ "${QUICK:-0}" = 1 ]; then S=128 SL=256 F=20 FS=10 LS=128 LL=128; else S=512 SL=1024 F=100 FS=20 LS=256 LL=512; fi
+if [ "${QUICK:-0}" = 1 ]; then S=128 SL=256 F=20 FL=40 FW=20 FS=18 LS=128 LL=128
+else S=512 SL=1024 F=100 FL=500 FW=200 FS=90 LS=256 LL=512; fi
 now() { date +%s.%N; }
 el() { awk -v a="$1" -v b="$(now)" 'BEGIN { printf "%.1f", b - a }'; }
 hdr() { printf '\n== %s\n' "$*"; }
@@ -50,7 +51,7 @@ echo "  the server's start (12 s):"
 (sleep 12) | timeout 30 "$D/bin/insiliscope_server" --listen 127.0.0.1:18797 --token hpccheck --threads 2 --gpu auto 2>&1 |
   head -n 4 | sed 's/^/    /'
 
-# Two TIFF movies compared pixel by pixel (16-bit, classic or BigTIFF; numpy if there, else the first 4 M pixels).
+# Two TIFF movies compared pixel by pixel (16-bit, classic or BigTIFF; the first 64 M pixels with numpy, else 4 M).
 cmp_tif() {
   python3 - "$1" "$2" <<'PY'
 import struct, sys
@@ -86,7 +87,7 @@ if A == B:
     print('byte for byte the same (%d pages)' % len(a)); sys.exit()
 try:
     import numpy as np
-    x = np.frombuffer(A, dtype=bo + 'u2').astype(np.int64); y = np.frombuffer(B, dtype=bo + 'u2').astype(np.int64)
+    x = np.frombuffer(A[:128 << 20], dtype=bo + 'u2').astype(np.int32); y = np.frombuffer(B[:128 << 20], dtype=bo + 'u2').astype(np.int32)
     d = np.abs(x - y); n, eq, md, mx, avg = x.size, float((d == 0).mean()), float(d.mean()), int(d.max()), float(x.mean())
 except ImportError:
     from array import array
@@ -120,12 +121,12 @@ cli_case() { # name, the cli's options
   rm -f "$T/$name-off.tif" "$T/$name-auto.tif"
 }
 
-hdr "4. movies (cli): the CPU (gpu off) vs the GPU (gpu auto); expected: the GPU's within rounding (~99 % equal)"
+hdr "4. movies (cli): the CPU (gpu off) vs the GPU (gpu auto); expected: within rounding (~99 % equal), SIM the same"
 cli_case dnapaint-$S --size $S --frames $F --x -10 --y 4
-cli_case dstorm-$S --size $S --frames $F --x -10 --y 4 --mt-mode 0 --npc-dye None
-cli_case widefield-$S --size $S --frames 60 --mt-mode 3 --npc-dye None
-cli_case widefield-$SL --size $SL --frames $FS --mt-mode 3 --npc-dye None
-cli_case sim2d-widefield-$S --size $S --frames 18 --mt-mode 3 --npc-dye None --sim-type 1
+cli_case dnapaint-$SL --size $SL --frames $FL --x -10 --y 4
+cli_case dstorm-$SL --size $SL --frames $FW --x -10 --y 4 --mt-mode 0 --npc-dye None
+cli_case widefield-$SL --size $SL --frames $FW --mt-mode 3 --npc-dye None
+cli_case sim2d-widefield-$SL --size $SL --frames $FS --mt-mode 3 --npc-dye None --sim-type 1
 
 live_case() { # name, expectation, live_bench's spec options
   name=$1; expect=$2; shift 2

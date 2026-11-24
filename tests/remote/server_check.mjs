@@ -154,8 +154,8 @@ try {
   const sm = await A.job({ type: 'movie', id: 8, spec: SSPEC });
   const ts = performance.now() - t;
   const ls = C.movie(SSPEC);
-  if (GPU) { const n = near(sm.frames, ls.frames); ok(!sm.error && n.ok, `SIM2D WideField movie on the GPU = the module's within rounding: ${n.text} (server ${ts.toFixed(0)} ms)` + (sm.error ? ' ' + sm.error : '')); }
-  else ok(!sm.error && same(sm.frames, ls.frames), `SIM2D WideField movie = the module's, byte for byte (server ${ts.toFixed(0)} ms)` + (sm.error ? ' ' + sm.error : ''));
+  // (its state scenes and, without blinks, its noise stay on the CPU with --gpu too: 2026-11-24, faster there)
+  ok(!sm.error && same(sm.frames, ls.frames), `SIM2D WideField movie = the module's, byte for byte (server ${ts.toFixed(0)} ms)` + (sm.error ? ' ' + sm.error : ''));
 
   // live: a fresh sample, frames one by one, a chunk of 3, then the same sample replayed elsewhere
   const LSPEC = SPEC.replace('frames=4', 'frames=1');

@@ -19,8 +19,9 @@ Versions follow semver; while 0.x, any release may change the output for a given
   (glibc 2.28+, x86-64). Fixed on the way: a Record started while a settings file's light history was replayed never
   began.
 - **Remote server: its GPU** ([docs/remote.md](docs/remote.md#gpu)). A server with a GPU (NVIDIA, AMD or Intel, with
-  its Vulkan driver) uses it by itself: the WideField dye planes' images (also each SIM state's), and in Records and
-  movies the blinks' PSFs and the camera noise. The same WGSL kernels as the viewer's WebGPU path, through
+  its Vulkan driver) uses it by itself: the WideField dye planes' images, and in Records and movies the blinks' PSFs
+  and those frames' camera noise (each 16 x 16 tile of pixels reads only the blinks that reach it). SIM patterns and
+  frames without blinks stay on the CPU: on a 32-core server it was faster there. The same WGSL kernels as the viewer's WebGPU path, through
   wgpu-native (shipped in the server's tarball); frames within float rounding of the CPU's (about 1 pixel in 100 a
   count apart). `--gpu off` (or `ISC_GPU=off`) keeps the CPU; the cli takes `--gpu auto` (off by default).
 - **Viewer: Records and movies splat their blinks and draw the camera noise on the GPU** (WebGPU: Chrome, Edge), with

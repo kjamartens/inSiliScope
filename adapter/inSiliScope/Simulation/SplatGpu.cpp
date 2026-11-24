@@ -5,6 +5,8 @@
 #include "SMLMSimulation.h"
 
 #include <algorithm>
+#include <array>
+#include <climits>
 #include <cmath>
 #include <cstring>
 #include <mutex>
@@ -21,6 +23,7 @@ constexpr size_t kKeepKernels = 8;   // resident buffers (a kernel past one bind
 constexpr uint32_t kNoExtra = 0xffffffffu;
 constexpr uint32_t kTableWords = 32;   // KGeo[4] + KMisc[4]
 constexpr uint32_t kFrameWords = 8;
+constexpr unsigned kTile = 16;   // the shader's workgroup: 16 x 16 pixels
 
 uint32_t Bits(float f)
 {
@@ -51,6 +54,11 @@ struct SplatGpuHost::State
    int perChunk[kMaxKernels] = {};
    bool split = false;
    std::vector<uint32_t> spans;   // int32 pairs, the kernels' halo spans (one dummy pair)
+   // Per kernel an emitter names, per plane: the pixels its footprint can reach, dx lo, hi, dy lo, hi (the halo spans'
+   // box, else +- the camera radius; lo > hi: none) -- which tiles an emitter's list entries go to.
+   std::vector<std::array<int32_t, 4>> box[kMaxKernels];
+   std::vector<uint32_t> tileCount;
+   std::vector<std::array<int32_t, 4>> tileRect;
 
    unsigned w = 0, h = 0;
    uint32_t pixelBase = 0;
@@ -105,6 +113,7 @@ bool SplatGpuHost::SetKernels(const std::vector<const PsfKernelCache*>& kernels,
       {
          m.entry0[k] = m.entry0[same];
          m.perChunk[k] = m.perChunk[same];
+         m.box[k] = m.box[same];
          m.split = m.split || m.entry0[k] != static_cast<int>(k);
          continue;
       }
@@ -126,6 +135,24 @@ bool SplatGpuHost::SetKernels(const std::vector<const PsfKernelCache*>& kernels,
       m.perChunk[k] = per;
       m.split = m.split || chunks > 1 || entries != static_cast<int>(k);
       const bool useSpans = cache->halo && cache->halo->camRad == camRad && cache->halo->nz == nz;
+      m.box[k].assign(static_cast<size_t>(nz), {-camRad, camRad, -camRad, camRad});
+      if (useSpans)
+         for (int z = 0; z < nz; ++z)
+         {
+            std::array<int32_t, 4> b = {INT_MAX, INT_MIN, INT_MAX, INT_MIN};
+            for (int r = 0; r <= 2 * camRad; ++r)
+            {
+               const size_t i = static_cast<size_t>(z) * static_cast<size_t>(2 * camRad + 1) + static_cast<size_t>(r);
+               const int lo = std::max<int>(cache->halo->lo[i], -camRad), hi = std::min<int>(cache->halo->hi[i], camRad);
+               if (lo > hi)
+                  continue;
+               b[0] = std::min(b[0], lo);
+               b[1] = std::max(b[1], hi);
+               b[2] = std::min(b[2], r - camRad);
+               b[3] = std::max(b[3], r - camRad);
+            }
+            m.box[k][static_cast<size_t>(z)] = b[0] > b[1] ? std::array<int32_t, 4>{1, 0, 1, 0} : b;
+         }
       const uint32_t spanBase = static_cast<uint32_t>(spans.size() / 2);
       if (useSpans)
          for (size_t i = 0; i < cache->halo->lo.size(); ++i)
@@ -298,9 +325,64 @@ bool SplatGpuHost::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
       d.assign(at, 0);
       std::memcpy(d.data(), m.table, sizeof m.table);
       size_t em = 0;
+      const unsigned tx = (m.w + kTile - 1) / kTile, ty = (m.h + kTile - 1) / kTile;
+      const size_t tiles = static_cast<size_t>(tx) * ty;
       for (size_t k = 0; k < nf; ++k)
       {
          const std::vector<GpuSplatEmitter>& es = emitters[s0 + k];
+         // The frame's tile lists (before the records' planes are renumbered: the box is by kernel and plane): each
+         // emitter goes to the tiles its footprint reaches, in the frame's order (the shader's sums are as before).
+         m.tileCount.assign(tiles + 1, 0);
+         m.tileRect.resize(es.size());
+         size_t entries = 0;
+         for (size_t j = 0; j < es.size(); ++j)
+         {
+            const GpuSplatEmitter& e = es[j];
+            std::array<int32_t, 4>& tr = m.tileRect[j];
+            tr = {1, 0, 1, 0};
+            const uint32_t kk = static_cast<uint32_t>(e.plane) >> 16, pl = static_cast<uint32_t>(e.plane) & 0xffffu;
+            if (kk >= kMaxKernels || pl >= m.box[kk].size() || e.cutRadius2 < 0)
+               continue;
+            std::array<int32_t, 4> b = m.box[kk][pl];
+            if (e.cutRadius2 != INT32_MAX)
+            {
+               int32_t rc = static_cast<int32_t>(std::sqrt(static_cast<double>(e.cutRadius2)));
+               while (static_cast<int64_t>(rc + 1) * (rc + 1) <= e.cutRadius2)
+                  ++rc;
+               while (rc > 0 && static_cast<int64_t>(rc) * rc > e.cutRadius2)
+                  --rc;
+               b = {std::max(b[0], -rc), std::min(b[1], rc), std::max(b[2], -rc), std::min(b[3], rc)};
+            }
+            const int64_t x0 = std::max<int64_t>(0, static_cast<int64_t>(e.x0) + b[0]);
+            const int64_t x1 = std::min<int64_t>(static_cast<int64_t>(m.w) - 1, static_cast<int64_t>(e.x0) + b[1]);
+            const int64_t y0 = std::max<int64_t>(0, static_cast<int64_t>(e.y0) + b[2]);
+            const int64_t y1 = std::min<int64_t>(static_cast<int64_t>(m.h) - 1, static_cast<int64_t>(e.y0) + b[3]);
+            if (b[0] > b[1] || b[2] > b[3] || x0 > x1 || y0 > y1)
+               continue;
+            tr = {static_cast<int32_t>(x0 / kTile), static_cast<int32_t>(x1 / kTile), static_cast<int32_t>(y0 / kTile),
+                  static_cast<int32_t>(y1 / kTile)};
+            for (int32_t yy = tr[2]; yy <= tr[3]; ++yy)
+               for (int32_t xx = tr[0]; xx <= tr[1]; ++xx)
+                  ++m.tileCount[static_cast<size_t>(yy) * tx + static_cast<size_t>(xx) + 1];
+            entries += static_cast<size_t>(tr[1] - tr[0] + 1) * static_cast<size_t>(tr[3] - tr[2] + 1);
+         }
+         for (size_t t = 0; t < tiles; ++t)
+            m.tileCount[t + 1] += m.tileCount[t];
+         {
+            const size_t tileAt = d.size(), listAt = tileAt + tiles + 1;
+            d.resize(listAt + entries);
+            for (size_t t = 0; t <= tiles; ++t)
+               d[tileAt + t] = static_cast<uint32_t>(listAt + m.tileCount[t]);
+            for (size_t j = 0; j < es.size(); ++j)
+            {
+               const std::array<int32_t, 4>& tr = m.tileRect[j];
+               for (int32_t yy = tr[2]; yy <= tr[3]; ++yy)
+                  for (int32_t xx = tr[0]; xx <= tr[1]; ++xx)
+                     d[listAt + m.tileCount[static_cast<size_t>(yy) * tx + static_cast<size_t>(xx)]++] =
+                        static_cast<uint32_t>(em + j);
+            }
+            d[kTableWords + kFrameWords * k + 5] = static_cast<uint32_t>(tileAt);
+         }
          uint32_t* fi = d.data() + kTableWords + kFrameWords * k;
          fi[0] = static_cast<uint32_t>(em);
          fi[1] = static_cast<uint32_t>(es.size());
