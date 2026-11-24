@@ -85,8 +85,11 @@ def running(part):
 def wait_for(cond, secs):
     t = time.time()
     while time.time() - t < secs:
-        if cond():
-            return True
+        try:
+            if cond():
+                return True
+        except OSError:   # (a socket not answering yet)
+            pass
         time.sleep(0.05)
     return False
 
@@ -120,6 +123,20 @@ def main():
     d = ws_hello(sock, 'tk')
     ok(isinstance(d, dict) and d.get('type') == 'hello', f'serve: a hello over the socket ({d.get("host") if isinstance(d, dict) else d}, {d.get("threads") if isinstance(d, dict) else ""} threads)')
     ok('403' in str(ws_hello(sock, 'wrong')), 'serve: a wrong token is refused')
+    # the same command again (its old window gone, the server not): the new one stops the old and serves
+    p2 = subprocess.Popen(['sh', SH, 'serve', '--version', 'dev', '--socket', sock, '--token', 'tk', '--threads', '2'],
+                          env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    ok(wait_for(lambda: p.poll() is not None, 15), 'serve again, the same token: the old server stopped')
+    old = p.stderr.read()
+    ok('took over' in old, 'serve again: the old window says why: ' + old.strip().splitlines()[-1])
+    ok(wait_for(lambda: os.path.exists(sock), 10) and wait_for(lambda: isinstance(ws_hello(sock, 'tk'), dict), 10),
+       'serve again: the new server answers on the socket')
+    # another viewer's command (another token) on the same socket: refused, the running one untouched
+    r = subprocess.run(['sh', SH, 'serve', '--version', 'dev', '--socket', sock, '--token', 'other'], env=env,
+                       stdin=subprocess.PIPE, capture_output=True, text=True, timeout=30)
+    ok(r.returncode != 0 and 'another token' in r.stderr and p2.poll() is None and isinstance(ws_hello(sock, 'tk'), dict),
+       'serve with another token: refused, the running server untouched: ' + r.stderr.strip())
+    p = p2
     p.stdin.close()   # the ssh session ends
     ok(wait_for(lambda: p.poll() is not None, 5), 'serve: ends with its stdin (the ssh session)')
     ok(not os.path.exists(sock) and not os.path.exists(os.path.dirname(sock)), 'serve: its socket and folder removed')
@@ -130,6 +147,14 @@ def main():
     ok(wait_for(lambda: os.path.exists(sock), 15), 'run-through: the relay\'s socket is there')
     d = ws_hello(sock, 'tk2')
     ok(isinstance(d, dict) and d.get('type') == 'hello', 'run-through: a hello through the relay to the job\'s server')
+    # the same command again: the old relay stops, its job with it, and the new one serves
+    p2 = subprocess.Popen(['sh', SH, 'serve', '--version', 'dev', '--socket', sock, '--token', 'tk2', '--threads', '2', '--run-through', 'env'],
+                          env=env, stdin=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    ok(wait_for(lambda: p.poll() is not None, 15) and wait_for(lambda: not running(f'-{p.pid}'), 5),
+       'run-through again: the old relay and its job\'s server stopped')
+    ok(wait_for(lambda: os.path.exists(sock), 15) and wait_for(lambda: isinstance(ws_hello(sock, 'tk2'), dict), 15),
+       'run-through again: a hello through the new relay')
+    p = p2
     p.stdin.close()
     ok(wait_for(lambda: p.poll() is not None, 5), 'run-through: ends with its stdin')
     ok(wait_for(lambda: not running(f'-{p.pid}'), 5), 'run-through: the job\'s server ended too')

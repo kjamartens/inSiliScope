@@ -272,7 +272,7 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   threads; the page refuses another protocol / ABI / world), bfp-file, live, live-replay, movie (whole / streamed
   `movie-part` / strips `movie-rows`), setup, panel, options, gt, gt-run, gt-files. One forked process per
   WebSocket connection (= one browser worker), a reader thread that `_exit`s when it closes (cancels a Record);
-  transports: `--socket` (a WebSocket on a Unix socket in a 0700 folder, token `?t=`), `--listen HOST:PORT` (tests,
+  transports: `--socket` (a WebSocket on a Unix socket in a 0700 folder, token `?t=`; a server already on the socket with the same token is stopped by `/stop?t=`, SIGUSR1 to its listener, and replaced, another token refused), `--listen HOST:PORT` (tests,
   the scheduler's job), `--relay`, `--stdio` (u32-framed: Micro-Manager, not yet used); stops with its stdin (the ssh
   session) or `--idle-exit` 30 min. Wire `web/live/remote_wire.js` (u32 JSON length, JSON, 8-aligned blobs, `$b`
   refs; `cli` `OutMsg` / `Decode`); `cli/json_lite.h` (the settings file's JSON parser, shared). Viewer:

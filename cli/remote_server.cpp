@@ -535,11 +535,9 @@ std::string Lower(std::string s)
    return s;
 }
 
-// The HTTP upgrade on fd: true when the WebSocket is open. A plain GET (curl, a health check) gets a line about this
-// server; a wrong token a 403.
-bool Handshake(int fd, const std::string& token)
+// An HTTP request's head (up to the blank line) from fd into req; false on a closed or oversized one.
+bool ReadHead(int fd, std::string& req)
 {
-   std::string req;
    char buf[2048];
    while (req.find("\r\n\r\n") == std::string::npos)
    {
@@ -548,10 +546,50 @@ bool Handshake(int fd, const std::string& token)
       if (k <= 0) return false;
       req.append(buf, static_cast<size_t>(k));
    }
-   const size_t eol = req.find("\r\n");
-   const std::string line = req.substr(0, eol);
+   return true;
+}
+
+// The request line's path, and its ?t= token.
+std::string PathOf(const std::string& req)
+{
+   const std::string line = req.substr(0, req.find("\r\n"));
    const size_t sp1 = line.find(' '), sp2 = line.find(' ', sp1 + 1);
-   const std::string path = sp1 == std::string::npos ? "" : line.substr(sp1 + 1, sp2 - sp1 - 1);
+   return sp1 == std::string::npos ? "" : line.substr(sp1 + 1, sp2 - sp1 - 1);
+}
+std::string TokenOf(const std::string& path)
+{
+   const size_t q = path.find("t=");
+   if (q == std::string::npos || !(q == 0 || path[q - 1] == '?' || path[q - 1] == '&')) return "";
+   const size_t end = path.find('&', q);
+   return path.substr(q + 2, end == std::string::npos ? std::string::npos : end - q - 2);
+}
+void ReplyHttp(int fd, const std::string& status, const std::string& text)
+{
+   const std::string r = "HTTP/1.1 " + status + "\r\nContent-Type: text/plain\r\nContent-Length: " +
+                         std::to_string(text.size()) + "\r\nConnection: close\r\n\r\n" + text;
+   WriteAll(fd, r.data(), r.size());
+}
+
+// /stop?t=TOKEN: a newer server for the same viewer (the same token: the same command again, its window gone but this
+// server still running, e.g. after a dropped connection) asks this one to stop and leave it the socket. True when the
+// request was a stop (answered either way).
+const char* const kStopping = "inSiliScope server: stopping for a new server of the same viewer\n";
+bool HandleStop(int fd, const std::string& req, const std::string& token)
+{
+   const std::string path = PathOf(req);
+   if (path.compare(0, 5, "/stop") != 0) return false;
+   if (token.empty() || !SameText(TokenOf(path), token)) { ReplyHttp(fd, "403 Forbidden", "inSiliScope server: wrong or missing token\n"); return true; }
+   ReplyHttp(fd, "200 OK", kStopping);
+   ::kill(::getppid(), SIGUSR1);   // the listening process (this is one of its connections)
+   return true;
+}
+
+// The HTTP upgrade on fd (its head already in req): true when the WebSocket is open. A plain GET (curl, a health
+// check) gets a line about this server; a wrong token a 403.
+bool Handshake(int fd, const std::string& token, const std::string& req)
+{
+   const size_t eol = req.find("\r\n");
+   const std::string path = PathOf(req);
    std::string key, upgrade;
    size_t at = eol + 2;
    while (at < req.size())
@@ -568,18 +606,8 @@ bool Handshake(int fd, const std::string& token)
       if (name == "sec-websocket-key") key = val;
       if (name == "upgrade") upgrade = Lower(val);
    }
-   std::string got;
-   const size_t q = path.find("t=");
-   if (q != std::string::npos && (q == 0 || path[q - 1] == '?' || path[q - 1] == '&'))
-   {
-      const size_t end = path.find('&', q);
-      got = path.substr(q + 2, end == std::string::npos ? std::string::npos : end - q - 2);
-   }
-   auto reply = [&](const std::string& status, const std::string& text) {
-      const std::string r = "HTTP/1.1 " + status + "\r\nContent-Type: text/plain\r\nContent-Length: " +
-                            std::to_string(text.size()) + "\r\nConnection: close\r\n\r\n" + text;
-      WriteAll(fd, r.data(), r.size());
-   };
+   const std::string got = TokenOf(path);
+   auto reply = [&](const std::string& status, const std::string& text) { ReplyHttp(fd, status, text); };
    if (!token.empty() && !SameText(got, token))
    {
       reply("403 Forbidden", "inSiliScope server: wrong or missing token\n");
@@ -1088,8 +1116,9 @@ int RunEngine(Conn& conn, const Options& o)
 }
 
 // ---- listening: a Unix socket or TCP, a process per connection ----
-volatile sig_atomic_t g_stop = 0;
+volatile sig_atomic_t g_stop = 0, g_replaced = 0;
 void OnStop(int) { g_stop = 1; }
+void OnReplaced(int) { g_replaced = 1; g_stop = 1; }   // SIGUSR1 from a /stop connection (HandleStop)
 
 struct Listener
 {
@@ -1100,37 +1129,67 @@ struct Listener
    bool madeDir = false;
 };
 
-bool ListenUnix(const std::string& path, Listener& L, std::string& err)
+// A server already on path: ask it to stop with token (/stop?t=, HandleStop) and wait until it has let the socket go.
+// True when it stopped; false (err set) when it is another viewer's (another token), an older server that knows no
+// /stop, or it did not stop in time.
+bool StopOldServer(const std::string& path, const std::string& token, std::string& err)
+{
+   const std::string busy = "another inSiliScope server is already serving " + path;
+   if (token.empty()) { err = busy + ": close its window first"; return false; }
+   sockaddr_un a = {};
+   a.sun_family = AF_UNIX;
+   std::strncpy(a.sun_path, path.c_str(), sizeof a.sun_path - 1);
+   int s = ::socket(AF_UNIX, SOCK_STREAM, 0);
+   if (::connect(s, reinterpret_cast<sockaddr*>(&a), sizeof a) != 0) { ::close(s); return true; }   // gone already
+   const std::string q = "GET /stop?t=" + token + " HTTP/1.1\r\nHost: localhost\r\n\r\n";
+   std::string reply;
+   if (WriteAll(s, q.data(), q.size()))
+   {
+      char buf[512];
+      for (ssize_t k; (k = ::read(s, buf, sizeof buf)) > 0;) reply.append(buf, static_cast<size_t>(k));
+   }
+   ::close(s);
+   if (reply.find(kStopping) == std::string::npos)
+   {
+      err = busy + (reply.find("403") != std::string::npos ? " for another viewer (another token): close its window first"
+                                                           : ": close its window first");
+      return false;
+   }
+   Log("inSiliScope server: the server this viewer started before was still running: stopped it");
+   for (int i = 0; i < 150; ++i)   // its socket file goes when it has stopped (Serve's end): up to 15 s
+   {
+      struct stat st;
+      if (::stat(path.c_str(), &st) != 0) { ::usleep(200000); return true; }   // (and its rmdir of the folder)
+      ::usleep(100000);
+   }
+   err = busy + ": it was asked to stop but did not; close its window first";
+   return false;
+}
+
+bool ListenUnix(const std::string& path, const std::string& token, Listener& L, std::string& err)
 {
    if (path.size() >= sizeof(sockaddr_un::sun_path)) { err = "the socket path is too long (at most 107 characters)"; return false; }
    const size_t slash = path.rfind('/');
    const std::string dir = slash == std::string::npos ? "." : path.substr(0, slash);
    struct stat st;
-   if (::stat(dir.c_str(), &st) != 0)
+   if (::stat(dir.c_str(), &st) == 0 && slash != std::string::npos && dir.compare(0, 5, "/tmp/") == 0)
+   {
+      // a directory in /tmp must be ours alone: someone else's could hold a socket of theirs (and would get the token)
+      if (st.st_uid != ::getuid() || (st.st_mode & 077)) { err = dir + " belongs to someone else or is open to others"; return false; }
+   }
+   sockaddr_un a = {};
+   a.sun_family = AF_UNIX;
+   std::strncpy(a.sun_path, path.c_str(), sizeof a.sun_path - 1);
+   // another server on it? the same viewer's (its token) is stopped, another's refused
+   if (::stat(path.c_str(), &st) == 0 && !StopOldServer(path, token, err)) return false;
+   if (::stat(dir.c_str(), &st) != 0)   // (also after an old server's end took its folder with it)
    {
       if (::mkdir(dir.c_str(), 0700) != 0) { err = "cannot make " + dir + ": " + std::strerror(errno); return false; }
       L.madeDir = true;
    }
-   else if (slash != std::string::npos && dir.compare(0, 5, "/tmp/") == 0)
-   {
-      // a directory in /tmp must be ours alone: someone else's could hold a socket of theirs
-      if (st.st_uid != ::getuid() || (st.st_mode & 077)) { err = dir + " belongs to someone else or is open to others"; return false; }
-   }
    ::chmod(dir.c_str(), 0700);
-   int s = ::socket(AF_UNIX, SOCK_STREAM, 0);
-   sockaddr_un a = {};
-   a.sun_family = AF_UNIX;
-   std::strncpy(a.sun_path, path.c_str(), sizeof a.sun_path - 1);
-   // another server on it?
-   if (::connect(s, reinterpret_cast<sockaddr*>(&a), sizeof a) == 0)
-   {
-      ::close(s);
-      err = "another inSiliScope server is already serving " + path + ": close its window first";
-      return false;
-   }
-   ::close(s);
    ::unlink(path.c_str());
-   s = ::socket(AF_UNIX, SOCK_STREAM, 0);
+   int s = ::socket(AF_UNIX, SOCK_STREAM, 0);
    const mode_t old = ::umask(077);
    const int rc = ::bind(s, reinterpret_cast<sockaddr*>(&a), sizeof a);
    ::umask(old);
@@ -1215,6 +1274,7 @@ int Serve(Listener& L, const Options& o, int idleMin, bool watchStdin)
    std::signal(SIGINT, OnStop);
    std::signal(SIGTERM, OnStop);
    std::signal(SIGHUP, OnStop);
+   std::signal(SIGUSR1, OnReplaced);
    std::set<pid_t> kids;
    auto last = Clock::now();
    while (!g_stop)
@@ -1250,15 +1310,19 @@ int Serve(Listener& L, const Options& o, int idleMin, bool watchStdin)
             if (nul >= 0) { ::dup2(nul, 0); ::close(nul); }
             const int one = 1;
             ::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);   // (fails quietly on a Unix socket)
+            std::string head;
+            if (!ReadHead(cfd, head)) _exit(0);
+            if (HandleStop(cfd, head, o.token)) _exit(0);   // (a relay answers it itself: it stops, the job with it)
             if (!L.relay.empty())
             {
                const int up = ConnectTcp(L.relay);
                if (up < 0) _exit(0);
                ::setsockopt(up, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+               if (!WriteAll(up, head.data(), head.size())) _exit(0);
                Pump(cfd, up);
                _exit(0);
             }
-            if (!Handshake(cfd, o.token)) _exit(0);
+            if (!Handshake(cfd, o.token, head)) _exit(0);
             WsConn c(cfd);
             RunEngine(c, o);
             _exit(0);
@@ -1283,7 +1347,8 @@ int Serve(Listener& L, const Options& o, int idleMin, bool watchStdin)
       ::unlink(L.sockPath.c_str());
       if (L.madeDir) ::rmdir(L.sockDir.c_str());
    }
-   Log("inSiliScope server: stopped");
+   Log(g_replaced ? "inSiliScope server: stopped -- a new server for the same viewer took over (its command was run again)"
+                  : "inSiliScope server: stopped");
    return 0;
 }
 
@@ -1359,7 +1424,7 @@ int main(int argc, char** argv)
    if (watchStdin && (::isatty(0) || ::lseek(0, 0, SEEK_CUR) >= 0)) watchStdin = false;
    Listener L;
    std::string err;
-   if (!(mode == "socket" ? ListenUnix(sock, L, err) : ListenTcp(listen, L, err)))
+   if (!(mode == "socket" ? ListenUnix(sock, o.token, L, err) : ListenTcp(listen, L, err)))
    {
       std::fprintf(stderr, "insiliscope_server: %s\n", err.c_str());
       return 1;

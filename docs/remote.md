@@ -127,7 +127,9 @@ the browser; a live view keeps running from where it was (the sample's light so 
 also stops by itself.
 
 The command is the same every time on this computer (its socket name and token are kept in the browser), so you can
-keep it in a script or a terminal profile. **Run it again** after it stopped and the viewer reconnects by itself.
+keep it in a script or a terminal profile. **Run it again** after it stopped and the viewer reconnects by itself. If
+the old server is still running on the server (its window closed while the connection had dropped), the new one stops
+it and takes over.
 
 ## A viewer that is not a release
 
@@ -226,6 +228,7 @@ scp isc-server:run.tif .
 | *Not used: the server is another version* | The command in the box asks for your viewer's version: copy it again (an old command asks for an old version). |
 | The connection dropped | The viewer went on in the browser. Run the command again; the viewer reconnects by itself. |
 | `cannot download` | The server has no internet: see [Servers without internet](#servers-without-internet). |
+| `another inSiliScope server is already serving … for another viewer` | A server started from another browser or computer uses the same socket: close its window, or run `ssh isc-server 'pkill -u $USER insiliscope_ser'` (it stops all your inSiliScope servers there). |
 | `no dev build in …/dev` | Your viewer isn't a release: build the server first, see [A viewer that is not a release](#a-viewer-that-is-not-a-release). |
 
 ### Example: TU Delft ImPhys servers

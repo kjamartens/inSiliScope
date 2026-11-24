@@ -213,7 +213,7 @@ case "$CMD" in
       [ $((waited % 30)) -eq 0 ] && say "inSiliScope: waiting for the job to start ($waited s)"
     done
     set -- $(cat "$ann")
-    "$bin" --socket "$SOCKET" --relay "$1:$2" --idle-exit 0
+    "$bin" --socket "$SOCKET" --relay "$1:$2" --token "$TOKEN" --idle-exit 0
     ;;
   stdio)
     dir=$(install) || exit 1
