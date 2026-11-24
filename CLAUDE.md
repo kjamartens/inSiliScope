@@ -287,7 +287,8 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   worker (`rebindEngines`, its jobs re-sent) and the live worker (`L.rebind`: `L.log` replayed); `bfSplitWanted` off
   while remote. Launcher `tools/remote.sh` (POSIX sh, LF only: `.gitattributes`): check, install
   (`--from`), serve (`--run-through 'srun ...'`: the server in the job on TCP, a relay on the socket), stdio, render,
-  uninstall; versions in `~/.local/share/insiliscope/<tag>` (`ISC_REMOTE_HOME`), the last three kept, release asset
+  build (`--ref`: the source from codeload built as version dev, for a page that is no release, its box shows the
+  command; CMake 3.30.5 fetched when the system has none of 3.20+), uninstall; versions in `~/.local/share/insiliscope/<tag>` (`ISC_REMOTE_HOME`), the last three kept, release asset
   `insiliscope-server-linux-x86_64.tar.gz` (+ `.sha256`); glibc 2.28+. Checks: `tests/remote/server_check.mjs` (every
   job = the viewer module byte for byte, ~4 s), `tests/remote/launcher_check.py` (~3 s, Linux), `tests/web/viewer_remote.mjs`
   (browser, ~8 s; `--server="wsl -d Ubuntu -- <path>"` on Windows). Not yet: Micro-Manager, the world view's cell

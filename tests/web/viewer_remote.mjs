@@ -60,6 +60,10 @@ await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, he
   check(cmd.startsWith(`ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L ${port}:/tmp/isc-abcd1234/s isc-test "`) &&
     new RegExp(` serve --version \\S+ --socket /tmp/isc-abcd1234/s --token ${token}"$`).test(cmd) && !/[$\\]/.test(cmd),
     `the box's command: ${cmd}`);
+  // a page that is not a release (this one) asks for dev and shows the build command first
+  const bcmd = await page.evaluate(() => { const e = document.getElementById('rmBuildCmd'); return e ? e.value : ''; });
+  check(/ serve --version dev /.test(cmd) && bcmd.startsWith('ssh isc-test "') && / build --ref \S+"$/.test(bcmd) && !/[$\\]/.test(bcmd),
+    `the build command of a dev page: ${bcmd}`);
   await page.evaluate(() => document.getElementById('rmClose').click());
 
   await page.evaluate(() => { const s = document.getElementById('mv_size'); s.value = 64; s.dispatchEvent(new Event('input', { bubbles: true })); });

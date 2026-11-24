@@ -30,22 +30,31 @@
   // The launcher comes from the repository at this page's release tag (a version's launcher with its version), else
   // at the commit the site was built from, else main (a local checkout); localStorage isc.remote.ref sets another
   // (a branch under test), isc.remote.script a whole URL or a path on the server.
-  function scriptUrl() {
+  function refOf() {
     const b = self.ISC_BUILD || {};
-    let ref = b.release || b.commit || 'main', script = '';
-    try { ref = localStorage.getItem('isc.remote.ref') || ref; script = localStorage.getItem('isc.remote.script') || ''; } catch (e) { /* default */ }
-    return script || `${REPO}/${ref}/tools/remote.sh`;
+    let ref = b.release || b.commit || 'main';
+    try { ref = localStorage.getItem('isc.remote.ref') || ref; } catch (e) { /* default */ }
+    return ref;
   }
+  function scriptUrl() {
+    let script = '';
+    try { script = localStorage.getItem('isc.remote.script') || ''; } catch (e) { /* default */ }
+    return script || `${REPO}/${refOf()}/tools/remote.sh`;
+  }
+  const hostOf = () => (cfg.server || '').trim().replace(/["'\s]/g, '') || 'isc-server';
+  function launcher() {
+    const script = scriptUrl(), f = '~/.isc-remote.sh';
+    return /^https?:/.test(script) ? `(curl -fsSL ${script} -o ${f} || wget -qO ${f} ${script}) && sh ${f}` : `sh ${script}`;
+  }
+  // A page that is not a release (a branch, a checkout) has no server to download: the launcher builds one from the
+  // repository's source at the page's ref (once per change), as version dev.
+  const buildCommand = () => `ssh ${hostOf()} "${launcher()} build --ref ${refOf()}"`;
   function command() {
-    const script = scriptUrl();
-    const f = '~/.isc-remote.sh';
     const args = ['serve', '--version', version(), '--socket', sockPath(), '--token', cfg.token];
     if (+cfg.threads > 0) args.push('--threads', String(Math.round(+cfg.threads)));
     const rt = (cfg.runThrough || '').trim().replace(/['"]/g, '');
     if (rt) args.push('--run-through', `'${rt}'`);
-    const get = /^https?:/.test(script) ? `(curl -fsSL ${script} -o ${f} || wget -qO ${f} ${script}) && sh ${f}` : `sh ${script}`;
-    const host = (cfg.server || '').trim().replace(/["'\s]/g, '') || 'isc-server';
-    return `ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L ${+cfg.port || 18765}:${sockPath()} ${host} "${get} ${args.join(' ')}"`;
+    return `ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L ${+cfg.port || 18765}:${sockPath()} ${hostOf()} "${launcher()} ${args.join(' ')}"`;
   }
 
   // ---- the connection ----
@@ -114,6 +123,8 @@
     if (go) go.textContent = cfg.enabled ? 'Stop using it' : 'Use it';
     const cmd = $('rmCmd');
     if (cmd) cmd.value = command();
+    const bc = $('rmBuildCmd');
+    if (bc) bc.value = buildCommand();
     if (self.liveState && self.liveState.showInfo) self.liveState.showInfo();
   }
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -134,6 +145,12 @@
       'title="On a cluster with a job scheduler: the command that starts a job (Slurm\'s srun). The server then runs in that job; the login node only relays."></div>' +
       '<div class="row"><label for="rmPort">Port on this computer</label><input type="number" id="rmPort" min="1024" max="65535" step="1" ' +
       'title="This computer\'s end of the SSH tunnel (127.0.0.1 only)"></div></details>' +
+      (version() === 'dev'
+        ? '<div class="msg" id="rmDev">This viewer is not a release, so there is no server to download: build one on the server ' +
+          'first (a few minutes; again after each change to the viewer), then run the command below.</div>' +
+          '<div class="row"><label for="rmBuildCmd">Build first</label><textarea id="rmBuildCmd" readonly rows="3" spellcheck="false" ' +
+          'title="Run it once in PowerShell (Windows) or a terminal: it builds the server from the source of this viewer\'s version in your home directory on the server (needs a C++ compiler there)"></textarea></div>'
+        : '') +
       '<div class="row"><label for="rmCmd">Command</label><textarea id="rmCmd" readonly rows="4" spellcheck="false" ' +
       'title="Run it in PowerShell (Windows) or a terminal (macOS, Linux) and leave the window open: closing it stops the server"></textarea></div>' +
       '<div class="row"><span class="sp"></span><button id="rmCopy">Copy the command</button></div>' +

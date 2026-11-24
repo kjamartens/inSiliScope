@@ -129,6 +129,28 @@ also stops by itself.
 The command is the same every time on this computer (its socket name and token are kept in the browser), so you can
 keep it in a script or a terminal profile. **Run it again** after it stopped and the viewer reconnects by itself.
 
+## A viewer that is not a release
+
+The server downloads the inSiliScope of a **release** (the published viewer at a version tag). A viewer that isn't a
+release, such as a branch under test or your own checkout, asks for the version `dev`. There is nothing to download for
+`dev`, so `serve` stops with `no dev build`. In that case, build the server on the server from the repository's source
+once, before you run the box's command. You need no admin rights for this, but the server needs a C++ compiler
+(`g++`) and `make`; most Linux servers have both.
+
+1. The Remote server box shows the build command under **Build first** (the ref is the viewer's branch or commit), for
+   example:
+   ```powershell
+   ssh isc-server "(curl -fsSL https://raw.githubusercontent.com/kjamartens/inSiliScope/remote-server/tools/remote.sh -o ~/.isc-remote.sh || wget -qO ~/.isc-remote.sh https://raw.githubusercontent.com/kjamartens/inSiliScope/remote-server/tools/remote.sh) && sh ~/.isc-remote.sh build --ref remote-server"
+   ```
+   It downloads the source at that branch, tag or commit and builds the server in `~/.local/share/insiliscope/dev`.
+   This takes a few minutes. If the server has no CMake 3.20 or newer, the build fetches one into the same folder
+   first. It ends with `dev (remote-server) built and installed`.
+2. Then run the box's **Command** as in [Use it from the viewer](#use-it-from-the-viewer), point 3.
+
+Build again after the branch changes: `dev` is whatever you built last. A viewer served from your own checkout
+fetches the launcher from `main`. To use another branch's launcher, set it in the browser's console (F12):
+`localStorage.setItem('isc.remote.ref', 'remote-server')`, then reopen the box.
+
 ## Clusters with a job scheduler (Slurm)
 
 On a cluster the login node is for logging in, not for computing. Let inSiliScope run in a job: in the box's
@@ -204,6 +226,7 @@ scp isc-server:run.tif .
 | *Not used: the server is another version* | The command in the box asks for your viewer's version: copy it again (an old command asks for an old version). |
 | The connection dropped | The viewer went on in the browser. Run the command again; the viewer reconnects by itself. |
 | `cannot download` | The server has no internet: see [Servers without internet](#servers-without-internet). |
+| `no dev build in …/dev` | Your viewer isn't a release: build the server first, see [A viewer that is not a release](#a-viewer-that-is-not-a-release). |
 
 ### Example: TU Delft ImPhys servers
 

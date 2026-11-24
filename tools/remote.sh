@@ -8,6 +8,8 @@
 #   sh remote.sh stdio --version v0.2.0      one client on stdin/stdout (Micro-Manager)
 #   sh remote.sh render --version v0.2.0 < run.isc.json > run.tif
 #   sh remote.sh install --version v0.2.0 [--from insiliscope-server-linux-x86_64.tar.gz]
+#   sh remote.sh build --ref main            build the server from the repository's source as version dev (a viewer
+#                                            that is not a release: a branch, a checkout); needs a C++ compiler
 #   sh remote.sh uninstall
 # Versions live in ~/.local/share/insiliscope/<version>/ (the last three used are kept; ISC_REMOTE_HOME moves it).
 set -u
@@ -22,10 +24,12 @@ die() { say "inSiliScope: $*"; exit 1; }
 
 CMD=${1:-help}
 [ $# -gt 0 ] && shift
-VERSION=latest THREADS= SOCKET= TOKEN= IDLE=30 FROM= RUN_THROUGH= MEMORY= OUT=
+VERSION=latest THREADS= SOCKET= TOKEN= IDLE=30 FROM= RUN_THROUGH= MEMORY= OUT= REF=main SRC=
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION=$2; shift 2 ;;
+    --ref) REF=$2; shift 2 ;;
+    --source) SRC=$2; shift 2 ;;
     --threads) THREADS=$2; shift 2 ;;
     --socket) SOCKET=$2; shift 2 ;;
     --token) TOKEN=$2; shift 2 ;;
@@ -90,7 +94,7 @@ install() { # -> prints the version's directory
   if [ "$tag" != latest ] && [ -x "$PREFIX/$tag/bin/insiliscope_server" ]; then
     touch "$PREFIX/$tag"; echo "$PREFIX/$tag"; return 0
   fi
-  [ "$tag" = dev ] && die "no dev build in $PREFIX/dev (install one: sh remote.sh install --version dev --from <tarball>)"
+  [ "$tag" = dev ] && die "no dev build in $PREFIX/dev: this viewer is not a release. Build the server from the source first (a few minutes, once per change): sh ~/.isc-remote.sh build --ref <the viewer's branch or commit> (docs/remote.md, 'A viewer that is not a release')"
   if [ "$tag" = latest ]; then url="https://github.com/$REPO/releases/latest/download/$ASSET"
   else url="https://github.com/$REPO/releases/download/$tag/$ASSET"; fi
   say "inSiliScope: downloading $tag ... (first time only)"
@@ -105,6 +109,54 @@ install() { # -> prints the version's directory
   prune
   say "inSiliScope: $t installed in $PREFIX/$t"
   echo "$PREFIX/$t"
+}
+CMAKE_V=3.30.5
+cmake_bin() { # a cmake of 3.20 or newer: the system's, else Kitware's x86-64 build fetched into $PREFIX/.cmake
+  if command -v cmake >/dev/null 2>&1; then
+    v=$(cmake --version | awk 'NR==1 {print $3}')
+    older "$v" 3.20 || { echo cmake; return 0; }
+  fi
+  c="$PREFIX/.cmake/cmake-$CMAKE_V-linux-x86_64/bin/cmake"
+  if [ ! -x "$c" ]; then
+    say "inSiliScope: fetching cmake $CMAKE_V (the system has none of 3.20 or newer) ..."
+    mkdir -p "$PREFIX/.cmake" || die "cannot write $PREFIX"
+    t="$PREFIX/.cmake/cmake.tar.gz"
+    fetch "https://github.com/Kitware/CMake/releases/download/v$CMAKE_V/cmake-$CMAKE_V-linux-x86_64.tar.gz" "$t" || die "cannot download cmake"
+    tar xzf "$t" -C "$PREFIX/.cmake" || die "cannot unpack cmake"
+    rm -f "$t"
+  fi
+  echo "$c"
+}
+build() { # the repository's source at --ref (or a checkout, --source DIR) -> $PREFIX/dev
+  platform
+  command -v c++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1 || die "no C++ compiler (g++) here: ask your IT department, or use a release viewer"
+  command -v make >/dev/null 2>&1 || command -v ninja >/dev/null 2>&1 || die "no make here: ask your IT department, or use a release viewer"
+  cm=$(cmake_bin) || exit 1
+  w="$PREFIX/.build"
+  mkdir -p "$w" || die "cannot write $PREFIX"
+  if [ -z "$SRC" ]; then
+    say "inSiliScope: downloading the source of $REPO at $REF ..."
+    rm -rf "$w/src" "$w/src.tar.gz"; mkdir -p "$w/src"
+    fetch "https://codeload.github.com/$REPO/tar.gz/$REF" "$w/src.tar.gz" || die "cannot download the source at '$REF' (a branch, tag or commit of $REPO)"
+    tar xzf "$w/src.tar.gz" -C "$w/src" --strip-components=1 || die "cannot unpack the source"
+    rm -f "$w/src.tar.gz"
+    SRC="$w/src"
+  fi
+  [ -f "$SRC/cli/remote_server.cpp" ] || die "$SRC has no cli/remote_server.cpp (a source from before the remote server?)"
+  j=$(cpus); [ "$j" -gt 32 ] && j=32
+  say "inSiliScope: building the server ($j jobs; a few minutes) ..."
+  log="$w/build.log"
+  { "$cm" -S "$SRC" -B "$w/out" -DCMAKE_BUILD_TYPE=Release -DISC_BUILD_TESTS=OFF &&
+    "$cm" --build "$w/out" --target insiliscope_server insiliscope_cli -j "$j"; } >"$log" 2>&1 ||
+    { tail -n 30 "$log" >&2; die "the build failed (the whole log: $log)"; }
+  d="$PREFIX/.dev-$$"
+  rm -rf "$d"; mkdir -p "$d/bin"
+  cp "$w/out/cli/insiliscope_server" "$w/out/cli/insiliscope_cli" "$d/bin/" || die "the build made no server"
+  echo "dev ($REF)" > "$d/VERSION"
+  "$d/bin/insiliscope_server" --version >/dev/null 2>&1 || { rm -rf "$d"; die "the built server does not run"; }
+  rm -rf "$PREFIX/dev"; mv "$d" "$PREFIX/dev"
+  rm -rf "$w"
+  say "inSiliScope: dev ($REF) built and installed in $PREFIX/dev"
 }
 threads() { # the threads per engine: --threads, else half the CPUs
   if [ -n "$THREADS" ]; then echo "$THREADS"; else n=$(cpus); n=$((n / 2)); [ "$n" -lt 1 ] && n=1; echo "$n"; fi
@@ -130,6 +182,9 @@ case "$CMD" in
     ;;
   install)
     install >/dev/null && say "inSiliScope: ready"
+    ;;
+  build)
+    build
     ;;
   serve)
     [ -n "$SOCKET" ] || die "serve needs --socket PATH"
