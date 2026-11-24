@@ -142,6 +142,9 @@
     <ClCompile Include="Simulation\WidefieldGpuD3D11.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\WidefieldGpuHost.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\core\src\capi.cpp">
       <Filter>Core</Filter>
     </ClCompile>
@@ -322,6 +325,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\WidefieldGpuD3D11.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\WidefieldGpuHost.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\WidefieldGpuHlsl.inc">

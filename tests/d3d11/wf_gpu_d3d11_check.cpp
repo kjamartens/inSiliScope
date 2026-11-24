@@ -6,7 +6,16 @@
 //   Windows: ctest wf_gpu_d3d11 (skipped -- exit code 77, SKIP_RETURN_CODE -- when there is no hardware
 //            Direct3D 11 device).
 //   Linux:   tools/wine_wf_gpu_check.sh (mingw-w64 + Wine + Mesa lavapipe).
+// Built with ISC_WEBGPU_CHECK it checks the native WebGPU host instead (Simulation/WidefieldGpuWebGpu, the Linux
+// server's): ctest wf_gpu_webgpu, skipped without wgpu-native and a hardware adapter (ISC_WGPU_LIB=<.so>,
+// ISC_GPU_ALLOW_CPU=1 for Mesa lavapipe).
+#ifdef ISC_WEBGPU_CHECK
+#include "WidefieldGpuWebGpu.h"
+using GpuHost = sim::WidefieldGpuWebGpu;
+#else
 #include "WidefieldGpuD3D11.h"
+using GpuHost = sim::WidefieldGpuD3D11;
+#endif
 #include "SampleSource.h"
 #include "insiliscope/insiliscope.h"
 #include <chrono>
@@ -18,9 +27,9 @@ static double rms(const WidefieldImages& a, const WidefieldImages& b) {
   double e=0,s=0; auto acc=[&](const std::vector<float>& x,const std::vector<float>& y){ for(size_t i=0;i<x.size()&&i<y.size();i++){double d=x[i]-y[i]; e+=d*d; s+=y[i]*(double)y[i];} };
   acc(a.persistent,b.persistent); for(size_t j=0;j<a.bleach.size()&&j<b.bleach.size();j++) acc(a.bleach[j],b.bleach[j]); return s>0?std::sqrt(e/s):-1; }
 int main() {
-  std::string info; auto gpu = WidefieldGpuD3D11::Create(info);
+  std::string info; auto gpu = GpuHost::Create(info);
   std::printf("create: %s %s\n", gpu ? "OK" : "unavailable", info.c_str());
-  if (!gpu) { std::printf("no usable Direct3D 11 device: skipped\n"); return 77; }
+  if (!gpu) { std::printf("no usable GPU: skipped\n"); return 77; }
   SampleSource src; SampleSettings cf; cf.seed = 42 ^ 0x43454C4Cu; std::string err;
   cf.labels = { MakeLabelVector(ISC_MODE_PALM, 0.6, 1, 0.01, 0.05, 1, 1, 0.5) };
   src.Configure(cf, err);

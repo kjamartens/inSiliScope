@@ -21,6 +21,7 @@
 #include "scope_probes.h"
 #include "settings_file.h"
 #include "tiff_writer.h"
+#include "gpu_select.h"
 #include "insiliscope/version.h"
 
 #include <algorithm>
@@ -56,6 +57,8 @@ void Usage()
                "                         instrument, settings, sample, measurement; all but view by default), later\n"
                "                         files and options override; a measurement with a light history renders the\n"
                "                         live sample's next frames after that history (docs/dev/SAVE_SETTINGS.md)\n"
+               "  --gpu auto|off         WideField mean-field scenes on the GPU (native WebGPU on Linux; default off,\n"
+               "                         or $ISC_GPU; frames then differ from the CPU's by float rounding)\n"
                "  --p.<name> <value>     any core world parameter (the prototype's names)\n"
                "  --zern.<j> <waves>     Zernike coefficient j (0-27), replacing the preset's\n"
                "  --mt-dye.<field> <v>   override a field of the microtubules' dye (fluorescent-pct, qy, ext-coeff,\n"
@@ -149,6 +152,11 @@ int RunCli(int argc, char** argv)
       if (a == "--estimate" && i + 1 < argc) { estimate = std::atof(argv[++i]) != 0; continue; }
       if (a == "--bigtiff" && i + 1 < argc) { bigTiff = std::atof(argv[++i]) != 0; continue; }
       if (a == "--strip-rows" && i + 1 < argc) { stripRowsArg = std::atol(argv[++i]); continue; }
+      if (a == "--gpu" && i + 1 < argc) {
+         std::string e;
+         if (!isc_gpu::Select(argv[++i], "off", e)) { std::fprintf(stderr, "%s\n", e.c_str()); return 2; }
+         continue;
+      }
       if (a == "--gt-volume" && i + 1 < argc) {
          if (!ParseList(argv[++i], gtVol, 2)) { std::fprintf(stderr, "--gt-volume needs 2 comma-separated numbers\n"); return 2; }
          continue;
@@ -602,6 +610,9 @@ int Serve()
 
 int main(int argc, char** argv)
 {
+   std::string gpuErr;
+   if (!isc_gpu::Select("", "off", gpuErr))   // ($ISC_GPU; --gpu overrides)
+      std::fprintf(stderr, "ISC_GPU: %s\n", gpuErr.c_str());
    if (argc == 2 && std::string(argv[1]) == "--serve") return Serve();
    return RunCliGuarded(argc, argv);
 }

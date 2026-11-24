@@ -146,6 +146,7 @@
     <ClCompile Include="Simulation\BrightfieldLive.cpp" />
     <ClCompile Include="Simulation\WidefieldRender.cpp" />
     <ClCompile Include="Simulation\WidefieldGpuD3D11.cpp" />
+    <ClCompile Include="Simulation\WidefieldGpuHost.cpp" />
     <ClCompile Include="..\..\core\src\blockstore.cpp" />
     <ClCompile Include="..\..\core\src\capi.cpp" />
     <ClCompile Include="..\..\core\src\cells.cpp" />
@@ -219,6 +220,7 @@
     <ClInclude Include="Simulation\BrightfieldLive.h" />
     <ClInclude Include="Simulation\WidefieldRender.h" />
     <ClInclude Include="Simulation\WidefieldGpuD3D11.h" />
+    <ClInclude Include="Simulation\WidefieldGpuHost.h" />
     <ClInclude Include="Simulation\WidefieldGpuHlsl.inc" />
     <ClInclude Include="..\..\core\include\insiliscope\insiliscope.h" />
     <ClInclude Include="..\..\core\src\cells.h" />

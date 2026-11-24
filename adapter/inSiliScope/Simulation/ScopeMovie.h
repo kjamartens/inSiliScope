@@ -370,6 +370,15 @@ void SetLiveAsyncBasis(bool on);
 // per rect and every structure's windows, as before (ctest live_scope compares the two).
 void SetScopeShortcuts(bool on);
 bool ScopeShortcuts();
+// A process-wide GPU host for the mean-field scenes of the movies begun without one and not in GPU mode (the native
+// cli's and server's: WidefieldGpuWebGpu, docs/remote.md "GPU"): made by make on its first use, once, in the process
+// that uses it (the server forks per connection: each child makes its own). make returns nullptr (info = why) when
+// there is none; the CPU renders then. Unset (the default; the adapter, the viewer's module): the CPU, as before.
+// GPU images differ from the CPU's by float rounding (within 1e-3 rms, the host's self-check).
+void SetDefaultWidefieldAccelerator(std::function<std::unique_ptr<WidefieldAccelerator>(std::string& info)> make);
+WidefieldAccelerator* DefaultWidefieldAccelerator();
+// "" before its first use; else the host's name, or why there is none.
+std::string DefaultWidefieldAcceleratorInfo();
 // Live dye counts: the dye index made ahead on a thread of its own (native builds); hosts that unload join it here.
 void DyeIndexPrefetchShutdown();
 class MemoryReport;

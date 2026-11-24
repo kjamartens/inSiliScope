@@ -4671,6 +4671,8 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // deferred, every state kept its spectra for the host, and the CPU's images of 13-15 states passed the 2 GB heap.
    const bool patterned = S.excite.Patterned();
    const bool cpuScene = shifts || slot.accelTooBig || patterned;   // (an accelerator the scene does not use)
+   if (!accel && !gpuMode && !cpuScene)
+      accel = DefaultWidefieldAccelerator();   // (the native cli's and server's, when set; made on its first use)
    const bool sceneGpu = (gpuMode && !patterned) || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {
@@ -5462,6 +5464,53 @@ bool ScopeShortcuts()
 void SetLiveAsyncBasis(bool on)
 {
    g_liveAsyncBasis = on;
+}
+
+namespace {
+struct DefaultAccel
+{
+   std::mutex mu;
+   std::function<std::unique_ptr<WidefieldAccelerator>(std::string&)> make;
+   std::unique_ptr<WidefieldAccelerator> accel;
+   std::string info;
+   bool tried = false;
+   static DefaultAccel& Get()
+   {
+      static DefaultAccel* d = new DefaultAccel;   // (never destroyed: a GPU host torn down at exit may hang a driver)
+      return *d;
+   }
+};
+} // namespace
+
+void SetDefaultWidefieldAccelerator(std::function<std::unique_ptr<WidefieldAccelerator>(std::string& info)> make)
+{
+   DefaultAccel& d = DefaultAccel::Get();
+   std::lock_guard<std::mutex> lock(d.mu);
+   d.make = std::move(make);
+   d.accel.reset();
+   d.info.clear();
+   d.tried = false;
+}
+
+WidefieldAccelerator* DefaultWidefieldAccelerator()
+{
+   DefaultAccel& d = DefaultAccel::Get();
+   std::lock_guard<std::mutex> lock(d.mu);
+   if (!d.tried && d.make)
+   {
+      d.tried = true;
+      const auto t = TimingClock::now();
+      d.accel = d.make(d.info);
+      TimingLog("gpu.create", TimingSince(t), d.info.c_str());
+   }
+   return d.accel.get();
+}
+
+std::string DefaultWidefieldAcceleratorInfo()
+{
+   DefaultAccel& d = DefaultAccel::Get();
+   std::lock_guard<std::mutex> lock(d.mu);
+   return d.info;
 }
 
 void SetBackgroundMapPrefetch(bool on)
