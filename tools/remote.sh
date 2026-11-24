@@ -4,7 +4,7 @@
 # inSiliScope server of the version you ask for in your home directory (no admin rights, nothing else needed) and runs
 # it. The viewer's Remote server… box and Micro-Manager give the command; you can also run it by hand:
 #   sh remote.sh check                       what this machine has (writes nothing)
-#   sh remote.sh serve --version v0.2.0 --socket /tmp/isc-ab12cd34/s --token T [--threads N] [--gpu auto|off] [--run-through 'srun ...']
+#   sh remote.sh serve --version v0.2.0 --socket /tmp/isc-ab12cd34/s --token T [--threads N] [--run-through 'srun ...']
 #   sh remote.sh stdio --version v0.2.0      one client on stdin/stdout (Micro-Manager)
 #   sh remote.sh render --version v0.2.0 < run.isc.json > run.tif
 #   sh remote.sh install --version v0.2.0 [--from insiliscope-server-linux-x86_64.tar.gz]
@@ -24,14 +24,13 @@ die() { say "inSiliScope: $*"; exit 1; }
 
 CMD=${1:-help}
 [ $# -gt 0 ] && shift
-VERSION=latest GPU= THREADS= SOCKET= TOKEN= IDLE=30 FROM= RUN_THROUGH= MEMORY= OUT= REF=main SRC=
+VERSION=latest THREADS= SOCKET= TOKEN= IDLE=30 FROM= RUN_THROUGH= MEMORY= OUT= REF=main SRC=
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) VERSION=$2; shift 2 ;;
     --ref) REF=$2; shift 2 ;;
     --source) SRC=$2; shift 2 ;;
     --threads) THREADS=$2; shift 2 ;;
-    --gpu) GPU=$2; shift 2 ;;
     --socket) SOCKET=$2; shift 2 ;;
     --token) TOKEN=$2; shift 2 ;;
     --idle-exit) IDLE=$2; shift 2 ;;
@@ -128,23 +127,6 @@ cmake_bin() { # a cmake of 3.20 or newer: the system's, else Kitware's x86-64 bu
   fi
   echo "$c"
 }
-WGPU_V=v29.0.1.1
-WGPU_SHA=95a4d90c071005a98d03eab348beaa6b07e16eb00d1dcdb9f8348f75eb97ec5a
-wgpu() { # wgpu-native's library into $1 (a release tarball carries it): the GPU; none fetched: the CPU, said
-  mkdir -p "$1" || return 0
-  z="$1/.wgpu.zip"
-  if fetch "https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_V/wgpu-linux-x86_64-release.zip" "$z" 2>/dev/null &&
-     { ! command -v sha256sum >/dev/null 2>&1 || [ "$(sha256sum "$z" | awk '{print $1}')" = "$WGPU_SHA" ]; } &&
-     { (command -v unzip >/dev/null 2>&1 && unzip -p "$z" lib/libwgpu_native.so > "$1/libwgpu_native.so") ||
-       (command -v python3 >/dev/null 2>&1 && python3 -c "import sys,zipfile,shutil; shutil.copyfileobj(zipfile.ZipFile(sys.argv[1]).open('lib/libwgpu_native.so'), open(sys.argv[2],'wb'))" "$z" "$1/libwgpu_native.so"); } &&
-     [ -s "$1/libwgpu_native.so" ]; then
-    for f in LICENSE.APACHE LICENSE.MIT; do fetch "https://raw.githubusercontent.com/gfx-rs/wgpu-native/$WGPU_V/$f" "$1/wgpu-native-$f" 2>/dev/null; done
-  else
-    rm -f "$1/libwgpu_native.so"
-    say "inSiliScope: no wgpu-native library fetched (the GPU needs it; the CPU renders)"
-  fi
-  rm -f "$z"
-}
 build() { # the repository's source at --ref (or a checkout, --source DIR) -> $PREFIX/dev
   platform
   command -v c++ >/dev/null 2>&1 || command -v g++ >/dev/null 2>&1 || die "no C++ compiler (g++) here: ask your IT department, or use a release viewer"
@@ -172,7 +154,6 @@ build() { # the repository's source at --ref (or a checkout, --source DIR) -> $P
   cp "$w/out/cli/insiliscope_server" "$w/out/cli/insiliscope_cli" "$d/bin/" || die "the build made no server"
   cp "$w/out/cli/live_bench" "$d/bin/" 2>/dev/null   # (the live speed of a scene: tests/remote/hpc_check.sh)
   echo "dev ($REF)" > "$d/VERSION"
-  wgpu "$d/lib"
   "$d/bin/insiliscope_server" --version >/dev/null 2>&1 || { rm -rf "$d"; die "the built server does not run"; }
   rm -rf "$PREFIX/dev"; mv "$d" "$PREFIX/dev"
   rm -rf "$w"
@@ -195,10 +176,6 @@ case "$CMD" in
        (command -v wget >/dev/null 2>&1 && wget -q --spider --timeout=10 https://github.com 2>/dev/null); then
       printf '  internet    github.com reachable\n'
     else printf '  internet    github.com NOT reachable: install by hand (docs/remote.md)\n'; fi
-    if command -v nvidia-smi >/dev/null 2>&1 && g=$(nvidia-smi -L 2>/dev/null | head -n1) && [ -n "$g" ]; then
-      printf '  GPU         %s\n' "$g"
-    elif ls /dev/dri/renderD* >/dev/null 2>&1; then printf '  GPU         a GPU device (/dev/dri): the server says at its start whether it uses it\n'
-    else printf '  GPU         none found here (the CPU renders; a cluster: see GPU in docs/remote.md)\n'; fi
     s=none; for c in srun sbatch qsub bsub; do command -v $c >/dev/null 2>&1 && { s=$c; break; }; done
     printf '  scheduler   %s\n' "$( [ "$s" = none ] && echo 'none found (runs directly on this machine)' || echo "$s found: use Run through for heavy work")"
     printf '  installed   %s\n' "$(ls -1 "$PREFIX" 2>/dev/null | grep -v '^\.' | tr '\n' ' ')"
@@ -217,7 +194,6 @@ case "$CMD" in
     bin="$dir/bin/insiliscope_server"
     set -- --token "$TOKEN" --threads "$(threads)" --idle-exit "$IDLE"
     [ -n "$MEMORY" ] && set -- "$@" --memory-gb "$MEMORY"
-    [ -n "$GPU" ] && set -- "$@" --gpu "$GPU"
     if [ -z "$RUN_THROUGH" ]; then
       exec nice -n 10 "$bin" --socket "$SOCKET" "$@"
     fi

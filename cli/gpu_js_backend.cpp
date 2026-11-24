@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The viewer module's GPU for the blink splat + camera noise (2026-11-24): a sim::GpuBackend whose calls go to the
 // worker's WebGPU device (Module.iscGpu, web/splat_gpu.js), so SplatGpuHost (Simulation/SplatGpu.*) runs
-// SplatGpu.wgsl in the browser as it does on the Linux server, with the same emitter records, batches and self-check.
+// SplatGpu.wgsl in the browser, with its emitter records, batches and self-check.
 //
 // The movie stays synchronous (isc_scope_movie, isc_wf_movie, Module.onMovieFrame): WebGPU's mapAsync cannot resolve
 // while the module runs, so the read-back goes through an OffscreenCanvas instead -- the frames' words copied into a

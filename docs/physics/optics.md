@@ -206,8 +206,7 @@ WideField through focus:
 
 A GPU path runs the same WGSL source on WebGPU in the viewer and on Direct3D 11 in the adapter (fp16 plane spectra, noise on the
 GPU), self-checks against the CPU at startup and falls back to the CPU on any failure. The blinks' splat and the camera
-noise of Records and movies run on the GPU too (the adapter's Direct3D 11, a remote server's WebGPU, and since
-2026-11-24 the viewer's WebGPU), within float rounding of the CPU's.
+noise of Records and movies run on the GPU too (the adapter's Direct3D 11, and since 2026-11-24 the viewer's WebGPU), within float rounding of the CPU's.
 
 ## BrightField imaging
 

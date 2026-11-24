@@ -4670,17 +4670,8 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // per plane factor (a state's fringes would be another state's; M4 makes the states resident). In GPU mode (the
    // viewer's WebGPU movie) too (2026-10-31): a state's images made at once and its spectra let go, as live does --
    // deferred, every state kept its spectra for the host, and the CPU's images of 13-15 states passed the 2 GB heap.
-   // A host that keeps many scenes (ManyScenes) took the states too (2026-11-24, ac6e2fb), but it lost on the server:
-   // SIM2D WideField 1024 px 90 frames 10.9 s on 32 cores, 16.0 s with an A40 (a state of ~10 frames makes each frame
-   // from its planes, a round trip per frame). The states stay on the CPU; ManyScenes is kept for a later try.
    const bool patterned = S.excite.Patterned();
-   if (!accel && !gpuMode && !shifts && !slot.accelTooBig)
-      accel = DefaultWidefieldAccelerator();   // (the native cli's and server's, when set; made on its first use)
-   // A live frame of a varying light (nd.progressive below) also stays on the CPU, should a varying light not count as
-   // patterned: its states make their next bleach basis an image per frame (RenderFrameProgressive), which a scene with
-   // an accelerator skips (live SIM on the server's GPU was no faster than its CPU, 2026-11-24).
-   const bool liveStates = varies && cache.live && !p.meanLight && S.N == 1 && !S.freshBasis;
-   const bool cpuScene = shifts || slot.accelTooBig || patterned || liveStates;
+   const bool cpuScene = shifts || slot.accelTooBig || patterned;   // (an accelerator the scene does not use)
    const bool sceneGpu = (gpuMode && !patterned) || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {
@@ -5475,53 +5466,6 @@ void SetLiveAsyncBasis(bool on)
 }
 
 namespace {
-struct DefaultAccel
-{
-   std::mutex mu;
-   std::function<std::unique_ptr<WidefieldAccelerator>(std::string&)> make;
-   std::unique_ptr<WidefieldAccelerator> accel;
-   std::string info;
-   bool tried = false;
-   static DefaultAccel& Get()
-   {
-      static DefaultAccel* d = new DefaultAccel;   // (never destroyed: a GPU host torn down at exit may hang a driver)
-      return *d;
-   }
-};
-} // namespace
-
-void SetDefaultWidefieldAccelerator(std::function<std::unique_ptr<WidefieldAccelerator>(std::string& info)> make)
-{
-   DefaultAccel& d = DefaultAccel::Get();
-   std::lock_guard<std::mutex> lock(d.mu);
-   d.make = std::move(make);
-   d.accel.reset();
-   d.info.clear();
-   d.tried = false;
-}
-
-WidefieldAccelerator* DefaultWidefieldAccelerator()
-{
-   DefaultAccel& d = DefaultAccel::Get();
-   std::lock_guard<std::mutex> lock(d.mu);
-   if (!d.tried && d.make)
-   {
-      d.tried = true;
-      const auto t = TimingClock::now();
-      d.accel = d.make(d.info);
-      TimingLog("gpu.create", TimingSince(t), d.info.c_str());
-   }
-   return d.accel.get();
-}
-
-std::string DefaultWidefieldAcceleratorInfo()
-{
-   DefaultAccel& d = DefaultAccel::Get();
-   std::lock_guard<std::mutex> lock(d.mu);
-   return d.info;
-}
-
-namespace {
 struct DefaultSplat
 {
    std::mutex mu;
@@ -5531,7 +5475,7 @@ struct DefaultSplat
    bool tried = false;
    static DefaultSplat& Get()
    {
-      static DefaultSplat* d = new DefaultSplat;   // (never destroyed, as DefaultAccel)
+      static DefaultSplat* d = new DefaultSplat;   // (never destroyed: a GPU host torn down at exit may hang a driver)
       return *d;
    }
 };
@@ -6997,7 +6941,7 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    const long cores = std::max(1L, static_cast<long>(std::thread::hardware_concurrency()));
 #endif
    const bool popsOnly = opt.populationsOnly && opt.onPhotons;
-   // The blink splat and the camera noise on the GPU (the native cli's and server's, SetDefaultBlinkSplatGpu; a movie
+   // The blink splat and the camera noise on the GPU (the viewer's WebGPU, SetDefaultBlinkSplatGpu; a movie
    // that applies its own noise, without the ground truth): each frame's splatted blinks of the groups with a
    // diffraction kernel (up to SplatGpuHost::kMaxKernels) go as emitter records, the rest of its light is drawn here as
    // before and goes along as the frame's extra image (no blinks: the noise alone). Frames within float32 rounding of

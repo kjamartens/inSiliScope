@@ -160,8 +160,8 @@ through it step by step.
   blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
   frame of each batch is shown, and clicking ● Record again stops early and keeps the frames so far.
   **On the GPU:** in a browser with WebGPU (Chrome, Edge; others as they add it), a fresh sample's Record (and the
-  movies) splats its dSTORM, PALM and DNA-PAINT blinks and draws the camera noise on the graphics card, with the same
-  shader a [remote server](remote.md#gpu)'s GPU runs; WideField dye planes' images were on it already. The frames
+  movies) splats its dSTORM, PALM and DNA-PAINT blinks and draws the camera noise on the graphics card (WideField dye
+  planes' images were on it already). The frames
   differ from the CPU's by float rounding (about 3 samples in 10000 a count apart); at 256 × 256 px a DNA-PAINT Record
   is about 4x faster (measured in a 40-frame movie; the first one in a tab also compiles the shader, ~2.5 s, which
   the page starts doing as it opens). Live frames, ground truth, BrightField and a
@@ -258,8 +258,7 @@ through it step by step.
 - **A remote server.** ☰ › **Remote server…** has a Linux machine you log in to with ssh (an analysis server, a
   cluster) do the computing: live, Records, movies and ground truth (or Records, movies and ground truth only). The box
   gives one `ssh` command to run in a terminal and leave open; the page connects by itself, the menu and the live
-  info line name the server, and frames are the same as the browser's, byte for byte (on a server's GPU: up to
-  float rounding). When the server goes, the
+  info line name the server, and frames are the same as the browser's, byte for byte. When the server goes, the
   viewer goes on in the browser, the live sample where it was. No admin rights or installing: see
   [Run inSiliScope on a remote Linux server](remote.md).
 - **A Micro-Manager configuration.** **Micro-Manager .cfg…** in the same section of the ☰ menu saves `<name>.cfg`:

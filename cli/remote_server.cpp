@@ -14,7 +14,6 @@
 //   --listen HOST:PORT the same on TCP (a token is required)
 // Each WebSocket connection is a process of its own (fork), as each browser worker is an engine of its own; closing
 // the connection (a worker terminated: a Record cancelled) ends it at once.
-#include "gpu_select.h"
 #include "json_lite.h"
 #include "module_hooks.h"
 
@@ -630,38 +629,7 @@ struct Options
 {
    int threads = 0;   // 0: all
    std::string token;
-   std::string gpu;   // the GPU the engines use (ProbeGpu), or why none: the hello's "gpu"
 };
-
-// The GPU (--gpu auto): made once in a child of its own, so the listener never holds a device across its forks; each
-// connection's engine makes its own on first use (sim::DefaultWidefieldAccelerator). ok: one was made.
-std::string ProbeGpu(bool& ok)
-{
-   ok = false;
-   int fd[2];
-   if (::pipe(fd) != 0) return "no probe (pipe)";
-   const pid_t p = ::fork();
-   if (p < 0) { ::close(fd[0]); ::close(fd[1]); return "no probe (fork)"; }
-   if (p == 0)
-   {
-      ::close(fd[0]);
-      std::string info;
-      const bool made = isc_gpu::Probe(info);
-      const std::string s = (made ? "1" : "0") + info;
-      (void)!::write(fd[1], s.data(), s.size());
-      ::_exit(0);
-   }
-   ::close(fd[1]);
-   std::string s;
-   char buf[512];
-   for (ssize_t n; (n = ::read(fd[0], buf, sizeof buf)) > 0;) s.append(buf, static_cast<size_t>(n));
-   ::close(fd[0]);
-   int st = 0;
-   ::waitpid(p, &st, 0);
-   if (s.empty()) return "the GPU probe stopped (" + std::to_string(WIFSIGNALED(st) ? WTERMSIG(st) : WEXITSTATUS(st)) + ")";
-   ok = s[0] == '1';
-   return s.substr(1);
-}
 
 class Engine
 {
@@ -728,8 +696,7 @@ private:
       o.Num("protocol", kProtocol).Str("version", ISC_VERSION).Str("commit", ISC_SERVER_COMMIT)
          .Num("abi", isc_abi_version()).Str("world", isc_world_version()).Str("host", host)
          .Num("cpus", std::thread::hardware_concurrency()).Num("threads", o_.threads > 0 ? o_.threads : std::thread::hardware_concurrency())
-         .Num("memGB", pages > 0 && psize > 0 ? static_cast<double>(pages) * psize / 1073741824.0 : 0)
-         .Str("gpu", o_.gpu);
+         .Num("memGB", pages > 0 && psize > 0 ? static_cast<double>(pages) * psize / 1073741824.0 : 0);
       (void)m;
       c_.Send(o);
    }
@@ -1394,8 +1361,6 @@ void Usage()
                 "  --listen HOST:PORT      serve WebSocket connections on TCP (needs --token)\n"
                 "  --token T               connections must give ?t=T\n"
                 "  --threads N             threads per engine (default: all)\n"
-                "  --gpu auto|off          the GPU when there is one (native WebGPU on Vulkan): WideField, blinks, noise (default\n"
-                "                          auto, or $ISC_GPU; frames then differ from the CPU's by float rounding)\n"
                 "  --memory-gb G           the memory budget (default: 80 %% of the RAM)\n"
                 "  --idle-exit MIN         stop after MIN minutes without a connection (default 30, 0: never)\n"
                 "  --no-stdin-watch        keep serving when stdin closes (default: stop with the ssh session)\n"
@@ -1413,7 +1378,7 @@ int main(int argc, char** argv)
 {
    std::signal(SIGPIPE, SIG_IGN);
    Options o;
-   std::string mode, sock, listen, announce, relay, gpu;
+   std::string mode, sock, listen, announce, relay;
    int idle = 30;
    bool watchStdin = true;
    for (int i = 1; i < argc; ++i)
@@ -1428,7 +1393,6 @@ int main(int argc, char** argv)
       else if (a == "--listen") { mode = "listen"; listen = next(); }
       else if (a == "--token") o.token = next();
       else if (a == "--threads") o.threads = std::atoi(next().c_str());
-      else if (a == "--gpu") gpu = next();
       else if (a == "--memory-gb") ::setenv("ISC_MEMORY_BUDGET_GB", next().c_str(), 1);
       else if (a == "--idle-exit") idle = std::atoi(next().c_str());
       else if (a == "--no-stdin-watch") watchStdin = false;
@@ -1450,9 +1414,6 @@ int main(int argc, char** argv)
       else { Usage(); return a == "--help" || a == "-h" ? 0 : 2; }
    }
    if (mode.empty()) { Usage(); return 2; }
-   std::string gpuErr, gpuMode;
-   if (!isc_gpu::Select(gpu, "auto", gpuErr, &gpuMode)) { std::fprintf(stderr, "%s\n", gpuErr.c_str()); return 2; }
-   o.gpu = gpuMode == "off" ? "off" : "auto";
    if (mode == "stdio")
    {
       StdioConn c;
@@ -1485,23 +1446,8 @@ int main(int argc, char** argv)
    const unsigned cpus = std::thread::hardware_concurrency();
    if (!relay.empty()) Log("inSiliScope: relaying to the server at %s", relay.c_str());
    else
-   {
       Log("inSiliScope server %s on %s (%u CPUs, using %u per engine)", ISC_VERSION, host, cpus,
           o.threads > 0 ? std::min<unsigned>(o.threads, cpus) : cpus);
-      if (o.gpu == "auto")
-      {
-         bool ok = false;
-         const std::string info = ProbeGpu(ok);
-         if (ok)
-            o.gpu = info;
-         else
-         {
-            isc_gpu::Select("off", "off", gpuErr);   // (the engines need not try again)
-            o.gpu = "none: " + info;
-         }
-      }
-      Log(o.gpu == "off" ? "GPU: off (--gpu off)" : "GPU: %s", o.gpu.c_str());
-   }
    Log("ready -- keep this window open; Ctrl+C stops the server");
    return Serve(L, o, idle, watchStdin);
 }

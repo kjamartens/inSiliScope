@@ -59,58 +59,35 @@ struct WidefieldGpuHost::State
    struct Resident
    {
       std::map<unsigned long long, PlaneEntry> planes;
-      unsigned long long used = 0;
-      size_t need = 0;          // the planes its last job needed (Fits)
-      unsigned long long job = 0;   // that job's number
-   };
-   // Kernel spectra per kernel set (WidefieldGpuJob::kernelSet: the scenes of one store share them).
-   struct KernelSet
-   {
       std::map<int, unsigned> kslots;
       Buf kspec;
       unsigned kcap = 0;
       unsigned long long used = 0;
+      size_t need = 0;          // the planes its last job needed (Fits)
+      unsigned long long job = 0;   // that job's number
    };
    unsigned long long jobs = 0;   // jobs run after a Fits
    unsigned long long askGeometry = 0;
    size_t askNeed = 0;
    static constexpr unsigned long long kRecentJobs = 8;   // scenes served within this many jobs share the pool
-   static constexpr size_t kMaxKernelSets = 4;
+   static constexpr size_t kMaxGeometries = 4;
    std::map<unsigned long long, Resident> resident;
-   std::map<unsigned long long, KernelSet> ksets;
    Resident* cur = nullptr;
-   KernelSet* kcur = nullptr;
    unsigned long long clock = 0;
 
    // Frames.
    unsigned fw = 0, fh = 0;
    Buf pix, frameOut;
 
-   // A buffer of mb MB, at most one binding.
+   // The resident pool's slots for a half spectrum of SS complex fp16 pairs: at most 512 MB, at most one binding.
    size_t PoolBytes(size_t mb) const { return std::min<size_t>(gpu.MaxBinding(), mb << 20); }
 
-   // The kernel set's spectra (made, and the least recently used beyond kMaxKernelSets dropped).
-   KernelSet& UseKernels(unsigned long long set)
-   {
-      KernelSet& k = ksets[set];
-      k.used = ++clock;
-      while (ksets.size() > kMaxKernelSets)
-      {
-         auto victim = ksets.end();
-         for (auto it = ksets.begin(); it != ksets.end(); ++it)
-            if (it->first != set && (victim == ksets.end() || it->second.used < victim->second.used))
-               victim = it;
-         ksets.erase(victim);
-      }
-      return ksets[set];
-   }
-
-   // The geometry's resident state (made, and the least recently used beyond MaxScenes dropped, its slots freed).
+   // The geometry's resident state (made, and the least recently used beyond kMaxGeometries dropped, its slots freed).
    Resident& Use(unsigned long long geometry)
    {
       Resident& r = resident[geometry];
       r.used = ++clock;
-      while (resident.size() > std::max<size_t>(1, gpu.MaxScenes()))
+      while (resident.size() > kMaxGeometries)
       {
          auto victim = resident.end();
          for (auto it = resident.begin(); it != resident.end(); ++it)
@@ -154,28 +131,17 @@ struct WidefieldGpuHost::State
       SS = static_cast<size_t>(W) * NY;
       PS = static_cast<size_t>(NX) * NY;
       resident.clear();
-      ksets.clear();
       cur = nullptr;
-      kcur = nullptr;
       spec16.reset();
       work.reset();
-      // Resident fp16 plane spectra (the backend's pool sizes, largest first: 512 MB, else 128 MB in the browser and
-      // the adapter), work grids (up to 256 MB).
-      bool made = false;
-      for (size_t mb : gpu.PoolMB())
+      // Resident fp16 plane spectra (up to 512 MB), work grids (up to 256 MB).
+      slotCap = static_cast<unsigned>(std::max<size_t>(4, PoolBytes(512) / (SS * 4)));
+      if (!Make(slotCap * SS * 4, nullptr, spec16, err))
       {
-         slotCap = static_cast<unsigned>(std::max<size_t>(4, PoolBytes(mb) / (SS * 4)));
-         std::string e;
-         if (Make(slotCap * SS * 4, nullptr, spec16, e))
-         {
-            made = true;
-            break;
-         }
-         err = e;
+         slotCap = static_cast<unsigned>(std::max<size_t>(4, PoolBytes(128) / (SS * 4)));
+         if (!Make(slotCap * SS * 4, nullptr, spec16, err))
+            return false;
       }
-      if (!made)
-         return false;
-      err.clear();
       freeSlots.clear();
       for (unsigned i = slotCap; i-- > 0;)
          freeSlots.push_back(i);
@@ -216,7 +182,7 @@ struct WidefieldGpuHost::State
 
    bool EnsureKernels(const WidefieldGpuJob& job, std::string& err)
    {
-      KernelSet& r = *kcur;
+      Resident& r = *cur;
       std::vector<const WidefieldGpuJob::Kernel*> missing;
       for (const WidefieldGpuJob::Kernel& k : job.kernels)
          if (!r.kslots.count(k.p))
@@ -364,8 +330,7 @@ bool WidefieldGpuHost::Fits(unsigned long long geometry, unsigned NX, unsigned N
    const size_t SS = static_cast<size_t>(NX / 2 + 1) * NY;
    const bool sameShape = m.NX == NX && m.NY == NY && m.slotCap > 0;
    // (Another shape resets the pool: Reset's first try.)
-   const std::vector<size_t> pool = backend_->PoolMB();
-   const size_t cap = sameShape ? m.slotCap : std::max<size_t>(4, m.PoolBytes(pool.empty() ? 512 : pool[0]) / (SS * 4));
+   const size_t cap = sameShape ? m.slotCap : std::max<size_t>(4, m.PoolBytes(512) / (SS * 4));
    size_t others = 0;
    if (sameShape)
       for (const auto& r : m.resident)
@@ -413,7 +378,6 @@ bool WidefieldGpuHost::ImagesImpl(const WidefieldGpuJob& job, std::vector<std::v
       }
    }
    m.cur = &m.Use(job.geometry);
-   m.kcur = &m.UseKernels(job.kernelSet ? job.kernelSet : job.geometry);
    if (m.askGeometry == job.geometry)
    {
       m.cur->need = m.askNeed;
@@ -434,15 +398,14 @@ bool WidefieldGpuHost::ImagesImpl(const WidefieldGpuJob& job, std::vector<std::v
       for (const WidefieldGpuJob::Dep& d : ch)
       {
          const State::Resident& r = *m.cur;
-         const State::KernelSet& ks = *m.kcur;
          auto pe = r.planes.find(d.key);
-         auto k0 = ks.kslots.find(d.p0), k1 = ks.kslots.find(d.p1);
-         if (pe == r.planes.end() || k0 == ks.kslots.end() || (d.two && k1 == ks.kslots.end()))
+         auto k0 = r.kslots.find(d.p0), k1 = r.kslots.find(d.p1);
+         if (pe == r.planes.end() || k0 == r.kslots.end() || (d.two && k1 == r.kslots.end()))
          {
             std::ostringstream os;
             os << "job refers to " << (pe == r.planes.end() ? "a plane" : "a kernel") << " it does not carry (key "
                << d.key << ", planes " << r.planes.size() << ", job planes " << job.planes.size() << ", p " << d.p0
-               << "/" << d.p1 << ", kernels " << ks.kslots.size() << ")";
+               << "/" << d.p1 << ", kernels " << r.kslots.size() << ")";
             err = os.str();
             return false;
          }
@@ -468,7 +431,7 @@ bool WidefieldGpuHost::ImagesImpl(const WidefieldGpuJob& job, std::vector<std::v
    unsigned mx, my, ml;
    State::Grid256(m.SS, mx, my, ml);
    if (!m.Dispatch("wf_mac", {static_cast<uint32_t>(m.SS), nChan, ml, 0},
-                   {m.spec16.get(), m.kcur->kspec.get(), bI.get(), bW.get(), bC.get(), chanSpec.get()}, mx, my, nChan,
+                   {m.spec16.get(), m.cur->kspec.get(), bI.get(), bW.get(), bC.get(), chanSpec.get()}, mx, my, nChan,
                    err))
       return false;
    std::vector<uint32_t> pairList;

@@ -22,8 +22,7 @@ Ideas, roughly in order of interest. Contributions welcome; see [Extending](exte
   coherent beams in the back focal plane with a frame program (2026-10-30; the kinetics on the pattern's cycle mean,
   the mean field on the CPU under a pattern); any light in the back focal plane as maps (2026-11-19: equations or
   images; presets LightSheet and RingTIRF; CPU only); still missing: the exact per-frame dose under a pattern, a GPU
-  path for the maps, the slide's per-frame fringes under them, emission-side (detection pupil) maps, the GPU mean field under a pattern in the viewer (the remote server's GPU has
-  it since 2026-11-24), stroboscopic light through the frame program, supercritical-angle
+  path for the maps, the slide's per-frame fringes under them, emission-side (detection pupil) maps, the GPU mean field under a pattern, stroboscopic light through the frame program, supercritical-angle
   emission near the coverslip and the beam's angular spread.
 - **Widefield**: a defocus law for the optional Gaussian PSF (`WidefieldGaussianSigmaUm`), and a check of the Direct3D
   11 path on more GPUs. (A drifting sample renders on the CPU: measured on 2026-10-29, the GPU would not be faster there.)

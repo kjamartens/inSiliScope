@@ -3,9 +3,6 @@
 // WebAssembly module (web/insiliscope_module.js) computes for the same request -- frames byte for byte.
 //   node tests/remote/server_check.mjs --server build/native/cli/insiliscope_server   (POSIX: starts one, a free port)
 //   node tests/remote/server_check.mjs --url "ws://127.0.0.1:18799/?t=TOKEN"          (a server already running)
-//   --gpu: the server renders on its GPU (started with --gpu auto; else --gpu off): the WideField scenes and the blink
-//   splat + camera noise; those movies' frames are compared within float rounding (most pixels equal, a few a Poisson
-//   draw apart), everything else byte for byte (live frames keep the CPU's splat and noise).
 // Node 22+ (its WebSocket). ~30 s.
 import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -20,7 +17,6 @@ globalThis.self = globalThis;
 (0, eval)(readFileSync(join(ROOT, 'web/live/remote_wire.js'), 'utf8'));
 const W = globalThis.IscWire;
 
-const GPU = process.argv.includes('--gpu');
 const t0 = performance.now();
 let failures = 0;
 const ok = (cond, what) => { console.log((cond ? 'ok   ' : 'FAIL ') + what); if (!cond) failures++; };
@@ -31,7 +27,7 @@ if (!url) {
   const bin = arg('--server');
   if (!bin) { console.error('give --server <insiliscope_server> or --url <ws://...>'); process.exit(2); }
   const dir = mkdtempSync(join(tmpdir(), 'isc-remote-')), announce = join(dir, 'port'), token = 'test' + Date.now();
-  child = spawn(bin, ['--listen', '127.0.0.1:0', '--token', token, '--announce', announce, '--threads', '4', '--idle-exit', '5', '--gpu', GPU ? 'auto' : 'off'],
+  child = spawn(bin, ['--listen', '127.0.0.1:0', '--token', token, '--announce', announce, '--threads', '4', '--idle-exit', '5'],
     { stdio: ['ignore', 'inherit', 'inherit'] });
   for (let i = 0; i < 100 && !existsSync(announce); i++) await new Promise(r => setTimeout(r, 50));
   const port = readFileSync(announce, 'utf8').trim().split(/\s+/)[1];
@@ -90,13 +86,6 @@ function localPanel(spec, id, params, scale) {
 const same = (a, b) => a && b && a.length === b.length && Buffer.compare(Buffer.from(a.buffer, a.byteOffset, a.byteLength), Buffer.from(b.buffer, b.byteOffset, b.byteLength)) === 0;
 const firstDiff = (a, b) => { for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return `sample ${i}: ${a[i]} vs ${b[i]}`; return `lengths ${a.length} vs ${b.length}`; };
 const deepEq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-// GPU frames: >= 95 % of the samples equal, the mean |difference| under 0.5 % of the mean.
-const near = (a, b) => {
-  if (!a || !b || a.length !== b.length) return { ok: false, text: 'lengths' };
-  let eq = 0, d = 0, m = 0;
-  for (let i = 0; i < a.length; i++) { eq += a[i] === b[i]; d += Math.abs(a[i] - b[i]); m += b[i]; }
-  return { ok: eq >= 0.95 * a.length && d <= 0.005 * m, text: `${(100 * eq / a.length).toFixed(2)} % equal, mean |diff| ${(d / a.length).toFixed(3)} of ${(m / a.length).toFixed(1)} ADU` };
-};
 
 // ---- the checks ----
 const SPEC = 'size=48 frames=4 exposure-ms=50 world-seed=7 psf-kernel-half-width-nm=3000 x=-10 y=4';   // (a field with cells: blinks in every frame)
@@ -104,8 +93,7 @@ try {
   const A = await connect(url);
   const hello = await A.job({ type: 'hello', id: 0, protocol: 1 });
   ok(hello.protocol === 1 && hello.abi === M._isc_abi_version() && hello.world === M.UTF8ToString(M._isc_world_version()),
-    `hello: protocol ${hello.protocol}, ABI ${hello.abi}, world ${hello.world}, ${hello.host} ${hello.cpus} CPUs ${hello.memGB.toFixed(0)} GB, v${hello.version}, GPU ${hello.gpu}`);
-  if (GPU) ok(hello.gpu && !/^(off|none)/.test(hello.gpu), 'hello: the server has a GPU (' + hello.gpu + ')');
+    `hello: protocol ${hello.protocol}, ABI ${hello.abi}, world ${hello.world}, ${hello.host} ${hello.cpus} CPUs ${hello.memGB.toFixed(0)} GB, v${hello.version}`);
 
   let t = performance.now();
   const opts = await A.job({ type: 'options', id: 1 });
@@ -130,31 +118,26 @@ try {
   t = performance.now();
   const lm = C.movie(SPEC);
   const tl = performance.now() - t;
-  if (GPU) { const n = near(mv.frames, lm.frames); ok(!mv.error && n.ok, `DNA-PAINT movie, its blinks and noise on the GPU = the module's within rounding: ${n.text} (${mv.w}x${mv.h}x${mv.n}; server ${tr.toFixed(0)} ms, module ${tl.toFixed(0)} ms)` + (mv.error ? ' ' + mv.error : '')); }
-  else ok(!mv.error && same(mv.frames, lm.frames), `movie = the module's, byte for byte (${mv.w}x${mv.h}x${mv.n}; server ${tr.toFixed(0)} ms, module ${tl.toFixed(0)} ms)` + (mv.error ? ' ' + mv.error : same(mv.frames, lm.frames) ? '' : ' ' + firstDiff(mv.frames, lm.frames)));
+  ok(!mv.error && same(mv.frames, lm.frames), `movie = the module's, byte for byte (${mv.w}x${mv.h}x${mv.n}; server ${tr.toFixed(0)} ms, module ${tl.toFixed(0)} ms)` + (mv.error ? ' ' + mv.error : same(mv.frames, lm.frames) ? '' : ' ' + firstDiff(mv.frames, lm.frames)));
   ok(deepEq(mv.rect, [1, 2, 3, 4]), 'movie: its rect back');
   const st = await A.job({ type: 'movie', id: 6, spec: SPEC, stream: true });
   const parts = st.extra.filter(d => d.type === 'movie-part'), cat = new Uint16Array(parts.reduce((s, p) => s + p.frames.length, 0));
   let at = 0;
   for (const p of parts) { cat.set(p.frames, at); at += p.frames.length; }
-  if (GPU) { const info = st.extra.filter(d => d.type === 'movie-progress').map(d => JSON.stringify(d.info || '')).join(' '); ok(/splat, GPU/.test(info), 'streamed movie: its progress names the GPU splat (' + (info.match(/SMLM:[^"]*/) || ['none'])[0] + ')'); }
-  ok(!st.error && st.streamed && st.got === 4 && (GPU ? same(cat, mv.frames) : same(cat, lm.frames)), `streamed movie: ${parts.length} part(s), ${st.got} frames = ${GPU ? 'the whole one\'s' : 'the module\'s'}; progress messages ${st.extra.filter(d => d.type === 'movie-progress').length}`);
+  ok(!st.error && st.streamed && st.got === 4 && same(cat, lm.frames), `streamed movie: ${parts.length} part(s), ${st.got} frames = the module's; progress messages ${st.extra.filter(d => d.type === 'movie-progress').length}`);
 
-  // WideField: mean-field scenes (on the server's GPU with --gpu)
+  // WideField: mean-field scenes
   const WSPEC = SPEC + ' mt-mode=3 npc-dye=None';
   t = performance.now();
   const wm = await A.job({ type: 'movie', id: 7, spec: WSPEC });
   const tw = performance.now() - t;
   const lw = C.movie(WSPEC);
-  if (GPU) { const n = near(wm.frames, lw.frames); ok(!wm.error && n.ok, `WideField movie on the GPU = the module's within rounding: ${n.text} (server ${tw.toFixed(0)} ms)` + (wm.error ? ' ' + wm.error : '')); }
-  else ok(!wm.error && same(wm.frames, lw.frames), `WideField movie = the module's, byte for byte (server ${tw.toFixed(0)} ms)` + (wm.error ? ' ' + wm.error : ''));
-  // a structured pattern: one scene per state (each on the GPU with --gpu)
+  ok(!wm.error && same(wm.frames, lw.frames), `WideField movie = the module's, byte for byte (server ${tw.toFixed(0)} ms)` + (wm.error ? ' ' + wm.error : ''));
   const SSPEC = WSPEC + ' sim-type=1';
   t = performance.now();
   const sm = await A.job({ type: 'movie', id: 8, spec: SSPEC });
   const ts = performance.now() - t;
   const ls = C.movie(SSPEC);
-  // (its state scenes and, without blinks, its noise stay on the CPU with --gpu too: 2026-11-24, faster there)
   ok(!sm.error && same(sm.frames, ls.frames), `SIM2D WideField movie = the module's, byte for byte (server ${ts.toFixed(0)} ms)` + (sm.error ? ' ' + sm.error : ''));
 
   // live: a fresh sample, frames one by one, a chunk of 3, then the same sample replayed elsewhere
@@ -180,15 +163,13 @@ try {
   ok(!rp.error && same(nx.frames, ln.frames), `live-replay of 6 frames on another connection: the next frame = the module's 7th (t ${rp.t})`);
   B.close();
 
-  // a live WideField frame (the GPU's with --gpu)
+  // a live WideField frame
   const WL = WSPEC.replace('frames=4', 'frames=1');
   M._isc_live_reset();
   const wl = await A.job({ type: 'live', id: 35, spec: WL, reset: true, t: 0, lit: true });
   const lwl = localLive(WL, 1);
-  if (GPU) { const n = near(wl.frames, lwl.frames); ok(!wl.error && n.ok, `live WideField frame on the GPU = the module's within rounding: ${n.text}` + (wl.error ? ' ' + wl.error : '')); }
-  else ok(!wl.error && same(wl.frames, lwl.frames), 'live WideField frame = the module\'s, byte for byte' + (wl.error ? ' ' + wl.error : ''));
-  // live SIM2D WideField: its state scenes stay on the CPU even with --gpu (their basis made a part per frame), so
-  // byte for byte either way
+  ok(!wl.error && same(wl.frames, lwl.frames), 'live WideField frame = the module\'s, byte for byte' + (wl.error ? ' ' + wl.error : ''));
+  // live SIM2D WideField
   const SL = SSPEC.replace('frames=4', 'frames=1');
   M._isc_live_reset();
   const sl = [], lsl = [];

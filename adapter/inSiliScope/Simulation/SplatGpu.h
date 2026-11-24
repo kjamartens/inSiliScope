@@ -4,8 +4,8 @@
 // SUBSYSTEM:     Simulation engine (no MMDevice dependency)
 //-----------------------------------------------------------------------------
 // DESCRIPTION:   The blink splat + camera noise on a GPU backend (GpuBackend,
-//                WidefieldGpuHost.h) running SplatGpu.wgsl: the native cli's and
-//                server's (docs/remote.md "GPU"), on the same WebGPU device as
+//                WidefieldGpuHost.h) running SplatGpu.wgsl: the viewer module's
+//                (cli/gpu_js_backend.cpp), on the same WebGPU device as
 //                the WideField host. The WGSL twin of the adapter's Direct3D 11
 //                GpuSimulator (GpuSimD3D11.*): the same emitter records
 //                (CollectGpuEmitters), block sums, halo spans and noise stream.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The blink splat + camera noise, fused: the WGSL twin of the adapter's HLSL kernel (GpuSimD3D11.cpp kShaderSource),
-// run by SplatGpuHost (SplatGpu.cpp) on native WebGPU (the Linux server's and cli's GPU, docs/remote.md "GPU").
+// run by SplatGpuHost (SplatGpu.cpp) on the viewer's WebGPU (cli/gpu_js_backend.cpp, web/splat_gpu.js).
 // One invocation per output pixel gathers its frame's emitters from the kernels' block sums (PsfKernelCache::BlockSums,
 // row-major per plane: the numbers the CPU splat reads, with SplatSetup's indices and weights), adds the frame's other
 // light (Extra: what the CPU renders besides the splatted blinks: the background, the continuous populations, binned

@@ -166,61 +166,23 @@ srun --cpus-per-task=32 --mem=64G --time=02:00:00 --partition=compute
 - The viewer waits until the job starts, which on a busy cluster can take a while (the terminal says so every 30 s).
 - The job's time limit also ends your session. The job ends when you close the terminal.
 
-For a GPU (next section), ask the scheduler for one too, for example `srun --gpus=1 --cpus-per-task=16 --mem=64G
---time=02:00:00 --partition=gpu` (the option and the partition's name depend on your cluster).
+## Check a server's speed
 
-## GPU
-
-If the server has a GPU, inSiliScope uses it by itself. At its start the server says which one:
-
-```text
-GPU: NVIDIA A40 (Vulkan)
-```
-
-or why it found none (`GPU: none: …`), and then the CPU computes everything as before.
-
-**What the GPU computes:**
-
-| | GPU | CPU |
-|---|---|---|
-| WideField labels | the dye planes' images | the bleaching, everything else; under a SIM pattern all of it |
-| dSTORM, PALM, DNA-PAINT blinks in Records and movies | the blinks' PSFs | which blinks light up |
-| Camera noise of Records and movies | frames with blinks on the GPU | the rest (faster there) |
-| The live view | WideField images (without a SIM pattern) | blinks and noise; under a SIM pattern all of it |
-| Ground truth, BrightField, the Gaussian PSF | | all of it |
-
-**What it needs:** an NVIDIA, AMD or Intel GPU with its Vulkan driver (NVIDIA's usual driver includes it;
-`nvidia-smi` shows the GPU). The rendering library (wgpu-native) comes with the server's download. `sh remote.sh check`
-names the GPU it finds.
-
-**The frames:** GPU frames differ from the CPU's by float rounding. About 1 pixel in 100 is a count or so apart
-(a noise draw that lands on the other side of a count). The browser has the same GPU path for Records and movies when
-it has WebGPU ([the viewer](try-viewer.md)), so its frames and the server's then both differ from the CPU's by
-rounding. To get the browser's frames exactly, run both without the GPU: in the viewer's command, add `--gpu off`
-after `serve`, and add `?gpu=0` to the page's address.
-
-**To check a server** (a few minutes, plus the build): `tests/remote/hpc_check.sh` builds the server at a branch and
-renders the same movies and live frames with the GPU off and on, timed and compared:
+`tests/remote/hpc_check.sh` builds the server at a branch and times a few movies and live frames of growing fields
+(a few minutes, plus the build), a report to read or paste:
 
 ```powershell
 ssh isc-server "curl -fsSL https://raw.githubusercontent.com/kjamartens/inSiliScope/main/tests/remote/hpc_check.sh | sh"
 ```
 
-**Settings for experts** (environment variables on the server):
-
-| Variable | What it does |
-|---|---|
-| `ISC_GPU=off` | the same as `--gpu off` |
-| `ISC_GPU_POOL_MB` | GPU memory for the WideField dye planes (default: up to 3072 MB) |
-| `ISC_WGPU_LIB` | another `libwgpu_native.so` than the one in the download |
+The server computes on its CPU cores; it does not use a GPU.
 
 ## Updates
 
 - **Updates happen by themselves.** The viewer's command asks for exactly the viewer's own version; the server
   downloads it the first time it is asked (once, ~40 MB) and keeps the three versions used last.
 - **Why the same version on both ends:** then the frames made on the server are the same, byte for byte, as the ones
-  your browser makes (on a server's [GPU](#gpu): up to float rounding). A server of another version is not used (the
-  box says why).
+  your browser makes. A server of another version is not used (the box says why).
 
 | | |
 |---|---|

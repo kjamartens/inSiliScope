@@ -2,7 +2,7 @@
 // The blink splat + camera noise of the viewer's movies and Records on WebGPU (2026-11-24): the backend the module's
 // SplatGpuHost calls (Module.iscGpu, cli/gpu_js_backend.cpp), running the kernel splat_frames of
 // adapter/inSiliScope/Simulation/SplatGpu.wgsl (embedded as self.ISC_SPLAT_WGSL by tools/embed_web_module.mjs) -- the
-// shader the Linux server runs natively. The engine's movie stays synchronous: every call here returns at once, and the
+// WGSL twin of the adapter's Direct3D 11 splat. The engine's movie stays synchronous: every call here returns at once, and the
 // frames come back through an OffscreenCanvas (read16), whose getImageData waits for the GPU (TensorFlow.js's readSync
 // for its WebGPU backend): each 32-bit word of the output goes into one rgba8unorm texel, an opaque canvas keeps its
 // red and green bytes exactly, and those are the ADU.

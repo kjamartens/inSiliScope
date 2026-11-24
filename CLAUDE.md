@@ -293,26 +293,18 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   job = the viewer module byte for byte, ~4 s), `tests/remote/launcher_check.py` (~3 s, Linux), `tests/web/viewer_remote.mjs`
   (browser, ~8 s; `--server="wsl -d Ubuntu -- <path>"` on Windows). Not yet: Micro-Manager, the world view's cell
   workers, Windows servers.
-  **The server's GPU (2026-11-24, docs/remote.md "GPU"):** native WebGPU through wgpu-native v29.0.1.1, loaded by
-  dlopen (`$ISC_WGPU_LIB`, `<bin>/../lib/libwgpu_native.so` = the tarball's, the system's; headers in `third_party/webgpu`;
-  a software adapter refused unless `ISC_GPU_ALLOW_CPU=1`: Mesa lavapipe for tests). One device per process
-  (`isc_gpu::Device` in `cli/gpu_select.h`, made on first use: each forked connection its own; the listener only probes
-  in a child, `isc_gpu::Probe`), `MakeWebGpuBackend` with the kernels of `WidefieldGpu.wgsl` and `SplatGpu.wgsl` (cli/CMakeLists.txt
-  embeds both). `WidefieldGpuHost` (the WideField algorithm over a `GpuBackend`: D3D11 in the adapter, WebGPU here; the
-  backend's mutex serializes every host) as `SetDefaultWidefieldAccelerator`: mean-field scenes (a pattern's state
-  scenes stay on the CPU: taken when the backend kept >= 16, `ManyScenes`, they lost on jupiter, 2026-11-24; pool up to 3 GB,
-  `ISC_GPU_POOL_MB`). `SplatGpuHost` (`Simulation/SplatGpu.*`, the WGSL twin of the adapter's GpuSimD3D11 HLSL: the
-  same `GpuSplatEmitter` records, block sums, halo spans, pcg4d noise) as `SetDefaultBlinkSplatGpu`: in
-  `FluorescenceMovie::Render`, a movie that applies its own noise and has no ground truth sends each frame's splatted
-  blinks (groups with a diffraction kernel, <= 4) as records and the rest of its light as an extra image; the GPU adds
-  the blinks and the noise (a batch without GPU blinks: the CPU's noise); the host bins each frame's emitters per 16 x 16
-  tile (the halo spans' box per plane, the cut radius; the frame's order kept: the same sums as the whole list); a kernel past one binding takes a buffer per range of planes;
-  a failed batch splats on the CPU. Live frames keep the CPU's splat and noise (LiveScope's own noise via onPhotons).
-  Frames within float rounding (server_check `--gpu`: `near`). A live frame of a varying light keeps its scenes on the CPU too (`liveStates`: their basis made a part per frame, which a scene with an accelerator skips); `tests/remote/hpc_check.sh` (a server's report: build at a ref, cli movies and `live_bench` frames GPU off vs on; `live_bench` is built without the tests and in `remote.sh build`). Server `--gpu auto` (default) / `off`, cli `--gpu`
-  (default off), `$ISC_GPU`, launcher `serve --gpu`; release tarball `lib/libwgpu_native.so` + licenses (release.yml,
-  sha256 pinned; `remote.sh build` fetches it too). Checks: ctest `wf_gpu_webgpu` (WideField + the splat's self-check,
-  skips without a GPU), `server_check.mjs --gpu`. Not yet: the BFP maps on the GPU.
-  **The splat on the viewer's WebGPU (2026-11-24):** the same `SplatGpuHost` inside the module on a JS `GpuBackend`
+  **The server's GPU: tried and rolled back (2026-11-24, docs/dev/PLAN.md):** native WebGPU through wgpu-native for
+  the WideField scenes and the blink splat + noise gave movies 0-16 % on a 32-core A40 server (WideField, SIM slower),
+  nothing live, and frames no longer the browser's byte for byte; the server is CPU only. Kept from it: `WidefieldGpuHost`
+  (the WideField algorithm over a `GpuBackend`; D3D11 in the adapter), `SplatGpuHost` (`Simulation/SplatGpu.*`, the WGSL
+  twin of the adapter's GpuSimD3D11 HLSL: the same `GpuSplatEmitter` records, block sums, halo spans, pcg4d noise;
+  each frame's emitters binned per 16 x 16 tile, the frame's order kept: the same sums as the whole list) as
+  `SetDefaultBlinkSplatGpu` (in `FluorescenceMovie::Render`, a movie that applies its own noise and has no ground truth
+  sends each frame's splatted blinks (groups with a diffraction kernel, <= 4) as records and the rest of its light as an
+  extra image; a batch without GPU blinks: the CPU's noise; a failed batch splats on the CPU), and the tools:
+  `tests/remote/hpc_check.sh` (a server's report: build at a ref, cli movies and `live_bench` frames at growing fields,
+  timed) and `live_bench` built without the tests and in `remote.sh build`.
+  **The splat on the viewer's WebGPU (2026-11-24):** `SplatGpuHost` inside the module on a JS `GpuBackend`
   (`cli/gpu_js_backend.cpp`, WASM only: EM_JS calls into `Module.iscGpu` = `web/splat_gpu.js` `IscSplatGpu.backend`,
   the WideField host's device, `self.ISC_SPLAT_WGSL` embedded by `tools/embed_web_module.mjs`). The movie stays
   synchronous: the read-back goes through an OffscreenCanvas (`GpuBackend::ReadBackLow16`: each u32 word one

@@ -370,18 +370,10 @@ void SetLiveAsyncBasis(bool on);
 // per rect and every structure's windows, as before (ctest live_scope compares the two).
 void SetScopeShortcuts(bool on);
 bool ScopeShortcuts();
-// A process-wide GPU host for the mean-field scenes of the movies begun without one and not in GPU mode (the native
-// cli's and server's: WidefieldGpuWebGpu, docs/remote.md "GPU"): made by make on its first use, once, in the process
-// that uses it (the server forks per connection: each child makes its own). make returns nullptr (info = why) when
-// there is none; the CPU renders then. Unset (the default; the adapter, the viewer's module): the CPU, as before.
-// GPU images differ from the CPU's by float rounding (within 1e-3 rms, the host's self-check).
-void SetDefaultWidefieldAccelerator(std::function<std::unique_ptr<WidefieldAccelerator>(std::string& info)> make);
-WidefieldAccelerator* DefaultWidefieldAccelerator();
-// "" before its first use; else the host's name, or why there is none.
-std::string DefaultWidefieldAcceleratorInfo();
-// The same for the blink splat + camera noise (SplatGpuHost, SplatGpu.h): a movie that applies its own noise splats its
+// A process-wide GPU host for the blink splat + camera noise (SplatGpuHost, SplatGpu.h; the viewer's WebGPU,
+// cli/gpu_js_backend.cpp), made by make on its first use (nullptr, info = why: the CPU renders): a movie that applies its own noise splats its
 // blinks (the groups with a diffraction kernel, up to 4) and draws the noise there, the rest of each frame's light
-// drawn on the CPU as before. Frames within float32 rounding of the CPU's. Unset: the CPU.
+// drawn on the CPU as before. Frames within float32 rounding of the CPU's. Unset (the default): the CPU.
 class SplatGpuHost;
 void SetDefaultBlinkSplatGpu(std::function<std::unique_ptr<SplatGpuHost>(std::string& info)> make);
 SplatGpuHost* DefaultBlinkSplatGpu();
