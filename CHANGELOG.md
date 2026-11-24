@@ -12,7 +12,7 @@ Versions follow semver; while 0.x, any release may change the output for a given
   longer drag no longer adds to it.
 - **Viewer: a remote Linux server does the computing** ([docs/remote.md](docs/remote.md)). ☰ › Remote server… gives
   one `ssh` command; run in a terminal, it fetches the viewer's own version of the new `insiliscope_server` into the
-  home directory on the server (no admin rights; `remote.sh`, served with the site) and tunnels it to the page, which
+  home directory on the server (no admin rights; `tools/remote.sh`, fetched from the repository at the viewer's release tag) and tunnels it to the page, which
   connects by itself. Live (by default), Records, movies and ground truth then run there, byte for byte the frames
   the browser makes; when the server goes, the viewer goes on in the browser, the live sample where it was. Clusters:
   "Run through" starts it in a scheduler's job (`srun ...`). Release asset `insiliscope-server-linux-x86_64.tar.gz`

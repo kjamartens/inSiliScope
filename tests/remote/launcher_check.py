@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: BSD-3-Clause
-"""The remote launcher (web/remote.sh) and the server's transports (cli/remote_server.cpp), on Linux:
+"""The remote launcher (tools/remote.sh) and the server's transports (cli/remote_server.cpp), on Linux:
 install from a tarball, check, serve on a Unix socket (a hello over a WebSocket; the server ends when its ssh
 session's stdin closes and removes its socket), serve through a "scheduler" (--run-through env: the server on TCP, a
 relay on the socket), stdio mode. The job protocol itself: tests/remote/server_check.mjs.
@@ -9,7 +9,7 @@ relay on the socket), stdio mode. The job protocol itself: tests/remote/server_c
 import argparse, base64, json, os, socket, struct, subprocess, sys, tarfile, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SH = os.path.join(ROOT, 'web', 'remote.sh')
+SH = os.path.join(ROOT, 'tools', 'remote.sh')
 fails = 0
 
 

@@ -279,11 +279,13 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   `web/live/remote.js` (☰ › Compute › Remote server… `#remoteOpen`, `#remoteNote`; `localStorage isc.remote` {enabled,
   server, port 18765, threads, scope `all` (default: live too) | `records`, runThrough, token, sock}; probes
   `ws://127.0.0.1:<port>` every 3 s; the command: `ssh -L <port>:/tmp/isc-<sock>/s <server> "(curl .. || wget ..)
-  ~/.isc-remote.sh && sh ~/.isc-remote.sh serve --version <page's> ..."`, no `$` or backslash), `remote_proxy.js` (in
+  ~/.isc-remote.sh && sh ~/.isc-remote.sh serve --version <page's> ..."`, no `$` or backslash; the launcher from
+  `raw.githubusercontent.com/kjamartens/inSiliScope/<ref>/tools/remote.sh`, ref = the page's release tag, else its
+  commit, else main; `localStorage isc.remote.ref` / `isc.remote.script` override it), `remote_proxy.js` (in
   every engine worker, `genWorkerMain`: the jobs it takes go to the server, the rest and every job after a failure or
   loss to the local engine; OPFS writes on the page's side; BroadcastChannel `isc-remote`), a switch respawns the movie
   worker (`rebindEngines`, its jobs re-sent) and the live worker (`L.rebind`: `L.log` replayed); `bfSplitWanted` off
-  while remote. Launcher `web/remote.sh` (POSIX sh, copied to the site root by `build_site.sh`): check, install
+  while remote. Launcher `tools/remote.sh` (POSIX sh, LF only: `.gitattributes`): check, install
   (`--from`), serve (`--run-through 'srun ...'`: the server in the job on TCP, a relay on the socket), stdio, render,
   uninstall; versions in `~/.local/share/insiliscope/<tag>` (`ISC_REMOTE_HOME`), the last three kept, release asset
   `insiliscope-server-linux-x86_64.tar.gz` (+ `.sha256`); glibc 2.28+. Checks: `tests/remote/server_check.mjs` (every

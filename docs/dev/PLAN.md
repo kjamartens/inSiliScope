@@ -283,7 +283,7 @@ Upcoming ideas:
   the tests and the scheduler relay, stdio; one process per connection), [x] the wire (`web/live/remote_wire.js`), the
   engines' proxy (`remote_proxy.js`: local fallback, OPFS writes on the page's side), the box and the probe
   (`remote.js`), live / Records / movies / ground truth remote by default, the live sample replayed on a switch, [x]
-  the launcher `web/remote.sh` (check, install, serve, `--run-through`, stdio, render, uninstall; versions in
+  the launcher `tools/remote.sh` (check, install, serve, `--run-through`, stdio, render, uninstall; versions in
   `~/.local/share/insiliscope`), [x] checks `tests/remote/server_check.mjs` (= the module byte for byte),
   `launcher_check.py`, `tests/web/viewer_remote.mjs`, [x] docs. Next: [ ] the release's manylinux tarball tried on a
   real cluster, [ ] Micro-Manager (`Renderer.Remote*`, ssh in stdio mode; the adapter's live producer on `LiveScope`

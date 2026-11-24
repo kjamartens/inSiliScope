@@ -6,7 +6,7 @@
 // local when the connection is lost (the live sample's light replayed on the new engine: L.rebind).
 (function () {
   const $ = id => document.getElementById(id);
-  const KEY = 'isc.remote', SCRIPT = 'https://kjamartens.github.io/inSiliScope/remote.sh';
+  const KEY = 'isc.remote', REPO = 'https://raw.githubusercontent.com/kjamartens/inSiliScope';
   const PROTOCOL = 1, ABI = 21;
   const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { return {}; } };
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) { /* private window */ } };
@@ -27,9 +27,17 @@
   const sockPath = () => `/tmp/isc-${cfg.sock}/s`;
   // The command that starts the server: ssh with the tunnel, the launcher fetched (or its copy used) and run with
   // this page's version, socket and token. It runs the same in PowerShell, cmd, bash and zsh (no $, no backslashes).
+  // The launcher comes from the repository at this page's release tag (a version's launcher with its version), else
+  // at the commit the site was built from, else main (a local checkout); localStorage isc.remote.ref sets another
+  // (a branch under test), isc.remote.script a whole URL or a path on the server.
+  function scriptUrl() {
+    const b = self.ISC_BUILD || {};
+    let ref = b.release || b.commit || 'main', script = '';
+    try { ref = localStorage.getItem('isc.remote.ref') || ref; script = localStorage.getItem('isc.remote.script') || ''; } catch (e) { /* default */ }
+    return script || `${REPO}/${ref}/tools/remote.sh`;
+  }
   function command() {
-    let script = SCRIPT;
-    try { script = localStorage.getItem('isc.remote.script') || SCRIPT; } catch (e) { /* default */ }
+    const script = scriptUrl();
     const f = '~/.isc-remote.sh';
     const args = ['serve', '--version', version(), '--socket', sockPath(), '--token', cfg.token];
     if (+cfg.threads > 0) args.push('--threads', String(Math.round(+cfg.threads)));

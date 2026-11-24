@@ -84,7 +84,7 @@ jobs:
           path: dist/
 
   # The remote server (docs/remote.md): insiliscope_server + insiliscope_cli for Linux x86-64, built on glibc 2.28
-  # (manylinux_2_28: runs on any distribution from ~2019 on) with libstdc++ linked in, as the tarball web/remote.sh
+  # (manylinux_2_28: runs on any distribution from ~2019 on) with libstdc++ linked in, as the tarball tools/remote.sh
   # installs; its checks against the viewer's module and the launcher on the built files.
   server:
     needs: tests

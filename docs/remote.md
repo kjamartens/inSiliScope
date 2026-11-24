@@ -80,7 +80,7 @@ From now on `ssh isc-server` is enough, and the viewer only needs the name **isc
 ## Step 4: check the server (once)
 
 ```powershell
-ssh isc-server "curl -fsSL https://kjamartens.github.io/inSiliScope/remote.sh -o ~/.isc-remote.sh && sh ~/.isc-remote.sh check"
+ssh isc-server "curl -fsSL https://raw.githubusercontent.com/kjamartens/inSiliScope/main/tools/remote.sh -o ~/.isc-remote.sh && sh ~/.isc-remote.sh check"
 ```
 
 It writes only the small launcher script `~/.isc-remote.sh` and prints what the server has, for example:
@@ -109,7 +109,7 @@ This machine can run inSiliScope.
 3. Click **Use it**, then **Copy the command**, paste it into PowerShell and leave that window open. It looks like
    this:
    ```powershell
-   ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 18765:/tmp/isc-3f9a0c1e/s isc-server "(curl -fsSL https://kjamartens.github.io/inSiliScope/remote.sh -o ~/.isc-remote.sh || wget -qO ~/.isc-remote.sh https://kjamartens.github.io/inSiliScope/remote.sh) && sh ~/.isc-remote.sh serve --version v0.2.0 --socket /tmp/isc-3f9a0c1e/s --token 5c0e…"
+   ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 18765:/tmp/isc-3f9a0c1e/s isc-server "(curl -fsSL https://raw.githubusercontent.com/kjamartens/inSiliScope/v0.2.0/tools/remote.sh -o ~/.isc-remote.sh || wget -qO ~/.isc-remote.sh https://raw.githubusercontent.com/kjamartens/inSiliScope/v0.2.0/tools/remote.sh) && sh ~/.isc-remote.sh serve --version v0.2.0 --socket /tmp/isc-3f9a0c1e/s --token 5c0e…"
    ```
    The first time, the server downloads its inSiliScope (once per version), then prints:
    ```text
@@ -158,7 +158,7 @@ srun --cpus-per-task=32 --mem=64G --time=02:00:00 --partition=compute
 
 1. On your PC, download `insiliscope-server-linux-x86_64.tar.gz` of your viewer's version from the
    [release page](https://github.com/kjamartens/inSiliScope/releases), and `remote.sh` from
-   `https://kjamartens.github.io/inSiliScope/remote.sh`.
+   `https://raw.githubusercontent.com/kjamartens/inSiliScope/v0.2.0/tools/remote.sh` (your version in place of v0.2.0).
 2. Copy both to the server:
    ```powershell
    scp insiliscope-server-linux-x86_64.tar.gz remote.sh isc-server:
