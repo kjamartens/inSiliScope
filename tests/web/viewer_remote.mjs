@@ -43,7 +43,8 @@ const init = ([port, token]) => {
     localStorage.setItem('isc.remote', JSON.stringify({ enabled: true, server: 'isc-test', port, token, sock: 'abcd1234', scope: 'all' }));
 };
 
-await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, height: 800 }, waitCells: false, initScript: init,
+// (?gpu=0: this browser's Records on the CPU, as the server's without its GPU: byte for byte)
+await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, height: 800 }, query: '?live=0&gpu=0', waitCells: false, initScript: init,
   initArg: [port, token] }, async ({ page, check }) => {
   // a wait that says what the page was doing when it timed out
   const state = () => page.evaluate(() => JSON.stringify({ on: liveState.on, frames: liveState.frames, remote: liveState.remote, err: liveState.err,

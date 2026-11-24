@@ -287,7 +287,8 @@ Upcoming ideas:
   `~/.local/share/insiliscope`), [x] checks `tests/remote/server_check.mjs` (= the module byte for byte),
   `launcher_check.py`, `tests/web/viewer_remote.mjs`, [x] docs, [x] the server's GPU (2026-11-24: native WebGPU
   through wgpu-native, `WidefieldGpuHost` shared by D3D11 and WebGPU backends, SIM state scenes, the blink splat + noise
-  `SplatGpu.wgsl` / `SplatGpuHost`; docs/remote.md "GPU"). Next: [ ] the blink splat on the viewer's WebGPU (needs an
-  asynchronous read-back from the module's movie), [ ] the release's manylinux tarball tried on a
+  `SplatGpu.wgsl` / `SplatGpuHost`; docs/remote.md "GPU"), [x] the blink splat + noise on the viewer's WebGPU
+  (2026-11-24: `cli/gpu_js_backend.cpp`, `web/splat_gpu.js`, a synchronous read-back through an OffscreenCanvas;
+  `tests/web/viewer_gpu_splat.mjs`). Next: [ ] the release's manylinux tarball tried on a
   real cluster, [ ] Micro-Manager (`Renderer.Remote*`, ssh in stdio mode; the adapter's live producer on `LiveScope`
   first), [ ] the cell workers (world view) remote, [ ] Windows servers.

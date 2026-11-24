@@ -23,6 +23,11 @@ Versions follow semver; while 0.x, any release may change the output for a given
   movies the blinks' PSFs and the camera noise. The same WGSL kernels as the viewer's WebGPU path, through
   wgpu-native (shipped in the server's tarball); frames within float rounding of the CPU's (about 1 pixel in 100 a
   count apart). `--gpu off` (or `ISC_GPU=off`) keeps the CPU; the cli takes `--gpu auto` (off by default).
+- **Viewer: Records and movies splat their blinks and draw the camera noise on the GPU** (WebGPU: Chrome, Edge), with
+  the remote server's shader. Frames within float rounding of the CPU's (about 3 samples in 10000 a count apart); a
+  256 x 256 px, 40-frame DNA-PAINT movie 0.69 -> 0.16 s on an Intel Iris Xe. The engine's movie stays synchronous: the
+  GPU's frames come back through a canvas. `?gpu=0` keeps the CPU (the frames then equal `insiliscope_cli`'s byte for
+  byte), `?wfgpu=0` only the WideField images. Live frames, ground truth and BrightField stay on the CPU.
 
 Large recordings:
 

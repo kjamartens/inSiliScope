@@ -59,6 +59,17 @@ public:
    virtual bool Dispatch(const char* kernel, const uint32_t* params, size_t nParams, Buffer* const* bufs, size_t nBufs,
                          unsigned x, unsigned y, unsigned z, std::string& err) = 0;
    virtual bool ReadBack(Buffer& src, size_t bytes, void* dst, std::string& err) = 0;
+   // The low 16 bits of src's first `words` 32-bit words (the splat's ADU). The viewer's backend (cli/gpu_js_backend.cpp)
+   // reads them back synchronously through a canvas, which carries three bytes per word, not four.
+   virtual bool ReadBackLow16(Buffer& src, size_t words, uint16_t* dst, std::string& err)
+   {
+      std::vector<uint32_t> w(words);
+      if (!ReadBack(src, words * 4, w.data(), err))
+         return false;
+      for (size_t i = 0; i < words; ++i)
+         dst[i] = static_cast<uint16_t>(w[i]);
+      return true;
+   }
    // The largest buffer one binding takes.
    virtual size_t MaxBinding() const { return ~size_t(0); }
    // The resident plane pool's sizes to try, largest first (MB; each also at most MaxBinding), and how many scenes'

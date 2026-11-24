@@ -310,8 +310,21 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   Frames within float rounding (server_check `--gpu`: `near`). Server `--gpu auto` (default) / `off`, cli `--gpu`
   (default off), `$ISC_GPU`, launcher `serve --gpu`; release tarball `lib/libwgpu_native.so` + licenses (release.yml,
   sha256 pinned; `remote.sh build` fetches it too). Checks: ctest `wf_gpu_webgpu` (WideField + the splat's self-check,
-  skips without a GPU), `server_check.mjs --gpu`. Not yet: the splat on the viewer's WebGPU (the module's movie would
-  need an asynchronous read-back), the BFP maps on the GPU.
+  skips without a GPU), `server_check.mjs --gpu`. Not yet: the BFP maps on the GPU.
+  **The splat on the viewer's WebGPU (2026-11-24):** the same `SplatGpuHost` inside the module on a JS `GpuBackend`
+  (`cli/gpu_js_backend.cpp`, WASM only: EM_JS calls into `Module.iscGpu` = `web/splat_gpu.js` `IscSplatGpu.backend`,
+  the WideField host's device, `self.ISC_SPLAT_WGSL` embedded by `tools/embed_web_module.mjs`). The movie stays
+  synchronous: the read-back goes through an OffscreenCanvas (`GpuBackend::ReadBackLow16`: each u32 word one
+  rgba8unorm texel, an opaque canvas keeps red and green exactly; drawImage + getImageData waits for the GPU, as
+  TensorFlow.js's readSync), not mapAsync (a deferred read-back needs Render to return between batches; a JSPI build
+  does not instantiate without JSPI). Under WASM a movie with the GPU splat takes batches of up to 32 frames (~32 MB)
+  per call (else 1). `isc_gpu_splat(1/0/-1)` installs / removes / asks (2 a host passed its self-check); the worker's
+  `splatGpu(d)` before every fluorescence `movie` job; the result's `gpu` names the adapter. Switches (`gpuFlags()` on
+  every movie job, the Record's too): `?gpu=0` (`noGpu`: all on the CPU), `?wfgpu=0` (`noWfGpu`: the mean-field
+  scenes on the CPU, the splat on the GPU), `?wfgpu=any` (a software adapter too). Check:
+  `tests/web/viewer_gpu_splat.mjs` (~30 s; exit 77 without a hardware adapter; headless Chromium on Windows needs
+  `--disable-dawn-features=use_dxc`, `runViewer`'s `args`); `viewer_save` / `viewer_remote` load `?gpu=0` (byte for
+  byte with the cli / the server).
 - **Micro-Manager .cfg from the viewer (2026-11-19, branch `bfp-light-maps`):** ☰ `#menuSetup` › Micro-Manager .cfg…
   (`#lv_setCfg`, `openMmCfg` in settings_file.js) saves `<name>.cfg` = the shipped Expert config (`ISC_MM_CFG.template`)
   with the seed and a Startup preset setting every property to the viewer's value (`web/live/mm_cfg.js` `write`,

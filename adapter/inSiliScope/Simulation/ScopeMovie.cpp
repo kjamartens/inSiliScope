@@ -6934,7 +6934,12 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    // the blinks and the noise of a batch of frames are made on all cores
    // (serial under Emscripten), the continuous populations in frame order.
 #if defined(__EMSCRIPTEN__)
-   const long batch = 1;
+   // One frame at a time, but a batch of frames (up to 32, ~32 MB of photons) per call when the blink splat and the
+   // noise run on the viewer's WebGPU (cli/gpu_js_backend.cpp): each call waits for its read-back, ~5-10 ms
+   // (2026-11-24). The frames do not depend on the batch (natively it is 32 or more).
+   long batch = 1;
+   if (noisePtr && !ActiveGroundTruth() && DefaultBlinkSplatGpu())
+      batch = std::max(1L, std::min(32L, static_cast<long>((size_t(32) << 20) / std::max<size_t>(1, 4 * n))));
 #else
    const long batch = std::max(32L, 4L * static_cast<long>(std::thread::hardware_concurrency()));
 #endif

@@ -193,9 +193,11 @@ or why it found none (`GPU: none: …`), and then the CPU computes everything as
 `nvidia-smi` shows the GPU). The rendering library (wgpu-native) comes with the server's download. `sh remote.sh check`
 names the GPU it finds.
 
-**The frames:** GPU frames differ from your browser's by float rounding. About 1 pixel in 100 is a count or so apart
-(a noise draw that lands on the other side of a count). To get the browser's frames exactly, run the server without
-the GPU: in the viewer's command, add `--gpu off` after `serve`.
+**The frames:** GPU frames differ from the CPU's by float rounding. About 1 pixel in 100 is a count or so apart
+(a noise draw that lands on the other side of a count). The browser has the same GPU path for Records and movies when
+it has WebGPU ([the viewer](try-viewer.md)), so its frames and the server's then both differ from the CPU's by
+rounding. To get the browser's frames exactly, run both without the GPU: in the viewer's command, add `--gpu off`
+after `serve`, and add `?gpu=0` to the page's address.
 
 **Settings for experts** (environment variables on the server):
 

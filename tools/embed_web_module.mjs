@@ -17,6 +17,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(ROOT, 'build/wasm/cli/insiliscope_scope_single.js');
 const OUT = path.join(ROOT, 'web/insiliscope_module.js');
 const WGSL = path.join(ROOT, 'adapter/inSiliScope/Simulation/WidefieldGpu.wgsl');
+const SPLAT_WGSL = path.join(ROOT, 'adapter/inSiliScope/Simulation/SplatGpu.wgsl');
 const check = process.argv.includes('--check');
 
 // LF line endings: Emscripten on Windows writes a few CRLFs into the glue, the Linux build (CI's --check) does not.
@@ -33,6 +34,7 @@ const emver = verFile && fs.existsSync(verFile) ? fs.readFileSync(verFile, 'utf8
 // LF line endings whatever the checkout uses (a Windows working copy has CRLF; CI's
 // --check builds on Linux).
 const wgsl = fs.readFileSync(WGSL, 'utf8').replace(/\r\n/g, '\n');
+const splatWgsl = fs.readFileSync(SPLAT_WGSL, 'utf8').replace(/\r\n/g, '\n');
 const sha = crypto.createHash('sha256').update(mod).digest('hex');
 
 const text =
@@ -48,6 +50,8 @@ self.ISC_WORLD_VERSION = ${JSON.stringify(worldVersion)};
 self.ISC_VERSION = ${JSON.stringify(version)};
 // The WideField GPU kernels (adapter/inSiliScope/Simulation/WidefieldGpu.wgsl), for web/wf_gpu.js.
 self.ISC_WF_WGSL = ${JSON.stringify(wgsl)};
+// The blink splat + camera noise (adapter/inSiliScope/Simulation/SplatGpu.wgsl), for web/splat_gpu.js.
+self.ISC_SPLAT_WGSL = ${JSON.stringify(splatWgsl)};
 `;
 
 // web/insiliscope_module_mt.js (2026-11-11): the threaded module (the insiliscope_scope_mt target: the same code with

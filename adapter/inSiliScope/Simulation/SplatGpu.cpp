@@ -59,7 +59,7 @@ struct SplatGpuHost::State
    bool statDirty = true;
    GpuBackend::BufPtr stat, dyn, out, none;
    std::vector<uint32_t> dynWords;
-   std::vector<uint32_t> outWords;
+   std::vector<uint16_t> outAdu;
 };
 
 SplatGpuHost::SplatGpuHost(std::shared_ptr<GpuBackend> backend) : backend_(std::move(backend)), s_(new State) {}
@@ -367,16 +367,13 @@ bool SplatGpuHost::RenderFrames(const std::vector<std::vector<GpuSplatEmitter>>&
                                   m.stat.get(),    m.dyn.get(),     m.out.get()};
       if (!be.Dispatch("splat_frames", p, 16, b, 7, (m.w + 15) / 16, (m.h + 15) / 16, static_cast<unsigned>(nf), err))
          return false;
-      m.outWords.resize(n * nf);
-      if (!be.ReadBack(*m.out, n * nf * 4, m.outWords.data(), err))
+      m.outAdu.resize(n * nf);
+      if (!be.ReadBackLow16(*m.out, n * nf, m.outAdu.data(), err))
          return false;
       for (size_t k = 0; k < nf; ++k)
       {
          std::vector<uint16_t>& o = *outs[s0 + k];
-         o.resize(n);
-         const uint32_t* src = m.outWords.data() + k * n;
-         for (size_t i = 0; i < n; ++i)
-            o[i] = static_cast<uint16_t>(src[i]);
+         o.assign(m.outAdu.begin() + k * n, m.outAdu.begin() + (k + 1) * n);
       }
    }
    return true;

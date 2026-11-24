@@ -907,11 +907,12 @@ self.iscCoi = (() => {
 <script src="live/mm_config.js"></script>
 <script src="live/bfp_examples.js"></script>
 <script src="origami_designs.js"></script>
-<script src="insiliscope_module.js?v=8651a6bc8a90"></script>
+<script src="insiliscope_module.js?v=02d46b832a43"></script>
 <!-- The threaded module (ISC_MODULE_MT_SRC) only on a cross-origin isolated page: the live worker runs it. -->
-<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=0bb453707659"><\/script>');</script>
+<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=5c595826a8e6"><\/script>');</script>
 <script src="live/scope_panels.js"></script>
 <script src="wf_gpu.js"></script>
+<script src="splat_gpu.js"></script>
 <script src="live/remote_wire.js"></script>
 <script src="live/remote_proxy.js"></script>
 <script src="scene/core.js"></script>
@@ -4588,6 +4589,30 @@ function iscEngine(M) {
     if (!d.diskOpen) return;
     try { d.diskOpen.flush(); } finally { d.diskOpen.close(); d.diskOpen = null; }
   }
+  // The blink splat + camera noise of a movie on WebGPU (2026-11-24; web/splat_gpu.js, cli/gpu_js_backend.cpp:
+  // SplatGpu.wgsl, the server's shader), on the WideField host's device: installed before every fluorescence movie
+  // that may use the GPU (the same switches: d.noGpu, the page's ?gpu=0; d.gpuAnyAdapter, ?wfgpu=any: a software
+  // adapter too), removed before one that may not. The host and its self-check are made by the first movie that
+  // splats; a failure leaves the CPU in charge (the reason in the console).
+  // warmGpu: the device and the splat's pipelines made ahead (the movie and live workers at their start: the
+  // pipeline's compile, ~2.5 s, would otherwise fall into the first Record).
+  let splatBackend = null;
+  function warmGpu(d) {
+    if (!splatBackend && M._isc_gpu_splat && self.IscSplatGpu && self.ISC_SPLAT_WGSL && self.IscWfGpu && self.ISC_WF_WGSL) {
+      if (!wfHost) wfHost = self.IscWfGpu.create(self.ISC_WF_WGSL, !!d.gpuAnyAdapter);
+      splatBackend = wfHost.then(host => host && self.IscSplatGpu.create(host.device, self.ISC_SPLAT_WGSL, host.adapterInfo || 'WebGPU'))
+        .catch(e => { console.warn('the blink splat on the CPU:', e.message || e); return null; });
+    }
+    return splatBackend || Promise.resolve(null);
+  }
+  async function splatGpu(d) {
+    if (!M._isc_gpu_splat) return;
+    if (d.noGpu || !self.IscSplatGpu || !self.ISC_SPLAT_WGSL || !self.IscWfGpu || !self.ISC_WF_WGSL) { M._isc_gpu_splat(0); return; }
+    if (!M.iscGpu) M.iscGpu = await warmGpu(d);
+    M._isc_gpu_splat(M.iscGpu ? 1 : 0);
+  }
+  // The GPU a movie used: the mean-field scenes' (wfName) or the splat's (a host that passed its self-check).
+  const gpuUsed = wfName => wfName || (M._isc_gpu_splat && M._isc_gpu_splat(-1) === 2 && M.iscGpu ? M.iscGpu.name : undefined);
   // A fluorescence movie whose continuous populations start mean-field: each mean-field scene's convolution
   // on WebGPU (web/wf_gpu.js; none: no GPU work), the frames in WASM. Any GPU failure falls back to the CPU
   // images (logged). Resolves like handle().
@@ -4624,7 +4649,7 @@ function iscEngine(M) {
       const need = d.stream ? 0 : M._isc_wf_movie(h, 0, 0, info, err, 512);
       if (d.stream) {
         const S = streamFrames(d, post), got = M._isc_wf_movie(h, 0, 0, info, err, 512);
-        res = streamEnd(d, post, S, got < 0 ? M.UTF8ToString(err) : '', info, t0, { gpu: scenes > 0 ? gpu : undefined });
+        res = streamEnd(d, post, S, got < 0 ? M.UTF8ToString(err) : '', info, t0, { gpu: gpuUsed(scenes > 0 ? gpu : '') });
       } else if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
       else {
         out = M._malloc(need * 2);
@@ -4632,7 +4657,7 @@ function iscEngine(M) {
         if (got < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames: M.HEAPU16.slice(out / 2, out / 2 + need),
           w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1], n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3],
-          dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, gpu: scenes > 0 ? gpu : undefined };
+          dyes: M.HEAP32[info / 4 + 4], halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, gpu: gpuUsed(scenes > 0 ? gpu : '') };
       }
       M.onMovieProgress = null;
       M._isc_wf_end(h);
@@ -4686,7 +4711,7 @@ function iscEngine(M) {
     M._isc_bfp_map_file(s, b, d.bytes.length);
     M._free(s); M._free(b);
   }
-  return { handle, bfpFile };
+  return { handle, bfpFile, warmGpu };
   // Returns [message, transferList]. post (optional): progress messages ({type: 'movie-progress'}).
   function handle(d, post) {
       if (d.disk && !d.diskOpen && !d.diskError)
@@ -4810,12 +4835,17 @@ function iscEngine(M) {
         for (let i = 0; i < n; i++) events.set(raw.subarray(10 * i, 10 * i + 7), 7 * i);
         return [{ type: 'events', id: d.id, events }, [events.buffer]];
       }
+      // Any fluorescence movie: the blink splat + camera noise on WebGPU when it may (splatGpu), first.
+      if (d.type === 'movie' && !d.prepare && !d.splatSet && !/(^| )modality=(1|BrightField)( |$)/.test(d.spec)) {
+        d.splatSet = true;
+        return splatGpu(d).then(() => handle(d, post));
+      }
       // A fluorescence movie with WebGPU at hand: its mean-field populations (WideField labels, PALM pre states, the
       // dSTORM initial ON; issue 16) convolve on the GPU. A drifting sample's are shifted spectra, made on the CPU (WASM).
       // A Record that renders in strips (on the disk storage: a side past 4096 px or the field past the module's
       // memory) stays on the CPU path (isc_scope_movie, isc_movie_strips): the GPU's scenes are the whole field's.
       if (d.type === 'movie' && !d.prepare && !/(^| )modality=(1|BrightField)( |$)/.test(d.spec) && self.IscWfGpu &&
-          self.ISC_WF_WGSL && !d.noGpu && !/(^| )drift-(xy|z)-(nm-per-sqrt-sec|speed-nm-per-sec)=(?!0( |$))/.test(d.spec) &&
+          self.ISC_WF_WGSL && !d.noGpu && !d.noWfGpu && !/(^| )drift-(xy|z)-(nm-per-sqrt-sec|speed-nm-per-sec)=(?!0( |$))/.test(d.spec) &&
           !(d.stream && (d.diskOpen || d.rowsOut) && movieInStrips(d.spec)))
         return wfGpuMovie(d, post);
       // ---- a BrightField movie split across the workers (spec/PORT.md 15) ----
@@ -5011,7 +5041,7 @@ function iscEngine(M) {
         if (d.stream) {
           progressTo(d, post);
           const S = streamFrames(d, post, info), got = M._isc_scope_movie(s, 0, 0, info, err, 512);
-          res = streamEnd(d, post, S, got < 0 ? M.UTF8ToString(err) : '', info, t0);
+          res = streamEnd(d, post, S, got < 0 ? M.UTF8ToString(err) : '', info, t0, { gpu: gpuUsed('') });
         } else if (need < 0) res = { type: 'movie', id: d.id, error: M.UTF8ToString(err) };
         else {
           out = M._malloc(Math.max(2, need * 2));   // prepare=1: need is 0, the call still has to run
@@ -5023,7 +5053,7 @@ function iscEngine(M) {
             const frames = M.HEAPU16.slice(out / 2, out / 2 + need);
             res = { type: 'movie', id: d.id, spec: d.spec, rect: d.rect, frames, w: M.HEAP32[info / 4], h: M.HEAP32[info / 4 + 1],
               n: M.HEAP32[info / 4 + 2], blinks: M.HEAP32[info / 4 + 3], dyes: M.HEAP32[info / 4 + 4],
-              halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0 };
+              halfMs: M.HEAP32[info / 4 + 5], ms: performance.now() - t0, gpu: d.prepare ? undefined : gpuUsed('') };
             if (d.prepare) res.prepared = true;
           }
         }
@@ -5050,6 +5080,8 @@ function genWorkerMain() {
     if (d && d.type === 'init') {
       const opts = d.module ? { instantiateWasm(info, done) { WebAssembly.instantiate(d.module, info).then(inst => done(inst, d.module)); return {}; } } : {};
       start(createInsiliscope(opts).then(M => { if (d.threads && M._isc_set_threads) M._isc_set_threads(d.threads); return iscEngine(M); }));
+      // the movie and live workers: the GPU made ready ahead (d.gpuWarm: the page's gpuFlags; none with ?gpu=0)
+      if (d.gpuWarm && !d.gpuWarm.noGpu) ready.then(eng => eng.warmGpu(d.gpuWarm));
       // the remote server (docs/remote.md, web/live/remote_proxy.js): the jobs it takes go there
       if (d.remote && self.IscRemoteProxy) remote = self.IscRemoteProxy.create(d.remote, (m, t) => postMessage(m, t || []), local);
       return;
@@ -5187,24 +5219,27 @@ self.iscBfpFileBytes = bfpFileBytes;
 function spawnGenWorker(opts = {}) {
   const files = w => { genAll.add(w); for (const [name, bytes] of BFP_FILES) w.postMessage({ type: 'bfp-file', name, bytes }); return w; };
   const remote = opts.remote && self.iscRemote ? self.iscRemote.config(opts.remote) : null;
+  const gpuWarm = opts.gpuWarm ? gpuFlags() : null;
   if (opts.mt && genMtBlobUrl) {
     const w = new Worker(genMtBlobUrl);
     w.onerror = e => console.warn('the threaded worker failed:', e.message);
-    wasmMtModulePromise.then(mod => w.postMessage({ type: 'init', module: mod, threads: self.iscCoi.nThreads, remote }));
+    wasmMtModulePromise.then(mod => w.postMessage({ type: 'init', module: mod, threads: self.iscCoi.nThreads, remote, gpuWarm }));
     return files(w);
   }
   const w = new Worker(genBlobUrl);
   w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
   // The shared compiled module (a structured clone); a browser that cannot clone it gets null.
   wasmModulePromise.then(mod => {
-    try { w.postMessage({ type: 'init', module: mod, remote }); } catch (e) { w.postMessage({ type: 'init', module: null, remote }); }
+    try { w.postMessage({ type: 'init', module: mod, remote, gpuWarm }); } catch (e) { w.postMessage({ type: 'init', module: null, remote, gpuWarm }); }
   });
   return files(w);
 }
 function initGenWorkers() {
   try {
     const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
+      'self.ISC_SPLAT_WGSL = ' + JSON.stringify(self.ISC_SPLAT_WGSL || '') + ';\n' +
       (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
+      (self.iscSplatGpuDefine ? '(' + self.iscSplatGpuDefine.toString() + ')();\n' : '') +
       (self.iscRemoteWireDefine && self.iscRemoteProxyDefine
         ? '(' + self.iscRemoteWireDefine.toString() + ')();\n(' + self.iscRemoteProxyDefine.toString() + ')();\n' : '') +
       iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
@@ -5243,7 +5278,7 @@ function workerErrorText(msg) {
 const dyesInflight = new Map();
 const DYES_REPLY = { 'bf-movie': 'movie' };
 function spawnDyesWorker() {
-  const w = spawnGenWorker({ remote: 'movie' }), post = w.postMessage.bind(w);
+  const w = spawnGenWorker({ remote: 'movie', gpuWarm: true }), post = w.postMessage.bind(w);
   w.answered = false;
   w.postMessage = (m, t) => {
     if (m && m.id !== undefined && m.type !== 'init') dyesInflight.set((DYES_REPLY[m.type] || m.type) + ':' + m.id, m);
@@ -6818,14 +6853,20 @@ function finishBfSplit() {
   genWorkers.dyes.postMessage({ type: 'bf-movie', id: b.id, h: b.h, spec: b.job.spec, rect: b.job.rect, images, helpers: b.helpers },
                               images ? [images.buffer] : []);
 }
+// A movie job's GPU switches (the page's address): ?gpu=0 keeps every movie on the CPU (the mean-field scenes, the blink
+// splat and the camera noise: noGpu); ?wfgpu=0 only the mean-field scenes (noWfGpu: the splat and the noise stay on the
+// GPU); ?wfgpu=any lets them run on a software WebGPU adapter too (tests).
+function gpuFlags() {
+  return { gpuAnyAdapter: /[?&]wfgpu=any/.test(location.search), noGpu: /[?&]gpu=0(&|$)/.test(location.search),
+    noWfGpu: /[?&]wfgpu=0(&|$)/.test(location.search) };
+}
 function makeMovie() {
   cancelBfSplit();
   iscTrack('make-movie', { modality: document.getElementById('mv_modality').value === '1' ? 'brightfield' : 'fluorescence' });
   const spec = movieSpec();
   const size = +document.getElementById('mv_size').value * (+document.getElementById('mv_pixel-nm').value) / 1000;
   const rect = [view.cx - size / 2, view.cy - size / 2, view.cx + size / 2, view.cy + size / 2];
-  // ?wfgpu=any: WideField also on a software WebGPU adapter (tests).
-  const job = { type: 'movie', id: ++movieId, spec, rect, gpuAnyAdapter: /[?&]wfgpu=any/.test(location.search) };
+  const job = { type: 'movie', id: ++movieId, spec, rect, ...gpuFlags() };
   moviePending = job;
   const psfKey = moviePsfKey();
   const newPsf = document.getElementById('mv_psf-model').value !== '0' && !moviePsfSeen.has(psfKey);
@@ -6886,7 +6927,7 @@ function onMovieResult(d) {
   sl.max = d.n - 1; sl.value = 0;
   const what = /(^| )modality=1( |$)/.test(d.spec || '') ? `BrightField (transmitted light${d.split ? ', ' + (d.split + 1) + ' workers' : ''})`
     : `${d.blinks} blinks${d.summary ? ', ' + d.summary : ''}` +
-      (d.gpu ? (d.gpu === 'CPU' ? ', mean-field (CPU)' : `, mean-field GPU: ${d.gpu}`) : '');
+      (d.gpu ? (d.gpu === 'CPU' ? ', mean-field (CPU)' : `, GPU: ${d.gpu}`) : '');
   document.getElementById('mv_info').textContent =
     `${d.n} frames ${d.w}x${d.h}, ${what}, ${(d.ms / 1000).toFixed(1)} s, display ${d.lo}-${d.hi} ADU`;
   document.getElementById('movie').style.display = 'block';
@@ -7185,7 +7226,7 @@ const stackJobs = new Map();    // movie job id -> resolve (onMovieResult routes
 let stackJobId = 1e9, acqChain = Promise.resolve();
 const acqStatus = new Map();    // stack key -> {done, total} while being made
 function movieJob(spec) {
-  const job = { type: 'movie', id: ++stackJobId, spec, gpuAnyAdapter: /[?&]wfgpu=any/.test(location.search) };
+  const job = { type: 'movie', id: ++stackJobId, spec, ...gpuFlags() };
   return new Promise((res, rej) => {
     const done = d => (d.error ? rej(new Error(d.error)) : res(d));
     if (genWorkers.ok) { stackJobs.set(job.id, done); genWorkers.dyes.postMessage(job); }

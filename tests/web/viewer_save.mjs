@@ -60,7 +60,8 @@ function readTiff(buf) {
 }
 const same = (a, b) => a && b && a.length === b.length && a.every((x, i) => x === b[i]);
 
-await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, height: 800 } }, async ({ page, check, port }) => {
+// (?gpu=0: the Records on the CPU, as the cli's: bit for bit)
+await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, height: 800 }, query: '?live=0&gpu=0' }, async ({ page, check, port }) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'isc-save-'));
   try {
     await page.waitForFunction(() => window.liveState && typeof genWorkers !== 'undefined' && genWorkers.ok, null, { timeout: 120000 });

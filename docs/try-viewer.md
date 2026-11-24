@@ -159,6 +159,14 @@ through it step by step.
   are rendered in batches, each one movie on the sample's clock, so the slow parts of a frame (above all the
   blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
   frame of each batch is shown, and clicking ● Record again stops early and keeps the frames so far.
+  **On the GPU:** in a browser with WebGPU (Chrome, Edge; others as they add it), a fresh sample's Record (and the
+  movies) splats its dSTORM, PALM and DNA-PAINT blinks and draws the camera noise on the graphics card, with the same
+  shader a [remote server](remote.md#gpu)'s GPU runs; WideField dye planes' images were on it already. The frames
+  differ from the CPU's by float rounding (about 3 samples in 10000 a count apart); at 256 × 256 px a DNA-PAINT Record
+  is about 4x faster (measured in a 40-frame movie; the first one in a tab also compiles the shader, ~2.5 s, which
+  the page starts doing as it opens). Live frames, ground truth, BrightField and a
+  drifting sample's WideField images stay on the CPU. Add `?gpu=0` to the page's address to keep everything on the CPU
+  (the frames then equal `insiliscope_cli`'s byte for byte).
   **Multi-D plan** (in the box, Advanced and Expert): Start then runs a plan instead of N frames, like Micro-Manager's
   multi-dimensional acquisition. **Edit…** opens it: a list of **positions** (name, x, y, z; **+ current stage** adds
   where the stage and focus are, **go to** moves there) and nested **for blocks**, run top to bottom: a for block runs
@@ -416,4 +424,6 @@ through it step by step.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.
-- URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).
+- URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?gpu=0` (movies and Records on the
+  CPU), `?wfgpu=0` (the WideField images on the CPU, the blink splat and noise still on the GPU), `?wfgpu=any` (allow
+  software WebGPU).

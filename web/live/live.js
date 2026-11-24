@@ -314,7 +314,7 @@ L.stepZ = stepZ;
 function worker() {
   if (L.worker) return L.worker;
   if (!genWorkers.ok) return null;
-  L.worker = spawnGenWorker({ mt: true, remote: 'live' });   // (the threaded module where the page is cross-origin isolated)
+  L.worker = spawnGenWorker({ mt: true, remote: 'live', gpuWarm: true });   // (the threaded module where the page is cross-origin isolated)
   L.worker.onmessage = e => onResult(e.data);
   // a failure here stops live only (the shared handler would move every worker to the main thread)
   L.worker.onerror = e => { e.preventDefault(); L.err = workerErrorText(e.message || 'the live worker failed'); L.pending = null; L.worker.terminate(); L.worker = null; L.worldKey = null; setLive(false); };
@@ -1377,7 +1377,7 @@ function recMovie() {
   if (!w) { L.err = 'the workers are not up yet'; REC.on = false; syncButtons(); showInfo(); return; }
   REC.store = REC.out || (REC.disk ? null : frameStore());   // (on disk: made at the end; parts only if the storage failed)
   const job = { type: 'movie', id: ++L.id, spec: movieSpec({ frames: REC.n, 'start-sec': recStartSec(), 'fresh-basis': 1, ...recFieldSpec() }),
-    fresh: true, stream: true, t0: performance.now() };
+    fresh: true, stream: true, t0: performance.now(), ...(typeof gpuFlags === 'function' ? gpuFlags() : {}) };
   if (recOpfs()) job.disk = { path: DISK.path(REC.disk.dir, 'frames.raw') };
   if (REC.out) job.rowsOut = true;   // (strips' rows posted: the page writes them into the file)
   L.pending = job;
@@ -1385,6 +1385,7 @@ function recMovie() {
 }
 function onRecProgress(d) {
   REC.got = Math.min(REC.n, Math.floor((d.frac || 0) * REC.n));
+  if (d.info) REC.info = d.info;   // (the last frame's backends: tests/web/viewer_gpu_splat.mjs)
   syncButtons(); showInfo();
 }
 // a part of a fresh sample's frames, as the engine made them
