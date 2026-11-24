@@ -132,7 +132,7 @@ check(near(C.duration, 15) && C.steps.map(s => s.t0).join() === '0,6,12', 'examp
 {
   // every <script src> of the viewer is copied by the docs-site build
   const html = fs.readFileSync(path.join(ROOT, 'web/index.html'), 'utf8'), sh = fs.readFileSync(path.join(ROOT, 'tools/build_site.sh'), 'utf8');
-  const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1]);
+  const srcs = [...html.matchAll(/<script src="([^"]+)"/g)].map(m => m[1].split('?')[0]);   // the module's ?v=<hash>
   const dirs = (/for d in ([\w ]+); do/.exec(sh) || [, ''])[1].split(' ');
   const missing = srcs.filter(s => !(s.includes('/') ? dirs.includes(s.split('/')[0]) : sh.includes('web/' + s)));
   check(!missing.length, 'tools/build_site.sh ships every viewer script' + (missing.length ? ': missing ' + missing.join(', ') : ''));
