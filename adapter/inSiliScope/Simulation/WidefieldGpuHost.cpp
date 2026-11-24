@@ -343,7 +343,7 @@ struct WidefieldGpuHost::State
    }
 };
 
-WidefieldGpuHost::WidefieldGpuHost(std::unique_ptr<GpuBackend> backend)
+WidefieldGpuHost::WidefieldGpuHost(std::shared_ptr<GpuBackend> backend)
    : backend_(std::move(backend)), s_(new State(*backend_))
 {
 }
@@ -352,14 +352,14 @@ WidefieldGpuHost::~WidefieldGpuHost() = default;
 
 bool WidefieldGpuHost::HasPlane(unsigned long long geometry, unsigned long long key) const
 {
-   std::lock_guard<std::recursive_mutex> lock(mu_);
+   std::lock_guard<std::recursive_mutex> lock(backend_->mu);
    auto it = s_->resident.find(geometry);
    return it != s_->resident.end() && it->second.planes.count(key) != 0;
 }
 
 bool WidefieldGpuHost::Fits(unsigned long long geometry, unsigned NX, unsigned NY, size_t planes)
 {
-   std::lock_guard<std::recursive_mutex> lock(mu_);
+   std::lock_guard<std::recursive_mutex> lock(backend_->mu);
    State& m = *s_;
    const size_t SS = static_cast<size_t>(NX / 2 + 1) * NY;
    const bool sameShape = m.NX == NX && m.NY == NY && m.slotCap > 0;
@@ -380,7 +380,7 @@ bool WidefieldGpuHost::Fits(unsigned long long geometry, unsigned NX, unsigned N
 
 bool WidefieldGpuHost::Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err)
 {
-   std::lock_guard<std::recursive_mutex> lock(mu_);
+   std::lock_guard<std::recursive_mutex> lock(backend_->mu);
    try
    {
       return ImagesImpl(job, out, err);
@@ -509,7 +509,7 @@ bool WidefieldGpuHost::SetFrameStatic(unsigned width, unsigned height, const std
                                       const std::vector<float>& background, double flatBg,
                                       const CameraNoiseParams& cam, std::string& err)
 {
-   std::lock_guard<std::recursive_mutex> lock(mu_);
+   std::lock_guard<std::recursive_mutex> lock(backend_->mu);
    State& m = *s_;
    const size_t n = static_cast<size_t>(width) * height;
    std::vector<float> pix(4 * n);
@@ -530,7 +530,7 @@ bool WidefieldGpuHost::RenderFrames(const WidefieldImages& images, const std::ve
                                     const CameraNoiseParams& cam, uint32_t seed,
                                     const std::vector<std::vector<uint16_t>*>& outs, std::string& err)
 {
-   std::lock_guard<std::recursive_mutex> lock(mu_);
+   std::lock_guard<std::recursive_mutex> lock(backend_->mu);
    State& m = *s_;
    if (!m.pix || images.cw != m.fw * images.upscale || images.ch != m.fh * images.upscale)
    {

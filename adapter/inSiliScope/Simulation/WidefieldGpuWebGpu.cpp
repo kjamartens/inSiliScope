@@ -33,6 +33,7 @@ namespace sim {
 namespace {
 
 #include "WidefieldGpuWgsl.inc"   // kWfGpuWgsl: WidefieldGpu.wgsl (cli/CMakeLists.txt writes it)
+#include "SplatGpuWgsl.inc"       // kSplatGpuWgsl: SplatGpu.wgsl (likewise)
 
 #define ISC_WGPU_FUNCS(X)                                                                                              \
    X(wgpuCreateInstance)                                                                                               \
@@ -529,7 +530,7 @@ const char* BackendName(WGPUBackendType t)
 
 } // namespace
 
-std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::string& info)
+std::shared_ptr<GpuBackend> MakeWebGpuBackend(std::string& info)
 {
    const Api* api = LoadApi(info);
    if (!api)
@@ -616,19 +617,34 @@ std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::string& info
    api->wgpuDeviceGetLimits(be->device, &be->limits);
    be->queue = api->wgpuDeviceGetQueue(be->device);
    std::string err;
-   if (!be->AddKernels(kWfGpuWgsl, err))
+   if (!be->AddKernels(kWfGpuWgsl, err) || !be->AddKernels(kSplatGpuWgsl, err))
    {
       info = name + ": " + err;
       return nullptr;
    }
-   std::unique_ptr<WidefieldGpuWebGpu> gpu(new WidefieldGpuWebGpu(std::move(be)));
+   be->name = name;
+   info = name;
+   return std::shared_ptr<GpuBackend>(std::move(be));
+}
+
+std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::shared_ptr<GpuBackend> be, std::string& info)
+{
+   if (!be)
+      return nullptr;
+   std::unique_ptr<WidefieldGpuWebGpu> gpu(new WidefieldGpuWebGpu(be));
+   std::string err;
    if (!gpu->SelfCheck(err))
    {
-      info = name + " failed the WideField self-check (" + err + ")";
+      info = be->name + " failed the WideField self-check (" + err + ")";
       return nullptr;
    }
-   info = name;
+   info = be->name;
    return gpu;
+}
+
+std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::string& info)
+{
+   return Create(MakeWebGpuBackend(info), info);
 }
 
 } // namespace sim
@@ -637,10 +653,21 @@ std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::string& info
 
 namespace sim {
 
-std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::string& info)
+std::shared_ptr<GpuBackend> MakeWebGpuBackend(std::string& info)
 {
    info = "the native WebGPU path is for Linux servers";
    return nullptr;
+}
+
+std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::shared_ptr<GpuBackend>, std::string& info)
+{
+   info = "the native WebGPU path is for Linux servers";
+   return nullptr;
+}
+
+std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::string& info)
+{
+   return Create(nullptr, info);
 }
 
 } // namespace sim

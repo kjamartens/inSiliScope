@@ -77,8 +77,9 @@ inSiliScope's own source is BSD-3-Clause (see `LICENSE`); the distributed Micro-
 ## Shipped beside the Linux server
 
 - **wgpu-native** (https://github.com/gfx-rs/wgpu-native, MIT OR Apache-2.0): `lib/libwgpu_native.so` in the
-  `insiliscope-server-linux-x86_64.tar.gz` release asset, loaded at run time for the GPU (docs/remote.md); its license
-  files are next to it in `lib/`.
+  `insiliscope-server-linux-x86_64.tar.gz` release asset (and in a server `tools/remote.sh build` makes), loaded at run
+  time for the GPU (docs/remote.md); its license files are next to it in `lib/` (`wgpu-native-LICENSE.APACHE`,
+  `wgpu-native-LICENSE.MIT`).
 
 ## Data under CC BY-SA 4.0
 

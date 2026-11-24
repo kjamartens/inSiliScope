@@ -21,7 +21,7 @@
 //                (<= 1e-3 rms) and its frame noise (>= 90 % of the pixels
 //                equal), so a driver or compiler that gets the kernels wrong
 //                leaves the CPU path in charge. One host may be used from any
-//                thread (a mutex serializes its calls).
+//                thread (the backend's mutex serializes its calls).
 //
 // LICENSE:       BSD-3-Clause (see LICENSE at the repository root)
 
@@ -66,12 +66,15 @@ public:
    // state scenes go to the GPU too (WidefieldAccelerator::ManyScenes).
    virtual std::vector<size_t> PoolMB() const { return {512, 128}; }
    virtual size_t MaxScenes() const { return 4; }
+   // Every host on this backend holds it for each call (one device, one queue).
+   std::recursive_mutex mu;
+   std::string name;   // the adapter and API, for messages
 };
 
 class WidefieldGpuHost : public WidefieldAccelerator
 {
 public:
-   explicit WidefieldGpuHost(std::unique_ptr<GpuBackend> backend);
+   explicit WidefieldGpuHost(std::shared_ptr<GpuBackend> backend);
    ~WidefieldGpuHost() override;
 
    bool HasPlane(unsigned long long geometry, unsigned long long key) const override;
@@ -102,9 +105,8 @@ public:
 private:
    bool ImagesImpl(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err);
    struct State;
-   std::unique_ptr<GpuBackend> backend_;
+   std::shared_ptr<GpuBackend> backend_;   // (shared with the blink splat, SplatGpuHost: its mutex serializes both)
    std::unique_ptr<State> s_;
-   mutable std::recursive_mutex mu_;
 };
 
 } // namespace sim

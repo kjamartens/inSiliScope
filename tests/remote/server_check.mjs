@@ -3,8 +3,9 @@
 // WebAssembly module (web/insiliscope_module.js) computes for the same request -- frames byte for byte.
 //   node tests/remote/server_check.mjs --server build/native/cli/insiliscope_server   (POSIX: starts one, a free port)
 //   node tests/remote/server_check.mjs --url "ws://127.0.0.1:18799/?t=TOKEN"          (a server already running)
-//   --gpu: the server renders WideField on its GPU (started with --gpu auto; else --gpu off): its WideField frames are
-//   compared within float rounding (most pixels equal, a few a Poisson draw apart), everything else byte for byte.
+//   --gpu: the server renders on its GPU (started with --gpu auto; else --gpu off): the WideField scenes and the blink
+//   splat + camera noise; those movies' frames are compared within float rounding (most pixels equal, a few a Poisson
+//   draw apart), everything else byte for byte (live frames keep the CPU's splat and noise).
 // Node 22+ (its WebSocket). ~30 s.
 import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -98,7 +99,7 @@ const near = (a, b) => {
 };
 
 // ---- the checks ----
-const SPEC = 'size=48 frames=4 exposure-ms=50 world-seed=7 psf-kernel-half-width-nm=3000 x=10 y=12';
+const SPEC = 'size=48 frames=4 exposure-ms=50 world-seed=7 psf-kernel-half-width-nm=3000 x=-10 y=4';   // (a field with cells: blinks in every frame)
 try {
   const A = await connect(url);
   const hello = await A.job({ type: 'hello', id: 0, protocol: 1 });
@@ -129,16 +130,18 @@ try {
   t = performance.now();
   const lm = C.movie(SPEC);
   const tl = performance.now() - t;
-  ok(!mv.error && same(mv.frames, lm.frames), `movie = the module's, byte for byte (${mv.w}x${mv.h}x${mv.n}; server ${tr.toFixed(0)} ms, module ${tl.toFixed(0)} ms)` + (mv.error ? ' ' + mv.error : same(mv.frames, lm.frames) ? '' : ' ' + firstDiff(mv.frames, lm.frames)));
+  if (GPU) { const n = near(mv.frames, lm.frames); ok(!mv.error && n.ok, `DNA-PAINT movie, its blinks and noise on the GPU = the module's within rounding: ${n.text} (${mv.w}x${mv.h}x${mv.n}; server ${tr.toFixed(0)} ms, module ${tl.toFixed(0)} ms)` + (mv.error ? ' ' + mv.error : '')); }
+  else ok(!mv.error && same(mv.frames, lm.frames), `movie = the module's, byte for byte (${mv.w}x${mv.h}x${mv.n}; server ${tr.toFixed(0)} ms, module ${tl.toFixed(0)} ms)` + (mv.error ? ' ' + mv.error : same(mv.frames, lm.frames) ? '' : ' ' + firstDiff(mv.frames, lm.frames)));
   ok(deepEq(mv.rect, [1, 2, 3, 4]), 'movie: its rect back');
   const st = await A.job({ type: 'movie', id: 6, spec: SPEC, stream: true });
   const parts = st.extra.filter(d => d.type === 'movie-part'), cat = new Uint16Array(parts.reduce((s, p) => s + p.frames.length, 0));
   let at = 0;
   for (const p of parts) { cat.set(p.frames, at); at += p.frames.length; }
-  ok(!st.error && st.streamed && st.got === 4 && same(cat, lm.frames), `streamed movie: ${parts.length} part(s), ${st.got} frames = the module's; progress messages ${st.extra.filter(d => d.type === 'movie-progress').length}`);
+  if (GPU) { const info = st.extra.filter(d => d.type === 'movie-progress').map(d => JSON.stringify(d.info || '')).join(' '); ok(/splat, GPU/.test(info), 'streamed movie: its progress names the GPU splat (' + (info.match(/SMLM:[^"]*/) || ['none'])[0] + ')'); }
+  ok(!st.error && st.streamed && st.got === 4 && (GPU ? same(cat, mv.frames) : same(cat, lm.frames)), `streamed movie: ${parts.length} part(s), ${st.got} frames = ${GPU ? 'the whole one\'s' : 'the module\'s'}; progress messages ${st.extra.filter(d => d.type === 'movie-progress').length}`);
 
   // WideField: mean-field scenes (on the server's GPU with --gpu)
-  const WSPEC = SPEC + ' mt-mode=3 npc-dye=None x=-10 y=4';   // (a field with cells)
+  const WSPEC = SPEC + ' mt-mode=3 npc-dye=None';
   t = performance.now();
   const wm = await A.job({ type: 'movie', id: 7, spec: WSPEC });
   const tw = performance.now() - t;

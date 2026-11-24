@@ -33,7 +33,7 @@ public:
    static std::unique_ptr<WidefieldGpuD3D11> Create(std::string& info);
 
 private:
-   explicit WidefieldGpuD3D11(std::unique_ptr<GpuBackend> backend) : WidefieldGpuHost(std::move(backend)) {}
+   explicit WidefieldGpuD3D11(std::shared_ptr<GpuBackend> backend) : WidefieldGpuHost(std::move(backend)) {}
 };
 
 } // namespace sim

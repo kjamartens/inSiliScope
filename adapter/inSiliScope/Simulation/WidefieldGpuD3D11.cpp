@@ -141,13 +141,13 @@ public:
       return true;
    }
 
-   bool Dispatch(const char* name, const uint32_t* params, size_t nParams, Buffer* const* bufs, size_t nBufs,
+   bool Dispatch(const char* kernel, const uint32_t* params, size_t nParams, Buffer* const* bufs, size_t nBufs,
                  unsigned x, unsigned y, unsigned z, std::string& err) override
    {
-      auto it = kernels.find(name);
+      auto it = kernels.find(kernel);
       if (it == kernels.end())
       {
-         err = std::string("no kernel ") + name;
+         err = std::string("no kernel ") + kernel;
          return false;
       }
       uint32_t p[16] = {};

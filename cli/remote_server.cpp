@@ -646,7 +646,7 @@ std::string ProbeGpu(bool& ok)
    {
       ::close(fd[0]);
       std::string info;
-      const bool made = sim::WidefieldGpuWebGpu::Create(info) != nullptr;
+      const bool made = isc_gpu::Probe(info);
       const std::string s = (made ? "1" : "0") + info;
       (void)!::write(fd[1], s.data(), s.size());
       ::_exit(0);
@@ -1394,7 +1394,7 @@ void Usage()
                 "  --listen HOST:PORT      serve WebSocket connections on TCP (needs --token)\n"
                 "  --token T               connections must give ?t=T\n"
                 "  --threads N             threads per engine (default: all)\n"
-                "  --gpu auto|off          WideField on the GPU when there is one (native WebGPU on Vulkan; default\n"
+                "  --gpu auto|off          the GPU when there is one (native WebGPU on Vulkan): WideField, blinks, noise (default\n"
                 "                          auto, or $ISC_GPU; frames then differ from the CPU's by float rounding)\n"
                 "  --memory-gb G           the memory budget (default: 80 %% of the RAM)\n"
                 "  --idle-exit MIN         stop after MIN minutes without a connection (default 30, 0: never)\n"

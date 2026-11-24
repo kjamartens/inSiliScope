@@ -112,6 +112,14 @@ jobs:
           strip dist/$d/bin/*
           echo "$VERSION" > dist/$d/VERSION
           cp LICENSE THIRD_PARTY_NOTICES.md dist/$d/
+          # wgpu-native (MIT OR Apache-2.0) in lib/, its licenses beside it: the server's GPU (docs/remote.md "GPU"),
+          # loaded at run time from ../lib (no GPU or no Vulkan driver: the CPU, as without it)
+          W=v29.0.1.1
+          curl -fsSL -o /tmp/wgpu.zip "https://github.com/gfx-rs/wgpu-native/releases/download/$W/wgpu-linux-x86_64-release.zip"
+          echo "95a4d90c071005a98d03eab348beaa6b07e16eb00d1dcdb9f8348f75eb97ec5a  /tmp/wgpu.zip" | sha256sum -c -
+          mkdir -p dist/$d/lib
+          /opt/python/cp312-cp312/bin/python -c "import zipfile,shutil; z=zipfile.ZipFile('/tmp/wgpu.zip'); shutil.copyfileobj(z.open('lib/libwgpu_native.so'), open('dist/$d/lib/libwgpu_native.so','wb'))"
+          for f in LICENSE.APACHE LICENSE.MIT; do curl -fsSL -o "dist/$d/lib/wgpu-native-$f" "https://raw.githubusercontent.com/gfx-rs/wgpu-native/$W/$f"; done
           (cd dist && tar czf insiliscope-server-linux-x86_64.tar.gz $d && sha256sum insiliscope-server-linux-x86_64.tar.gz | tee insiliscope-server-linux-x86_64.tar.gz.sha256)
           ldd dist/$d/bin/insiliscope_server; objdump -T dist/$d/bin/insiliscope_server | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
       - uses: actions/upload-artifact@v4

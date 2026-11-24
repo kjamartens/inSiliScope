@@ -35,6 +35,7 @@
 #include "SMLMZernike.h"
 #include "SMLMNoise.h"
 #include "SMLMSimulation.h"
+#include "SplatGpu.h"
 #include "WidefieldRender.h"
 
 #include "insiliscope/insiliscope.h"
@@ -5515,6 +5516,53 @@ std::string DefaultWidefieldAcceleratorInfo()
    return d.info;
 }
 
+namespace {
+struct DefaultSplat
+{
+   std::mutex mu;
+   std::function<std::unique_ptr<SplatGpuHost>(std::string&)> make;
+   std::unique_ptr<SplatGpuHost> host;
+   std::string info;
+   bool tried = false;
+   static DefaultSplat& Get()
+   {
+      static DefaultSplat* d = new DefaultSplat;   // (never destroyed, as DefaultAccel)
+      return *d;
+   }
+};
+} // namespace
+
+void SetDefaultBlinkSplatGpu(std::function<std::unique_ptr<SplatGpuHost>(std::string& info)> make)
+{
+   DefaultSplat& d = DefaultSplat::Get();
+   std::lock_guard<std::mutex> lock(d.mu);
+   d.make = std::move(make);
+   d.host.reset();
+   d.info.clear();
+   d.tried = false;
+}
+
+SplatGpuHost* DefaultBlinkSplatGpu()
+{
+   DefaultSplat& d = DefaultSplat::Get();
+   std::lock_guard<std::mutex> lock(d.mu);
+   if (!d.tried && d.make)
+   {
+      d.tried = true;
+      const auto t = TimingClock::now();
+      d.host = d.make(d.info);
+      TimingLog("gpu.create-splat", TimingSince(t), d.info.c_str());
+   }
+   return d.host.get();
+}
+
+std::string DefaultBlinkSplatGpuInfo()
+{
+   DefaultSplat& d = DefaultSplat::Get();
+   std::lock_guard<std::mutex> lock(d.mu);
+   return d.info;
+}
+
 void SetBackgroundMapPrefetch(bool on)
 {
    BgMapCache::Get().SetPrefetch(on);
@@ -6939,6 +6987,81 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
    const long cores = std::max(1L, static_cast<long>(std::thread::hardware_concurrency()));
 #endif
    const bool popsOnly = opt.populationsOnly && opt.onPhotons;
+   // The blink splat and the camera noise on the GPU (the native cli's and server's, SetDefaultBlinkSplatGpu; a movie
+   // that applies its own noise, without the ground truth): each frame's splatted blinks of the groups with a
+   // diffraction kernel (up to SplatGpuHost::kMaxKernels) go as emitter records, the rest of its light is drawn here as
+   // before and goes along as the frame's extra image (no blinks: the noise alone). Frames within float32 rounding of
+   // the CPU's.
+   SplatGpuHost* gpuSplat = nullptr;
+   std::vector<int> gpuKernelOf(m.groups.size(), -1);
+   if (noisePtr && !gt)
+   {
+      std::vector<const PsfKernelCache*> ks;
+      for (size_t gi = 0; gi < m.groups.size() && ks.size() < SplatGpuHost::kMaxKernels; ++gi)
+      {
+         const Group& g = m.groups[gi];
+         if (g.pre || !g.blinkKernel.valid || g.blinkKernel.interpMode == PsfInterpMode::Fft || m.byGroup[gi].empty())
+            continue;
+         gpuKernelOf[gi] = static_cast<int>(ks.size());
+         ks.push_back(&g.blinkKernel);
+      }
+      SplatGpuHost* h = DefaultBlinkSplatGpu();
+      if (h)
+      {
+         // The camera maps are a function of these (NoiseSetup): kept on the GPU while they stay.
+         uint64_t key = 1469598103934665603ull;
+         auto mix = [&](double v) {
+            unsigned char b[8];
+            std::memcpy(b, &v, 8);
+            for (unsigned char c : b)
+               key = (key ^ c) * 1099511628211ull;
+         };
+         for (double v : {static_cast<double>(S.seed), static_cast<double>(W), static_cast<double>(H),
+                          static_cast<double>(S.sensorH), static_cast<double>(S.rowY0), static_cast<double>(S.window),
+                          S.p.offsetAdu, S.p.offsetStdAdu, S.p.gainPhotonsPerAdu, S.p.pixelGainStdFraction,
+                          S.p.readNoiseElectrons, S.p.pixelReadNoiseStdFraction})
+            mix(v);
+         std::string e;
+         const auto tg = TimingClock::now();
+         if (h->SetKernels(ks, e) &&
+             h->SetStatic(W, H, noisePtr->pixelBase, noisePtr->offsetMap.offset, noisePtr->gainMap.gainPhotonsPerAdu,
+                          noisePtr->rnMap.readNoiseElectrons, cam, key | 1, e))
+            gpuSplat = h;
+         TimingLog("gpu.splat-setup", TimingSince(tg), gpuSplat ? nullptr : e.c_str());
+      }
+      if (!gpuSplat)
+         std::fill(gpuKernelOf.begin(), gpuKernelOf.end(), -1);
+   }
+   std::vector<std::vector<GpuSplatEmitter>> gpuEms(gpuSplat ? slots : 0);
+   // A failed GPU batch: its frames' GPU groups splatted here after all (the rest of the movie on the CPU).
+   auto cpuSplatGpuGroups = [&](long f0, long k) {
+      const long f = f0 + k;
+      double dx = 0.0, dy = 0.0;
+      if (opt.driftPx)
+         opt.driftPx(f, dx, dy);
+      else if (drift)
+      {
+         dx = S.drift[static_cast<size_t>(f)].x / pixelNm;
+         dy = S.drift[static_cast<size_t>(f)].y / pixelNm;
+      }
+      RenderExtras ex = blinkInto;
+      ex.parallel = true;
+      std::vector<BlinkEvent> ev;
+      for (size_t gi = 0; gi < m.groups.size(); ++gi)
+      {
+         const Group& g = m.groups[gi];
+         if (gpuKernelOf[gi] < 0 || (!g.mfFrame.empty() && g.mfFrame[static_cast<size_t>(f)]) || m.BinnedFrame(gi, f))
+            continue;
+         ev.clear();
+         for (uint32_t i : m.buckets[gi][static_cast<size_t>(f)])
+            ev.push_back(m.byGroup[gi][i]);
+         if (m.varies)
+            for (BlinkEvent& e : ev)
+               e.excite = m.ExciteAtFrame(f, g.shares, e.xUm, e.yUm, e.zNm);
+         RenderPhotonImage(photons[static_cast<size_t>(k)], W, H, ev, f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
+                           &g.blinkKernel, zAt(f), nullptr, nullptr, &ex);
+      }
+   };
    for (long f0 = 0; f0 < N; f0 += batch)
    {
       const long nb = std::min(batch, N - f0);
@@ -6983,6 +7106,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
          frameBlinks[k] = 0;
          frameBinned[k] = 0;
          frameMf[k] = 0;
+         if (gpuSplat)
+            gpuEms[k].clear();
          if (gt)
          {
             gtEv[k].assign(m.groups.size(), {});
@@ -7056,7 +7181,12 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
                g.binned.Render(ems, photons[k], nullptr);
                continue;
             }
-            if (!noPixels)
+            if (noPixels)
+               continue;
+            if (gpuKernelOf[gi] >= 0)
+               CollectGpuEmitters(fe[k], f, W, H, pixelNm, g.perFrame, dx, dy, g.blinkKernel, zf, &blinkInto, gpuEms[k],
+                                  nullptr, nullptr, gpuKernelOf[gi], m.S.blinkMinPhotons);
+            else
                RenderPhotonImage(photons[k], W, H, fe[k], f, pixelNm, g.sigmaPx, g.perFrame, 0.0, dx, dy,
                                  g.blinkKernel.valid ? &g.blinkKernel : nullptr, zf, nullptr, nullptr, &blinkInto);
          }
@@ -7410,6 +7540,38 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             if (adu[static_cast<size_t>(k)].size() != n)
                adu[static_cast<size_t>(k)].assign(n, 0);
          }
+      else if (gpuSplat && !opt.onPhotons)
+      {
+         // The batch's blinks and noise on the GPU; a failure: those frames' blinks here, the rest on the CPU.
+         std::vector<std::vector<GpuSplatEmitter>> part;
+         if (static_cast<size_t>(nb) < gpuEms.size())
+            part.assign(gpuEms.begin(), gpuEms.begin() + nb);
+         std::vector<uint32_t> ids(static_cast<size_t>(nb));
+         std::vector<const std::vector<float>*> xs(static_cast<size_t>(nb));
+         std::vector<std::vector<uint16_t>*> os(static_cast<size_t>(nb));
+         for (long k = 0; k < nb; ++k)
+         {
+            ids[static_cast<size_t>(k)] = static_cast<uint32_t>(f0 + k);
+            xs[static_cast<size_t>(k)] = &photons[static_cast<size_t>(k)];
+            os[static_cast<size_t>(k)] = &adu[static_cast<size_t>(k)];
+         }
+         std::string e;
+         const auto tg = TimingClock::now();
+         const bool ok = gpuSplat->RenderFrames(part.empty() ? gpuEms : part, ids, xs, cam, noisePtr->noiseSeed, os, e);
+         TimingLog("gpu.splat-frames", TimingSince(tg), ok ? nullptr : e.c_str());
+         if (!ok)
+         {
+            for (long k = 0; k < nb; ++k)
+               cpuSplatGpuGroups(f0, k);
+            gpuSplat = nullptr;
+            std::fill(gpuKernelOf.begin(), gpuKernelOf.end(), -1);
+            ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
+               ApplyNoiseChain(photons[k], adu[k], W, H, cam, noisePtr->offsetMap, noisePtr->gainMap, noisePtr->rnMap,
+                               noisePtr->noiseSeed, static_cast<uint32_t>(f0 + static_cast<long>(k)), false,
+                               noisePtr->pixelBase);
+            });
+         }
+      }
       else if (!opt.onPhotons)
          ParallelFor(static_cast<unsigned>(nb), [&](unsigned k) {
             ApplyNoiseChain(photons[k], adu[k], W, H, cam, noisePtr->offsetMap, noisePtr->gainMap, noisePtr->rnMap,
@@ -7433,7 +7595,8 @@ bool FluorescenceMovie::Render(const std::function<bool(long, const std::vector<
             if (m.anyBlinks && !(frameMf[static_cast<size_t>(k)] && !frameBlinks[static_cast<size_t>(k)]))
             {
                j += "\"SMLM: " + std::to_string(frameBlinks[static_cast<size_t>(k)]) +
-                    (frameBinned[static_cast<size_t>(k)] ? " blinks (binned FFT)\"" : " blinks (splat)\"");
+                    (frameBinned[static_cast<size_t>(k)] ? " blinks (binned FFT)\""
+                                                     : gpuSplat ? " blinks (splat, GPU)\"" : " blinks (splat)\"");
                first = false;
             }
             for (const std::string& s : paths[static_cast<size_t>(k)])

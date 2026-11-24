@@ -293,6 +293,25 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   job = the viewer module byte for byte, ~4 s), `tests/remote/launcher_check.py` (~3 s, Linux), `tests/web/viewer_remote.mjs`
   (browser, ~8 s; `--server="wsl -d Ubuntu -- <path>"` on Windows). Not yet: Micro-Manager, the world view's cell
   workers, Windows servers.
+  **The server's GPU (2026-11-24, docs/remote.md "GPU"):** native WebGPU through wgpu-native v29.0.1.1, loaded by
+  dlopen (`$ISC_WGPU_LIB`, `<bin>/../lib/libwgpu_native.so` = the tarball's, the system's; headers in `third_party/webgpu`;
+  a software adapter refused unless `ISC_GPU_ALLOW_CPU=1`: Mesa lavapipe for tests). One device per process
+  (`isc_gpu::Device` in `cli/gpu_select.h`, made on first use: each forked connection its own; the listener only probes
+  in a child, `isc_gpu::Probe`), `MakeWebGpuBackend` with the kernels of `WidefieldGpu.wgsl` and `SplatGpu.wgsl` (cli/CMakeLists.txt
+  embeds both). `WidefieldGpuHost` (the WideField algorithm over a `GpuBackend`: D3D11 in the adapter, WebGPU here; the
+  backend's mutex serializes every host) as `SetDefaultWidefieldAccelerator`: mean-field scenes, a pattern's state
+  scenes too when the backend keeps >= 16 (`ManyScenes`; kernel spectra per `KernelStore` serial, pool up to 3 GB,
+  `ISC_GPU_POOL_MB`). `SplatGpuHost` (`Simulation/SplatGpu.*`, the WGSL twin of the adapter's GpuSimD3D11 HLSL: the
+  same `GpuSplatEmitter` records, block sums, halo spans, pcg4d noise) as `SetDefaultBlinkSplatGpu`: in
+  `FluorescenceMovie::Render`, a movie that applies its own noise and has no ground truth sends each frame's splatted
+  blinks (groups with a diffraction kernel, <= 4) as records and the rest of its light as an extra image; the GPU adds
+  the blinks and the noise (no blinks: the noise alone); a kernel past one binding takes a buffer per range of planes;
+  a failed batch splats on the CPU. Live frames keep the CPU's splat and noise (LiveScope's own noise via onPhotons).
+  Frames within float rounding (server_check `--gpu`: `near`). Server `--gpu auto` (default) / `off`, cli `--gpu`
+  (default off), `$ISC_GPU`, launcher `serve --gpu`; release tarball `lib/libwgpu_native.so` + licenses (release.yml,
+  sha256 pinned; `remote.sh build` fetches it too). Checks: ctest `wf_gpu_webgpu` (WideField + the splat's self-check,
+  skips without a GPU), `server_check.mjs --gpu`. Not yet: the splat on the viewer's WebGPU (the module's movie would
+  need an asynchronous read-back), the BFP maps on the GPU.
 - **Micro-Manager .cfg from the viewer (2026-11-19, branch `bfp-light-maps`):** ☰ `#menuSetup` › Micro-Manager .cfg…
   (`#lv_setCfg`, `openMmCfg` in settings_file.js) saves `<name>.cfg` = the shipped Expert config (`ISC_MM_CFG.template`)
   with the seed and a Startup preset setting every property to the viewer's value (`web/live/mm_cfg.js` `write`,

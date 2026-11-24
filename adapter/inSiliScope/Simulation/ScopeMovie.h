@@ -379,6 +379,13 @@ void SetDefaultWidefieldAccelerator(std::function<std::unique_ptr<WidefieldAccel
 WidefieldAccelerator* DefaultWidefieldAccelerator();
 // "" before its first use; else the host's name, or why there is none.
 std::string DefaultWidefieldAcceleratorInfo();
+// The same for the blink splat + camera noise (SplatGpuHost, SplatGpu.h): a movie that applies its own noise splats its
+// blinks (the groups with a diffraction kernel, up to 4) and draws the noise there, the rest of each frame's light
+// drawn on the CPU as before. Frames within float32 rounding of the CPU's. Unset: the CPU.
+class SplatGpuHost;
+void SetDefaultBlinkSplatGpu(std::function<std::unique_ptr<SplatGpuHost>(std::string& info)> make);
+SplatGpuHost* DefaultBlinkSplatGpu();
+std::string DefaultBlinkSplatGpuInfo();
 // Live dye counts: the dye index made ahead on a thread of its own (native builds); hosts that unload join it here.
 void DyeIndexPrefetchShutdown();
 class MemoryReport;

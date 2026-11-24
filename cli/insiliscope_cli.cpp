@@ -57,7 +57,7 @@ void Usage()
                "                         instrument, settings, sample, measurement; all but view by default), later\n"
                "                         files and options override; a measurement with a light history renders the\n"
                "                         live sample's next frames after that history (docs/dev/SAVE_SETTINGS.md)\n"
-               "  --gpu auto|off         WideField mean-field scenes on the GPU (native WebGPU on Linux; default off,\n"
+               "  --gpu auto|off         the GPU (native WebGPU on Linux): WideField scenes, blinks, camera noise (default off,\n"
                "                         or $ISC_GPU; frames then differ from the CPU's by float rounding)\n"
                "  --p.<name> <value>     any core world parameter (the prototype's names)\n"
                "  --zern.<j> <waves>     Zernike coefficient j (0-27), replacing the preset's\n"

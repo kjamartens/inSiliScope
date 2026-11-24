@@ -27,15 +27,21 @@
 
 namespace sim {
 
+// The device: wgpu-native's hardware adapter with the kernels of WidefieldGpu.wgsl and SplatGpu.wgsl; nullptr (info =
+// why: no library, no adapter, a software one, a kernel that does not compile). info = the adapter and backend.
+std::shared_ptr<GpuBackend> MakeWebGpuBackend(std::string& info);
+
 class WidefieldGpuWebGpu : public WidefieldGpuHost
 {
 public:
    // nullptr (info = why) if the library, an adapter or a device is missing, a kernel does not compile, or the
    // self-check fails; info = the adapter and backend otherwise.
    static std::unique_ptr<WidefieldGpuWebGpu> Create(std::string& info);
+   // The same on a device made already (MakeWebGpuBackend; the blink splat's, SplatGpuHost, shares it).
+   static std::unique_ptr<WidefieldGpuWebGpu> Create(std::shared_ptr<GpuBackend> backend, std::string& info);
 
 private:
-   explicit WidefieldGpuWebGpu(std::unique_ptr<GpuBackend> backend) : WidefieldGpuHost(std::move(backend)) {}
+   explicit WidefieldGpuWebGpu(std::shared_ptr<GpuBackend> backend) : WidefieldGpuHost(std::move(backend)) {}
 };
 
 } // namespace sim
