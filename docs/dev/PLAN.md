@@ -290,6 +290,12 @@ Upcoming ideas:
   faster on a 32-core A40 server, WideField and SIM slower, live not helped, and the frames no longer the browser's
   byte for byte; kept: `WidefieldGpuHost` over a `GpuBackend`, `SplatGpuHost` for the viewer), [x] the blink splat + noise on the viewer's WebGPU
   (2026-11-24: `cli/gpu_js_backend.cpp`, `web/splat_gpu.js`, a synchronous read-back through an OffscreenCanvas;
-  `tests/web/viewer_gpu_splat.mjs`). Next: [ ] the release's manylinux tarball tried on a
+  `tests/web/viewer_gpu_splat.mjs`). Next: [ ] the live events query off the frame's critical path (2026-11-25,
+  measured, a session of its own: `fl.events-query` does not scale with threads (1024 px DNA-PAINT, laptop: 14.6 ms on 2
+  threads, 17.2 on 12, while the frame drops 206 -> 119 ms), so on jupiter's 96 threads it is ~220 of ~294 ms at 2048 px;
+  its cost follows the blinks, not the call (1 frame 16 ms, 4 frames 27 ms/frame, 16 frames 33 ms/frame:
+  `live_bench --chunk n`), so a blink lookup over a stretch saves no work. Find the serial part (the core's
+  `World::EventsInMap` block walk and merge, the engine's row conversion and `ExciteAt` per event) and make it parallel
+  or run it ahead on a spare thread, smoothly), [ ] the release's manylinux tarball tried on a
   real cluster, [ ] Micro-Manager (`Renderer.Remote*`, ssh in stdio mode; the adapter's live producer on `LiveScope`
   first), [ ] the cell workers (world view) remote, [ ] Windows servers.

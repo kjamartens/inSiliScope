@@ -22,7 +22,10 @@ Micro-Manager support is coming; for now this page is about the viewer.
 
 Remote computing helps most for Records of large fields (1000 px and up), ground truth, structured illumination and
 BFP light maps, and long multi-D plans. For a small live field your own PC is often just as fast: every frame makes
-a round trip over the network.
+a round trip over the network. Live frames come back at the size the live view shows them: a 2048 × 2048 px frame
+on a view about 1000 pixels across arrives as 1024 × 1024 means of 2 × 2 pixels (a quarter of the bytes), and zoomed
+in, only the part shown. The display range, the level bar and the saturation warning still come from the whole
+frame. Snaps and Records arrive whole.
 
 ## Step 1: check that you can log in
 
@@ -222,7 +225,7 @@ scp isc-server:run.tif .
   only your account can open, and it asks for the token in the command. Under **Run through** the job's server
   listens on the cluster's internal network for the relay, with the same token; that hop is not encrypted.
 - **Only what the computing needs is sent:** settings, the live sample's light so far, map images you added, and the
-  frames back.
+  frames back (live frames at the size the view shows).
 - **Easy on shared machines:** the server is an ordinary process of your account, at low priority (`nice 10`), with
   the threads you allowed.
 - **For your IT department:** *a user-space process started over SSH; no root, no open ports, no system changes; it

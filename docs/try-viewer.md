@@ -258,7 +258,9 @@ through it step by step.
 - **A remote server.** ☰ › **Remote server…** has a Linux machine you log in to with ssh (an analysis server, a
   cluster) do the computing: live, Records, movies and ground truth (or Records, movies and ground truth only). The box
   gives one `ssh` command to run in a terminal and leave open; the page connects by itself, the menu and the live
-  info line name the server, and frames are the same as the browser's, byte for byte. When the server goes, the
+  info line name the server, and frames are the same as the browser's, byte for byte (live frames come back at the
+  size the view shows them: a large field in means of n × n pixels, zoomed in only the part shown; the display range
+  and the level bar from the whole frame). When the server goes, the
   viewer goes on in the browser, the live sample where it was. No admin rights or installing: see
   [Run inSiliScope on a remote Linux server](remote.md).
 - **A Micro-Manager configuration.** **Micro-Manager .cfg…** in the same section of the ☰ menu saves `<name>.cfg`:

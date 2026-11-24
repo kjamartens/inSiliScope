@@ -907,9 +907,9 @@ self.iscCoi = (() => {
 <script src="live/mm_config.js"></script>
 <script src="live/bfp_examples.js"></script>
 <script src="origami_designs.js"></script>
-<script src="insiliscope_module.js?v=08a61beac2e0"></script>
+<script src="insiliscope_module.js?v=1fda7974fd2e"></script>
 <!-- The threaded module (ISC_MODULE_MT_SRC) only on a cross-origin isolated page: the live worker runs it. -->
-<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=284d80769af0"><\/script>');</script>
+<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=053c4dbc9f9f"><\/script>');</script>
 <script src="live/scope_panels.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="splat_gpu.js"></script>
@@ -4689,8 +4689,15 @@ function iscEngine(M) {
         } catch (e) { diskError = `the disk storage refused the frames (${e.name === 'QuotaExceededError' ? 'full' : e.message || e})`; }
         finally { diskClose(d); }
       }
+      // (2026-11-25) a live view's frame as the page shows it (isc_live_view: the shown part in bins down to the view's
+      // pixels, the whole frame's statistics); a remote server sends the same
+      let view = null;
+      if (!frames && d.view && nF === 1 && M._isc_live_view) {
+        const vn = M._isc_live_view(+d.view.x || 0, +d.view.y || 0, +d.view.span || 1, d.view.px | 0);
+        if (vn > 0) { const q = M._isc_live_view_image(); frames = M.HEAPU16.slice(q / 2, q / 2 + vn); view = JSON.parse(M.UTF8ToString(M._isc_live_view_json())); }
+      }
       if (!frames) frames = M.HEAPU16.slice(p / 2, p / 2 + px);
-      res = { type: 'live', id: d.id, spec: d.spec, frames, disk, diskError, w: v[0], h: v[1],
+      res = { type: 'live', id: d.id, spec: d.spec, frames, view, disk, diskError, w: v[0], h: v[1],
         n: nF, t: v[2] + nF * (+((/(?:^| )exposure-ms=([0-9.eE+-]+)/.exec(d.spec) || [])[1] || 50) / 1000), tStart: v[2], clock: v[3], lit: !!v[4],
         epi: !!v[5], trans: !!v[6], blinks: v[7], dyes: v[8], drift: [v[9], v[10], v[11]], renderMs: v[12], engine: 'live',
         frame: v[13], pattern: v[16] > 0 ? { frame: v[13], angle: v[14], phase: v[15], period: v[16] } : null,

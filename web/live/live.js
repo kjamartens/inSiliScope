@@ -336,6 +336,7 @@ function request(n, ov) {
   if (reset) { L.worldKey = wk; L.t = 0; L.log = []; }
   if (n && !REC.log) REC.log = L.log.map(r => ({ ...r }));   // the light before the Record (its settings file)
   const job = { type: 'live', id: ++L.id, spec, reset, t: L.t, lit: true, t0: performance.now(), profile: !n && expert() };
+  if (!n && L.on) job.view = viewWanted();
   if (n) {
     job.n = n; job.rec = true;
     if (recOpfs()) job.disk = { path: DISK.path(REC.disk.dir, 'frames.raw'), first: REC.got };   // (written at their place)
@@ -546,7 +547,17 @@ function autoRange(fr) {
 // limiter held the page ~150-180 ms for the GPU several times a second (frames faster than the screen: 10 ms
 // exposures ran at ~20 fps, 2026-11-12).
 function draw(d) {
-  L.frame = d.frames; L.w = d.w; L.h = d.h; L.spec = d.spec || L.pendingSpec || '';
+  L.frame = d.frames; L.spec = d.spec || L.pendingSpec || '';
+  // the frame's size; a live view's frame comes as the part shown, in bins (d.view, isc_live_view), with the whole
+  // frame's statistics (the display range, the level bar, saturation); snaps and recordings whole
+  L.full = { w: d.w, h: d.h };
+  const sh = d.view && d.view.shown;
+  L.w = sh ? sh.w : d.w; L.h = sh ? sh.h : d.h;
+  L.stats = sh ? d.view.stats : null;
+  const R = sh ? { x: sh.x0 / d.w, y: sh.y0 / d.h, s: sh.w * sh.bin / d.w, bin: sh.bin } : null;
+  const was = L.region;
+  L.region = R;
+  if ((R && was ? R.x !== was.x || R.y !== was.y || R.s !== was.s : R !== was)) applyZoom();
   $('lv_idle').style.display = 'none';
   L.newFrame = true;
   if (!L.drawRaf) L.drawRaf = requestAnimationFrame(drawNow);
@@ -556,8 +567,7 @@ function drawNow() {
   if (!L.newFrame || !L.frame) return;
   L.newFrame = false;
   if ($('lv_auto').checked) {
-    const d = { frames: L.frame };
-    const [lo, hi] = autoRange(d.frames);
+    const [lo, hi] = L.stats ? [L.stats.lo, L.stats.hi] : autoRange(L.frame);
     // a little smoothing so the display does not flicker with the blinks
     L.lo = L.frames > 1 && L.hiSet ? Math.round(0.7 * L.lo + 0.3 * lo) : lo;
     L.hi = L.frames > 1 && L.hiSet ? Math.round(0.7 * L.hi + 0.3 * hi) : hi;
@@ -596,15 +606,20 @@ function drawHist(newFrame) {
   $('lv_lvl').classList.toggle('empty', !fr);
   if (!fr) { $('lv_lut').style.background = ''; return; }
   if (newFrame || !hist) {
+    const st = L.stats;
     let mn = 65535, mx = 0;
-    for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (st) { mn = st.min; mx = st.max; }
+    else for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
     const now = performance.now(), rec = { t: now, mn, mx, top: 0 };
     hRecent.push(rec);
     while (hRecent.length > 1 && now - hRecent[0].t > HIST_KEEP_MS) hRecent.shift();
     hMin = Math.min(...hRecent.map(r => r.mn)); hMax = Math.max(hMin + 1, ...hRecent.map(r => r.mx));
     hist = new Float64Array(NB);
     const k = NB / (hMax - hMin + 1);
-    for (let i = 0; i < fr.length; i++) hist[Math.min(NB - 1, ((fr[i] - hMin) * k) | 0)]++;
+    if (st) {   // (the frame's bins over its own range, into these)
+      const nb = st.hist.length, bw = (st.max - st.min + 1) / nb;
+      for (let b = 0; b < nb; b++) if (st.hist[b]) hist[Math.min(NB - 1, Math.max(0, ((st.min + (b + 0.5) * bw - hMin) * k) | 0))] += st.hist[b];
+    } else for (let i = 0; i < fr.length; i++) hist[Math.min(NB - 1, ((fr[i] - hMin) * k) | 0)]++;
     for (let b = 0; b < NB; b++) { hist[b] = Math.log10(1 + hist[b]); rec.top = Math.max(rec.top, hist[b]); }
     hTop = Math.max(...hRecent.map(r => r.top));
   }
@@ -706,15 +721,24 @@ function applyZoom() {
   if (Z.z < 1.01) Object.assign(Z, { z: 1, x: 0, y: 0 });
   const span = 1 / Z.z;
   Z.x = Math.min(1 - span, Math.max(0, Z.x)); Z.y = Math.min(1 - span, Math.max(0, Z.y));
-  const S = $('liveView').clientWidth;
+  const S = $('liveView').clientWidth, R = L.region || { x: 0, y: 0, s: 1 };   // (the part of the frame the canvas holds)
+  const sc = R.s * Z.z, tx = (R.x - Z.x) * Z.z * S, ty = (R.y - Z.y) * Z.z * S;
   cv.style.transformOrigin = '0 0';
-  cv.style.transform = Z.z === 1 ? '' : `translate(${(-Z.x * Z.z * S).toFixed(2)}px,${(-Z.y * Z.z * S).toFixed(2)}px) scale(${Z.z})`;
+  cv.style.transform = sc === 1 && !tx && !ty ? '' : `translate(${tx.toFixed(2)}px,${ty.toFixed(2)}px) scale(${sc})`;
   const nav = $('lv_zoomNav');
   nav.hidden = Z.z === 1;
   nav.querySelector('i').style.cssText = `left:${(100 * Z.x).toFixed(2)}%;top:${(100 * Z.y).toFixed(2)}%;width:${(100 * span).toFixed(2)}%;height:${(100 * span).toFixed(2)}%`;
   nav.querySelector('span').textContent = (Z.z < 10 ? Z.z.toFixed(1) : Math.round(Z.z)) + '×';
   cv.style.cursor = 'grab';
   drawScale();
+}
+// The part of the frame a live frame is asked for (job.view; isc_live_view): what the view shows, zoomed in with a
+// margin of 15 % on each side for a pan before the next frame, and the pixels the view has across it, so a large
+// frame comes binned down to the screen's resolution (a remote server's 2048 px frame: 8 MB -> ~2 MB at 1000 px).
+function viewWanted() {
+  const span = 1 / Z.z, m = Z.z > 1 ? 0.15 * span : 0, sp = Math.min(1, span + 2 * m);
+  const px = Math.round(($('liveView').clientWidth || 512) * (window.devicePixelRatio || 1) * sp / span);
+  return { x: Math.max(0, Math.min(1 - sp, Z.x - m)), y: Math.max(0, Math.min(1 - sp, Z.y - m)), span: sp, px };
 }
 // Zoom by a factor about a point on screen (the image under it stays put).
 function zoomAt(factor, clientX, clientY) {
@@ -800,7 +824,7 @@ window.addEventListener('isc-reset', () => {
   $('lv_auto').checked = true; $('lv_auto').dispatchEvent(new Event('change'));
   setLiveFrac(0.5, true); resizeCanvas(); drawScale();   // the panel's width (the splitter) too
 });
-$('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
+$('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = L.stats ? [L.stats.lo, L.stats.hi] : autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
 
 const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 // One short line, always: the speed alone (fps and ms per frame; a snap the ms), or an error. The rest -- the image and
@@ -817,7 +841,8 @@ function showInfo() {
     : ms;
   // computed on the remote server (web/live/remote.js)
   const host = L.remote && self.iscRemote ? self.iscRemote.host() : '';
-  const more = [L.frames ? `${L.w}×${L.h} px · ${(+$('mv_pixel-nm').value || 100).toFixed(1)} nm/px` : '',
+  const more = [L.frames ? `${(L.full || L).w}×${(L.full || L).h} px · ${(+$('mv_pixel-nm').value || 100).toFixed(1)} nm/px` +
+      (L.region && L.region.bin > 1 ? ` (shown in ${L.region.bin}×${L.region.bin} px bins)` : '') : '',
     L.pattern ? `pattern ${L.pattern.frame % L.pattern.period + 1}/${L.pattern.period}` : '',
     REC.on ? `recording ${REC.got}/${REC.n}` + recBlockText() : REC.msg && !L.on ? REC.msg : ''].filter(Boolean);
   el.textContent = text + (host && text ? ' · ' + host : '');
@@ -920,7 +945,7 @@ new MutationObserver(() => { showPerf(); showPerfNote(); if (expert() && !L.on &
 function drawScale() {
   const el = $('lv_scale');
   if (!L.frame) { el.innerHTML = ''; return; }
-  const S = $('liveView').clientWidth, dispPx = S / Math.max(L.w, L.h) * ((L.zoom && L.zoom.z) || 1);   // with the zoom
+  const F = L.full || L, S = $('liveView').clientWidth, dispPx = S / Math.max(F.w, F.h) * ((L.zoom && L.zoom.z) || 1);   // with the zoom
   const pxUm = (+$('mv_pixel-nm').value || 100) / 1000, cssPerUm = dispPx / pxUm;
   const want = S * 0.22 / cssPerUm;
   const nice = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200];

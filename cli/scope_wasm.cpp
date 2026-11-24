@@ -728,6 +728,9 @@ ISC_API void isc_set_threads(int32_t n)
 }
 static sim::LiveScope g_live;
 static std::vector<uint16_t> g_liveImage;
+static int32_t g_liveW = 0, g_liveH = 0;   // the last call's frame size (its last frame ends g_liveImage)
+static std::vector<uint16_t> g_liveView;
+static std::string g_liveViewJson = "{}";
 static std::string g_livePaths = "[]", g_liveProfile = "{}";
 ISC_API int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight, double* info, char* errOut,
                                 int32_t errCap)
@@ -756,6 +759,8 @@ ISC_API int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight,
       std::memcpy(info, v, sizeof v);
    }
    g_livePaths = li.paths;
+   g_liveW = li.width;
+   g_liveH = li.height;
    if (sim::TimingCollect().load())
       g_liveProfile = sim::TimingProfileTake();
    return static_cast<int32_t>(g_liveImage.size());
@@ -926,6 +931,82 @@ ISC_API int32_t isc_live_frame(const char* spec, int32_t countLight, double* inf
 }
 ISC_API const uint16_t* isc_live_image() { return g_liveImage.data(); }
 ISC_API const char* isc_live_paths() { return g_livePaths.c_str(); }
+// (2026-11-25) The last live frame as the page shows it (web/live/live.js: the view's job.view), so a remote server
+// sends what is seen, not a 2048 px frame of 8 MB: the part [x, x + span] x [y, y + span] (fractions of the frame's
+// width and height) in means of b x b pixels, b = the most that keeps the part at least px pixels across (1: the
+// pixels themselves). Returns the shown image's pixel count (-1: no frame), at isc_live_view_image();
+// isc_live_view_json() = {"shown": {"w", "h", "x0", "y0", "bin"} (x0, y0: its first pixel in the frame), "stats":
+// {"min", "max", "lo", "hi" (live.js autoRange: 0.1 and 99.9 % of every step-th pixel), "saturated" (65535),
+// "hist": kLiveViewBins counts over [min, max]}} -- the whole frame's, so the display range and the level bar are the
+// frame's. The page's own module does the same for its frames (one display path).
+static constexpr int kLiveViewBins = 256;
+ISC_API int32_t isc_live_view(double x, double y, double span, int32_t px)
+{
+   const size_t W = static_cast<size_t>(std::max(0, g_liveW)), H = static_cast<size_t>(std::max(0, g_liveH));
+   if (!W || !H || g_liveImage.size() < W * H)
+      return -1;
+   const uint16_t* fr = g_liveImage.data() + (g_liveImage.size() - W * H);   // (the last frame of a chunk)
+   if (!(span > 0) || span > 1)
+      span = 1;
+   x = std::min(std::max(std::isfinite(x) ? x : 0.0, 0.0), 1.0 - span);
+   y = std::min(std::max(std::isfinite(y) ? y : 0.0, 0.0), 1.0 - span);
+   size_t x0 = static_cast<size_t>(std::floor(x * W)), y0 = static_cast<size_t>(std::floor(y * H));
+   const size_t x1 = std::min(W, static_cast<size_t>(std::ceil((x + span) * W))),
+                y1 = std::min(H, static_cast<size_t>(std::ceil((y + span) * H)));
+   const size_t cw = std::max<size_t>(1, x1 - std::min(x0, x1 - 1)), ch = std::max<size_t>(1, y1 - std::min(y0, y1 - 1));
+   x0 = x1 - cw;
+   y0 = y1 - ch;
+   const size_t bin = px > 0 ? std::max<size_t>(1, std::min(cw, ch) / static_cast<size_t>(px)) : 1;
+   const size_t w = std::max<size_t>(1, cw / bin), h = std::max<size_t>(1, ch / bin);
+   g_liveView.resize(w * h);
+   const uint32_t nb = static_cast<uint32_t>(bin * bin);
+   for (size_t j = 0; j < h; j++)
+      for (size_t i = 0; i < w; i++)
+      {
+         uint32_t sum = 0;
+         for (size_t v = 0; v < bin; v++)
+         {
+            const uint16_t* row = fr + (y0 + j * bin + v) * W + x0 + i * bin;
+            for (size_t u = 0; u < bin; u++)
+               sum += row[u];
+         }
+         g_liveView[j * w + i] = static_cast<uint16_t>((sum + nb / 2) / nb);
+      }
+   // the whole frame's statistics
+   const size_t n = W * H;
+   uint16_t mn = 65535, mx = 0;
+   size_t sat = 0;
+   for (size_t i = 0; i < n; i++)
+   {
+      const uint16_t v = fr[i];
+      mn = std::min(mn, v);
+      mx = std::max(mx, v);
+      sat += v >= 65535;
+   }
+   std::vector<uint32_t> hist(kLiveViewBins, 0);
+   const double k = static_cast<double>(kLiveViewBins) / (static_cast<double>(mx) - mn + 1);
+   for (size_t i = 0; i < n; i++)
+      hist[std::min<size_t>(kLiveViewBins - 1, static_cast<size_t>((fr[i] - mn) * k))]++;
+   const size_t step = std::max<size_t>(1, n / 20000);
+   std::vector<uint16_t> smp;
+   smp.reserve(n / step + 1);
+   for (size_t i = 0; i < n; i += step)
+      smp.push_back(fr[i]);
+   std::sort(smp.begin(), smp.end());
+   const uint16_t lo = smp[static_cast<size_t>(std::floor(static_cast<double>(smp.size()) * 0.001))];
+   const int hi = std::max<int>(lo + 1, smp[std::min(smp.size() - 1, static_cast<size_t>(std::floor(static_cast<double>(smp.size()) * 0.999)))]);
+   std::string j = "{\"shown\":{\"w\":" + std::to_string(w) + ",\"h\":" + std::to_string(h) + ",\"x0\":" +
+                   std::to_string(x0) + ",\"y0\":" + std::to_string(y0) + ",\"bin\":" + std::to_string(bin) +
+                   "},\"stats\":{\"min\":" + std::to_string(mn) + ",\"max\":" + std::to_string(mx) + ",\"lo\":" +
+                   std::to_string(lo) + ",\"hi\":" + std::to_string(hi) + ",\"saturated\":" + std::to_string(sat) +
+                   ",\"hist\":[";
+   for (int b = 0; b < kLiveViewBins; b++)
+      j += (b ? "," : "") + std::to_string(hist[static_cast<size_t>(b)]);
+   g_liveViewJson = j + "]}}";
+   return static_cast<int32_t>(w * h);
+}
+ISC_API const uint16_t* isc_live_view_image() { return g_liveView.data(); }
+ISC_API const char* isc_live_view_json() { return g_liveViewJson.c_str(); }
 ISC_API void isc_live_reset() { g_live.Reset(); }
 // The live loop's spare time (2026-11-13, web/live/live.js's job.prefetchMs): warm the core's caches around the spec's FOV (LiveScope::Prefetch). 1 when
 // the whole margin is done, else 0.

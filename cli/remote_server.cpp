@@ -75,6 +75,9 @@ void isc_set_threads(int32_t n);
 int32_t isc_live_frames(const char* spec, int32_t n, int32_t countLight, double* info, char* errOut, int32_t errCap);
 const uint16_t* isc_live_image();
 const char* isc_live_paths();
+int32_t isc_live_view(double x, double y, double span, int32_t px);
+const uint16_t* isc_live_view_image();
+const char* isc_live_view_json();
 void isc_live_reset();
 int32_t isc_live_advance(const char* spec, int32_t n, int32_t countLight, char* errOut, int32_t errCap);
 double isc_live_time();
@@ -740,8 +743,25 @@ private:
             exposure = std::strtod(spec.c_str() + at + 12, nullptr);
             break;
          }
+      // (2026-11-25) a live view's frame as the page shows it: the shown part, in bins down to its pixels
+      // (isc_live_view), with the whole frame's statistics; Records and snaps (no view) whole
+      const Json* view = nF == 1 ? m.Get("view") : nullptr;
+      int32_t shown = -1;
+      if (view && view->type == Json::Object)
+      {
+         auto num = [&](const char* k, double def) {
+            const Json* j = view->Get(k);
+            return j && j->type == Json::Number ? j->num : def;
+         };
+         shown = isc_live_view(num("x", 0), num("y", 0), num("span", 1), static_cast<int32_t>(num("px", 0)));
+      }
       OutMsg o("live", id);
-      o.Str("spec", spec).Blob("frames", isc_live_image(), static_cast<size_t>(px) * 2, "Uint16Array")
+      if (shown > 0)
+         o.Blob("frames", isc_live_view_image(), static_cast<size_t>(shown) * 2, "Uint16Array")
+            .Raw("view", isc_live_view_json());
+      else
+         o.Blob("frames", isc_live_image(), static_cast<size_t>(px) * 2, "Uint16Array");
+      o.Str("spec", spec)
          .Bool("disk", false).Str("diskError", "").Num("w", v[0]).Num("h", v[1]).Num("n", nF)
          .Num("t", v[2] + nF * (exposure / 1000)).Num("tStart", v[2]).Num("clock", v[3]).Bool("lit", v[4] != 0)
          .Bool("epi", v[5] != 0).Bool("trans", v[6] != 0).Num("blinks", v[7]).Num("dyes", v[8])
