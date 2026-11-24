@@ -4669,10 +4669,12 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    // per plane factor (a state's fringes would be another state's; M4 makes the states resident). In GPU mode (the
    // viewer's WebGPU movie) too (2026-10-31): a state's images made at once and its spectra let go, as live does --
    // deferred, every state kept its spectra for the host, and the CPU's images of 13-15 states passed the 2 GB heap.
+   // A host that keeps many scenes (the native server's WebGPU one, ManyScenes) takes the states too (2026-11-24): its
+   // kernel spectra once per kernel store (WidefieldGpuJob::kernelSet), each state's planes under its own geometry.
    const bool patterned = S.excite.Patterned();
-   const bool cpuScene = shifts || slot.accelTooBig || patterned;   // (an accelerator the scene does not use)
-   if (!accel && !gpuMode && !cpuScene)
+   if (!accel && !gpuMode && !shifts && !slot.accelTooBig)
       accel = DefaultWidefieldAccelerator();   // (the native cli's and server's, when set; made on its first use)
+   const bool cpuScene = shifts || slot.accelTooBig || (patterned && !(accel && accel->ManyScenes()));
    const bool sceneGpu = (gpuMode && !patterned) || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {

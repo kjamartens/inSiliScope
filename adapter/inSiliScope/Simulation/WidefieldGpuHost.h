@@ -61,6 +61,11 @@ public:
    virtual bool ReadBack(Buffer& src, size_t bytes, void* dst, std::string& err) = 0;
    // The largest buffer one binding takes.
    virtual size_t MaxBinding() const { return ~size_t(0); }
+   // The resident plane pool's sizes to try, largest first (MB; each also at most MaxBinding), and how many scenes'
+   // planes the host keeps (beyond them the least recently used are dropped). 16 or more: a structured pattern's
+   // state scenes go to the GPU too (WidefieldAccelerator::ManyScenes).
+   virtual std::vector<size_t> PoolMB() const { return {512, 128}; }
+   virtual size_t MaxScenes() const { return 4; }
 };
 
 class WidefieldGpuHost : public WidefieldAccelerator
@@ -72,6 +77,7 @@ public:
    bool HasPlane(unsigned long long geometry, unsigned long long key) const override;
    bool Images(const WidefieldGpuJob& job, std::vector<std::vector<float>>& out, std::string& err) override;
    bool Fits(unsigned long long geometry, unsigned NX, unsigned NY, size_t planes) override;
+   bool ManyScenes() const override { return backend_->MaxScenes() >= 16; }
 
    // Per-pixel frame inputs (width x height; empty maps = the scalar from
    // cam): offset ADU, gain photons/ADU, read noise e-, background photons

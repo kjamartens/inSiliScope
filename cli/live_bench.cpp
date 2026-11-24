@@ -8,9 +8,10 @@
 //
 // Prints ms per frame (each, then the mean over frames 1.. and over the last cycle-worth); --dump writes every frame's
 // uint16 pixels one after another (to compare two builds); --hash prints a per-frame FNV-1a of the pixels.
-// ISC_TIMING=1 / ISC_THREADS=1 apply as for the cli.
+// ISC_TIMING=1 / ISC_THREADS=1 apply as for the cli; ISC_GPU=auto: the WideField scenes on the GPU (gpu_select.h).
 #include "LiveScope.h"
 #include "ScopeMovie.h"
+#include "gpu_select.h"
 
 #include <chrono>
 #include <cstdint>
@@ -24,6 +25,9 @@ using namespace sim;
 
 int main(int argc, char** argv)
 {
+   std::string gpuErr;
+   if (!isc_gpu::Select("", "off", gpuErr))
+      std::fprintf(stderr, "ISC_GPU: %s\n", gpuErr.c_str());
    long frames = 20;
    std::string dump, text;
    bool hash = false;

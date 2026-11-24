@@ -224,6 +224,20 @@ public:
       return static_cast<size_t>(std::min<uint64_t>(limits.maxStorageBufferBindingSize, limits.maxBufferSize));
    }
 
+   // A server's GPU holds a structured pattern's state scenes (up to 13 per label, each ~40-150 plane spectra): a pool
+   // of up to 3 GB (one binding; $ISC_GPU_POOL_MB sets it), 32 scenes. A software adapter (tests) keeps 512 MB.
+   bool cpuAdapter = false;
+   std::vector<size_t> PoolMB() const override
+   {
+      if (const char* e = std::getenv("ISC_GPU_POOL_MB"))
+         if (const long v = std::atol(e); v > 0)
+            return {static_cast<size_t>(v)};
+      if (cpuAdapter)
+         return {512, 128};
+      return {3072, 2048, 1024, 512, 128};
+   }
+   size_t MaxScenes() const override { return 32; }
+
    std::shared_ptr<WgpuBuf> MakeRaw(size_t bytes, WGPUBufferUsage usage, const void* data, size_t want,
                                     std::string& err)
    {
@@ -570,6 +584,7 @@ std::unique_ptr<WidefieldGpuWebGpu> WidefieldGpuWebGpu::Create(std::string& info
       info = "only a software adapter is available (" + name + ")";
       return nullptr;
    }
+   be->cpuAdapter = cpu;
    WGPULimits al = WGPU_LIMITS_INIT;
    api->wgpuAdapterGetLimits(be->adapter, &al);
    WGPULimits want = WGPU_LIMITS_INIT;

@@ -310,6 +310,9 @@ struct WidefieldGpuJob
    unsigned fovX0 = 0, fovY0 = 0, cw = 0, ch = 0; // FOV cells in the grid
    double fracX = 0.0, fracY = 0.0;               // sub-cell shift
    unsigned long long geometry = 0;
+   // The kernel spectra's own key (the scene's kernel store, shared by a structured pattern's state scenes: one copy
+   // on the GPU for all of them); 0: the geometry's.
+   unsigned long long kernelSet = 0;
    struct Kernel
    {
       int p;
@@ -356,6 +359,9 @@ public:
       (void)geometry, (void)NX, (void)NY, (void)planes;
       return true;
    }
+   // Whether the host keeps many scenes' planes at once (a structured pattern's state scenes, one per state: up to
+   // 13); false: those scenes render on the CPU (the adapter's Direct3D 11 host keeps 4).
+   virtual bool ManyScenes() const { return false; }
 };
 
 // The WideField renderer for one grid rect (a stage pose), any focus.
@@ -750,6 +756,7 @@ private:
    {
       std::mutex mutex;
       std::map<int, KernelSpec> map;
+      unsigned long long serial = 0;   // the GPU hosts' key for these spectra (WidefieldGpuJob::kernelSet); 0: none yet
    };
    std::shared_ptr<KernelStore> kernels_ = std::make_shared<KernelStore>();
    const KernelSpec* KernelAt(int p) const

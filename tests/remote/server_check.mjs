@@ -138,13 +138,21 @@ try {
   ok(!st.error && st.streamed && st.got === 4 && same(cat, lm.frames), `streamed movie: ${parts.length} part(s), ${st.got} frames = the module's; progress messages ${st.extra.filter(d => d.type === 'movie-progress').length}`);
 
   // WideField: mean-field scenes (on the server's GPU with --gpu)
-  const WSPEC = SPEC + ' mt-mode=3 npc-dye=None';
+  const WSPEC = SPEC + ' mt-mode=3 npc-dye=None x=-10 y=4';   // (a field with cells)
   t = performance.now();
   const wm = await A.job({ type: 'movie', id: 7, spec: WSPEC });
   const tw = performance.now() - t;
   const lw = C.movie(WSPEC);
   if (GPU) { const n = near(wm.frames, lw.frames); ok(!wm.error && n.ok, `WideField movie on the GPU = the module's within rounding: ${n.text} (server ${tw.toFixed(0)} ms)` + (wm.error ? ' ' + wm.error : '')); }
   else ok(!wm.error && same(wm.frames, lw.frames), `WideField movie = the module's, byte for byte (server ${tw.toFixed(0)} ms)` + (wm.error ? ' ' + wm.error : ''));
+  // a structured pattern: one scene per state (each on the GPU with --gpu)
+  const SSPEC = WSPEC + ' sim-type=1';
+  t = performance.now();
+  const sm = await A.job({ type: 'movie', id: 8, spec: SSPEC });
+  const ts = performance.now() - t;
+  const ls = C.movie(SSPEC);
+  if (GPU) { const n = near(sm.frames, ls.frames); ok(!sm.error && n.ok, `SIM2D WideField movie on the GPU = the module's within rounding: ${n.text} (server ${ts.toFixed(0)} ms)` + (sm.error ? ' ' + sm.error : '')); }
+  else ok(!sm.error && same(sm.frames, ls.frames), `SIM2D WideField movie = the module's, byte for byte (server ${ts.toFixed(0)} ms)` + (sm.error ? ' ' + sm.error : ''));
 
   // live: a fresh sample, frames one by one, a chunk of 3, then the same sample replayed elsewhere
   const LSPEC = SPEC.replace('frames=4', 'frames=1');

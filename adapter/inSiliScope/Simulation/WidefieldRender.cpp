@@ -1254,6 +1254,7 @@ bool WidefieldScene::Finish(const WidefieldSceneSpec& spec, const IlluminationPa
       {
          std::lock_guard<std::mutex> lk(kernels_->mutex);
          kernels_->map.clear();
+         kernels_->serial = 0;
          kernelsVersion_ = spec.psfVersion;
       }
       if (fftChanged || rectChanged)
@@ -1969,6 +1970,12 @@ bool WidefieldScene::JobFor(const FocusPlan& plan, const std::vector<const Chann
    job.fracX = fracX_;
    job.fracY = fracY_;
    job.geometry = geometry_;
+   {
+      std::lock_guard<std::mutex> lk(kernels_->mutex);
+      if (kernels_->serial == 0)
+         kernels_->serial = NextSerial();
+      job.kernelSet = kernels_->serial;
+   }
    job.hasPersistent = !chans.empty() && chans[0] == &persistent_;
    std::vector<int> ps;
    auto key = [](const Channel& c, long k) {
