@@ -288,6 +288,133 @@ std::string FormatBeamMatrix(const std::vector<Beam>& beams)
    return s;
 }
 
+bool ParsePhaseMatrix(const std::string& text, std::vector<std::vector<double>>& rows, std::string& err)
+{
+   rows.clear();
+   size_t i = 0;
+   while (i < text.size())
+   {
+      size_t j = i;
+      while (j < text.size() && text[j] != ';' && text[j] != '\n')
+         j++;
+      const std::string row = text.substr(i, j - i);
+      std::vector<double> vals;
+      size_t a = 0;
+      while (a < row.size())
+      {
+         while (a < row.size() && (row[a] == ' ' || row[a] == ',' || row[a] == '\t' || row[a] == '\r'))
+            a++;
+         size_t b = a;
+         while (b < row.size() && row[b] != ' ' && row[b] != ',' && row[b] != '\t' && row[b] != '\r')
+            b++;
+         if (b == a)
+            break;
+         const std::string tok = row.substr(a, b - a);
+         char* end = nullptr;
+         const double v = std::strtod(tok.c_str(), &end);
+         if (end == tok.c_str() || *end != 0 || !std::isfinite(v))
+         {
+            err = "phase matrix: bad value '" + tok + "'";
+            return false;
+         }
+         vals.push_back(v);
+         a = b;
+      }
+      if (vals.size() > static_cast<size_t>(kMaxPhaseMatrixPairs))
+      {
+         err = "phase matrix: a row has more than " + std::to_string(kMaxPhaseMatrixPairs) + " pairs";
+         return false;
+      }
+      if (!vals.empty())
+      {
+         if (!rows.empty() && vals.size() != rows.front().size())
+         {
+            err = "phase matrix: every row (frame of the cycle) needs a value per beam pair";
+            return false;
+         }
+         rows.push_back(vals);
+      }
+      i = j + 1;
+   }
+   if (rows.empty())
+   {
+      err = "phase matrix: no value";
+      return false;
+   }
+   if (rows.size() > static_cast<size_t>(kMaxPhaseMatrixRows))
+   {
+      err = "phase matrix: more than " + std::to_string(kMaxPhaseMatrixRows) + " rows";
+      return false;
+   }
+   return true;
+}
+
+std::vector<std::pair<int, int>> OpposingPairs(const BeamSet& set)
+{
+   std::vector<std::pair<int, int>> pairs;
+   const int n = static_cast<int>(set.beams.size());
+   std::vector<char> used(static_cast<size_t>(n), 0);
+   const double tol = 1e-9;
+   for (int j = 0; j < n; ++j)
+   {
+      const Beam& a = set.beams[static_cast<size_t>(j)];
+      if (used[static_cast<size_t>(j)] || a.Radius() <= tol)
+         continue;
+      for (int l = j + 1; l < n; ++l)
+      {
+         const Beam& b = set.beams[static_cast<size_t>(l)];
+         if (!used[static_cast<size_t>(l)] && std::fabs(a.ux + b.ux) <= tol && std::fabs(a.uy + b.uy) <= tol &&
+             a.nm == b.nm)
+         {
+            used[static_cast<size_t>(j)] = used[static_cast<size_t>(l)] = 1;
+            pairs.push_back({ j, l });
+            break;
+         }
+      }
+   }
+   return pairs;
+}
+
+double PairPhaseDeg(const BeamSet& set, const std::vector<std::pair<int, int>>& pairs, int state, int k)
+{
+   const size_t np = pairs.size();
+   const size_t i = static_cast<size_t>(state) * np + static_cast<size_t>(k);
+   if (state >= 0 && k >= 0 && static_cast<size_t>(k) < np && i < set.pairPhaseDeg.size())
+      return set.pairPhaseDeg[i];
+   if (k < 0 || static_cast<size_t>(k) >= np)
+      return 0.0;
+   const int P = std::max(1, set.phases);
+   const int phase = ((state % P) + P) % P;
+   const double dStep = set.beams[static_cast<size_t>(pairs[static_cast<size_t>(k)].first)].phaseStep -
+                        set.beams[static_cast<size_t>(pairs[static_cast<size_t>(k)].second)].phaseStep;
+   return 360.0 * dStep * (phase + set.phase0) / P;
+}
+
+std::string FormatPhaseMatrix(const BeamSet& set)
+{
+   const std::vector<std::pair<int, int>> pairs = OpposingPairs(set);
+   std::string s;
+   if (pairs.empty())
+      return s;
+   for (int st = 0; st < std::max(1, set.Period()); ++st)
+   {
+      if (st)
+         s += "; ";
+      for (size_t k = 0; k < pairs.size(); ++k)
+      {
+         char b[32];
+         double v = PairPhaseDeg(set, pairs, st, static_cast<int>(k));
+         if (std::fabs(v) < 5e-10)
+            v = 0.0;   // (no "-0" or 1e-14 from the rounding)
+         std::snprintf(b, sizeof b, "%.6g", v);
+         if (k)
+            s += ' ';
+         s += b;
+      }
+   }
+   return s;
+}
+
 FrameLight FrameLightAt(const BeamSet& set, long long frame)
 {
    FrameLight L;
@@ -334,6 +461,27 @@ PatternState PatternStateAt(const BeamSet& set, long long frame, uint32_t seed, 
    st.light = FrameLightAt(set, frame);
    st.rotDeg = set.angle0Deg + st.light.angle * 180.0 / std::max(1, set.angles);
    const double c = std::cos(st.rotDeg * kPi / 180.0), s = std::sin(st.rotDeg * kPi / 180.0);
+   // The phase matrix: each opposing pair's difference at this state, split about the pair's common part from the
+   // steps (symmetric pairs: none, the beams at +-difference / 2); the other beams step as without it.
+   const int P = std::max(1, set.phases);
+   std::vector<double> stepPart(set.beams.size(), 0.0);
+   std::vector<char> paired(set.beams.size(), 0);
+   if (!set.pairPhaseDeg.empty())
+   {
+      const std::vector<std::pair<int, int>> pairs = OpposingPairs(set);
+      const int state = st.light.angle * P + st.light.phase;
+      for (size_t k = 0; k < pairs.size(); ++k)
+      {
+         const int j = pairs[k].first, l = pairs[k].second;
+         const double common = 0.5 * (set.beams[static_cast<size_t>(j)].phaseStep +
+                                      set.beams[static_cast<size_t>(l)].phaseStep) *
+                               (st.light.phase + set.phase0) / P;
+         const double half = PairPhaseDeg(set, pairs, state, static_cast<int>(k)) / 720.0;
+         stepPart[static_cast<size_t>(j)] = common + half;
+         stepPart[static_cast<size_t>(l)] = common - half;
+         paired[static_cast<size_t>(j)] = paired[static_cast<size_t>(l)] = 1;
+      }
+   }
    for (size_t j = 0; j < set.beams.size(); ++j)
    {
       Beam b = set.beams[j];
@@ -342,7 +490,8 @@ PatternState PatternStateAt(const BeamSet& set, long long frame, uint32_t seed, 
       b.uy = s * ux + c * uy;
       b.tiltXDeg = c * tx - s * ty;
       b.tiltYDeg = s * tx + c * ty;
-      double ph = b.phaseTurns + b.phaseStep * (st.light.phase + set.phase0) / std::max(1, set.phases);
+      double ph = paired[j] ? b.phaseTurns + stepPart[j]
+                            : b.phaseTurns + b.phaseStep * (st.light.phase + set.phase0) / P;
       if (set.driftTurnsPerSqrtSec > 0 || set.driftTurnsPerSec != 0)
          ph += PhaseDriftTurns(set, seed, static_cast<int>(j), frame, expSec);
       b.phaseTurns = ph;

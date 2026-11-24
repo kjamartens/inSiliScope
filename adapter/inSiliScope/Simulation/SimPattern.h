@@ -25,7 +25,8 @@
 //                The frame program (FrameProgram): frame f -> (angle, phase):
 //                angle a rotates every beam by a x 180 / nAngles degrees (+ the
 //                first angle), phase p adds step_j x (p + phase0) / nPhases
-//                turns to beam j. A pair with steps +s / -s moves its fringe by
+//                turns to beam j (the phase matrix, when given, sets each
+//                opposing pair's difference instead, BeamSet::pairPhaseDeg). A pair with steps +s / -s moves its fringe by
 //                2 s / nPhases of a period per phase; the lattice's x and y
 //                pairs step 2 : 3 (the user's scheme, 13 phases). The orders'
 //                phase shifts are distinct mod nPhases for every built-in type
@@ -39,6 +40,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <complex>
 #include <cstdint>
 #include <string>
@@ -98,6 +100,11 @@ struct BeamSet
    double angle0Deg = 0;          // the first angle
    double phase0 = 0;             // added to the phase index (fractional allowed)
    double driftTurnsPerSqrtSec = 0, driftTurnsPerSec = 0;   // phase drift: the random walk's sigma, the linear part
+   // The phase matrix (2026-11-23, sim-pair-phase.<s>.<k>, Lasers.PatternPhaseMatrix): the phase difference in degrees
+   // between the beams of each opposing pair k (OpposingPairs: the first beam's minus its opposite's) at each state s
+   // (= angle x phases + phase, whatever the order), Period() x pairs row-major; empty = the program's (PairPhaseDeg).
+   // Given, the pair's beams take their common part from the steps and the difference from here (PatternStateAt).
+   std::vector<double> pairPhaseDeg;
    int Period() const { return phases * angles; }
    bool Varies() const { return Period() > 1 || driftTurnsPerSqrtSec > 0 || driftTurnsPerSec != 0; }
 };
@@ -121,6 +128,20 @@ void ApplyBeamRow(BeamSet& set, int j, const std::vector<std::pair<int, double>>
 // bad number or more than kBeamColumns values in a row; rows out: one vector of values per row, ragged.
 bool ParseBeamMatrix(const std::string& text, std::vector<std::vector<double>>& rows, std::string& err);
 std::string FormatBeamMatrix(const std::vector<Beam>& beams);
+// The opposing pairs of a set: beams j < l at opposite BFP positions (ux_l = -ux_j, uy_l = -uy_j, |u| > 0) carrying
+// the same line, each beam in one pair at most, in the order of their first beams (SIM2D / SIM3D: the side pair;
+// the lattices: the x pair, then the y pair). The phase matrix's columns.
+std::vector<std::pair<int, int>> OpposingPairs(const BeamSet& set);
+// Pair k's phase difference at state s (degrees): the matrix's when given, else the program's
+// (phaseStep_j - phaseStep_l) x (phase + phase0) / phases turns -- SIM2D 0 240 480, the fringe stepping 2 / 3 of a period.
+double PairPhaseDeg(const BeamSet& set, const std::vector<std::pair<int, int>>& pairs, int state, int k);
+// The phase matrix as text: one row per state of the cycle (orientation a's phase p at row a x phases + p), in each the
+// pairs' phase differences in degrees, rows separated by ';' (or newlines), values by spaces (or commas). Parse: false
+// (err) on a bad number, rows of different lengths, more than kMaxPhaseMatrixRows rows or kMaxPhaseMatrixPairs values
+// in a row, or no value. Format: the set's Period() x pairs (PairPhaseDeg); empty without a pair.
+constexpr int kMaxPhaseMatrixRows = 12 * 64, kMaxPhaseMatrixPairs = 32;   // PatternAngles x PatternPhases; 64 beams
+bool ParsePhaseMatrix(const std::string& text, std::vector<std::vector<double>>& rows, std::string& err);
+std::string FormatPhaseMatrix(const BeamSet& set);
 
 // The frame program: frame f -> its angle and phase indices (the program's order), and a scale reserved for a
 // stroboscopic light (1).

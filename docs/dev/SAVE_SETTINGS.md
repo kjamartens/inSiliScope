@@ -93,7 +93,7 @@ The choices between parts (each one decided on its own; move one by editing `Par
 | `em-gain` | settings | set per acquisition; the EMCCD's noise is the instrument's |
 | `illum-profile`, `illum-fwhm` | instrument | the beam's shaping optics |
 | `illum-bfp` | settings | the TIRF/HILO knob one turns (with a pattern: the beams' radius) |
-| `sim-type`, `sim-polarization`, `sim-phases`, `sim-angles`, `sim-order`, `sim-angle0-deg`, `sim-phase0` | settings | which pattern one runs and how it steps |
+| `sim-type`, `sim-polarization`, `sim-phases`, `sim-angles`, `sim-order`, `sim-angle0-deg`, `sim-phase0`, the phase matrix `sim-pair-phase.<s>.<k>` (2026-11-23) | settings | which pattern one runs and how it steps |
 | `sim-centre-amp`, the beam matrix (`beam.*`), the phase drift, `tube-length-mm`, `magnification` | instrument | the beams' optics: the bundle's spots, the pupil's geometry, the setup's phase stability |
 | `frame0` | measurement | where in the frame program the movie starts (a live producer's counter; not a user setting) |
 | `ex-filter`, `dichroic`, `em-filter` | settings | which filter is in place; the custom edges (`ex-lo-nm` ...) are the hardware |

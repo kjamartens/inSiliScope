@@ -256,12 +256,12 @@ self.iscCoi = (() => {
   #liveCtl select,#liveCtl input[type=number],#liveCtl input[type=text],#panel select,#panel input[type=number],#panel input[type=text]{height:24px;box-sizing:border-box}
   #liveCtl .opt,#panel .opt{gap:6px;margin:3px 0;min-height:24px}
   #liveCtl .opt .ctl select{max-width:none;width:100%}
-  .opt.text:has(#zernCoeffs),.opt.text:has(#simBeams){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val,.opt.text:has(#simBeams)>.val{display:none}
-  #simBeams{width:100%;box-sizing:border-box;font:var(--font-size-caption) var(--font-family-mono)}
+  .opt.text:has(#zernCoeffs),.opt.text:has(#simBeams),.opt.text:has(#simPhases){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#zernCoeffs)>.val,.opt.text:has(#simBeams)>.val,.opt.text:has(#simPhases)>.val{display:none}
+  #simBeams,#simPhases{width:100%;box-sizing:border-box;resize:vertical;font:var(--font-size-caption) var(--font-family-mono)}
   .opt.text:has(#mv_bfp-maps){grid-template-columns:1fr;row-gap:2px} .opt.text:has(#mv_bfp-maps)>.val{display:none}
   #mv_bfp-maps{width:100%;box-sizing:border-box;resize:vertical;font:var(--font-size-caption) var(--font-family-mono)}
   #mv_bfp-maps.bad{outline:1px solid var(--color-status-warn)}
-  #zernCoeffs{width:100%;box-sizing:border-box;font:var(--font-size-caption) var(--font-family-mono)}   /* (the 28 Zernike modes under their name) */
+  #zernCoeffs{width:100%;box-sizing:border-box;resize:vertical;font:var(--font-size-caption) var(--font-family-mono)}   /* (the 28 Zernike modes under their name) */
   #liveCtl .sub{font-size:var(--font-size-caption);line-height:1.35}
   #liveCtl .opt .unit,#liveCtl .opt .u{font-size:var(--font-size-caption)}
   /* the column's boxes (Focus, Presets, Light, Display, ...) look like the settings' groups: a heading, no box; a thin
@@ -380,6 +380,7 @@ self.iscCoi = (() => {
   #lv_recPop .recnote[hidden]{display:none}
   #lv_recPop .recnote.bad{border-left-color:var(--color-status-error)}
   #lv_recPop .recrow[hidden]{display:none}
+  #lv_recPop.plan .noplan,#lv_recPop:not(.plan) .onplan{display:none}
   #lv_recPop .recrow button{margin-left:auto;padding:3px 10px}
   #liveCtl .zrow,#liveCtl .crow{display:flex;align-items:center;gap:4px;margin:2px 0;white-space:nowrap}
   /* the stage: an XY pad (one step / 10 steps each way, as Micro-Manager's stage control) beside the focus (Z) */
@@ -825,14 +826,16 @@ self.iscCoi = (() => {
     <div id="liveCtl"><div id="lv_cols">
       <div id="lv_acts"><button id="lv_live" title="Live: the camera images the sample at the stage position frame after frame; light reaching the sample bleaches and converts its dyes (the sample's history), as in Micro-Manager's live mode"><span class="ico">▶</span> Live</button><button id="lv_snap" title="Snap: one frame">Snap</button><span id="lv_recWrap"><button id="lv_rec" title="Record: N frames at the stage position with the current settings, rendered as fast as the engine goes (not paced to the exposure), then played in the live view, where &quot;Save&quot; saves it as one 16-bit TIFF stack (ImageJ: pixel size, frame interval; every setting in its header), or with its settings file and ground truth as one .zip; asks for the number of frames. A fresh sample, as a movie starting at the time set in the box (default 0 s; insiliscope_cli --spec renders the same movie), and the live sample is left as it was; with &quot;continue the live sample&quot; (Advanced) the frames go on from the live sample instead. Click again to stop.">● Record</button>
         <div id="lv_recPop" class="popover" hidden role="dialog" aria-label="Record">
-          <div class="recrow"><input type="number" id="lv_recN" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u">frames</span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
-          <div class="recrow" id="lv_recFieldRow" title="The recorded field of view, width × height in camera pixels, centred on the stage; empty: the live field. Larger than live: a fresh sample over the whole field (past 4096 px, up to 16384, rendered in strips of rows on the disk storage); the illumination beam scales with it (Beam FWHM is a share of the field). Not used with &quot;continue the live sample&quot;, which keeps the live field."><span>field</span><input type="number" id="lv_recW" class="side" min="8" max="16384" step="8" aria-label="Recorded field width, pixels"><span class="u">×</span><input type="number" id="lv_recH" class="side" min="8" max="16384" step="8" aria-label="Recorded field height, pixels"><span class="u">px</span></div>
+          <div class="recrow"><input type="number" id="lv_recN" class="noplan" min="1" max="100000" step="1" value="100" aria-label="Frames to record"><span class="u noplan">frames</span><span class="u onplan" id="lv_recPlanSum"></span><button id="lv_recGo" title="Start recording (Enter); Esc closes">● Start</button></div>
+          <div class="recrow noplan" id="lv_recFieldRow" title="The recorded field of view, width × height in camera pixels, centred on the stage; empty: the live field. Larger than live: a fresh sample over the whole field (past 4096 px, up to 16384, rendered in strips of rows on the disk storage); the illumination beam scales with it (Beam FWHM is a share of the field). Not used with &quot;continue the live sample&quot;, which keeps the live field."><span>field</span><input type="number" id="lv_recW" class="side" min="8" max="16384" step="8" aria-label="Recorded field width, pixels"><span class="u">×</span><input type="number" id="lv_recH" class="side" min="8" max="16384" step="8" aria-label="Recorded field height, pixels"><span class="u">px</span></div>
           <div class="recnote" id="lv_recFieldNote" role="note" hidden></div>
           <div class="recnote bad" id="lv_recMsg" role="alert" hidden></div>
-          <div class="recrow" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
+          <div class="recrow noplan" id="lv_recTRow" title="The sample's time at the first frame, in seconds of illumination. 0 (default): a fresh sample as the light comes on (every dSTORM dye ON, nothing bleached or converted yet); 60: near steady state. Not used with &quot;continue the live sample&quot;, which goes on from the live sample's own time."><span>starting at</span><input type="number" id="lv_recT" min="0" step="1" value="0" aria-label="Sample time at the first recorded frame"><span class="u">s</span></div>
           <div class="recrow" id="lv_recDiskRow"><label title="On (default): the frames (and the ground truth's files) are written to this browser's own disk storage as they are made, not held in the tab's memory, so a recording is bounded by the disk, not the memory; Save makes the .tif or .zip from that file. This tab's last recording stays there until the next Record; recordings of closed tabs are deleted. Off: the frames are kept in memory, as before."><input type="checkbox" id="lv_recDisk" checked> write frames to disk</label></div>
-          <div class="recrow" id="lv_recFileRow" hidden><label title="On: Start asks where to save the recording, a .tif, and the frames are written into that file as they are made: no limit but the disk (the browser's own disk storage gives this page a share of it). The player reads them back from the file, and Save has nothing left to do for the movie alone; a .zip with the settings or ground truth takes the file as its movie. Off (default): the frames go to the browser's disk storage or memory, and Save writes the file. Chrome and Edge."><input type="checkbox" id="lv_recFile"> save to a file as recorded</label></div>
-          <div class="recrow t-advanced"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
+          <div class="recrow noplan" id="lv_recFileRow" hidden><label title="On: Start asks where to save the recording, a .tif, and the frames are written into that file as they are made: no limit but the disk (the browser's own disk storage gives this page a share of it). The player reads them back from the file, and Save has nothing left to do for the movie alone; a .zip with the settings or ground truth takes the file as its movie. Off (default): the frames go to the browser's disk storage or memory, and Save writes the file. Chrome and Edge."><input type="checkbox" id="lv_recFile"> save to a file as recorded</label></div>
+          <div class="recrow t-advanced noplan"><label title="Off (default): a recording is a fresh sample, a movie starting at the time set above, which insiliscope_cli --spec renders the same, and the live sample is left as it was. On: the frames go on from the live sample (its bleaching, conversion, drift and camera noise run on through them, as in a Micro-Manager sequence acquisition), and stopping early keeps the frames so far."><input type="checkbox" id="lv_recLive"> continue the live sample</label></div>
+          <div class="recrow t-advanced" id="lv_recPlanRow"><label title="On: Start runs the multi-D plan (Edit…): nested for blocks over XY positions, Z heights and any setting, with recordings of N frames at an exposure inside them, run in the order built, as one continuing live sample (its bleaching, drift and clock go on from block to block). Saved as a .zip: an OME-TIFF (or an ImageJ hyperstack per position, or one flat stack) and index.csv, a row per page. Off: the frames above."><input type="checkbox" id="lv_recPlan"> multi-D plan</label><button id="lv_recPlanEdit" title="Edit the multi-D plan: positions and for blocks">Edit…</button></div>
+          <div class="recnote" id="lv_recPlanNote" role="note" hidden></div>
         </div></span><button id="lv_fresh" title="A fresh sample: forget the light it has had (bleaching, conversion, shelving) and its drift">↺</button><span id="lv_busy" hidden title="The engine is working on a frame or a recording">Working<i class="dots"></i></span><div id="lv_info"></div></div>
       <!-- the setup, the stage and the display side by side -->
       <div id="lv_sd">
@@ -904,9 +907,9 @@ self.iscCoi = (() => {
 <script src="live/mm_config.js"></script>
 <script src="live/bfp_examples.js"></script>
 <script src="origami_designs.js"></script>
-<script src="insiliscope_module.js"></script>
+<script src="insiliscope_module.js?v=f42275adc8f7"></script>
 <!-- The threaded module (ISC_MODULE_MT_SRC) only on a cross-origin isolated page: the live worker runs it. -->
-<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js"><\/script>');</script>
+<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=9d1b7e5f32ca"><\/script>');</script>
 <script src="live/scope_panels.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="scene/core.js"></script>
@@ -1529,9 +1532,10 @@ const UI_GROUPS = [
           num('mv_sim-angles', 'Orientations', '', 'Orientations per cycle, 180° / n apart (0 = the type\'s: 3 for SIM2D and SIM3D, 1 for the lattices). <code>Lasers.PatternAngles</code>', 0, 12, 1, 0, { adv, show: FL }),
           select('mv_sim-order', 'Order', 'The frame program\'s order: every phase of an orientation, then the next orientation (AngleMajor), or the orientations within each phase (PhaseMajor). <code>Lasers.PatternOrder</code>', [['0', 'AngleMajor'], ['1', 'PhaseMajor']], '0', { adv, show: FL }),
           num('mv_sim-angle0-deg', 'First orientation', '°', 'The first orientation, degrees from the x axis. <code>Lasers.PatternAngle0Deg</code>', -180, 180, 1, 0, { adv, show: FL }),
-          num('mv_sim-phase0', 'Phase offset', 'steps', 'Added to the phase index (fractional allowed): the pattern\'s starting phase. <code>Lasers.PatternPhase0</code>', -100, 100, 0.1, 0, { adv, show: FL }),
+          num('mv_sim-phase0', 'Phase offset', 'steps', 'Added to the phase index (fractional allowed): the pattern\'s starting phase (in the phase matrix\'s program; a typed matrix replaces it for the beam pairs). <code>Lasers.PatternPhase0</code>', -100, 100, 0.1, 0, { adv, show: FL }),
+          text('simPhases', 'Phase matrix', 'The pattern\'s phases as the phase difference between opposing beams, in degrees: one row per frame of the cycle (orientation a\'s phase p at row a × phases + p, whatever the order), one line per frame (or rows separated by ;) and in each one value per pair of opposing beams (the Beams rows at opposite positions: SIM2D and SIM3D the side pair; the lattices the x pair, then the y pair), the first beam\'s phase minus its opposite\'s. It moves that pair\'s fringe by the same (SIM3D\'s centre beam, between them, sees half); the pair\'s beams take ± half of it. It shows the Pattern\'s program (SIM2D: 0; 240; 480; … — the fringe steps 2/3 of a period); typed values replace it, for a calibrated SLM or a step error (every entry goes into the spec as <code>sim-pair-phase.&lt;row&gt;.&lt;pair&gt;</code>). The matrix needs the program\'s rows and pairs: set Phases and Orientations first; changing them, picking a Pattern or emptying the box goes back to the program. Example, SIM2D with the first orientation\'s third step 10° short: 0; 240; 470; 0; 240; 480; 0; 240; 480. An edit applies when you leave the box (or Ctrl+Enter). <code>Lasers.PatternPhaseMatrix</code>', undefined, { rows: 6, maxlength: 8000, expert: true, show: FL }),
           num('mv_sim-centre-amp', 'Centre beam', '×', 'The centre beam\'s field amplitude over the side beams\' (SIM3D, LatticeSIM3D; an estimate). <code>Lasers.PatternCentreAmp</code>', 0, 10, 0.1, 1, { adv, show: FL }),
-          text('simBeams', 'Beams', 'Every beam of the illumination, one row per beam, rows separated by ; and columns by spaces: <b>ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm</b> — the position in the back focal plane (u units: 1 = the critical angle, beyond it evanescent), the spot\'s 1/e² radius in the pupil (µm; 0 = from the beam FWHM: a Gaussian spot of radius w makes an envelope of 1/e² radius λf / πw, f the objective\'s focal length), the bundle\'s entry tilt (°, two axes: the envelope\'s centre moves by f tan tilt), the field amplitude, the phase (turns), the polarization angle (°; 0 s, 90 p; below −180 unpolarized), the ellipticity phase (turns; 0.25 circular), the phase step per phase index (1/phases turns) and the laser line the beam carries (nm; 0 = every line). Off shows its one beam, a pattern its beams; typed rows replace them (every column of every row goes into the spec as <code>beam.&lt;j&gt;.&lt;column&gt;</code>; Custom: the matrix alone). Example, the 2D SIM pair at 0.95: 0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0. <code>Lasers.Beams</code>', undefined, { maxlength: 2000, show: FL }),
+          text('simBeams', 'Beams', 'Every beam of the illumination, one line per beam (or rows separated by ;), columns separated by spaces: <b>ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm</b> — the position in the back focal plane (u units: 1 = the critical angle, beyond it evanescent), the spot\'s 1/e² radius in the pupil (µm; 0 = from the beam FWHM: a Gaussian spot of radius w makes an envelope of 1/e² radius λf / πw, f the objective\'s focal length), the bundle\'s entry tilt (°, two axes: the envelope\'s centre moves by f tan tilt), the field amplitude, the phase (turns), the polarization angle (°; 0 s, 90 p; below −180 unpolarized), the ellipticity phase (turns; 0.25 circular), the phase step per phase index (1/phases turns) and the laser line the beam carries (nm; 0 = every line). Off shows its one beam, a pattern its beams; typed rows replace them (every column of every row goes into the spec as <code>beam.&lt;j&gt;.&lt;column&gt;</code>; Custom: the matrix alone). Example, the 2D SIM pair at 0.95: 0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0. An edit applies when you leave the box (or Ctrl+Enter). <code>Lasers.Beams</code>', undefined, { rows: 5, maxlength: 8000, show: FL }),
           num('mv_sim-phase-drift-turns-per-sqrt-sec', 'Phase walk', 'turns/√s', 'Each beam\'s phase takes a random walk: its RMS after 1 s (per seed and frame, as the sample drift). 0 = none. <code>Lasers.PatternPhaseDriftTurnsPerSqrtSec</code>', 0, 10, 0.001, 0, { adv, show: FL }),
           num('mv_sim-phase-drift-turns-per-sec', 'Phase slide', 'turns/s', 'Each beam\'s phase drifts at its phase step × this: the pattern slides along its stepping direction. 0 = none. <code>Lasers.PatternPhaseDriftTurnsPerSec</code>', -100, 100, 0.01, 0, { adv, show: FL }),
           num('mv_sheet-thickness-um', 'Sheet thickness', 'µm', 'Pattern LightSheet: the sheet\'s thickness, FWHM across the beam (an estimate). <code>Lasers.SheetThicknessUm</code>', 0.1, 50, 0.1, 3, { adv, show: FL }),
@@ -1579,7 +1583,7 @@ const UI_GROUPS = [
     select('mv_psf-model', 'PSF model', 'Gibson-Lanni + Zernike is the adapter\'s default (scalar, as webSMLM; kernel half width 3 µm here). Gaussian is fast but has no defocus. <code>Renderer.PsfModel</code>',
       [['3', 'Gibson-Lanni + Zernike'], ['0', 'Gaussian']], '3'),
     select('mv_psf-zernike-preset', 'Aberrations', 'Zernike aberration preset of the objective (webSMLM\'s presets). Not used by the Gaussian PSF. <code>Objective.ZernikePreset</code>', ZERNIKE_PRESETS, '9'),
-    text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. <code>Objective.ZernikeCoefficients</code>', undefined, { maxlength: 400 }),
+    text('zernCoeffs', 'Zernike modes', 'The pupil\'s Zernike coefficients in waves, OSA order 0-27 (28 values, or 15: the rest 0), separated by spaces: the Aberrations preset\'s, or typed over them (then every coefficient goes into the movie and live spec as <code>zern.&lt;j&gt;</code>). Picking a preset replaces them. Not used by the Gaussian PSF. An edit applies when you leave the box (or Ctrl+Enter). <code>Objective.ZernikeCoefficients</code>', undefined, { rows: 2, maxlength: 600 }),
   ] },
   // the camera, its field of view and the magnification to it (the pixel size follows: web/live/mm_config_ui.js)
   { id: 'camera', host: 'lv_instrHost', title: 'Camera', open: true, items: [
@@ -2170,6 +2174,7 @@ function showTip(t) {
   tip.style.left = Math.max(8, x) + 'px'; tip.style.top = Math.max(8, y) + 'px';
 }
 const hideTip = () => { tip.style.display = 'none'; };
+self.iscTip = { show: showTip, hide: hideTip };   // (the multi-D plan's editor shows the settings' help in it, web/live/mda_ui.js)
 for (const el of [$('side'), $('viewPanel')]) {
   const tipOf = ev => ev.target instanceof Element ? ev.target.closest('label[data-tip],.subhead [data-tip]') : null;
   el.addEventListener('pointerover', ev => { const t = ev.pointerType !== 'touch' && tipOf(ev); if (t) showTip(t); });
@@ -6657,15 +6662,19 @@ function movieSpec(ov) {
     if (us && tp[2] === 'mode' && +v < 0) v = USER_DYES.modeIndex(us);
     o.push(k + '=' + (+v));
   }
-  if (ov) for (const k in ov) if (k !== 'x' && k !== 'y' && !MOVIE_KEYS.includes(k)) o.push(k + '=' + (+ov[k]));
+  // (a text option's value quoted: a multi-D plan may set bfp-maps)
+  if (ov) for (const k in ov) if (k !== 'x' && k !== 'y' && !MOVIE_KEYS.includes(k)) o.push(typeof ov[k] === 'string' && !Number.isFinite(+ov[k]) ? iscSettingsCore.specPair(k, ov[k]) : k + '=' + (+ov[k]));
   // The flat QE checkbox (Camera): the Custom camera's flat curve at mv_qe; unticked, the preset's curve (qe-curve -1).
-  if (document.getElementById('qeFlat').checked) o.push('qe-curve=' + ISC_DYE_DATA.cameras.findIndex(c => c.id === 'Custom'));
+  if (document.getElementById('qeFlat').checked && !has('qe-curve')) o.push('qe-curve=' + ISC_DYE_DATA.cameras.findIndex(c => c.id === 'Custom'));
   // The live panel's Configuration (web/live/mm_config_ui.js): a preset's options the panel has no control for.
   const mmExtra = self.ISC_MM_EXTRA || {};
   for (const k in mmExtra) if (!has(k) && !MOVIE_KEYS.includes(k)) o.push(typeof mmExtra[k] === 'string' ? iscSettingsCore.specPair(k, mmExtra[k]) : k + '=' + mmExtra[k]);
   // Zernike modes typed over the preset's (ZERN, below): all 28
   if (self.ISC_ZERN && ISC_ZERN.user) ISC_ZERN.user.forEach((v, j) => { if (!has('zern.' + j)) o.push('zern.' + j + '=' + v); });
   if (self.ISC_BEAMS && ISC_BEAMS.user) ISC_BEAMS.user.forEach((row, j) => row.forEach((v, c) => { const k = 'beam.' + j + '.' + BEAM_COLUMNS[c]; if (!has(k)) o.push(k + '=' + v); }));
+  // The phase matrix typed over the Pattern's program (PHASES, below): every entry, sim-pair-phase.<row>.<pair>.
+  // (not under a Pattern, phases or orientations of the overrides': a multi-D block's; the box drops it on those too)
+  if (self.ISC_PHASES && ISC_PHASES.user && !['sim-type', 'sim-phases', 'sim-angles'].some(has)) ISC_PHASES.user.forEach((row, s) => row.forEach((v, p) => { const k = 'sim-pair-phase.' + s + '.' + p; if (!has(k)) o.push(k + '=' + v); }));
   // The BFP maps typed over the Pattern's own (MAPS, below): the text option bfp-maps, quoted.
   if (self.ISC_MAPS && ISC_MAPS.user && !has('bfp-maps')) o.push(iscSettingsCore.specPair('bfp-maps', ISC_MAPS.user));
   if (!has('seed')) o.push('seed=' + noiseSeed());
@@ -6897,8 +6906,9 @@ function tiffHeadBytes(n, descBytes, pxUm, big) {
 }
 // writeTiff16's header and every page's tags (an ArrayBuffer of tiffHeadBytes), the frames' data back to back from
 // dataAt (default: right after the tags; 2026-11-20, a Record written straight to a file: room kept for the tags in
-// front of its frames, which are written as made, the tags at its end for the frames it has).
-function tiffHead(w, h, n, desc, pxUm, big, dataAt) {
+// front of its frames, which are written as made, the tags at its end for the frames it has). pageAt(p) (2026-11-23):
+// page p's data at that offset from dataAt instead; pages may share data (a multi-D Record's OME-TIFF, writeTiffPaged).
+function tiffHead(w, h, n, desc, pxUm, big, dataAt, pageAt) {
   const enc = new TextEncoder().encode(desc + '\0'), px = w * h, res = pxUm > 0;
   const ppu = res ? Math.round(1e6 / pxUm) : 0;   // pixels per micron x 1e6 (a RATIONAL ppu / 1e6)
   const head = tiffHeadBytes(n, enc.length, pxUm, big);
@@ -6909,7 +6919,7 @@ function tiffHead(w, h, n, desc, pxUm, big, dataAt) {
   else dv.setUint16(2, 42, true);
   let pos = big ? 16 : 8, link = big ? 8 : 4;
   for (let p = 0; p < n; p++) {
-    const data = (dataAt || head) + p * px * 2;
+    const data = (dataAt || head) + (pageAt ? pageAt(p) : p * px * 2);
     let descOff = 0;
     if (p === 0) { descOff = pos; u8.set(enc, pos); pos += enc.length + (enc.length & 1); }
     let resOff = 0;
@@ -6960,6 +6970,14 @@ function writeTiff16(frames, w, h, n, desc, pxUm, bigTiff) {
   }
   if (left > 0) throw new Error(`writeTiff16: ${n} frames asked, ${n - Math.ceil(left / px)} given`);
   return new Blob([buf, ...parts], { type: 'image/tiff' });
+}
+// A TIFF whose pages point anywhere in its data (2026-11-23, a multi-D Record's OME-TIFF: the frames in the order they
+// were recorded, then one blank frame every blank plane's page points at): data = the parts in order (typed arrays /
+// Blobs), dataBytes their size, pageAt(p) page p's offset in them.
+function writeTiffPaged(data, dataBytes, w, h, n, desc, pxUm, pageAt, bigTiff) {
+  const enc = new TextEncoder().encode(desc + '\0');
+  const big = !!bigTiff || 16 + enc.length + dataBytes + n * 400 >= 2 ** 32 - 2 ** 26;
+  return new Blob([tiffHead(w, h, n, desc, pxUm, big, 0, pageAt), ...data], { type: 'image/tiff' });
 }
 function saveMovieTiff(e) {
   e.preventDefault();
@@ -7704,6 +7722,7 @@ const zernText = z => z.map(v => +(+v).toFixed(5)).join(' ');
 const forgetZern = () => { try { localStorage.removeItem('isc.set.zernCoeffs'); } catch (e) { /* private window */ } };
 async function showZern() {
   zernEl.style.outline = '';
+  zernEl.dataset.bad = '';
   if (ZERN.user) { if (document.activeElement !== zernEl) zernEl.value = zernText(ZERN.user); return; }
   try {
     const S = await setupJob(movieSpec());
@@ -7717,16 +7736,23 @@ ZERN.set = (j, v) => {   // one coefficient, over the others as they are now
   ZERN.user[j] = v;
   showZern();
 };
-zernEl.addEventListener('input', () => {   // (typing arrives settled, settle.js)
+// The Zernike, beam and phase boxes are textareas (resizable, as the BFP maps'): their typing is not settled
+// (settle.js holds only input boxes), so an edit applies when the box is left or on Ctrl+Enter, not per keystroke.
+const commitOn = (el, f) => {
+  el.addEventListener('change', f);
+  el.addEventListener('keydown', ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); f(); } });
+};
+commitOn(zernEl, () => {
   const v = zernEl.value.trim().split(/[\s,;]+/).filter(Boolean).map(Number);
   const ok = (v.length === 28 || v.length === 15) && v.every(Number.isFinite);
   zernEl.style.outline = ok ? '' : '1px solid #e0a64a';
+  zernEl.dataset.bad = ok ? '' : '1';
   if (!ok) return;
   while (v.length < 28) v.push(0);
   ZERN.user = v;
   schedulePrepare();
 });
-zernEl.addEventListener('blur', showZern);
+zernEl.addEventListener('blur', () => { if (!zernEl.dataset.bad) showZern(); });
 document.getElementById('mv_psf-zernike-preset').addEventListener('change', () => { ZERN.user = null; forgetZern(); showZern(); });
 window.addEventListener('isc-reset', () => ZERN.clear());
 setTimeout(showZern, 0);
@@ -7735,10 +7761,19 @@ setTimeout(showZern, 0);
 // (then every column of every row goes into the spec as beam.<j>.<column>, like the Zernike modes).
 const BEAM_COLUMNS = ['ux', 'uy', 'spot', 'tiltX', 'tiltY', 'amp', 'phase', 'pol', 'ellip', 'phaseStep', 'nm'];
 const beamsEl = document.getElementById('simBeams'), BEAMS = self.ISC_BEAMS = { user: null, setup: null };
-const beamsText = rows => rows.map(r => r.map(v => +(+v).toFixed(6)).join(' ')).join('; ');
+// A matrix as text, a line per row, its columns aligned on the decimal point (the box's font is monospace; any run of
+// spaces parses as one)
+const alignedRows = (rows, digits) => {
+  const cells = rows.map(r => r.map(v => { const t = String(+(+v).toFixed(digits)), d = t.indexOf('.'); return d < 0 ? [t, ''] : [t.slice(0, d), t.slice(d)]; }));
+  const wi = [], wf = [];
+  for (const r of cells) r.forEach(([i, f], c) => { wi[c] = Math.max(wi[c] || 0, i.length); wf[c] = Math.max(wf[c] || 0, f.length); });
+  return cells.map(r => r.map(([i, f], c) => i.padStart(wi[c]) + f.padEnd(wf[c])).join('  ').trimEnd()).join('\n');
+};
+const beamsText = rows => alignedRows(rows, 6);   // (a line per beam)
 const forgetBeams = () => { try { localStorage.removeItem('isc.set.simBeams'); } catch (e) { /* private window */ } };
 async function showBeams() {
   beamsEl.style.outline = '';
+  beamsEl.dataset.bad = '';
   if (BEAMS.user) { if (document.activeElement !== beamsEl) beamsEl.value = beamsText(BEAMS.user); return; }
   try {
     const S = await setupJob(movieSpec());
@@ -7754,16 +7789,17 @@ BEAMS.set = (j, c, v) => {   // one cell (a settings file's beam.<j>.<column>), 
   BEAMS.user[j][c] = v;
   showBeams();
 };
-beamsEl.addEventListener('input', () => {   // (typing arrives settled, settle.js)
+commitOn(beamsEl, () => {   // (on leaving the box or Ctrl+Enter)
   const rows = beamsEl.value.split(/[;\n]/).map(r => r.trim()).filter(Boolean).map(r => r.split(/[\s,]+/).map(Number));
   const ok = rows.length > 0 && rows.every(r => r.length <= 11 && r.every(Number.isFinite));
   beamsEl.style.outline = ok ? '' : '1px solid #e0a64a';
+  beamsEl.dataset.bad = ok ? '' : '1';
   if (!ok) return;
   BEAMS.user = rows.map(r => { const full = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]; r.forEach((v, c) => { full[c] = v; }); return full; });
   schedulePrepare();
   scheduleBfpReadout();
 });
-beamsEl.addEventListener('blur', showBeams);
+beamsEl.addEventListener('blur', () => { if (!beamsEl.dataset.bad) showBeams(); });
 for (const k of ['mv_sim-type', 'mv_sim-polarization', 'mv_sim-centre-amp', 'mv_illum-bfp', 'mv_sim-angles', 'mv_sim-angle0-deg'])
   document.getElementById(k).addEventListener('input', () => { if (!BEAMS.user) showBeams(); });
 // A pattern's beams at the BFP's centre make no fringes: the BFP position below SIM_EPI_BELOW with a pattern on sets the
@@ -7792,6 +7828,70 @@ const SIM_EPI_BELOW = 0.05;
 document.getElementById('mv_sim-type').addEventListener('change', () => { BEAMS.user = null; forgetBeams(); showBeams(); });
 window.addEventListener('isc-reset', () => BEAMS.clear());
 setTimeout(showBeams, 0);
+// The phase matrix (Lasers.PatternPhaseMatrix; spec/ALGORITHM.md "Structured illumination"): per frame of the cycle
+// (orientation a's phase p at row a x phases + p) each opposing beam pair's phase difference in degrees, as the setup
+// job resolves it (the Pattern's program, with the entries typed over it), or the rows typed (PHASES.user: every entry
+// into the spec as sim-pair-phase.<row>.<pair>). A typed matrix must have the program's rows and pairs (PHASES.shape);
+// a Pattern pick, another number of phases or orientations, or a reset goes back to the program. A value restored
+// before the first setup waits for it (PHASES.pending) and is kept only if its shape fits.
+const phasesEl = document.getElementById('simPhases'), PHASES = self.ISC_PHASES = { user: null, setup: null, shape: null, pending: null };
+const phasesText = rows => alignedRows(rows, 4);   // (a line per frame)
+const forgetPhases = () => { try { localStorage.removeItem('isc.set.simPhases'); } catch (e) { /* private window */ } };
+const phasesFit = rows => !!PHASES.shape && rows.length === PHASES.shape[0] && rows.every(r => r.length === PHASES.shape[1]);
+let phasesSeq = 0;
+async function showPhases() {
+  phasesEl.style.outline = '';
+  phasesEl.dataset.bad = '';
+  const seq = ++phasesSeq;
+  try {
+    const S = await setupJob(movieSpec());
+    if (seq !== phasesSeq) return;   // (a later change asked again)
+    const pt = S.excitation && S.excitation.pattern;
+    if (pt && Array.isArray(pt.phase_matrix)) {
+      PHASES.setup = pt.phase_matrix;
+      PHASES.shape = [pt.phase_matrix.length, (pt.phase_pairs || []).length];
+      phasesEl.disabled = !pt.phase_matrix.length;   // (no pair of opposing beams: nothing to set)
+    }
+    if (PHASES.pending) {
+      const p = PHASES.pending;
+      PHASES.pending = null;
+      if (phasesFit(p)) { PHASES.user = p; schedulePrepare(); return showPhases(); }
+      forgetPhases();
+    }
+    if (PHASES.setup && document.activeElement !== phasesEl) phasesEl.value = PHASES.setup.length ? phasesText(PHASES.setup) : '';
+  } catch (e) { /* the readout follows with the next change */ }
+}
+PHASES.clear = () => { PHASES.user = null; PHASES.pending = null; forgetPhases(); showPhases(); };
+PHASES.set = (s, k, v) => {   // one entry (a settings file's sim-pair-phase.<s>.<k>), over the ones set so far
+  PHASES.user = (PHASES.user || []).map(r => r.slice());   // (a file writes every entry; one missing: the program's)
+  while (PHASES.user.length <= s) PHASES.user.push([]);
+  PHASES.user[s][k] = v;
+  showPhases();
+};
+commitOn(phasesEl, () => {   // (on leaving the box or Ctrl+Enter)
+  const text = phasesEl.value.trim();
+  if (!text) { PHASES.clear(); schedulePrepare(); return; }   // empty: the program's
+  const rows = text.split(/[;\n]/).map(r => r.trim()).filter(Boolean).map(r => r.split(/[\s,]+/).map(Number));
+  const num = rows.length > 0 && rows.every(r => r.every(Number.isFinite));
+  if (num && !PHASES.shape) { PHASES.pending = rows; return; }   // (restored before the first setup)
+  const ok = num && phasesFit(rows);
+  phasesEl.style.outline = ok ? '' : '1px solid var(--color-status-warn)';
+  phasesEl.dataset.bad = ok ? '' : '1';   // (kept, with its text, until the next edit: the blur leaves it)
+  phasesEl.title = ok ? '' : `needs ${PHASES.shape ? PHASES.shape[0] : '?'} rows (frames of the cycle) of ${PHASES.shape ? PHASES.shape[1] : '?'} value(s) (beam pairs)`;
+  if (!ok) return;
+  PHASES.user = rows;
+  schedulePrepare();
+});
+phasesEl.addEventListener('blur', () => { if (!phasesEl.dataset.bad) showPhases(); });
+for (const k of ['mv_sim-type', 'mv_illum-bfp', 'mv_sim-phase0'])
+  document.getElementById(k).addEventListener('input', () => { if (document.activeElement !== phasesEl) showPhases(); });
+beamsEl.addEventListener('change', () => { if (document.activeElement !== phasesEl) showPhases(); });   // (the pairs follow the beams)
+// (another cycle or Pattern: the program's again; a settings file sets its entries after these, quietly)
+for (const k of ['mv_sim-phases', 'mv_sim-angles'])
+  document.getElementById(k).addEventListener('input', () => { if (self.ISC_QUIET) showPhases(); else PHASES.clear(); });
+document.getElementById('mv_sim-type').addEventListener('change', () => PHASES.clear());
+window.addEventListener('isc-reset', () => PHASES.clear());
+setTimeout(showPhases, 0);
 // The BFP light maps (Lasers.BfpMaps; spec/ALGORITHM.md "BFP light maps"): the box shows the equations in use (the
 // Pattern's own, from the setup job) or the ones typed (MAPS.user, the spec's bfp-maps); an edit applies when the box
 // is left (or Ctrl+Enter) and sets the Pattern to Maps; a LightSheet / RingTIRF pick forgets it. Errors from the setup.
@@ -8081,7 +8181,7 @@ let patternTimer = 0;
 function schedulePatternReadout() { clearTimeout(patternTimer); patternTimer = setTimeout(drawPatternReadout, 150); }
 for (const k of ['mv_sim-type', 'mv_sim-polarization', 'mv_sim-phases', 'mv_sim-angles', 'mv_sim-order', 'mv_sim-centre-amp', 'mv_illum-bfp', 'mv_illum-fwhm', 'mv_tube-length-mm', 'mv_bf-n-medium', 'mv_na', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
   document.getElementById(k)?.addEventListener('input', schedulePatternReadout);
-beamsEl.addEventListener('input', schedulePatternReadout);
+beamsEl.addEventListener('change', schedulePatternReadout);
 schedulePatternReadout();
 // The dyes' colour, density and fluorescent fraction redraw the dye overlay.
 for (const k of [...DYE_UI.targets.flatMap(t => [t.prefix + '-dye', t.prefix + '-label-pct', t.prefix + '-dye.fluorescent-pct']),
@@ -8243,12 +8343,14 @@ setLayerMode(!/[?&]2d/.test(location.search) && initGl()); // ?2d forces the 2D 
 resizeCanvas();
 </script>
 <script src="live/zip.js"></script>
+<script src="live/mda.js"></script>
 <script src="live/live.js"></script>
 <script src="live/status.js"></script>
 <script src="live/mm_config_ui.js"></script>
 <script src="live/settings_core.js"></script>
 <script src="live/mm_cfg.js"></script>
 <script src="live/settings_file.js"></script>
+<script src="live/mda_ui.js"></script>
 <script src="anim/editor.js"></script>
 <script src="live/persist.js"></script>
 <div id="threadNotice" role="status" hidden><span class="i" aria-hidden="true">&#9888;</span>

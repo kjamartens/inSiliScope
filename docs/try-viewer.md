@@ -159,6 +159,35 @@ through it step by step.
   are rendered in batches, each one movie on the sample's clock, so the slow parts of a frame (above all the
   blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
   frame of each batch is shown, and clicking ● Record again stops early and keeps the frames so far.
+  **Multi-D plan** (in the box, Advanced and Expert): Start then runs a plan instead of N frames, like Micro-Manager's
+  multi-dimensional acquisition. **Edit…** opens it: a list of **positions** (name, x, y, z; **+ current stage** adds
+  where the stage and focus are, **go to** moves there) and nested **for blocks**, run top to bottom: a for block runs
+  what is inside it once for each of its values, over **positions**, **Z heights** (a list `0, 0.5, 1` or a range
+  `-1:0.25:1` in µm; *relative*: offsets from the position's z) or **any setting**. A **recording** inside takes its
+  frames at its exposure, with settings of its own (`name=value`, one per line) on top of the for blocks' values; the
+  settings and values boxes grow with what is in them. ⧉ copies a block, with what is inside it, to just below it (its
+  recordings under the next free names) so you can change a value there. A setting goes by
+  the name its help shows (the Micro-Manager property at the end of it, e.g. `Lasers.Pattern`,
+  `Lasers.Laser561KWcm2`, `Lasers.PatternPhaseMatrix`); type part of a name, label or help and pick from the list
+  (↓ or Ctrl+Space shows all): each entry shows its label and group, the one under the pointer or the arrow keys its help, and a pick
+  fills in the setting's value now. Hovering a filled setting shows its help too. Values: a list, a range or, for a
+  choice, its names (a choice sets what it sets in Micro-Manager too: a mode its labelling and lasers). The matrices
+  (`Lasers.PatternPhaseMatrix`, `Lasers.Beams`, `Objective.ZernikeCoefficients`) and the BFP maps take their whole
+  value as in their box, a row per line (or rows separated by `;`); a for block over several puts each in quotes,
+  `"0; 240; 480; …", "0; 240; 470; …"`. A phase matrix must have the Pattern's rows and pairs, which the plan
+  checks before Start. For example: for z in 1, 2, 3 › for
+  position in P1, P2, P3 › (for laser power in 10, 20, 30 › record A, 100 frames at 10 ms), then (record B, 50 frames
+  at 20 ms with another laser on). Under the blocks the editor shows what is wrong, or the totals and the first blocks
+  in the order they will run. The run is one continuing live sample (bleaching, drift and the clock go on from block
+  to block, as on a microscope), at the live field; the stage, focus and settings you see stay as they were. A setting
+  that would change the image size or make a new sample (size, seeds, specimen, cell shape) cannot be in a plan.
+  **Save** then writes a `.zip` in the format you choose: **OME-TIFF** (default; one file, a series per position with
+  channels × z × frames; Fiji with Bio-Formats, napari, tifffile), an **ImageJ hyperstack per position**, or **one flat
+  stack** in the order taken. A channel is a recording with its for blocks' setting values (A at 10, A at 20, A at 30,
+  B: four channels); a channel with fewer frames than the longest gets blank frames. `index.csv` is always in it: a row
+  per page of every file with its position, x/y/z, z index, channel, frame, block, exposure, the sample's time,
+  whether it is blank, and the block's settings. The settings file (if ticked) keeps the plan, which a load puts
+  back in the box. No ground truth for a plan yet.
 - **Illumination** (in the controls column, under Acquisition): the light preset, each laser line as a
   slider with its power (kW/cm², three decimals; at the Basic level only the lines the labelled dyes use in their
   modes, with 405, 488 and 561 nm for PALM, and any line that is on), the BFP position and the pattern. The beam's
@@ -271,7 +300,11 @@ through it step by step.
   the sample moves through them, or the coverslip), the phases and orientations per cycle, their order, the first
   orientation, a phase offset and the centre beam's amplitude; in Expert the phase drift and the **Beams** matrix: every beam of the
   illumination in every mode, one row per beam, `ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm`, pre-filled
-  with the type's beams, which typed rows replace; the column table and worked examples are on the physics page under
+  with the type's beams, which typed rows replace, and the **Phase matrix**: the phase difference in degrees between
+  opposing beams, one row per frame of the cycle and one value per pair of opposing beams (the lattices: the x pair,
+  then the y pair), pre-filled with the pattern's program (`0; 240; 480; …` for SIM2D), which typed values of the same
+  shape replace for uneven or per-orientation phases (changing the phases or orientations, a Pattern pick or emptying
+  the box goes back to the program); the column table and worked examples are on the physics page under
   [Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)). The live sample counts its
   frames (the info line's tooltip shows the frame's place in the cycle, the performance box its angle and phase), a recording
   of a fresh sample starts at frame 0. The same select offers the **BFP light maps** ([BFP light maps](physics/dyes-and-light-path.md#bfp-light-maps)): **LightSheet** (an inclined light sheet; its thickness and width in Advanced) and **RingTIRF** (the TIRF spot turned once round per exposure), and **Maps**: in Expert the box under it holds the light's equations over the pupil (the type's own after a pick; an edit applies on leaving the box or with Ctrl+Enter and makes it Maps), with an **Examples** list (a spot, HILO, the light sheet, ring TIRF, a Bessel beam, radially and azimuthally polarized rings, a line scan, SIM2D, and six from images: lattices, three beams, a line focus, a TIRF annulus, half the pupil), **Map images…** (PNG or TIFF files the equations read with `img("name.png")`; a saved settings file carries them), the time slots and the frames per cycle. A coherent map's light takes from a fraction of a second to minutes to make (a beam focused over most of the pupil is the slow case); it is made once and kept.

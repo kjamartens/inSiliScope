@@ -100,7 +100,8 @@ struct Json
 void SpectrumKey(Json& j, const char* key, const sim::Spectrum& v);
 // The excitation's beams and pattern (SimPattern.h; a beam set, else the one legacy beam): "beams" [{ux, uy, spot_um,
 // tilt_x_deg, tilt_y_deg, amp, phase_turns, pol_deg, ellip_turns, phase_step, nm, u, regime, field_factor, depth_nm
-// per line}] and "pattern" {type, polarization, phases, angles, order, period, frame0, angle, phase, rotation_deg,
+// per line}] and "pattern" {type, polarization, phases, angles, order, period, phase_pairs (the opposing pairs' beam
+// indices), phase_matrix (per state of the cycle the pairs' phase differences, degrees), phase_matrix_given, frame0, angle, phase, rotation_deg,
 // varies, period_nm per line (the lateral fringe periods, largest first), spot_radius_um (the legacy width's)}.
 void ExcitationBeamsJson(Json& j, const sim::Excitation& ex, int simType = -1);   // simType: the spec's (the maps' types)
 // A state's photophysics under the light path, and its spectra (ex, em, detected) when it emits.

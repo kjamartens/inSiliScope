@@ -219,7 +219,18 @@ index f / nPhases (every phase of an orientation, then the next; `sim-order` Pha
 rotates every beam by 180° / `sim-angles`, the phase adds phaseStep × phase / nPhases turns to each beam. A cli stack
 starts at frame 0 and writes the state per frame to `<out>.pattern.csv`; the viewer's live sample counts its frames
 (every frame, dark ones too; a fresh sample starts at 0). A phase drift (Expert) makes each beam's phase walk per frame
-(`sim-phase-drift-turns-per-sqrt-sec`) or slide (`sim-phase-drift-turns-per-sec`).
+(`sim-phase-drift-turns-per-sqrt-sec`) or slide (`sim-phase-drift-turns-per-sec`). The Expert **phase matrix** (MM
+`Lasers.PatternPhaseMatrix`, the viewer's Phase matrix, cli `--sim-phase-matrix`) gives the phases as the **phase
+difference between opposing beams**, in degrees: one row per frame of the cycle (orientation a's phase p at row
+a × phases + p), one column per pair of opposing beams (2D and 3D SIM: the side pair; the lattices: the x pair, then
+the y pair). An entry is the first beam's phase minus its opposite's, which moves that pair's fringe by the same (a
+centre beam's fringes with the pair by half); the pair's beams take ± half of it. It shows the program: `0; 240; 480`
+per orientation for `SIM2D` (the fringe steps 2/3 of a period), `0 0; 110.77 166.15; 221.54 332.31; …` for
+`LatticeSIM3D` (the x and y pairs stepping 2 : 3 over 13 phases). Typed values make uneven or per-orientation phases,
+such as a calibrated SLM's or a step error (`0; 240; 470; 0; 240; 480; 0; 240; 480`: the first orientation's third
+step 10° short), and must keep the program's rows and pairs; another number of phases or orientations, a Pattern pick
+or an empty box goes back to the program. The kinetics keep the cycle mean below: the frames' true mean under uneven
+phases keeps a little fringe that the dyes' dose leaves out.
 
 <!-- fig:sim-cycle -->
 

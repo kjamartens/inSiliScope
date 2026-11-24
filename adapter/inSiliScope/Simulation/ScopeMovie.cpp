@@ -294,7 +294,7 @@ const OptionTable& Options()
          { "sim-angles", 0, "Lasers.PatternAngles: pattern orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D/SIM3D, 1 for the lattices)" },
          { "sim-order", 0, "Lasers.PatternOrder: the frame program's order, 0 AngleMajor (every phase of an angle, then the next angle), 1 PhaseMajor; names accepted" },
          { "sim-angle0-deg", 0, "Lasers.PatternAngle0Deg: the first orientation, degrees from the x axis" },
-         { "sim-phase0", 0, "Lasers.PatternPhase0: added to the phase index (fractional allowed): the pattern's starting phase" },
+         { "sim-phase0", 0, "Lasers.PatternPhase0: added to the phase index (fractional allowed): the pattern's starting phase. The phase matrix (Lasers.PatternPhaseMatrix, keys sim-pair-phase.<s>.<k>: the phase difference in degrees between opposing beam pair k's beams at state s = angle x phases + phase; default the program's, which includes this) replaces it for the pairs it gives" },
          { "sim-centre-amp", 1, "Lasers.PatternCentreAmp: the centre beam's field amplitude over the side beams' (SIM3D, LatticeSIM3D; estimate)" },
          { "sim-phase-drift-turns-per-sqrt-sec", 0, "Lasers.PatternPhaseDriftTurnsPerSqrtSec: each beam's phase takes a random walk, this its RMS after 1 s (turns; per seed and frame, as the sample drift)" },
          { "sim-phase-drift-turns-per-sec", 0, "Lasers.PatternPhaseDriftTurnsPerSec: each beam's phase drifts at its phase step x this (turns/s): the pattern slides along its stepping direction" },
@@ -536,6 +536,31 @@ int BeamKeyIndex(const std::string& name, int* column)
    return j;
 }
 
+int PhaseKeyIndex(const std::string& name, int* pair)
+{
+   static const std::string kHead = "sim-pair-phase.";
+   if (name.compare(0, kHead.size(), kHead) != 0)
+      return -1;
+   int a = -1, p = -1, *cur = &a;
+   for (size_t i = kHead.size(); i < name.size(); ++i)
+   {
+      const char ch = name[i];
+      if (ch == '.' && cur == &a && a >= 0)
+      {
+         cur = &p;
+         continue;
+      }
+      if (ch < '0' || ch > '9' || *cur > 1000)
+         return -1;
+      *cur = (*cur < 0 ? 0 : *cur * 10) + (ch - '0');
+   }
+   if (a < 0 || p < 0 || a >= kMaxPhaseMatrixRows || p >= kMaxPhaseMatrixPairs)
+      return -1;
+   if (pair)
+      *pair = p;
+   return a;
+}
+
 namespace {
 
 // A dye override key `<prefix>-dye.<field>` (structure = its index) or
@@ -597,8 +622,8 @@ const std::vector<std::string>* ScopeOptionNames(const std::string& name)
 
 const char* ScopeOptionPart(const std::string& name)
 {
-   if (IsScopeTextOption(name))
-      return "settings";   // the light in the back focal plane, as sim-*
+   if (IsScopeTextOption(name) || PhaseKeyIndex(name, nullptr) >= 0)
+      return "settings";   // the light in the back focal plane, the phase program: as sim-*
    if (name.compare(0, 2, "p.") == 0 && name.size() > 2)
       return "sample";
    if (ZernikeKeyIndex(name) >= 0 || BeamKeyIndex(name, nullptr) >= 0)
@@ -613,7 +638,7 @@ const char* ScopeOptionPart(const std::string& name)
 bool ScopeSpecSet(ScopeSpec& spec, const std::string& name, double value)
 {
    if ((name.compare(0, 2, "p.") == 0 && name.size() > 2) || ZernikeKeyIndex(name) >= 0 ||
-       BeamKeyIndex(name, nullptr) >= 0 || IsNamedOption(name))
+       BeamKeyIndex(name, nullptr) >= 0 || PhaseKeyIndex(name, nullptr) >= 0 || IsNamedOption(name))
    {
       spec[name] = value;
       return true;
@@ -1363,6 +1388,22 @@ BeamSet ScopeBeamSet(const ScopeSpec& spec)
    set.driftTurnsPerSec = O("sim-phase-drift-turns-per-sec");
    for (const auto& r : rows)
       ApplyBeamRow(set, r.first, r.second);
+   // The phase matrix: the entries given over the program's differences, within its states x the opposing pairs.
+   const std::vector<std::pair<int, int>> pairs = OpposingPairs(set);
+   const int np = static_cast<int>(pairs.size());
+   std::vector<double> given;
+   for (const auto& kv : spec)
+   {
+      int k = -1;
+      const int s = PhaseKeyIndex(kv.first, &k);
+      if (s < 0 || s >= set.Period() || k >= np)
+         continue;
+      if (given.empty())
+         for (int i = 0; i < set.Period() * np; ++i)
+            given.push_back(PairPhaseDeg(set, pairs, i / np, i % np));
+      given[static_cast<size_t>(s * np + k)] = kv.second;
+   }
+   set.pairPhaseDeg = std::move(given);
    return set;
 }
 
@@ -5594,6 +5635,13 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          for (const Beam& bm : b.beams)
             for (int c = 0; c < kBeamColumns; ++c)
                k.push_back(BeamColumn(bm, c));
+         // The phase matrix (none: nothing, the key as before): the pairs' differences.
+         if (!b.pairPhaseDeg.empty())
+         {
+            k.push_back(-2.0);
+            k.push_back(static_cast<double>(b.pairPhaseDeg.size()));
+            k.insert(k.end(), b.pairPhaseDeg.begin(), b.pairPhaseDeg.end());
+         }
          m.exciteKey.insert(m.exciteKey.end() - 1, k.begin(), k.end());
       }
       if (es.maps)

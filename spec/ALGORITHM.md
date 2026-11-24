@@ -1024,6 +1024,23 @@ Off and no matrix).
   a reconstruction needs to separate them (`OrdersSeparate`, ctest; the lattice ratios are *estimates* that satisfy
   it). The program is a general mechanism (`FrameLight` carries a `scale` reserved for a stroboscopic light): a light
   that depends on the frame number goes through it.
+- **The phase matrix** (Expert, 2026-11-23; `Lasers.PatternPhaseMatrix`, keys `sim-pair-phase.<s>.<k>`, cli
+  `--sim-phase-matrix "<rows>"`): the phases as the **phase difference between opposing beams** (the user's ask: a
+  per-frame position in phase steps, the first version, was awkward for the lattices). Rows: the states of the cycle
+  (orientation a's phase p at row s = a x nPhases + p, whatever `sim-order`); columns: the opposing pairs
+  (`OpposingPairs`: beams at opposite BFP positions with the same line, in the order of their first beams -- SIM2D and
+  SIM3D the side pair, the lattices the x pair then the y pair; a centre beam is in none); an entry is the first
+  beam's phase minus its opposite's in degrees, which moves that pair's fringe by the same (a centre beam's fringes
+  with the pair by half). Given, the pair's beams take the common part of the program, (step_j + step_l) / 2 x (phase
+  + `sim-phase0`) / nPhases turns (0 for the built-in symmetric pairs), +- half the difference; unpaired beams step
+  as before. The default is the program's difference, 360 (step_j - step_l) (phase + `sim-phase0`) / nPhases degrees
+  (SIM2D 0 240 480; LatticeSIM3D 110.77 x p and 166.15 x p), not reduced mod 360 (the half on each beam is what a
+  centre beam sees). Without a matrix the program's arithmetic is untouched (bit for bit); the program given as the
+  matrix agrees within rounding. Entries outside the program's states x pairs are left out, missing ones are the
+  program's; MM and the viewer take a typed matrix only in the program's shape, and another `sim-phases` /
+  `sim-angles`, a Pattern pick or an empty text goes back to the program. The kinetics stay on the cycle mean of the
+  components (the beams' incoherent sum), as for any phase setting: uneven phases leave a fringe in the frames' true
+  mean that the light history does not carry.
 - **Phase drift** (Expert): each beam's phase takes a random walk, sigma turns per sqrt s (counter-based pcg4d on
   seed ^ "SIMP", frame, beam: one path per seed on every consumer, as the sample drift), plus a linear drift of
   phaseStep_j x rate x t (the pattern slides along its stepping direction). The walk is a sum over the frames before

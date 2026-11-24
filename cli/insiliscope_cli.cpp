@@ -193,6 +193,18 @@ int RunCli(int argc, char** argv)
                spec["beam." + std::to_string(r) + "." + sim::BeamColumnNames()[c]] = rows[r][c];
          continue;
       }
+      if (a == "--sim-phase-matrix" && i + 1 < argc) {
+         // The phase matrix as one argument (a row per state of the cycle, angle x phases + phase; in each the opposing
+         // beam pairs' phase differences in degrees; rows separated by ';'): its values as sim-pair-phase.<s>.<k> keys
+         // (rows or pairs beyond the program's are left out).
+         std::vector<std::vector<double>> rows;
+         std::string perr;
+         if (!sim::ParsePhaseMatrix(argv[++i], rows, perr)) { std::fprintf(stderr, "--sim-phase-matrix: %s\n", perr.c_str()); return 1; }
+         for (size_t r = 0; r < rows.size(); ++r)
+            for (size_t c = 0; c < rows[r].size(); ++c)
+               spec["sim-pair-phase." + std::to_string(r) + "." + std::to_string(c)] = rows[r][c];
+         continue;
+      }
       if (a == "--spec" && i + 1 < argc) {
          // A spec file (name=value per line, e.g. Micro-Manager's Renderer
          // WriteScopeSpecTo): its options at this point, later ones override.

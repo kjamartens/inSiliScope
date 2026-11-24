@@ -323,13 +323,14 @@ function worker() {
 // The live session follows the sample: a new world (seed, cell or specimen parameters) is a fresh sample, as the
 // adapter resets its history on a world change.
 function worldKey(spec) { return spec.split(' ').filter(t => /^(world-seed|specimen|p\.)/.test(t)).join(' '); }
-// n > 1: a recording chunk (n frames at once, LiveScope::Frames).
-function request(n) {
+// n > 1: a recording chunk (n frames at once, LiveScope::Frames); ov: a multi-D block's overrides of the spec (its
+// position, focus, exposure and settings; the controls left as they are).
+function request(n, ov) {
   const w = worker();
   if (!w) { L.err = 'the workers are not up yet'; showInfo(); return; }
   if (L.pending) return;
   // (a recording chunk: its mean-field bleach basis its own, so its frames are a function of its file: fresh-basis)
-  const spec = movieSpec(n ? { frames: 1, 'fresh-basis': 1 } : { frames: 1 });
+  const spec = movieSpec(n ? { frames: 1, 'fresh-basis': 1, ...(ov || {}) } : { frames: 1 });
   const wk = worldKey(spec);
   const reset = wk !== L.worldKey;
   if (reset) { L.worldKey = wk; L.t = 0; L.log = []; }
@@ -792,14 +793,14 @@ function showInfo() {
   syncIdle();
   const el = $('lv_info'), ms = L.ms.toFixed(1) + ' ms/frame', fps = L.ms > 0 ? (1000 / L.ms).toFixed(1) + ' fps · ' : '';
   const text = L.err ? 'live failed: ' + L.err
-    : REC.on ? (REC.live && REC.got ? fps + ms : '')   // a fresh sample's movie: its count is on the button
+    : REC.on ? (REC.live && REC.got ? fps + ms : '') + (REC.plan ? `${REC.got ? ' · ' : ''}block ${recBlock().i + 1}/${REC.plan.blocks.length}` : '')   // a fresh sample's movie: its count is on the button
     : REC.msg && !L.on ? (L.ms > 0 ? fps + ms : '')
     : !L.frames ? (L.on ? 'starting…' : '')
     : L.on ? L.fps.toFixed(1) + ' fps · ' + ms
     : ms;
   const more = [L.frames ? `${L.w}×${L.h} px · ${(+$('mv_pixel-nm').value || 100).toFixed(1)} nm/px` : '',
     L.pattern ? `pattern ${L.pattern.frame % L.pattern.period + 1}/${L.pattern.period}` : '',
-    REC.on ? `recording ${REC.got}/${REC.n}` : REC.msg && !L.on ? REC.msg : ''].filter(Boolean);
+    REC.on ? `recording ${REC.got}/${REC.n}` + recBlockText() : REC.msg && !L.on ? REC.msg : ''].filter(Boolean);
   el.textContent = text;
   el.title = [text, ...more].filter(Boolean).join('\n');
   showPerfNote();
@@ -1043,19 +1044,20 @@ function recField() {
   const live = Math.max(1, +($('mv_size') || {}).value || 128);
   const side = v => { const n = Math.round(+v); return Number.isFinite(n) && n > 0 ? Math.min(REC_MAX_SIDE, Math.max(8, n)) : 0; };
   const w = side($('lv_recW').value) || live, h = side($('lv_recH').value) || w;
-  return { w, h, live, larger: !$('lv_recLive').checked && (w !== live || h !== live) };
+  return { w, h, live, larger: !$('lv_recLive').checked && !planOn() && (w !== live || h !== live) };
 }
 // What stops a Record before it starts, said in the box (lv_recMsg) as the numbers are typed, and again when Start is
 // refused (recRefused: the box reopens with the reason; the info line alone was easy to miss): the frames past the
 // room the browser gives this page's disk storage (recRoom, asked when the box opens), a field past 4096 px without it.
 let recRoom = null;
 const recBytes = () => {
-  const f = recField(), live = $('lv_recLive').checked, w = live ? f.live : f.w, h = live ? f.live : f.h;
-  return { w, h, n: Math.max(1, Math.round(+$('lv_recN').value || 0)), bytes: Math.max(1, Math.round(+$('lv_recN').value || 0)) * w * h * 2 };
+  const f = recField(), live = $('lv_recLive').checked || planOn(), w = live ? f.live : f.w, h = live ? f.live : f.h;
+  const n = planOn() ? Math.max(1, planCheck().frames) : Math.max(1, Math.round(+$('lv_recN').value || 0));
+  return { w, h, n, bytes: n * w * h * 2 };
 };
 const gbText = b => (b / 1e9 < 0.1 ? (b / 1e9).toFixed(3) : (b / 1e9).toFixed(1)) + ' GB';
 function recProblem(room = recRoom) {
-  const { w, h, n, bytes } = recBytes(), file = FILE.ok && $('lv_recFile').checked, disk = DISK.ok && $('lv_recDisk').checked;
+  const { w, h, n, bytes } = recBytes(), file = FILE.ok && $('lv_recFile').checked && !planOn(), disk = DISK.ok && $('lv_recDisk').checked;
   if (!disk && !file && Math.max(w, h) > REC_WHOLE_SIDE)
     return `A field past ${REC_WHOLE_SIDE} px renders in strips, which write to the disk storage: tick "write frames to disk"` +
       (FILE.ok ? ' or "save to a file as recorded".' : DISK.ok ? '.' : ' (this browser offers no disk storage to this page).');
@@ -1109,6 +1111,97 @@ for (const id of ['lv_recW', 'lv_recH']) {
   $(id).addEventListener('input', syncRecField);
   $(id).addEventListener('change', () => store.set(id === 'lv_recW' ? 'recW' : 'recH', $(id).value));
 }
+// ---- a multi-D Record (2026-11-23, Advanced and Expert; web/live/mda.js, the editor web/live/mda_ui.js) ----
+// "multi-D plan" in the Record box: Start runs the plan's blocks (for blocks over positions, Z heights and any
+// setting, recordings of N frames at an exposure inside them) in order, as one continuing live sample: the "continue
+// the live sample" path (chunks of isc_live_frames, LiveScope::Frames), each chunk within one block, with the block's
+// position, focus, exposure and settings as the spec's overrides (the controls stay as they are). The frames are kept
+// in run order (the disk storage or memory, never "save to a file as recorded"); REC.place has each frame's sample
+// time; Save makes the files of the format chosen (OME-TIFF, ImageJ hyperstacks, flat) and index.csv. The plan is kept
+// in the box's store and in a Record's settings file (measurement.viewer.recordPlan).
+const MDA = () => self.ISC_MDA;
+let recPlan = null;
+try { recPlan = JSON.parse(store.get('recPlan', '') || 'null'); } catch (e) { recPlan = null; }
+if (!recPlan || !Array.isArray(recPlan.root)) recPlan = MDA() ? MDA().example() : { positions: [], root: [] };
+$('lv_recPlan').checked = store.get('recPlanOn', '0') === '1';
+function planOn() { return document.body.dataset.level !== 'basic' && $('lv_recPlan').checked; }
+// the stage and focus at Start: where no Position loop says
+const planBase = () => ({ x: view.cx, y: view.cy, z: +$('mv_z').value || 0 });
+const planEng = () => self.ISC_ENGINE_OPTIONS || null;
+// a key a plan may set: an engine option, or a key the spec takes without one (zern.<j>, beam.<j>.<col>, dye fields)
+const planKnown = k => { const e = planEng(); return !e || e.has(k) || !!(self.iscSettingsCore && self.iscSettingsCore.partOf(e, k)); };
+// the plan's setting names: the Micro-Manager names the settings' help shows (web/live/mm_cfg.js planKeys: Lasers.Pattern,
+// Lasers.PatternPhaseMatrix, ...) and the engine's keys; made again when the engine's options arrive
+let planKeysOf = null, planKeysMemo = null;
+function planKeys() {
+  const e = planEng();
+  if (planKeysMemo && planKeysOf === e) return planKeysMemo;
+  planKeysOf = e;
+  planKeysMemo = self.iscMmCfg && self.ISC_MM_CFG ? self.iscMmCfg.planKeys({ engine: e, known: planKnown }) : null;
+  return planKeysMemo;
+}
+// A block's phase matrix (sim-pair-phase.<row>.<pair>, from Lasers.PatternPhaseMatrix) has the program's rows and pairs
+// where the block leaves the Pattern as it is now (index.html PHASES.shape; the engine would take the entries that fit
+// and drop the rest without a word). A block that sets the Pattern, its phases, orientations or beams is not checked.
+const PATTERN_KEYS = /^(sim-type|sim-phases|sim-angles|beam\.\d+\.[A-Za-z]+)$/;
+function planBlockCheck(b) {
+  const sh = self.ISC_PHASES && ISC_PHASES.shape, keys = Object.keys(b.ov);
+  const ph = keys.map(k => /^sim-pair-phase\.(\d+)\.(\d+)$/.exec(k)).filter(Boolean);
+  if (!sh || !ph.length || keys.some(k => PATTERN_KEYS.test(k))) return [];
+  const rows = Math.max(...ph.map(m => +m[1])) + 1, pairs = Math.max(...ph.map(m => +m[2])) + 1;
+  if (!sh[0]) return [`Block ${b.path}: a phase matrix, but the Pattern (Lasers.Pattern) has no beam pairs: set a SIM Pattern first`];
+  if (rows === sh[0] && pairs === sh[1]) return [];
+  return [`Block ${b.path}: the phase matrix has ${rows} row(s) of ${pairs}; the Pattern's needs ${sh[0]} rows (frames of the cycle) of ${sh[1]} (beam pairs)`];
+}
+// the plan's checks and blocks now: { errs, blocks, frames }
+function planCheck(plan = recPlan) {
+  const D = MDA();
+  if (!D) return { errs: ['the plan\'s code did not load'], blocks: [], frames: 0 };
+  const base = planBase(), keys = planKeys() || undefined;
+  const errs = D.validate(plan, base, { eng: planEng(), known: planKnown, keys, blockCheck: planBlockCheck });
+  let blocks = [];
+  if (!errs.length) try { blocks = D.expand(plan, base, planEng(), keys); } catch (e) { errs.push(e.message || String(e)); }
+  return { errs, blocks, frames: blocks.reduce((s, b) => s + b.frames, 0) };
+}
+function syncPlan() {
+  const on = planOn(), pop = $('lv_recPop');
+  pop.classList.toggle('plan', on);
+  const note = $('lv_recPlanNote'), sum = $('lv_recPlanSum');
+  if (!on) { note.hidden = true; sum.textContent = ''; syncRecMsg(); return; }
+  const c = planCheck(), side = recField().live;
+  sum.textContent = c.errs.length ? 'plan not ready' : `${c.frames} frames`;
+  note.classList.toggle('bad', !!c.errs.length);
+  note.textContent = c.errs.length ? c.errs[0] + (c.errs.length > 1 ? ` (and ${c.errs.length - 1} more: Edit…)` : '')
+    : `${c.blocks.length} blocks · ${c.frames} frames of ${side} × ${side} px · ${gbText(c.frames * side * side * 2)}; ` +
+      'one continuing live sample, the live field.';
+  note.hidden = false;
+  syncRecMsg();
+}
+$('lv_recPlan').addEventListener('change', () => { store.set('recPlanOn', $('lv_recPlan').checked ? '1' : '0'); syncPlan(); syncRecField(); });
+new MutationObserver(syncPlan).observe(document.body, { attributes: true, attributeFilter: ['data-level'] });
+// the editor's way in (web/live/mda_ui.js)
+L.recPlan = {
+  get: () => JSON.parse(JSON.stringify(recPlan)),
+  set(p) { recPlan = JSON.parse(JSON.stringify(p)); store.set('recPlan', JSON.stringify(recPlan)); syncPlan(); },
+  check: planCheck, base: planBase, eng: planEng, known: planKnown, keys: planKeys, on: planOn,
+  side: () => recField().live, msPerFrame: () => L.ms || 0,
+  goTo(x, y, z) {
+    view.cx = x; view.cy = y;
+    if (Number.isFinite(z)) { $('mv_z').value = z; for (const t of ['input', 'change']) $('mv_z').dispatchEvent(new Event(t, { bubbles: true })); }
+    noteInteraction(); requestDraw();
+  },
+};
+$('lv_recPlanEdit').addEventListener('click', () => { if (self.iscMdaEditor) self.iscMdaEditor.open(); });
+// the block the run is in (REC.got: the frames so far) and its line for the info box
+const recBlock = () => {
+  const P = REC.plan, at = P && MDA().blockAt(P.blocks, Math.min(REC.got, REC.n - 1));
+  return at ? { i: at.b, k: at.k, b: P.blocks[at.b] } : { i: 0, k: 0, b: null };
+};
+function recBlockText() {
+  if (!REC.plan) return '';
+  const { i, b } = recBlock();
+  return b ? `\nblock ${i + 1}/${REC.plan.blocks.length} · ${b.pName || 'stage'} · z ${MDA().fmt(b.z)} µm · ${b.cName}` : '';
+}
 for (const id of ['lv_recN', 'lv_recDisk', 'lv_recFile']) $(id).addEventListener('input', syncRecField);
 syncRecField();
 // A recording's frames as the parts they came in (each whole frames, in order): no one buffer of the whole movie.
@@ -1129,6 +1222,7 @@ function frameStore() {
       const p = parts[lo], k = i - p.first;
       return p.data.subarray(k * px, (k + 1) * px);
     },
+    part(i) { return this.frame(i); },
     // the first n frames as arrays in order (writeTiff16 takes them as they are)
     arrays(n = total) {
       const out = [];
@@ -1167,6 +1261,7 @@ function diskStore(file, w, h, n, base = 0) {
       return cache.get(i);
     },
     arrays(m = n) { return [file.slice(base, base + m * px * 2)]; },
+    part(i) { return file.slice(base + i * px * 2, base + (i + 1) * px * 2); },
   };
 }
 async function startRec() {
@@ -1181,8 +1276,12 @@ async function startRec() {
   }
   if (REC.on) { REC.stop = true; return; }
   if (REC.starting) return;
-  const n = Math.max(1, Math.round(+$('lv_recN').value || 0)), field = recField();
-  const fw = $('lv_recLive').checked ? field.live : field.w, fh = $('lv_recLive').checked ? field.live : field.h;
+  // a multi-D plan: checked and run in order as one continuing live sample (its blocks known now)
+  const plan = planOn() ? planCheck() : null;
+  if (plan && plan.errs.length) { recRefused('the multi-D plan: ' + plan.errs.join('; ')); return; }
+  const liveRec = !!plan || $('lv_recLive').checked;
+  const n = plan ? plan.frames : Math.max(1, Math.round(+$('lv_recN').value || 0)), field = recField();
+  const fw = liveRec ? field.live : field.w, fh = liveRec ? field.live : field.h;
   const bytes = n * fw * fh * 2, gb = bytes / 1e9;
   // the frames to the disk storage: room for them (the saved .tif or .zip is a Blob of the same file)
   let disk = DISK.ok && $('lv_recDisk').checked ? { dir: DISK.newDir() } : null;
@@ -1190,7 +1289,7 @@ async function startRec() {
   if (early) { recRefused(early); return; }
   // straight to a file: the picker first (it needs the click), then the file opened for writing
   let out = null;
-  if (FILE.ok && $('lv_recFile').checked) {
+  if (FILE.ok && $('lv_recFile').checked && !plan) {
     REC.starting = true;
     try {
       const handle = await self.showSaveFilePicker({ suggestedName: `insiliscope_rec_${fw}x${fh}x${n}.tif`,
@@ -1217,8 +1316,9 @@ async function startRec() {
   }
   syncRecMsg('');
   closePlayer();
-  Object.assign(REC, { on: true, stop: false, live: $('lv_recLive').checked, n, got: 0, store: null, disk, diskFrames: 0, out, desc: '',
-    field: $('lv_recLive').checked || !field.larger ? null : { size: fw, height: fh },
+  Object.assign(REC, { on: true, stop: false, live: liveRec, n, got: 0, store: null, disk, diskFrames: 0, out, desc: '',
+    plan: plan ? { plan: JSON.parse(JSON.stringify(recPlan)), blocks: plan.blocks } : null, place: [],
+    field: liveRec || !field.larger ? null : { size: fw, height: fh },
     exp: exposureSec(), t0: performance.now(), engineMs: 0,
     msg: gb > 2 ? `${gb.toFixed(1)} GB of frames, ` + (out ? `written to ${out.handle.name}` : disk ? 'written to this browser\'s disk storage' : 'held in this tab\'s memory') +
       (gb > 4 ? ' (saved as a BigTIFF)' : '') : '',
@@ -1233,7 +1333,7 @@ async function startRec() {
   try { if (!REC.live && REC.now) REC.file = self.iscSettings.recordFile({ mode: 'fresh', now: REC.now, frames: REC.n }, 'insiliscope-recording'); }
   catch (e) { console.warn('the recording\'s settings file:', e); }
   recGtEarly();
-  iscTrack('record', { frames: iscTrack.framesBucket(REC.n), continue: REC.live });
+  iscTrack('record', { frames: iscTrack.framesBucket(REC.n), continue: REC.live, plan: !!REC.plan });
   if (L.on) L.on = false;
   syncButtons();
   if (!L.pending) recNext();   // else after the frame in flight
@@ -1302,8 +1402,13 @@ function onRecMovie(d, job) {
 function recNext() {
   if (!REC.live) { if (!REC.store) recMovie(); return; }
   if (REC.stop || REC.got >= REC.n) { finishRec(); return; }
-  const side = Math.max(1, +$('mv_size').value || 128);
-  request(Math.max(1, Math.min(REC.n - REC.got, Math.floor(2e6 / (side * side)), 500)));
+  const side = Math.max(1, +$('mv_size').value || 128), cap = Math.max(1, Math.min(Math.floor(2e6 / (side * side)), 500));
+  if (REC.plan) {   // a multi-D block: its frames left, its overrides (a chunk never spans two blocks)
+    const { k, b } = recBlock();
+    request(Math.max(1, Math.min(b.frames - k, cap)), b.ov);
+    return;
+  }
+  request(Math.max(1, Math.min(REC.n - REC.got, cap)));
 }
 function onRecChunk(d, job) {
   const px = d.w * d.h, n = d.n || 1;
@@ -1320,6 +1425,10 @@ function onRecChunk(d, job) {
     const k = Math.min(n, REC.n - REC.got);
     if (d.disk) REC.diskFrames = REC.got + k;   // (written at their place in the frames file: d.frames is the last)
     else REC.store.add(d.frames.subarray(0, k * px), k);   // (the chunk's frames, transferred: kept as they came)
+    if (REC.plan) {   // each frame's sample time at its start (a frame lasts its exposure)
+      const exp = recBlock().b.exposureMs / 1000;
+      for (let i = 0; i < k; i++) REC.place.push({ t: +(job.t + i * exp).toFixed(9) });
+    }
     REC.got += k;
     REC.chunks.push({ spec: job.spec, n: k, lit: true });
     REC.engineMs += d.workerMs || 0;
@@ -1374,6 +1483,7 @@ const PLAY = L.play = { on: false, store: null, w: 0, h: 0, n: 0, desc: '', i: 0
 function recDesc(n) {
   const exp = REC.exp || exposureSec();
   return [`ImageJ=1.11a`, `images=${n}`, `frames=${n}`, `unit=micron`, `finterval=${exp}`, `loop=false`,
+    ...(REC.plan ? ['insiliscope.plan=a multi-D Record: the frames in the order taken, index.csv says each one\'s position, z, channel and time'] : []),
     ...(REC.live ? [`insiliscope=live recording`, `insiliscope.spec=${REC.spec}`, `insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.sample-time-sec=${REC.tStart}`,
       `insiliscope.lit-sec-at-start=${REC.litStart}`, `insiliscope.recorded=${new Date().toISOString()}`,
       'insiliscope.note=the frames continue the live sample (its light history and drift); insiliscope_cli --spec renders a fresh sample']
@@ -1393,7 +1503,8 @@ function openPlayer(n) {
       log: REC.log || [], chunks: REC.chunks, tSec: L.t }, 'insiliscope-recording');
   } catch (e) { console.warn('the recording\'s settings file:', e); }
   Object.assign(PLAY, { on: true, store: REC.store, disk: REC.disk, saved: REC.store.saved || '', w: REC.w, h: REC.h, n, desc, spec: REC.spec,
-    exp, pxUm: recPxUm(), i: 0, run: n > 1, settings, gpu: REC.live ? '' : REC.gpu || '' });
+    exp, pxUm: recPxUm(), i: 0, run: n > 1, settings, gpu: REC.live ? '' : REC.gpu || '',
+    plan: REC.plan ? { ...REC.plan, place: REC.place.slice(0, n), t0: REC.tStart } : null });
   $('lv_playPos').max = n - 1;
   $('lv_play').hidden = false;
   $('liveView').classList.add('playing');
@@ -1468,6 +1579,7 @@ async function gtKind(spec) {
 }
 async function openSave() {
   if (!PLAY.on) return;
+  if (PLAY.plan) { openSavePlan(); return; }
   const D = self.iscSettings;
   if (!D || !D.dialog) { saveRecording({ settings: false, gt: false }, `insiliscope_live_${PLAY.w}x${PLAY.h}x${PLAY.n}`); return; }
   const o = saveOpts(), spec = PLAY.spec || '', kind = await gtKind(spec);
@@ -1612,11 +1724,100 @@ async function saveRecording(c, name, say = () => {}) {
   REC.msg = `saved ${name}.zip (${(blob.size / 1e6).toFixed(1)} MB${bigTiff})`;
   showInfo();
 }
+// ---- a multi-D Record's Save (2026-11-23): always a .zip of the movie file(s) in the format chosen, index.csv (a row
+// per page: position, z, channel, t, block, the sample's time, blank or not), the settings file if ticked, README.txt.
+// OME-TIFF (default): one file, the frames as taken then one blank frame every blank plane's page points at (no copy);
+// an Image per position, XYTZC. ImageJ: a hyperstack per position (C x Z x T, c fastest; ImageJ reads the pages back
+// to back, so each file is a Blob of the frames in that order, blank frames where a cell is short). Flat: the frames
+// as taken. No ground truth for a plan yet (a run of blocks is not one movie job).
+const PLAN_FORMATS = [['ome', 'OME-TIFF', 'movie.ome.tif: one file, a series per position (C, Z, T); Fiji (Bio-Formats), napari, tifffile'],
+  ['imagej', 'ImageJ hyperstack per position', '<position>.tif: C × Z × T each; Fiji / ImageJ open them as hyperstacks'],
+  ['flat', 'One flat stack', 'movie.tif: every frame in the order taken; index.csv says what each page is']];
+function openSavePlan() {
+  const D = self.iscSettings;
+  const fmt0 = store.get('saveFormat', 'ome'), name0 = `insiliscope_mda_${PLAY.w}x${PLAY.h}x${PLAY.n}`;
+  if (!D || !D.dialog) { savePlan({ settings: false, format: fmt0 }, name0); return; }
+  const L0 = self.ISC_MDA.layout(PLAY.plan.blocks, PLAY.n, PLAY.plan.plan.positions);
+  const box = D.dialog('<h3>Save the multi-D recording</h3>' +
+    '<div class="row"><label for="svName">Name</label><input type="text" id="svName" maxlength="80"></div>' +
+    `<div class="row"><label for="svFmt">Format</label><select id="svFmt">${PLAN_FORMATS.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join('')}</select></div>` +
+    '<div class="msg" id="svFmtNote"></div>' +
+    `<label class="part"><input type="checkbox" checked disabled> <b>Index</b><span class="s">index.csv, a row per page: position, z, channel, t, block, time, blank</span></label>` +
+    '<label class="part"><input type="checkbox" id="svSet"> <b>Settings file</b><span class="s">settings.isc.json: the settings, the plan and the ' +
+    'sample\'s light (☰ › Load)</span></label>' +
+    `<div class="msg">${L0.P.length} position${L0.P.length > 1 ? 's' : ''} × ${L0.Z.length} z × ${L0.C.length} channel${L0.C.length > 1 ? 's' : ''} × up to ${L0.T} frames` +
+    ` (${PLAY.n} recorded${PLAY.n < PLAY.plan.blocks.reduce((s, b) => s + b.frames, 0) ? ', stopped early' : ''}). No ground truth for a plan yet. Saved as a .zip.</div>` +
+    '<progress id="svBar" max="1" hidden style="width:100%"></progress>' +
+    '<div class="row"><span class="sp"></span><button id="svCancel">Cancel</button><button id="svGo">Save</button></div>');
+  const q = s => box.querySelector(s);
+  q('#svName').value = name0;
+  q('#svFmt').value = PLAN_FORMATS.some(f => f[0] === fmt0) ? fmt0 : 'ome';
+  const note = () => { q('#svFmtNote').textContent = PLAN_FORMATS.find(f => f[0] === q('#svFmt').value)[2]; };
+  q('#svFmt').addEventListener('change', note);
+  note();
+  q('#svSet').checked = saveOpts().settings && !!PLAY.settings;
+  q('#svSet').disabled = !PLAY.settings;
+  q('#svCancel').onclick = () => D.closeDialog();
+  q('#svGo').onclick = async () => {
+    const c = { settings: q('#svSet').checked, format: q('#svFmt').value };
+    store.set('saveFormat', c.format);
+    const name = (q('#svName').value.trim() || name0).replace(/[\\/:*?"<>|]+/g, '_');
+    q('#svGo').disabled = true;
+    try {
+      await savePlan(c, name, t => { q('#svFmtNote').textContent = t; q('#svBar').hidden = false; q('#svBar').removeAttribute('value'); });
+      D.closeDialog();
+    } catch (e) {
+      q('#svBar').hidden = true;
+      q('#svFmtNote').innerHTML = `<span class="warn">${esc(e.message || e)}</span>`;
+      q('#svGo').disabled = false;
+    }
+  };
+}
+// c = {settings, format}
+async function savePlan(c, name, say = () => {}) {
+  const M = self.ISC_MDA, P = PLAY.plan, n = PLAY.n, px = PLAY.w * PLAY.h, st = PLAY.store;
+  iscTrack('save-tiff', { source: 'record', frames: iscTrack.framesBucket(n), settings: !!c.settings, gt: false, plan: c.format });
+  const Lay = M.layout(P.blocks, n, P.plan.positions), files = M.files(Lay, c.format), blank = new Uint16Array(px);
+  const extra = [`insiliscope.version=${self.ISC_VERSION || ''}`, `insiliscope.recorded=${new Date().toISOString()}`,
+    'insiliscope.plan=a multi-D Record: index.csv says each page\'s position, z, channel, time'];
+  say('Packing ...');
+  const entries = [];
+  for (const f of files) {
+    let tif;
+    if (c.format === 'ome') {
+      const lay = M.pagedLayout(f, n, px);
+      tif = writeTiffPaged([...st.arrays(n), blank], lay.dataBytes, PLAY.w, PLAY.h, f.pages.length,
+        M.omeXml(Lay, P.blocks, f, { w: PLAY.w, h: PLAY.h, pxUm: PLAY.pxUm, version: self.ISC_VERSION || '', date: new Date().toISOString().slice(0, 19),
+          place: P.place, t0: P.place.length ? P.place[0].t : 0 }), PLAY.pxUm, lay.pageAt);
+    } else if (c.format === 'imagej') {
+      const parts = M.pageParts(f, i => st.part(i), blank);
+      tif = writeTiff16(parts, PLAY.w, PLAY.h, parts.length, M.imagejDesc(Lay, [`insiliscope.position=${Lay.P[f.p].name}`, ...extra]), PLAY.pxUm);
+    } else tif = writeTiff16(st.arrays(n), PLAY.w, PLAY.h, n, PLAY.desc, PLAY.pxUm);
+    entries.push({ name: f.name, data: tif });
+  }
+  entries.push({ name: 'index.csv', data: M.indexCsv(Lay, P.blocks, files, P.place) });
+  if (c.settings && PLAY.settings) entries.push({ name: 'settings.isc.json', data: playSettingsText() });
+  entries.push({ name: 'README.txt', data: `inSiliScope multi-D recording ${name}, saved ${new Date().toISOString()} (viewer ${self.ISC_VERSION || ''}).\n\n` +
+    `${n} frames of ${PLAY.w} x ${PLAY.h} px, 16-bit, ${+(PLAY.pxUm * 1000).toFixed(2)} nm pixels, one continuing live sample.\n` +
+    `${Lay.P.length} position(s) x ${Lay.Z.length} z x ${Lay.C.length} channel(s) x up to ${Lay.T} frames; blank planes where a ` +
+    'channel has fewer frames (index.csv: padding 1).\n\n' +
+    files.map(f => `${f.name.padEnd(18)} ${f.pages.length} pages`).join('\n') + '\n' +
+    'index.csv          a row per page of every file: position, x/y/z (um), z index, channel, t, block, frame in block, frame taken, ' +
+    'exposure (ms), the sample\'s time (s), padding, the block\'s settings\n' +
+    'channels:\n' + Lay.C.map((ch, i) => `  ${i}: ${ch.name}`).join('\n') + '\n' +
+    (c.settings && PLAY.settings ? 'settings.isc.json  the settings, the plan and the sample\'s light: ☰ › Load in the viewer\n' : '') });
+  const blob = await self.iscZip.zip(entries, PLAY.disk ? { blobInline: 64e6 } : {});
+  download(blob, name + '.zip');
+  self.iscLastSave = { name: name + '.zip', entries: entries.map(e => e.name), blob };   // (the browser test reads it)
+  REC.msg = `saved ${name}.zip (${(blob.size / 1e6).toFixed(1)} MB)`;
+  showInfo();
+}
 $('lv_playSave').addEventListener('click', openSave);
 // ● Record opens a small box under the buttons for the number of frames (and, Advanced, "continue the live sample");
 // its Start (or Enter) records. While recording, ● Record stops.
 const recPop = (open) => {
   $('lv_recPop').hidden = !open;
+  if (open) syncPlan();
   syncRecField();
   if (open && DISK.ok) DISK.room().then(r => { recRoom = r; if (!$('lv_recPop').hidden) syncRecMsg(); }).catch(() => {});
   if (open) { $('lv_recN').focus(); $('lv_recN').select(); }

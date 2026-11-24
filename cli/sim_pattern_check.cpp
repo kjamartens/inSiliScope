@@ -517,6 +517,146 @@ void MovieChecks()
    Check(ScopeBeamSet(off).beams.empty() && ScopeBeamSet(base).beams.size() == 3, "ScopeBeamSet");
 }
 
+// The phase matrix (2026-11-23, sim-pair-phase.<s>.<k>, Lasers.PatternPhaseMatrix): per state of the cycle the phase
+// difference in degrees between each opposing pair's beams.
+void PhaseMatrixChecks()
+{
+   const auto near = [](const std::vector<double>& a, const std::vector<double>& b) {
+      bool ok = a.size() == b.size();
+      for (size_t i = 0; ok && i < a.size(); ++i)
+         ok = std::fabs(a[i] - b[i]) <= 1e-12;
+      return ok;
+   };
+   // The pairs: the side pair (SIM2D, SIM3D: not the centre), the lattice's x then y pair, none for one beam.
+   {
+      using PV = std::vector<std::pair<int, int>>;
+      Check(OpposingPairs(MakeBeams(SIM_2D, 0.95, SIM_POL_S, 1.0)) == PV{ { 0, 1 } }, "pairs: SIM2D");
+      Check(OpposingPairs(MakeBeams(SIM_3D, 0.9, SIM_POL_S, 1.0)) == PV{ { 1, 2 } }, "pairs: SIM3D (not the centre)");
+      Check(OpposingPairs(MakeBeams(SIM_LATTICE_3D, 0.9, SIM_POL_S, 1.0)) == PV({ { 1, 2 }, { 3, 4 } }), "pairs: LatticeSIM3D");
+      Check(OpposingPairs(MakeBeams(SIM_OFF, 0.5, SIM_POL_S, 1.0)).empty(), "pairs: one beam, none");
+   }
+   // The program's differences: SIM2D 0 240 480 (steps +1 / -1 over 3 phases); the lattice's x and y pairs 4 / 13 and
+   // 6 / 13 of a turn per phase; the format.
+   {
+      const BeamSet s2 = MakeBeams(SIM_2D, 0.95, SIM_POL_S, 1.0), l3 = MakeBeams(SIM_LATTICE_3D, 0.9, SIM_POL_S, 1.0);
+      const auto p2 = OpposingPairs(s2), pl = OpposingPairs(l3);
+      Check(std::fabs(PairPhaseDeg(s2, p2, 1, 0) - 240.0) < 1e-9 && std::fabs(PairPhaseDeg(s2, p2, 5, 0) - 480.0) < 1e-9,
+            "the program's differences: SIM2D 240, 480");
+      Check(std::fabs(PairPhaseDeg(l3, pl, 1, 0) - 360.0 * 4 / 13) < 1e-9 && std::fabs(PairPhaseDeg(l3, pl, 1, 1) - 360.0 * 6 / 13) < 1e-9,
+            "the program's differences: the lattice's pairs 4 / 13 and 6 / 13 of a turn");
+      Check(FormatPhaseMatrix(s2) == "0; 240; 480; 0; 240; 480; 0; 240; 480", "format SIM2D (" + FormatPhaseMatrix(s2) + ")");
+      Check(FormatPhaseMatrix(MakeBeams(SIM_OFF, 0.5, SIM_POL_S, 1.0)).empty(), "format: no pair, empty");
+   }
+   // The program given as the matrix = none (within rounding); an entry moves only its own state's pair, the pair's
+   // beams at +- half of it, every other beam (the centre, the other pair) untouched.
+   {
+      for (int type : { SIM_2D, SIM_3D, SIM_LATTICE_3D })
+      {
+         BeamSet set = MakeBeams(type, 0.9, SIM_POL_S, 1.0);
+         set.phase0 = 0.3;
+         const auto pairs = OpposingPairs(set);
+         const int np = static_cast<int>(pairs.size());
+         BeamSet same = set;
+         for (int i = 0; i < set.Period() * np; ++i)
+            same.pairPhaseDeg.push_back(PairPhaseDeg(set, pairs, i / np, i % np));
+         BeamSet moved = same;
+         const int s = 4, k = np - 1;   // the last pair (the lattice's y pair) at state 4
+         moved.pairPhaseDeg[static_cast<size_t>(s * np + k)] = 123.0;
+         bool eq = true, others = true;
+         for (long long f = 0; f < 2 * set.Period(); ++f)
+         {
+            const PatternState a = PatternStateAt(set, f, 0, 0.05), b = PatternStateAt(same, f, 0, 0.05);
+            const PatternState m = PatternStateAt(moved, f, 0, 0.05);
+            eq = eq && near(a.phaseTurns, b.phaseTurns);
+            const int st = m.light.angle * set.phases + m.light.phase;
+            if (st != s)
+            {
+               others = others && near(m.phaseTurns, a.phaseTurns);
+               continue;
+            }
+            const int j = pairs[static_cast<size_t>(k)].first, l = pairs[static_cast<size_t>(k)].second;
+            bool ok = std::fabs((m.phaseTurns[static_cast<size_t>(j)] - m.phaseTurns[static_cast<size_t>(l)]) * 360.0 - 123.0) < 1e-9 &&
+                      std::fabs(m.phaseTurns[static_cast<size_t>(j)] + m.phaseTurns[static_cast<size_t>(l)]) < 1e-12;
+            for (size_t b2 = 0; b2 < m.phaseTurns.size(); ++b2)
+               if (static_cast<int>(b2) != j && static_cast<int>(b2) != l)
+                  ok = ok && std::fabs(m.phaseTurns[b2] - a.phaseTurns[b2]) <= 1e-12;
+            Check(ok, "phase matrix (" + SimTypeNames()[static_cast<size_t>(type)] +
+                         "): the entry is the pair's difference, +- half on its beams, the others untouched");
+         }
+         Check(eq, "phase matrix (" + SimTypeNames()[static_cast<size_t>(type)] + "): the program given = none");
+         Check(others, "phase matrix (" + SimTypeNames()[static_cast<size_t>(type)] + "): an entry moves only its own state");
+      }
+   }
+   // Parsing.
+   {
+      std::vector<std::vector<double>> rows;
+      std::string err;
+      Check(ParsePhaseMatrix("0 0; 110.8,166.2\n221.5 332.3", rows, err) && rows.size() == 3 && rows[1][1] == 166.2,
+            "phase matrix: parse (" + err + ")");
+      Check(!ParsePhaseMatrix("0 1; 0", rows, err), "phase matrix: rows of different lengths are refused");
+      Check(!ParsePhaseMatrix("0 x", rows, err), "phase matrix: a bad value is refused");
+      Check(!ParsePhaseMatrix(" ; ", rows, err), "phase matrix: an empty one is refused");
+      std::string wide;
+      for (int k = 0; k <= kMaxPhaseMatrixPairs; ++k)
+         wide += "0 ";
+      Check(!ParsePhaseMatrix(wide, rows, err), "phase matrix: too many pairs are refused");
+   }
+   // The spec's keys.
+   {
+      int k = -1;
+      Check(PhaseKeyIndex("sim-pair-phase.5.1", &k) == 5 && k == 1, "PhaseKeyIndex");
+      Check(PhaseKeyIndex("sim-phase0", nullptr) < 0 && PhaseKeyIndex("sim-pair-phase.1", nullptr) < 0 &&
+               PhaseKeyIndex("sim-pair-phase.768.0", nullptr) < 0 && PhaseKeyIndex("sim-pair-phase.0.32", nullptr) < 0 &&
+               PhaseKeyIndex("sim-pair-phase.1.2.3", nullptr) < 0 && PhaseKeyIndex("sim-pair-phase..2", nullptr) < 0,
+            "PhaseKeyIndex refuses other names");
+      Check(ScopeOptionPart("sim-pair-phase.0.1") && std::string(ScopeOptionPart("sim-pair-phase.0.1")) == "settings",
+            "the phase matrix is part settings");
+      ScopeSpec spec;
+      std::string err;
+      Check(ParseScopeSpec("sim-type=LatticeSIM3D sim-pair-phase.3.1=50 sim-pair-phase.13.0=7 sim-pair-phase.0.2=7", spec, err),
+            "spec: " + err);
+      const BeamSet set = ScopeBeamSet(spec);
+      Check(set.pairPhaseDeg.size() == 26 && set.pairPhaseDeg[7] == 50.0 && set.pairPhaseDeg[0] == 0.0 &&
+               std::fabs(set.pairPhaseDeg[6] - 360.0 * 4 * 3 / 13) < 1e-9,
+            "ScopeBeamSet: the entries over the program's, those outside the program left out");
+   }
+   // Movies: the program given = none (within rounding); one entry changes its frame alone (the caches follow it).
+   {
+      ScopeSpec base;
+      std::string err;
+      Check(ParseScopeSpec("size=48 frames=6 x=6.58 y=-5.61 mt-mode=WideField npc-dye=None sim-type=SIM2D illum-bfp=0.6 "
+                           "exposure-ms=50 psf-kernel-half-width-nm=1500",
+                           base, err),
+            "spec: " + err);
+      ScopeSpec given = base, moved = base;
+      for (int s = 0; s < 9; ++s)
+         given["sim-pair-phase." + std::to_string(s) + ".0"] = 240.0 * (s % 3);
+      moved["sim-pair-phase.4.0"] = 300.0;   // frame 4 (angle 1, phase 1): 60 degrees past the program's 240
+      std::vector<std::vector<float>> fb, fg, fm;
+      Check(Photons(base, fb, err) && Photons(given, fg, err) && Photons(moved, fm, err) && fb.size() == 6 &&
+               fg.size() == 6 && fm.size() == 6,
+            "phase matrix movies: " + err);
+      if (fb.size() == 6 && fg.size() == 6 && fm.size() == 6)
+      {
+         float pk = 0.0f, dg = 0.0f, d4 = 0.0f, dRest = 0.0f;
+         for (size_t f = 0; f < 6; ++f)
+            for (size_t i = 0; i < fb[f].size(); ++i)
+            {
+               pk = std::max(pk, fb[f][i]);
+               dg = std::max(dg, std::fabs(fb[f][i] - fg[f][i]));
+               const float d = std::fabs(fb[f][i] - fm[f][i]);
+               if (f == 4)
+                  d4 = std::max(d4, d);
+               else
+                  dRest = std::max(dRest, d);
+            }
+         Check(dg <= 1e-5f * pk, "phase matrix: the program given = none, the movie (" + std::to_string(dg / pk) + " of the peak)");
+         Check(d4 > 0.02f * pk, "phase matrix: the moved entry's frame differs");
+         Check(dRest <= 1e-5f * pk, "phase matrix: the other frames agree (" + std::to_string(dRest / pk) + " of the peak)");
+      }
+   }
+}
+
 } // namespace
 
 int main()
@@ -527,6 +667,7 @@ int main()
    CycleChecks();
    OrderChecks();
    MovieChecks();
+   PhaseMatrixChecks();
    const double sec = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
    if (g_fail)
    {

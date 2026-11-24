@@ -42,6 +42,7 @@ function partOf(eng, k) {
   if (/^p\./.test(k)) return 'sample';
   if (/^zern\.\d+$/.test(k)) return 'instrument';
   if (/^beam\.\d+\.[A-Za-z]+$/.test(k)) return 'instrument';
+  if (/^sim-pair-phase\.\d+\.\d+$/.test(k)) return 'settings';   // the phase matrix, as sim-phases
   if (/^([a-z]+-dye|dye\d)\./.test(k)) return 'sample';
   return null;
 }

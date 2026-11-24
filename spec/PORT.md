@@ -1347,7 +1347,11 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
   `sim-phase-drift-turns-per-sec`, `sim-anchor` (Focus / Coverslip: where the beams are in phase, `ExcitationSpec::
   anchorFocus`, `CompilePattern` zRefUm; 2026-10-31; `BeamFrameSign`: a beam and its opposite carry the same lab
   field), `tube-length-mm`, `magnification` (instrument), `frame0` (measurement, internal),
-  the `beam.<j>.<column>` keys (instrument; `BeamKeyIndex`, `ScopeSpecSet`, `ScopeOptionPart`), `ScopeBeamSet`,
+  the `beam.<j>.<column>` keys (instrument; `BeamKeyIndex`, `ScopeSpecSet`, `ScopeOptionPart`), the phase matrix's
+  `sim-pair-phase.<s>.<k>` keys (settings; 2026-11-23: the opposing pairs' phase differences per state, degrees;
+  `PhaseKeyIndex`, `OpposingPairs`, `PairPhaseDeg`, `BeamSet::pairPhaseDeg`, `ParsePhaseMatrix` / `FormatPhaseMatrix`,
+  in the excitation key; MM `Lasers.PatternPhaseMatrix` Expert, the viewer's `simPhases`, setup JSON
+  `pattern.phase_pairs` / `phase_matrix`), `ScopeBeamSet`,
   `ScopeBeamMeanKey` (the chapter key's part), `ScopeExcitationSpec` resolving them (the strongest line at the sample
   as `lambdaRefNm`); `ScopeSetup::frame0`. `FluorescenceMovie::Impl`: `varies`, `period`, `StateOf(f)`, `ExciteFor`
   (an `Excitation` per state, memoized), `ExciteAtFrame`, `MeanExciteAt`, `PatternStates`, `NodeOf`, `BgMapFor`
@@ -1361,7 +1365,8 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
   / `DoseRate` summed; `MakeLightState`'s `lightKey` + `ScopeBeamMeanKey`. `LiveScope`: `FrameCounter` /
   `SetFrameCounter` (every frame counts; `frame0` per call; `Advance` counts; `Reset` 0), `LiveFrameInfo::frame`,
   `patternAngle`, `patternPhase`, `patternPeriod`. `Fiducials`: `FiducialMovie::frameScale`.
-- **cli.** `--sim-beams "<rows>"` (one argument, the matrix), `<out>.pattern.csv`; `--setup-json` and the viewer's
+- **cli.** `--sim-beams "<rows>"` (one argument, the matrix), `--sim-phase-matrix "<rows>"` (the phase matrix: a row
+  per state, the pairs' differences in degrees), `<out>.pattern.csv`; `--setup-json` and the viewer's
   setup JSON: `excitation.beams[]` and `excitation.pattern` (`ExcitationBeamsJson`), the probes' `pattern_xy`.
 - **Checks.** ctest `sim_pattern` (`cli/sim_pattern_check.cpp`, ~8 s: the fringe, the fields, the cycle, the orders,
   the program, the matrix, the drift, the movie's `frame0`, mean field vs per dye, Off bit for bit), `history_check`

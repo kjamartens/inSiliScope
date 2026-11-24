@@ -51,6 +51,7 @@ const spec = new Map([
   ['seed', 7], ['mt-mode', 0], ['mt-dye', 0], ['mt-dye.qy', 0.31], ['camera-preset', 1], ['camera-type', -1],
   ['p.chunkSize', 30], ['psf-zernike-preset', 2], ['zern.5', 0.1], ['zern.12', -0.05],
   ['beam.0.ux', 0.5], ['beam.0.nm', 561], ['beam.1.ux', -0.5], ['beam.1.phase', 0.25],
+  ['sim-pair-phase.0.0', 0], ['sim-pair-phase.0.1', 0], ['sim-pair-phase.1.0', 110.77], ['sim-pair-phase.1.1', 166.15], ['sim-pair-phase.2.0', 221.5], ['sim-pair-phase.2.1', 332.3],
   ['bfp-maps', 'I = spot(ux - 0.9, uy, 0.15)  # a comment, with a comma\ncoherent = 0\nI2 = img("a b.tif")'],
   ['exposure-ms', 30], ['size', 96], ['height', 64], ['ruler-paint-on-sec', 0.288539], ['dichroic', 999],
 ]);
@@ -72,6 +73,7 @@ const z = (valueOf(S, 'Objective', 'ZernikeCoefficients') || '').split(' ');
 check(z.length === 28 && z[5] === '0.1' && z[12] === '-0.05' && z[0] === '0', 'the typed Zernike modes: all 28, space-separated');
 check(valueOf(S, 'Lasers', 'Beams') === '0.5 0 0 0 0 0 0 0 0 0 561; -0.5 0 0 0 0 0 0.25 0 0 0 0',
   `the beam matrix: ${valueOf(S, 'Lasers', 'Beams')}`);
+check(valueOf(S, 'Lasers', 'PatternPhaseMatrix') === '0 0; 110.77 166.15; 221.5 332.3', `the phase matrix: ${valueOf(S, 'Lasers', 'PatternPhaseMatrix')}`);
 check(valueOf(S, 'Lasers', 'BfpMaps') === 'I = spot(ux - 0.9; uy; 0.15); coherent = 0; I2 = img("a b.tif")',
   `the BFP maps as one line: ${valueOf(S, 'Lasers', 'BfpMaps')}`);
 {
@@ -94,7 +96,7 @@ check(light([['modality', 1]]) === 'TransmittedLamp' && light([['light-trans', 1
   'the light: the lamp for BrightField, both through the Multi Shutter, the lasers else');
 
 // ---- uncovered ----
-const un = W.uncovered(['mt-dye', 'p.chunkSize', 'zern.3', 'beam.2.ux', 'x', 'bfp-maps', 'made-up-key', 'p.madeUp'], CFG);
+const un = W.uncovered(['mt-dye', 'p.chunkSize', 'zern.3', 'beam.2.ux', 'sim-pair-phase.1.2', 'x', 'bfp-maps', 'made-up-key', 'p.madeUp'], CFG);
 check(JSON.stringify(un) === '["made-up-key","p.madeUp"]', `uncovered: ${JSON.stringify(un)}`);
 
 console.log(`mm_cfg_unit: ${fail ? 'FAILED' : 'PASS'} (${((performance.now() - t0) / 1000).toFixed(2)} s)`);

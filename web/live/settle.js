@@ -11,7 +11,8 @@
   const N = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'valueAsNumber');
   const pending = new Map();   // box -> timer
   const before = new WeakMap();   // box -> its value before the keystroke (the settled one)
-  const typed = el => el instanceof HTMLInputElement && (el.type === 'number' || el.type === 'text');
+  // (a box with data-now acts on every keystroke: the multi-D plan's setting fields suggest names as they are typed)
+  const typed = el => el instanceof HTMLInputElement && (el.type === 'number' || el.type === 'text') && !el.hasAttribute('data-now');
   function hold(el, settled) {   // the page reads the settled value until commit; a value the page sets ends the hold
     Object.defineProperty(el, 'value', {
       configurable: true,

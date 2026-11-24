@@ -17,8 +17,8 @@ with advertisers. The Micro-Manager adapter, the command-line tool and the webSM
 |---|---|
 | `pick` | which control (specimen, modality, the illumination pattern, Look, settings level, a Configuration group such as Mode, Objective or Camera) and the option picked |
 | `live`, `snap` | that live view was started, that a snap was taken |
-| `record` | that a recording started; its length in a range (up to 10, 100, 1000 ... frames); whether it continued the live sample |
-| `save-tiff` | that a TIFF was saved, from a recording or a movie; its length in a range; for a recording, whether its settings file and its ground truth went with it (one .zip) |
+| `record` | that a recording started; its length in a range (up to 10, 100, 1000 ... frames); whether it continued the live sample; whether it ran a multi-D plan (nothing about the plan) |
+| `save-tiff` | that a TIFF was saved, from a recording or a movie; its length in a range; for a recording, whether its settings file and its ground truth went with it (one .zip); for a multi-D recording, the format chosen (OME-TIFF, ImageJ, flat) |
 | `make-movie` | that a movie was made; fluorescence or brightfield |
 | `mm-cfg` | that a Micro-Manager configuration (.cfg) of the viewer's settings was saved (nothing about the settings) |
 | `anim-export` | that an animation was exported; its format (MP4, WebM, GIF) |

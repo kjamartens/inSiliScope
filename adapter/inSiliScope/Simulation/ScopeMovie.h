@@ -328,7 +328,8 @@ struct ExcitationSpec;
 ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec);
 // The beams of a spec (SimPattern.h; spec/ALGORITHM.md "Structured illumination"): sim-type's beams at illum-bfp,
 // polarized per sim-polarization, with the program (sim-phases, sim-angles, sim-order, sim-angle0-deg, sim-phase0, the
-// phase drift) and the matrix's rows (beam.<j>.<column>) over them; empty beams = the legacy single beam.
+// phase drift, the phase matrix sim-pair-phase.<s>.<k>) and the matrix's rows (beam.<j>.<column>) over them; empty beams =
+// the legacy single beam.
 struct BeamSet;
 BeamSet ScopeBeamSet(const ScopeSpec& spec);
 // The part of a beam set the kinetics' light depends on (the cycle mean: beams, polarization, angles), for a light
@@ -336,6 +337,10 @@ BeamSet ScopeBeamSet(const ScopeSpec& spec);
 std::string ScopeBeamMeanKey(const ExcitationSpec& e);
 // "beam.<j>.<column>" keys (SimPattern.h BeamColumnNames): j, and the column; -1 for another name.
 int BeamKeyIndex(const std::string& name, int* column);
+// "sim-pair-phase.<s>.<k>" keys (the phase matrix, Lasers.PatternPhaseMatrix: the phase difference in degrees between
+// opposing pair k's beams at state s = angle x phases + phase; SimPattern.h OpposingPairs): s, and k; -1 for another
+// name.
+int PhaseKeyIndex(const std::string& name, int* pair);
 // A host's view of a spec's excitation (the adapter's illumination history and readouts): the geometry and the line
 // shares of the first mounted label's main state (empty when no label emits); lightKinetics (optional): whether a
 // mounted label's kinetics follow the light (any mode but DNA-PAINT, whose binding needs none). False (err) when the

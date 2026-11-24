@@ -224,6 +224,9 @@ Upcoming ideas:
   2026-10-31: [x] live SIM with blinking labels: the frame counter out of the excitation key (bit for bit; DNA-PAINT
   SIM2D at 256 px 320 -> 105 ms), [x] dSTORM's initial ON and PALM's pre state under the cycle-mean light (Quality
   Exhaustive: each frame's pattern, `sim-frame-pattern-continuous`).
+  2026-11-23: [x] the phase matrix (Expert): per frame of the cycle each opposing beam pair's phase difference in
+  degrees, the program's by default, keys `sim-pair-phase.<s>.<k>`, MM `Lasers.PatternPhaseMatrix`, the viewer's Phase
+  matrix, cli `--sim-phase-matrix`; ctest `sim_pattern`, `tools/test_sim.py`, `tests/web/viewer_sim.mjs`.
 - 2026-11-03 (branch `general_fixes`): [x] the Microscope view: a Sample | Microscope switch in the title bar swaps
   the world view for panels the C++ describes (`cli/scope_panels.*`: typed views, controls, one float buffer;
   `isc_scope_panels` / `isc_scope_panel`), drawn by `web/live/scope_panels.js`: the light path drawn in the middle
@@ -270,3 +273,8 @@ Upcoming ideas:
   sensor, cli `--strip-rows`, the module's strips, the ground truth per strip; ctest `strips`, `strips_unit.mjs`),
   [x] C: a Record field of its own, centred on the stage (the box's size, the beam notice, the outline, strips past
   4096 px, the settings file; `viewer_live_record.mjs`, `viewer_save.mjs`).
+- Multi-D Record (2026-11-23, `web/live/mda.js`, `mda_ui.js`): [x] the plan (positions, nested for blocks over
+  positions / Z / any setting, recordings), run as one continuing live sample, [x] its editor (Advanced+), [x] Save:
+  OME-TIFF / ImageJ per position / flat + index.csv, [x] the plan in settings files; checks `mda_unit.mjs`,
+  `tiff_unit.mjs`, `viewer_mda.mjs`. Next: [ ] ground truth for a plan, [ ] save to a file as recorded, [ ] a repeat
+  (time-lapse) loop with an interval, [ ] fresh-sample / strip plans.

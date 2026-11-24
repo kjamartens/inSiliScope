@@ -23,10 +23,56 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   check(r.bfp === 0.95 && r.pol === '0' && / sim-type=1( |$)/.test(r.spec) && / illum-bfp=0.95( |$)/.test(r.spec) && r.basic,
     `SIM2D pick: BFP position 0.95, polarization S, sim-type=1 in the spec (level ${r.level})`);
   await page.waitForFunction(() => /period/.test(document.getElementById('patternReadout').textContent) &&
-    document.getElementById('simBeams').value.split(';').length === 2, null, { timeout: 90000 });
+    document.getElementById('simBeams').value.split('\n').length === 2, null, { timeout: 90000 });
   const ro = await page.evaluate(() => ({ text: document.getElementById('patternReadout').textContent, beams: document.getElementById('simBeams').value }));
-  check(/9 frames|frames per cycle|per cycle/.test(ro.text) && /^0\.95 0 /.test(ro.beams.trim()) && / -0\.95 0 /.test(ro.beams),
-    `the readout (${ro.text.slice(0, 80)}) and the two rows at ±0.95`);
+  check(/9 frames|frames per cycle|per cycle/.test(ro.text) && /^0\.95 +0 /.test(ro.beams.trim()) && /\n-0\.95 +0 /.test(ro.beams),
+    `the readout (${ro.text.slice(0, 80)}) and the two rows at ±0.95, a line each`);
+
+  // The phase matrix (Expert): per frame of the cycle the opposing beam pairs' phase differences in degrees, the
+  // program's from the setup; a typed entry goes into the spec; a matrix of another shape is refused; another number
+  // of phases goes back to the program; the lattice's two pairs; a Pattern pick forgets it
+  const phasesBox = () => page.evaluate(() => document.getElementById('simPhases').value);
+  const typePhases = t => page.evaluate(x => { const el = document.getElementById('simPhases'); el.focus(); el.value = x;
+    el.dispatchEvent(new Event('change', { bubbles: true })); el.blur(); }, t);
+  const waitBox = (want, ms = 90000) => page.waitForFunction(w => document.getElementById('simPhases').value === w, want, { timeout: ms }).then(() => true, () => false);
+  const prog2 = '  0\n240\n480\n  0\n240\n480\n  0\n240\n480';   // (aligned on the decimal point)
+  const pm0 = await waitBox(prog2);
+  const tier = await page.evaluate(() => document.getElementById('simPhases').closest('.opt').className);
+  check(pm0 && /t-expert/.test(tier), `the phase matrix shows SIM2D's program, the pair's difference per frame, a line each (${JSON.stringify(await phasesBox())}), an Expert row (${tier})`);
+  // the Zernike, beam and phase boxes: textareas the user can stretch, as the BFP maps' box
+  const boxes = await page.evaluate(() => ['zernCoeffs', 'simBeams', 'simPhases', 'mv_bfp-maps'].map(id => { const el = document.getElementById(id);
+    return [id, el.tagName, getComputedStyle(el).resize]; }));
+  check(boxes.every(([, tag, rz]) => tag === 'TEXTAREA' && rz === 'vertical'), `resizable textareas: ${JSON.stringify(boxes)}`);
+  // a Zernike edit applies when the box is left (a change), not per keystroke
+  const zern = await page.evaluate(() => { const el = document.getElementById('zernCoeffs'), v = el.value.split(/\s+/); v[5] = '0.123';
+    el.focus(); el.value = v.join(' '); el.dispatchEvent(new Event('input', { bubbles: true })); const typing = / zern\.5=/.test(movieSpec());
+    el.dispatchEvent(new Event('change', { bubbles: true })); el.blur(); return { typing, after: (/ zern\.5=([^ ]+)/.exec(movieSpec()) || [])[1] }; });
+  check(!zern.typing && zern.after === '0.123', `a Zernike edit applies on leaving the box (while typing: ${zern.typing}, after: zern.5=${zern.after})`);
+  await page.evaluate(() => ISC_ZERN.clear());
+  await typePhases('0\n240\n470\n0\n240\n480\n0\n240\n480');
+  const pm1 = await page.waitForFunction(() => / sim-pair-phase\.2\.0=470( |$)/.test(movieSpec()), null, { timeout: 30000 }).then(() => true, () => false);
+  check(pm1 && / sim-pair-phase\.8\.0=480( |$)/.test(await page.evaluate(() => movieSpec())), 'a typed entry: every entry in the spec (sim-pair-phase.2.0=470)');
+  await typePhases('0 1 2; 0 1 2; 0 1 2');
+  const bad = await page.evaluate(() => ({ outline: document.getElementById('simPhases').style.outline, title: document.getElementById('simPhases').title, spec: movieSpec() }));
+  check(/solid/.test(bad.outline) && / sim-pair-phase\.2\.0=470( |$)/.test(bad.spec) && /9 rows/.test(bad.title),
+    `a matrix of another shape is refused, the last one kept ("${bad.title}")`);
+  await set('mv_sim-phases', '4');
+  const pm2 = await waitBox('  0\n180\n360\n540\n  0\n180\n360\n540\n  0\n180\n360\n540');
+  check(pm2 && !/sim-pair-phase\./.test(await page.evaluate(() => movieSpec())), `Phases 4: back to the program, 12 rows (${await phasesBox()})`);
+  await set('mv_sim-phases', '0');
+  await set('mv_sim-type', '4');
+  const lat = await page.waitForFunction(() => { const v = document.getElementById('simPhases').value.split('\n'); return v.length === 13 && /^ *110\.7692 +166\.1538$/.test(v[1]); },
+    null, { timeout: 90000 }).then(() => true, () => false);
+  // (the columns aligned on the decimal point: each entry's dot under the one above)
+  const dots = await page.evaluate(() => document.getElementById('simPhases').value.split('\n').map(l => [...l.matchAll(/\./g)].map(m => m.index)).filter(d => d.length === 2));
+  check(lat && dots.length > 5 && dots.every(d => d[0] === dots[0][0] && d[1] === dots[0][1]),
+    `LatticeSIM3D: 13 lines of the x and y pairs' differences, the columns aligned (${(await phasesBox()).split('\n').slice(0, 3).join(' | ')} ...)`);
+  await typePhases((await phasesBox()).replace(/110\.7692( +)166\.1538/, '110.7692$1170'));
+  const pm3 = await page.waitForFunction(() => / sim-pair-phase\.1\.1=170( |$)/.test(movieSpec()) && / sim-pair-phase\.1\.0=110\.7692( |$)/.test(movieSpec()), null, { timeout: 30000 }).then(() => true, () => false);
+  check(pm3, 'the lattice: the y pair moved alone (sim-pair-phase.1.1=170)');
+  await set('mv_sim-type', '1');
+  const pm4 = (await waitBox(prog2)) && !/sim-pair-phase\./.test(await page.evaluate(() => movieSpec()));
+  check(pm4 && await page.evaluate(() => ISC_PHASES.user === null), `a Pattern pick forgets the typed matrix (${await phasesBox()})`);
 
   // The Microscope view's illumination panel, filling the left view: the period and beams, the frame slider, the height
   const big = () => page.evaluate(() => { const b = document.querySelector('#scopeHost > .pnl.big[data-panel=illumination]');
@@ -110,7 +156,7 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   // Off: one beam, no pattern in the spec
   await set('mv_sim-type', '0');
   await page.waitForFunction(() => /one beam/.test(document.getElementById('patternReadout').textContent), null, { timeout: 90000 });
-  const off = await page.evaluate(() => ({ spec: movieSpec(), rows: document.getElementById('simBeams').value.split(';').length }));
+  const off = await page.evaluate(() => ({ spec: movieSpec(), rows: document.getElementById('simBeams').value.split('\n').length }));
   check(/ sim-type=0( |$)/.test(off.spec) && off.rows === 1, 'Off: one beam row, sim-type=0');
 
   // The BFP light maps (spec/ALGORITHM.md "BFP light maps"): RingTIRF's pick sets 1.03 and leaves the polarization;
