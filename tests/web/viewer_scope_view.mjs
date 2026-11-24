@@ -152,6 +152,23 @@ await runViewer('viewer scope view', { watchdogSec: 180, viewport: { width: 1400
   }, null, { timeout: 60000 }).then(h => h.jsonValue(), () => null);
   check(!!l2, `the 561 nm laser off: one laser in the light path and the spectra (${JSON.stringify(l2 || await path())})`);
 
+  // The setup queue (2026-11-20): one setup job at a time on the movie worker; a readout's job (isCurrent given) for
+  // settings that have moved on is dropped when its turn comes, any other runs (under BFP light maps a dragged slider
+  // queued a light per step, and the panels behind them came a minute late).
+  const q = await page.evaluate(async () => {
+    setupCache.clear();
+    const now = movieSpec(), w = genWorkers.dyes, sent = [];
+    w.postMessage = (j, t) => { if (j && j.type === 'setup') sent.push(j.spec); return Worker.prototype.postMessage.call(w, j, t); };
+    const jobs = [setupJob(now + ' frames=7'), setupJob(now + ' frames=8', specNow), setupJob(now + ' frames=9', specNow),
+      setupJob(now + ' frames=10'), setupJob(now, specNow)];
+    const r = await Promise.all(jobs.map(p => p.then(() => 'ok', e => (e.superseded ? 'dropped' : 'error ' + e.message))));
+    delete w.postMessage;
+    const mine = sent.map(s => (s.startsWith(now) ? s.slice(now.length).trim() || 'now' : '')).filter(Boolean).join(',');
+    return { r: r.join(','), sent: mine, busy: setupBusy, queued: setupQueue.length };
+  });
+  check(q.r === 'ok,dropped,dropped,ok,ok' && q.sent === 'frames=7,frames=10,now',
+    `setup jobs one at a time, a readout's for old settings dropped ${JSON.stringify(q)}`);
+
   // kept over a reload
   await page.reload();
   await page.waitForFunction(() => typeof scopeView !== 'undefined' && scopeView.on && +document.getElementById('scopeHost').dataset.panels === 5, null, { timeout: 120000 });

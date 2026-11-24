@@ -5058,27 +5058,55 @@ function coreReady() { return genWorkers.ok || !!mainEngine; }
 // A movie spec's resolved setup (the C++ isc_scope_setup: light path, excitation, labels, the built-in linkages) for
 // the light-path plot, the BFP readout and the data layers; on the dyes worker, the last few kept. Before the core is
 // up the jobs wait (flushSetupWaiting).
-const setupJobs = new Map(), setupWaiting = [], setupCache = new Map();
-let setupJobId = 3e9;
-function setupJob(spec) {
+// One setup job at a time on the dyes worker (2026-11-20): the others wait here, and a readout's (isCurrent given: it
+// wants only the settings as they are now) is dropped when its turn comes and isCurrent(spec) says the settings moved
+// on -- its promise rejected with .superseded. Under BFP light maps a setup makes the light (~10 s in the worker), so a
+// dragged slider queued one per step and the Microscope view's panels, behind them on the same worker, came a minute
+// late. Jobs without isCurrent (the data layers, a recording's) always run.
+const setupJobs = new Map(), setupWaiting = [], setupCache = new Map(), setupQueue = [];
+let setupJobId = 3e9, setupBusy = false;
+const specNow = s => s === movieSpec();   // (isCurrent for a readout of movieSpec())
+function setupJob(spec, isCurrent) {
   const hit = setupCache.get(spec);
-  if (hit) return hit;
-  const p = new Promise((res, rej) => {
-    const go = () => {
-      const job = { type: 'setup', id: ++setupJobId, spec }, done = d => (d.error ? rej(new Error(d.error)) : res(onSetup(d.setup)));
-      if (genWorkers.ok) { setupJobs.set(job.id, done); genWorkers.dyes.postMessage(job); }
-      else if (mainEngine) setTimeout(() => { try { done(mainEngine.handle(job)[0]); } catch (e) { rej(e); } }, 0);
-      else setupWaiting.push(go);
-    };
-    go();
-  });
+  if (hit) {
+    const q = hit.q;
+    if (q.preds) { if (isCurrent) q.preds.push(isCurrent); else q.preds = null; }   // (none: it runs)
+    return hit;
+  }
+  const q = { spec, preds: isCurrent ? [isCurrent] : null };
+  const p = new Promise((res, rej) => { q.res = res; q.rej = rej; });
+  p.q = q;
+  q.drop = () => { if (setupCache.get(spec) === p) setupCache.delete(spec); q.rej(Object.assign(new Error('superseded'), { superseded: true })); };
+  // on the dyes worker (one at a time, pumpSetup), else the page's own engine, else when the core is up
+  q.run = () => {
+    const job = { type: 'setup', id: ++setupJobId, spec }, done = d => (d.error ? q.rej(new Error(d.error)) : q.res(onSetup(d.setup)));
+    if (genWorkers.ok) { setupBusy = true; setupJobs.set(job.id, done); genWorkers.dyes.postMessage(job); }
+    else if (mainEngine) setTimeout(() => { try { done(mainEngine.handle(job)[0]); } catch (e) { q.rej(e); } }, 0);
+    else setupWaiting.push(q.run);
+  };
+  setupQueue.push(q);
+  pumpSetup();
   setupCache.set(spec, p);
-  p.catch(() => setupCache.delete(spec));
+  p.catch(() => { if (setupCache.get(spec) === p) setupCache.delete(spec); });
   if (setupCache.size > 16) setupCache.delete(setupCache.keys().next().value);
   return p;
 }
+function pumpSetup() {
+  while (!setupBusy && setupQueue.length) {
+    const q = setupQueue.shift();
+    if (q.preds && !q.preds.some(f => { try { return f(q.spec); } catch (e) { return false; } })) { q.drop(); continue; }
+    q.preds = null;
+    q.run();
+  }
+}
 function flushSetupWaiting() { for (const go of setupWaiting.splice(0)) go(); }
-function onSetupResult(d) { const j = setupJobs.get(d.id); setupJobs.delete(d.id); if (j) j(d); }
+function onSetupResult(d) {
+  const j = setupJobs.get(d.id);
+  setupJobs.delete(d.id);
+  setupBusy = setupJobs.size > 0;
+  if (j) j(d);
+  pumpSetup();
+}
 // JSON has no NaN: a label vector's null is NaN (a linkage number left to the structure).
 function onSetup(S) {
   for (const l of S.labels) l.label_vector = l.label_vector.map(v => (v === null ? NaN : v));
@@ -5262,6 +5290,11 @@ function disableGenWorkers() {
   genWorkers.ok = false;
   for (const w of [genWorkers.pack, genWorkers.dyes, ...genWorkers.cells]) if (w) w.terminate();
   genWorkers.pack = null; genWorkers.dyes = null; genWorkers.cells = []; genWorkers.busy = [];
+  // a setup in flight on the gone worker fails (its readout asks again with the next change); the queue behind it goes
+  // to the page's engine once that is up (setupWaiting)
+  for (const [id, done] of [...setupJobs]) { setupJobs.delete(id); done({ error: 'the workers stopped' }); }
+  setupBusy = false;
+  pumpSetup();
   blockPending.clear(); dyePending = null; oriPending = null;
   assetInflight.clear();
   startMainEngine();
@@ -7725,7 +7758,7 @@ async function showZern() {
   zernEl.dataset.bad = '';
   if (ZERN.user) { if (document.activeElement !== zernEl) zernEl.value = zernText(ZERN.user); return; }
   try {
-    const S = await setupJob(movieSpec());
+    const S = await setupJob(movieSpec(), specNow);
     if (S.zernike) ZERN.preset = S.zernike;
     if (!ZERN.user && S.zernike && document.activeElement !== zernEl) zernEl.value = zernText(S.zernike);
   } catch (e) { /* the readout follows with the next change */ }
@@ -7776,7 +7809,7 @@ async function showBeams() {
   beamsEl.dataset.bad = '';
   if (BEAMS.user) { if (document.activeElement !== beamsEl) beamsEl.value = beamsText(BEAMS.user); return; }
   try {
-    const S = await setupJob(movieSpec());
+    const S = await setupJob(movieSpec(), specNow);
     const ex = S.excitation;
     if (ex && ex.beams) BEAMS.setup = ex.beams.map(b => [b.ux, b.uy, b.spot_from_fwhm ? 0 : b.spot_um, b.tilt_x_deg, b.tilt_y_deg, b.amp, b.phase_turns, b.pol_deg, b.ellip_turns, b.phase_step, b.nm]);
     if (!BEAMS.user && BEAMS.setup && document.activeElement !== beamsEl) beamsEl.value = beamsText(BEAMS.setup);
@@ -7900,7 +7933,7 @@ let mapsSeq = 0;
 async function showMaps() {
   const msg = document.getElementById('bfpMapsMsg'), seq = ++mapsSeq;
   try {
-    const S = await setupJob(movieSpec());
+    const S = await setupJob(movieSpec(), specNow);
     if (seq !== mapsSeq) return;   // (a later change asked again)
     const m = S.excitation && S.excitation.maps;
     MAPS.shown = m ? m.equations : '';
@@ -8168,14 +8201,14 @@ async function drawPatternReadout() {
   const out = document.getElementById('patternReadout');
   if (!out) return;
   try {
-    const ex = (await setupJob(movieSpec())).excitation;
+    const ex = (await setupJob(movieSpec(), specNow)).excitation;
     const p = ex && ex.pattern;
     if (!p || p.type === 'Off') { out.textContent = ex && ex.pattern ? `one beam; its spot ${p.spot_radius_um.toFixed(0)} µm in the pupil` : ''; return; }
     const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
     const nm = lit.length ? lit[lit.length - 1] : 640, per = (p.period_nm[nm] || []).map(v => v.toFixed(0)).join(', ');
     out.textContent = `${p.type}, ${p.polarization}: ${ex.beams.length} beams, ${p.phases} phases × ${p.angles} orientations = ${p.period} frames per cycle` +
       (per ? `; fringe period ${per} nm at ${nm} nm` : '') + `; the pupil ${p.pupil_radius_um.toFixed(0)} µm, each spot ${ex.beams[0].spot_um.toFixed(0)} µm`;
-  } catch (e) { out.textContent = ''; }
+  } catch (e) { if (!e.superseded) out.textContent = ''; }   // (superseded: a later one fills it)
 }
 let patternTimer = 0;
 function schedulePatternReadout() { clearTimeout(patternTimer); patternTimer = setTimeout(drawPatternReadout, 150); }
@@ -8254,7 +8287,7 @@ async function drawBfpReadout() {
   const out = document.getElementById('bfpReadout');
   if (!out) return;
   try {
-    const ex = (await setupJob(movieSpec())).excitation;
+    const ex = (await setupJob(movieSpec(), specNow)).excitation;
     if (!ex) { out.textContent = ''; return; }
     const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
     const nm = lit.length ? lit[lit.length - 1] : 640, d = ex.depth_nm[nm];
@@ -8279,7 +8312,7 @@ async function drawBfpReadout() {
     out.textContent = ex.regime + (ex.regime === 'TIRF' ? `: 1/e depth ${d.toFixed(0)} nm at ${nm} nm, field x${ex.field_factor.toFixed(2)}`
       : ex.regime === 'HILO' ? `: sheet ${(Math.asin(Math.min(1, ex.u)) * 180 / Math.PI).toFixed(0)}° from the axis in the medium` + (d > 0 ? `, ${(d / 1000).toFixed(1)} µm thick` : '')
       : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.u_max.toFixed(3)}), no light` : ': the beam straight up');
-  } catch (e) { out.textContent = ''; }
+  } catch (e) { if (!e.superseded) out.textContent = ''; }   // (superseded: a later one fills it)
 }
 for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', 'mv_sim-type', 'mv_sheet-thickness-um', 'mv_sheet-width-um', 'mv_bfp-slots', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
   document.getElementById(k)?.addEventListener('input', scheduleBfpReadout);

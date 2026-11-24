@@ -5,6 +5,12 @@ Versions follow semver; while 0.x, any release may change the output for a given
 
 ## Unreleased (changes since v0.1.0-rc23)
 
+- **Viewer: the Microscope view keeps up under BFP light maps.** Its panels waited on the movie worker behind a
+  setup readout per settings step, each of which made the maps' light again (~10-15 s there): five steps of the BFP
+  slider put the panels about a minute behind (the live image, on its own worker, kept up). Setup readouts now go
+  one at a time and a queued one for settings that have since changed is dropped: the same drag 60 -> 33 s, and a
+  longer drag no longer adds to it.
+
 Large recordings:
 
 - **Viewer Record, frames to disk:** "write frames to disk" (in the Record box, on by default) writes the frames and the
