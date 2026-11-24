@@ -278,3 +278,13 @@ Upcoming ideas:
   OME-TIFF / ImageJ per position / flat + index.csv, [x] the plan in settings files; checks `mda_unit.mjs`,
   `tiff_unit.mjs`, `viewer_mda.mjs`. Next: [ ] ground truth for a plan, [ ] save to a file as recorded, [ ] a repeat
   (time-lapse) loop with an interval, [ ] fresh-sample / strip plans.
+- Remote server (2026-11-24, branch `remote-server`, docs/remote.md): [x] `insiliscope_server` (`cli/remote_server.cpp`:
+  the viewer module's C ABI natively, its worker jobs in C++; a WebSocket on a 0700 Unix socket with a token, TCP for
+  the tests and the scheduler relay, stdio; one process per connection), [x] the wire (`web/live/remote_wire.js`), the
+  engines' proxy (`remote_proxy.js`: local fallback, OPFS writes on the page's side), the box and the probe
+  (`remote.js`), live / Records / movies / ground truth remote by default, the live sample replayed on a switch, [x]
+  the launcher `web/remote.sh` (check, install, serve, `--run-through`, stdio, render, uninstall; versions in
+  `~/.local/share/insiliscope`), [x] checks `tests/remote/server_check.mjs` (= the module byte for byte),
+  `launcher_check.py`, `tests/web/viewer_remote.mjs`, [x] docs. Next: [ ] the release's manylinux tarball tried on a
+  real cluster, [ ] Micro-Manager (`Renderer.Remote*`, ssh in stdio mode; the adapter's live producer on `LiveScope`
+  first), [ ] the cell workers (world view) remote, [ ] Windows servers.

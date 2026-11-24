@@ -16,8 +16,9 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(ROOT, 'web/tools/package.json'));
 const arg = k => { const a = process.argv.find(s => s.startsWith('--' + k)); return a ? (a.split('=')[1] || true) : null; };
 
+// initScript: a function run in the page before its own scripts (page.addInitScript), e.g. to put settings in its storage.
 export async function runViewer(name, { watchdogSec = 120, viewport = { width: 1000, height: 700 }, query = '?live=0',
-  waitCells = true } = {}, body) {
+  waitCells = true, initScript = null, initArg = undefined } = {}, body) {
   let chromium;
   try { ({ chromium } = require('playwright')); }
   catch { ({ chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs')); }
@@ -44,6 +45,7 @@ export async function runViewer(name, { watchdogSec = 120, viewport = { width: 1
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     const port = server.address().port;
+    if (initScript) await page.addInitScript(initScript, initArg);
     await page.goto(`http://localhost:${port}/index.html${query}`);
     if (waitCells)
       await page.waitForFunction(() => window.iscScene && +document.getElementById('hud').dataset.cells > 0 && iscScene.packingIdle(),

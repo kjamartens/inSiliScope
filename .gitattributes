@@ -6,3 +6,6 @@ spec/golden/** text eol=lf
 
 # Binary test fixtures.
 *.bin binary
+
+# Shell scripts run on Linux (web/remote.sh is fetched by remote servers): LF on every checkout.
+*.sh text eol=lf

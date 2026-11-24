@@ -66,6 +66,7 @@ nav:
   - Gallery: gallery/index.md
   - Micro-Manager: micro-manager.md
   - Ground truth: ground-truth.md
+  - Remote server: remote.md
   - Samples:
       - Overview: samples/index.md
       - Cell field:

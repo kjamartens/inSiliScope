@@ -105,3 +105,7 @@ jobs:
           cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native
           ctest --test-dir build/native -j 8 --output-on-failure
+      - name: Remote server (its jobs = the viewer's module byte for byte; the launcher)
+        run: |
+          node tests/remote/server_check.mjs --server build/native/cli/insiliscope_server
+          python3 tests/remote/launcher_check.py --bin-dir build/native/cli

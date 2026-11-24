@@ -60,10 +60,25 @@ EM_JS(int, isc_js_movie_rows, (const uint16_t* px, double n, double f, double y0
    return Module.onMovieRows(f, y0, rows, HEAPU16.subarray(p, p + n)) ? 1 : 0;
 });
 #else
-static void isc_js_movie_progress(const char*, double, const char*) {}
-static int isc_js_gt_file(const char*, const char*, double) { return 0; }
-static int isc_js_movie_frame(const uint16_t*, double, double) { return 1; }
-static int isc_js_movie_rows(const uint16_t*, double, double, double, double) { return 1; }
+// A native build (the remote server): the host's functions (module_hooks.h), when it set them.
+#include "module_hooks.h"
+static void isc_js_movie_progress(const char* stage, double frac, const char* detail)
+{
+   if (IscHooks().progress) IscHooks().progress(stage, frac, detail);
+}
+static int isc_js_gt_file(const char* name, const char* data, double size)
+{
+   return IscHooks().gtFile && IscHooks().gtFile(name, data, static_cast<size_t>(size)) ? 1 : 0;
+}
+static int isc_js_movie_frame(const uint16_t* px, double n, double f)
+{
+   return !IscHooks().movieFrame || IscHooks().movieFrame(px, static_cast<size_t>(n), static_cast<long>(f)) ? 1 : 0;
+}
+static int isc_js_movie_rows(const uint16_t* px, double n, double f, double y0, double rows)
+{
+   return !IscHooks().movieRows || IscHooks().movieRows(px, static_cast<size_t>(n), static_cast<long>(f),
+                                                         static_cast<unsigned>(y0), static_cast<unsigned>(rows)) ? 1 : 0;
+}
 #endif
 
 namespace {

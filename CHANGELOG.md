@@ -10,6 +10,14 @@ Versions follow semver; while 0.x, any release may change the output for a given
   slider put the panels about a minute behind (the live image, on its own worker, kept up). Setup readouts now go
   one at a time and a queued one for settings that have since changed is dropped: the same drag 60 -> 33 s, and a
   longer drag no longer adds to it.
+- **Viewer: a remote Linux server does the computing** ([docs/remote.md](docs/remote.md)). ☰ › Remote server… gives
+  one `ssh` command; run in a terminal, it fetches the viewer's own version of the new `insiliscope_server` into the
+  home directory on the server (no admin rights; `remote.sh`, served with the site) and tunnels it to the page, which
+  connects by itself. Live (by default), Records, movies and ground truth then run there, byte for byte the frames
+  the browser makes; when the server goes, the viewer goes on in the browser, the live sample where it was. Clusters:
+  "Run through" starts it in a scheduler's job (`srun ...`). Release asset `insiliscope-server-linux-x86_64.tar.gz`
+  (glibc 2.28+, x86-64). Fixed on the way: a Record started while a settings file's light history was replayed never
+  began.
 
 Large recordings:
 

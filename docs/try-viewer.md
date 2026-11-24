@@ -247,6 +247,12 @@ through it step by step.
   have taken (bleached and blinking as it was). A file from another release loads with a note that the image may
   differ, and what the viewer could not take is listed. Every value is stored (defaults too) by name, and
   `insiliscope_cli --settings <file>` renders the same frames on the command line.
+- **A remote server.** ☰ › **Remote server…** has a Linux machine you log in to with ssh (an analysis server, a
+  cluster) do the computing: live, Records, movies and ground truth (or Records, movies and ground truth only). The box
+  gives one `ssh` command to run in a terminal and leave open; the page connects by itself, the menu and the live
+  info line name the server, and frames are the same as the browser's, byte for byte. When the server goes, the
+  viewer goes on in the browser, the live sample where it was. No admin rights or installing: see
+  [Run inSiliScope on a remote Linux server](remote.md).
 - **A Micro-Manager configuration.** **Micro-Manager .cfg…** in the same section of the ☰ menu saves `<name>.cfg`:
   the shipped Expert configuration with the viewer's seed and a Startup preset that sets every
   [Micro-Manager property](micro-manager.md) to the viewer's value (the sample, its labels and custom dyes, the cells'

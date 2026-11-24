@@ -164,6 +164,19 @@ endif()
 add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp scope_setup.cpp settings_file.cpp)
 target_link_libraries(insiliscope_cli PRIVATE insiliscope_sim)
 
+# The viewer's engine on a remote Linux machine (docs/remote.md): the module's C ABI (scope_wasm.cpp) built natively,
+# behind WebSocket / stdio transports. POSIX only (Unix sockets, fork).
+if(NOT WIN32)
+  add_executable(insiliscope_server remote_server.cpp scope_wasm.cpp scope_setup.cpp scope_panels.cpp settings_file.cpp)
+  target_link_libraries(insiliscope_server PRIVATE insiliscope_sim)
+  find_package(Git QUIET)
+  if(GIT_FOUND)
+    execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short=12 HEAD WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+                    OUTPUT_VARIABLE isc_commit OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+  endif()
+  target_compile_definitions(insiliscope_server PRIVATE ISC_SERVER_COMMIT="${isc_commit}")
+endif()
+
 if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(sr_render_check sr_render_check.cpp)
   target_link_libraries(sr_render_check PRIVATE insiliscope_sim)

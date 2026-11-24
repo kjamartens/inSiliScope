@@ -314,7 +314,7 @@ L.stepZ = stepZ;
 function worker() {
   if (L.worker) return L.worker;
   if (!genWorkers.ok) return null;
-  L.worker = spawnGenWorker({ mt: true });   // (the threaded module where the page is cross-origin isolated)
+  L.worker = spawnGenWorker({ mt: true, remote: 'live' });   // (the threaded module where the page is cross-origin isolated)
   L.worker.onmessage = e => onResult(e.data);
   // a failure here stops live only (the shared handler would move every worker to the main thread)
   L.worker.onerror = e => { e.preventDefault(); L.err = workerErrorText(e.message || 'the live worker failed'); L.pending = null; L.worker.terminate(); L.worker = null; L.worldKey = null; setLive(false); };
@@ -351,7 +351,8 @@ function onResult(d) {
   if (d.type === 'movie-part') { if (job.fresh) onRecPart(d); return; }
   if (d.type === 'movie-rows') { if (job.fresh) onRecRows(d); return; }
   L.pending = null;
-  if (job.type === 'live-replay') { onReplay(d, job); return; }
+  // (a Record started while the sample's light was replayed waits for it: it starts now)
+  if (job.type === 'live-replay') { onReplay(d, job); if (REC.on && !L.pending) recNext(); return; }
   if (d.error) { L.err = d.error; L.on = false; if (REC.on) finishRec(); syncButtons(); showInfo(); return; }
   if (job.fresh) { onRecMovie(d, job); return; }
   logFrames(job.spec, job.n || 1);
@@ -363,6 +364,7 @@ function onResult(d) {
   L.drift = d.drift;
   L.pattern = d.pattern || null;
   L.engine = d.engine;
+  L.remote = !!d.remote;
   L.paths = d.paths || null;
   L.perf = { roundMs: L.ms, workerMs: d.workerMs, profile: d.profile || null, memory: d.memory || null };
   // Live is paced to the exposure on an absolute schedule (2026-11-12): each frame is due one exposure after the last
@@ -456,7 +458,7 @@ function gtRun(text, minPhotons, dyeCsv, filesFor, dir) {
   gtStop();
   if (!genWorkers.ok) return false;
   if (L.on) { L.on = false; syncButtons(); GT.wasOn = true; }
-  const w = spawnGenWorker(), run = deferred();
+  const w = spawnGenWorker({ remote: 'gt' }), run = deferred();
   Object.assign(GT, { w, key: { text, minPhotons, dyeCsv }, run, dir: dir || null, spool: 0 });
   const fail = msg => {
     const e = new Error(workerErrorText(msg));
@@ -511,6 +513,21 @@ L.groundTruth = async (opt, progress) => {
 };
 // A fresh sample at the next frame (a measurement without history).
 L.freshSample = () => { L.worldKey = null; L.t = 0; L.log = []; };
+// The remote server came or went (web/live/remote.js): a new live worker (linked to it or not), the sample's light so
+// far replayed on it (a live-replay job), so the next frame is the one the old worker would have rendered. Not during a
+// Record (it waits for its end).
+L.rebind = () => {
+  if (REC.on || (L.pending && L.pending.type === 'live-replay')) { setTimeout(L.rebind, 500); return; }
+  if (!L.worker) return;
+  const wasOn = L.on, log = L.log.map(r => ({ ...r }));
+  L.on = false;
+  L.worker.onmessage = null; L.worker.onerror = null; L.worker.terminate();
+  L.worker = null; L.pending = null;
+  const back = () => { if (wasOn) setLive(true); else syncButtons(); showInfo(); };
+  if (!log.length || !L.worldKey) { L.worldKey = null; back(); return; }
+  L.replay(log).then(back, e => { L.err = e.message || String(e); L.worldKey = null; back(); });
+};
+L.showInfo = () => showInfo();
 L.setLive = on => setLive(on);
 
 // ---- display: grey LUT, the range from the frame (auto) or the boxes ----
@@ -798,11 +815,13 @@ function showInfo() {
     : !L.frames ? (L.on ? 'starting…' : '')
     : L.on ? L.fps.toFixed(1) + ' fps · ' + ms
     : ms;
+  // computed on the remote server (web/live/remote.js)
+  const host = L.remote && self.iscRemote ? self.iscRemote.host() : '';
   const more = [L.frames ? `${L.w}×${L.h} px · ${(+$('mv_pixel-nm').value || 100).toFixed(1)} nm/px` : '',
     L.pattern ? `pattern ${L.pattern.frame % L.pattern.period + 1}/${L.pattern.period}` : '',
     REC.on ? `recording ${REC.got}/${REC.n}` + recBlockText() : REC.msg && !L.on ? REC.msg : ''].filter(Boolean);
-  el.textContent = text;
-  el.title = [text, ...more].filter(Boolean).join('\n');
+  el.textContent = text + (host && text ? ' · ' + host : '');
+  el.title = [text, ...more, host ? 'computed on the remote server ' + host : ''].filter(Boolean).join('\n');
   showPerfNote();
 }
 function expert() { return document.body.dataset.level === 'expert'; }
@@ -1391,7 +1410,7 @@ function onRecMovie(d, job) {
   }
   const n = Math.min(REC.n, d.disk ? d.got : REC.store.n);
   Object.assign(REC, { w: d.w, h: d.h, spec: d.spec, got: n, engineMs: performance.now() - job.t0,
-    gpu: d.gpu && d.gpu !== 'CPU' ? d.gpu : '' });
+    gpu: d.gpu && d.gpu !== 'CPU' ? d.gpu : '', remote: !!d.remote });
   if (d.stopped) REC.msg = `stopped: ${d.stopped}` + (REC.msg ? ' · ' + REC.msg : '');
   L.err = '';
   L.ms = n ? (performance.now() - REC.t0) / n : 0;

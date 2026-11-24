@@ -907,11 +907,13 @@ self.iscCoi = (() => {
 <script src="live/mm_config.js"></script>
 <script src="live/bfp_examples.js"></script>
 <script src="origami_designs.js"></script>
-<script src="insiliscope_module.js?v=f42275adc8f7"></script>
+<script src="insiliscope_module.js?v=c4cb05fbba6e"></script>
 <!-- The threaded module (ISC_MODULE_MT_SRC) only on a cross-origin isolated page: the live worker runs it. -->
-<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=9d1b7e5f32ca"><\/script>');</script>
+<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=343e18611858"><\/script>');</script>
 <script src="live/scope_panels.js"></script>
 <script src="wf_gpu.js"></script>
+<script src="live/remote_wire.js"></script>
+<script src="live/remote_proxy.js"></script>
 <script src="scene/core.js"></script>
 <script src="scene/compute.js"></script>
 <script src="anim/sequence.js"></script>
@@ -2046,6 +2048,8 @@ menu.innerHTML = '<h4>Appearance</h4>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button>' +
   '<button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all</button></div>' +
   '<div class="note" id="advNote"></div>' +
+  '<h4>Compute</h4><div class="btns"><button id="remoteOpen" title="Let a Linux machine you can log in to with ssh (a workstation, a server, a cluster) compute live frames, Records and ground truth">Remote server…</button></div>' +
+  '<div class="note" id="remoteNote">Computing in this browser</div>' +
   '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground-truth table to a density stack at any voxel size">Voxelize ground truth ↗</a></div>' +
   '<h4>About</h4>' +
   `<div class="note" id="buildInfo">${buildLine}</div>` +
@@ -5036,19 +5040,23 @@ function genWorkerMain() {
   // (The threaded module's own threads run this same script -- Emscripten starts a pthread from its creator's script
   // -- named em-pthread: the module answers their messages, not this.)
   if (self.name === 'em-pthread') return;
-  let start;
+  let start, remote = null;
   const ready = new Promise(r => { start = r; });
+  const local = d => ready.then(eng => Promise.resolve(eng.handle(d, (m, t) => postMessage(m, t || [])))).then(([out, transfer]) => {
+    postMessage(out, transfer);
+  }).catch(err => setTimeout(() => { throw err; })); // surfaces as the worker's onerror
   onmessage = e => {
     const d = e.data;
     if (d && d.type === 'init') {
       const opts = d.module ? { instantiateWasm(info, done) { WebAssembly.instantiate(d.module, info).then(inst => done(inst, d.module)); return {}; } } : {};
       start(createInsiliscope(opts).then(M => { if (d.threads && M._isc_set_threads) M._isc_set_threads(d.threads); return iscEngine(M); }));
+      // the remote server (docs/remote.md, web/live/remote_proxy.js): the jobs it takes go there
+      if (d.remote && self.IscRemoteProxy) remote = self.IscRemoteProxy.create(d.remote, (m, t) => postMessage(m, t || []), local);
       return;
     }
-    if (d && d.type === 'bfp-file') { ready.then(eng => eng.bfpFile(d)); return; }   // (no reply)
-    ready.then(eng => Promise.resolve(eng.handle(d, (m, t) => postMessage(m, t || [])))).then(([out, transfer]) => {
-      postMessage(out, transfer);
-    }).catch(err => setTimeout(() => { throw err; })); // surfaces as the worker's onerror
+    if (d && d.type === 'bfp-file') { ready.then(eng => eng.bfpFile(d)); if (remote) remote.bfpFile(d); return; }   // (no reply)
+    if (remote && remote.takes(d)) { remote.run(d); return; }
+    local(d);
   };
 }
 
@@ -5174,19 +5182,22 @@ async function bfpFileBytes(name, blob) {
   return new Uint8Array(buf);
 }
 self.iscBfpFileBytes = bfpFileBytes;
+// opts.remote: an engine whose heavy jobs may go to the remote server (web/live/remote.js: the live, movie and ground
+// truth workers), when one is connected (self.iscRemote.config(name)).
 function spawnGenWorker(opts = {}) {
   const files = w => { genAll.add(w); for (const [name, bytes] of BFP_FILES) w.postMessage({ type: 'bfp-file', name, bytes }); return w; };
+  const remote = opts.remote && self.iscRemote ? self.iscRemote.config(opts.remote) : null;
   if (opts.mt && genMtBlobUrl) {
     const w = new Worker(genMtBlobUrl);
     w.onerror = e => console.warn('the threaded worker failed:', e.message);
-    wasmMtModulePromise.then(mod => w.postMessage({ type: 'init', module: mod, threads: self.iscCoi.nThreads }));
+    wasmMtModulePromise.then(mod => w.postMessage({ type: 'init', module: mod, threads: self.iscCoi.nThreads, remote }));
     return files(w);
   }
   const w = new Worker(genBlobUrl);
   w.onerror = e => { console.warn('generator worker failed, running the core on the main thread:', e.message); disableGenWorkers(); };
   // The shared compiled module (a structured clone); a browser that cannot clone it gets null.
   wasmModulePromise.then(mod => {
-    try { w.postMessage({ type: 'init', module: mod }); } catch (e) { w.postMessage({ type: 'init', module: null }); }
+    try { w.postMessage({ type: 'init', module: mod, remote }); } catch (e) { w.postMessage({ type: 'init', module: null, remote }); }
   });
   return files(w);
 }
@@ -5194,6 +5205,8 @@ function initGenWorkers() {
   try {
     const code = self.ISC_MODULE_SRC + '\nself.ISC_WF_WGSL = ' + JSON.stringify(self.ISC_WF_WGSL || '') + ';\n' +
       (self.iscWfGpuDefine ? '(' + self.iscWfGpuDefine.toString() + ')();\n' : '') +
+      (self.iscRemoteWireDefine && self.iscRemoteProxyDefine
+        ? '(' + self.iscRemoteWireDefine.toString() + ')();\n(' + self.iscRemoteProxyDefine.toString() + ')();\n' : '') +
       iscEngine.toString() + '\n(' + genWorkerMain.toString() + ')();';
     genBlobUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
     if (self.ISC_MODULE_MT_SRC && self.iscCoi.threads) {
@@ -5230,7 +5243,7 @@ function workerErrorText(msg) {
 const dyesInflight = new Map();
 const DYES_REPLY = { 'bf-movie': 'movie' };
 function spawnDyesWorker() {
-  const w = spawnGenWorker(), post = w.postMessage.bind(w);
+  const w = spawnGenWorker({ remote: 'movie' }), post = w.postMessage.bind(w);
   w.answered = false;
   w.postMessage = (m, t) => {
     if (m && m.id !== undefined && m.type !== 'init') dyesInflight.set((DYES_REPLY[m.type] || m.type) + ':' + m.id, m);
@@ -5250,6 +5263,22 @@ function spawnDyesWorker() {
   };
   return w;
 }
+// The remote server came or went (web/live/remote.js): a new movie worker, linked or not, its jobs in flight sent to it
+// again (a BrightField movie split over the workers is answered with an error: its sessions were the old worker's).
+function rebindEngines() {
+  if (!genWorkers.ok || !genWorkers.dyes) return;
+  const old = genWorkers.dyes, jobs = [...dyesInflight.values()];
+  dyesInflight.clear();
+  old.onmessage = null; old.onerror = null; old.terminate(); genAll.delete(old);
+  genWorkers.dyes = spawnDyesWorker();
+  const error = 'the remote server came or went: make the movie again';
+  for (const j of jobs) {
+    if (j.type === 'bf-movie') onMovieResult({ type: 'movie', id: j.id, error });
+    else if (j.type === 'bf-begin') onBfBegin({ type: 'bf-begin', id: j.id, h: -1, error });
+    else if (j.type !== 'bf-end') genWorkers.dyes.postMessage(j);
+  }
+}
+self.iscRebindEngines = rebindEngines;
 function onDyesWorkerDied(w, msg) {
   if (genWorkers.dyes !== w) return;
   const error = workerErrorText(msg);
@@ -6746,7 +6775,9 @@ function bfSplitWanted() {
   // A drifting sample's frames come from fine-grid spectra on one worker (the split hands out camera images).
   const drifting = ['drift-xy-nm-per-sqrt-sec', 'drift-z-nm-per-sqrt-sec', 'drift-xy-speed-nm-per-sec', 'drift-z-speed-nm-per-sec']
     .some(k => +document.getElementById('mv_' + k).value !== 0);
-  return document.getElementById('mv_modality').value === '1' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough && !drifting &&
+  // (a remote server renders the whole movie: no hand-out over the page's workers)
+  const remote = !!(self.iscRemote && self.iscRemote.on());
+  return document.getElementById('mv_modality').value === '1' && genWorkers.ok && genWorkers.cells.length > 0 && bigEnough && !drifting && !remote &&
     !/[?&]bfsplit=0/.test(location.search);
 }
 function cancelBfSplit() {
@@ -8383,6 +8414,7 @@ resizeCanvas();
 <script src="live/settings_core.js"></script>
 <script src="live/mm_cfg.js"></script>
 <script src="live/settings_file.js"></script>
+<script src="live/remote.js"></script>
 <script src="live/mda_ui.js"></script>
 <script src="anim/editor.js"></script>
 <script src="live/persist.js"></script>

@@ -31,3 +31,5 @@ Ideas, roughly in order of interest. Contributions welcome; see [Extending](exte
 - **`world_version`** stamped in every output so a seed stays reproducible across releases (policy in [Extending](extending.md)).
 - A truly vectorial (polarized, apodized) pupil for the Zernike model; today it is scalar, like webSMLM's.
 - Packages: Python wheel for the CLI/ABI, npm package for the WASM core.
+- **Remote computing** ([done for the viewer](remote.md), Linux servers): Micro-Manager's renderer on the same server
+  (over `ssh` on stdin/stdout), the viewer's world view's cell workers there, and Windows servers.

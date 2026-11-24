@@ -265,6 +265,31 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   too). ⧉ (`copyOf`) copies a block and what is inside it to just below, its recordings renamed (A -> A2). Checks: `tests/web/mda_unit.mjs`
   (0.06 s, CI `viewer-js`: the resolver on the real table too), `tiff_unit.mjs` (the OME / ImageJ files by tifffile),
   `viewer_mda.mjs` (browser, ~30 s: the list, its help, the fill, a loop over two phase matrices, a wrong shape).
+- **Remote server (2026-11-24, branch `remote-server`, [docs/remote.md](docs/remote.md)):** `insiliscope_server`
+  (`cli/remote_server.cpp`, Linux/POSIX only, `if(NOT WIN32)` in cli/CMakeLists.txt) = the viewer module's C ABI
+  (`cli/scope_wasm.cpp`, its non-Emscripten branch calls `IscHooks()`, `cli/module_hooks.h`) compiled natively, with
+  the worker's job glue (`iscEngine.handle`) in C++: hello (protocol 1, ABI, world version, version, host, CPUs, memory,
+  threads; the page refuses another protocol / ABI / world), bfp-file, live, live-replay, movie (whole / streamed
+  `movie-part` / strips `movie-rows`), setup, panel, options, gt, gt-run, gt-files. One forked process per
+  WebSocket connection (= one browser worker), a reader thread that `_exit`s when it closes (cancels a Record);
+  transports: `--socket` (a WebSocket on a Unix socket in a 0700 folder, token `?t=`), `--listen HOST:PORT` (tests,
+  the scheduler's job), `--relay`, `--stdio` (u32-framed: Micro-Manager, not yet used); stops with its stdin (the ssh
+  session) or `--idle-exit` 30 min. Wire `web/live/remote_wire.js` (u32 JSON length, JSON, 8-aligned blobs, `$b`
+  refs; `cli` `OutMsg` / `Decode`); `cli/json_lite.h` (the settings file's JSON parser, shared). Viewer:
+  `web/live/remote.js` (☰ › Compute › Remote server… `#remoteOpen`, `#remoteNote`; `localStorage isc.remote` {enabled,
+  server, port 18765, threads, scope `all` (default: live too) | `records`, runThrough, token, sock}; probes
+  `ws://127.0.0.1:<port>` every 3 s; the command: `ssh -L <port>:/tmp/isc-<sock>/s <server> "(curl .. || wget ..)
+  ~/.isc-remote.sh && sh ~/.isc-remote.sh serve --version <page's> ..."`, no `$` or backslash), `remote_proxy.js` (in
+  every engine worker, `genWorkerMain`: the jobs it takes go to the server, the rest and every job after a failure or
+  loss to the local engine; OPFS writes on the page's side; BroadcastChannel `isc-remote`), a switch respawns the movie
+  worker (`rebindEngines`, its jobs re-sent) and the live worker (`L.rebind`: `L.log` replayed); `bfSplitWanted` off
+  while remote. Launcher `web/remote.sh` (POSIX sh, copied to the site root by `build_site.sh`): check, install
+  (`--from`), serve (`--run-through 'srun ...'`: the server in the job on TCP, a relay on the socket), stdio, render,
+  uninstall; versions in `~/.local/share/insiliscope/<tag>` (`ISC_REMOTE_HOME`), the last three kept, release asset
+  `insiliscope-server-linux-x86_64.tar.gz` (+ `.sha256`); glibc 2.28+. Checks: `tests/remote/server_check.mjs` (every
+  job = the viewer module byte for byte, ~4 s), `tests/remote/launcher_check.py` (~3 s, Linux), `tests/web/viewer_remote.mjs`
+  (browser, ~8 s; `--server="wsl -d Ubuntu -- <path>"` on Windows). Not yet: Micro-Manager, the world view's cell
+  workers, Windows servers.
 - **Micro-Manager .cfg from the viewer (2026-11-19, branch `bfp-light-maps`):** ☰ `#menuSetup` › Micro-Manager .cfg…
   (`#lv_setCfg`, `openMmCfg` in settings_file.js) saves `<name>.cfg` = the shipped Expert config (`ISC_MM_CFG.template`)
   with the seed and a Startup preset setting every property to the viewer's value (`web/live/mm_cfg.js` `write`,
