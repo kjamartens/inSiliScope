@@ -165,11 +165,12 @@ build() { # the repository's source at --ref (or a checkout, --source DIR) -> $P
   say "inSiliScope: building the server ($j jobs; a few minutes) ..."
   log="$w/build.log"
   { "$cm" -S "$SRC" -B "$w/out" -DCMAKE_BUILD_TYPE=Release -DISC_BUILD_TESTS=OFF &&
-    "$cm" --build "$w/out" --target insiliscope_server insiliscope_cli -j "$j"; } >"$log" 2>&1 ||
+    "$cm" --build "$w/out" --target insiliscope_server insiliscope_cli live_bench -j "$j"; } >"$log" 2>&1 ||
     { tail -n 30 "$log" >&2; die "the build failed (the whole log: $log)"; }
   d="$PREFIX/.dev-$$"
   rm -rf "$d"; mkdir -p "$d/bin"
   cp "$w/out/cli/insiliscope_server" "$w/out/cli/insiliscope_cli" "$d/bin/" || die "the build made no server"
+  cp "$w/out/cli/live_bench" "$d/bin/" 2>/dev/null   # (the live speed of a scene: tests/remote/hpc_check.sh)
   echo "dev ($REF)" > "$d/VERSION"
   wgpu "$d/lib"
   "$d/bin/insiliscope_server" --version >/dev/null 2>&1 || { rm -rf "$d"; die "the built server does not run"; }

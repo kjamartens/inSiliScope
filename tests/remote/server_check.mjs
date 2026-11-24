@@ -187,6 +187,16 @@ try {
   const lwl = localLive(WL, 1);
   if (GPU) { const n = near(wl.frames, lwl.frames); ok(!wl.error && n.ok, `live WideField frame on the GPU = the module's within rounding: ${n.text}` + (wl.error ? ' ' + wl.error : '')); }
   else ok(!wl.error && same(wl.frames, lwl.frames), 'live WideField frame = the module\'s, byte for byte' + (wl.error ? ' ' + wl.error : ''));
+  // live SIM2D WideField: its state scenes stay on the CPU even with --gpu (their basis made a part per frame), so
+  // byte for byte either way
+  const SL = SSPEC.replace('frames=4', 'frames=1');
+  M._isc_live_reset();
+  const sl = [], lsl = [];
+  t = performance.now();
+  for (let i = 0; i < 4; i++) sl.push(await A.job({ type: 'live', id: 36 + i, spec: SL, reset: i === 0, t: 0, lit: true }));
+  const tSl = (performance.now() - t) / 4;
+  for (let i = 0; i < 4; i++) lsl.push(localLive(SL, 1));
+  ok(sl.every((r, i) => !r.error && same(r.frames, lsl[i].frames)), `live SIM2D WideField: 4 frames = the module's, byte for byte (server ~${tSl.toFixed(0)} ms/frame)` + (sl.find(r => r.error) ? ' ' + sl.find(r => r.error).error : ''));
 
   // an unknown job and a cancelled one: answered with an error; a closed connection ends its engine
   const bad = await A.job({ type: 'pack', id: 40 });

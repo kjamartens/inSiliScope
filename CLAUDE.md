@@ -307,7 +307,7 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   blinks (groups with a diffraction kernel, <= 4) as records and the rest of its light as an extra image; the GPU adds
   the blinks and the noise (no blinks: the noise alone); a kernel past one binding takes a buffer per range of planes;
   a failed batch splats on the CPU. Live frames keep the CPU's splat and noise (LiveScope's own noise via onPhotons).
-  Frames within float rounding (server_check `--gpu`: `near`). Server `--gpu auto` (default) / `off`, cli `--gpu`
+  Frames within float rounding (server_check `--gpu`: `near`). A live frame of a stepping pattern keeps its state scenes on the CPU (`liveStates` in ScopeMovie.cpp: their basis made a part per frame, which a scene with an accelerator skips; live SIM on the GPU was no faster, 2026-11-24); `tests/remote/hpc_check.sh` (a server's report: build at a ref, cli movies and `live_bench` frames GPU off vs on; `live_bench` is built without the tests and in `remote.sh build`). Server `--gpu auto` (default) / `off`, cli `--gpu`
   (default off), `$ISC_GPU`, launcher `serve --gpu`; release tarball `lib/libwgpu_native.so` + licenses (release.yml,
   sha256 pinned; `remote.sh build` fetches it too). Checks: ctest `wf_gpu_webgpu` (WideField + the splat's self-check,
   skips without a GPU), `server_check.mjs --gpu`. Not yet: the BFP maps on the GPU.

@@ -186,7 +186,7 @@ or why it found none (`GPU: none: …`), and then the CPU computes everything as
 | WideField labels (also under SIM patterns) | the dye planes' images | the bleaching, everything else |
 | dSTORM, PALM, DNA-PAINT blinks in Records and movies | the blinks' PSFs | which blinks light up |
 | Camera noise of Records and movies | all of it | |
-| The live view | WideField images | blinks and noise |
+| The live view | WideField images (without a SIM pattern) | blinks and noise; under a SIM pattern all of it (its states make their images a part per frame, which is faster there) |
 | Ground truth, BrightField, the Gaussian PSF | | all of it |
 
 **What it needs:** an NVIDIA, AMD or Intel GPU with its Vulkan driver (NVIDIA's usual driver includes it;
@@ -198,6 +198,13 @@ names the GPU it finds.
 it has WebGPU ([the viewer](try-viewer.md)), so its frames and the server's then both differ from the CPU's by
 rounding. To get the browser's frames exactly, run both without the GPU: in the viewer's command, add `--gpu off`
 after `serve`, and add `?gpu=0` to the page's address.
+
+**To check a server** (a few minutes, plus the build): `tests/remote/hpc_check.sh` builds the server at a branch and
+renders the same movies and live frames with the GPU off and on, timed and compared:
+
+```powershell
+ssh isc-server "curl -fsSL https://raw.githubusercontent.com/kjamartens/inSiliScope/main/tests/remote/hpc_check.sh | sh"
+```
 
 **Settings for experts** (environment variables on the server):
 

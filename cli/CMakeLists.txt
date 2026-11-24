@@ -178,6 +178,11 @@ endif()
 
 add_executable(insiliscope_cli insiliscope_cli.cpp scope_probes.cpp scope_setup.cpp settings_file.cpp)
 target_link_libraries(insiliscope_cli PRIVATE insiliscope_sim)
+# Live frames of one spec timed one by one (not a test; also in a remote server's dev build, tools/remote.sh build).
+if(NOT EMSCRIPTEN)
+  add_executable(live_bench live_bench.cpp)
+  target_link_libraries(live_bench PRIVATE insiliscope_sim)
+endif()
 
 # The viewer's engine on a remote Linux machine (docs/remote.md): the module's C ABI (scope_wasm.cpp) built natively,
 # behind WebSocket / stdio transports. POSIX only (Unix sockets, fork).
@@ -231,9 +236,6 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(live_scope_check live_scope_check.cpp)
   target_link_libraries(live_scope_check PRIVATE insiliscope_sim)
   add_test(NAME live_scope COMMAND live_scope_check)
-  # Live frames of one spec timed one by one (not a test).
-  add_executable(live_bench live_bench.cpp)
-  target_link_libraries(live_bench PRIVATE insiliscope_sim)
 
   # Settings files (settings_file.h: the viewer's Save settings, insiliscope_cli --settings): parts, names, mixing,
   # warnings, the light history replayed = the live session's next frame.

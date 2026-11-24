@@ -4675,7 +4675,12 @@ bool FluorescenceMovie::Impl::BuildMeanFieldNode(Population& p, size_t ni, std::
    const bool patterned = S.excite.Patterned();
    if (!accel && !gpuMode && !shifts && !slot.accelTooBig)
       accel = DefaultWidefieldAccelerator();   // (the native cli's and server's, when set; made on its first use)
-   const bool cpuScene = shifts || slot.accelTooBig || (patterned && !(accel && accel->ManyScenes()));
+   // But a live frame of a stepping pattern (nd.progressive below) stays on the CPU: its states make their next bleach
+   // basis an image per frame (RenderFrameProgressive), which a scene with an accelerator skips -- each state then
+   // rebuilt its basis at once and read it back, and live SIM on the server's GPU was no faster than its CPU (the
+   // user, 2026-11-24). Records and movies of a pattern keep the GPU.
+   const bool liveStates = varies && cache.live && !p.meanLight && S.N == 1 && !S.freshBasis;
+   const bool cpuScene = shifts || slot.accelTooBig || (patterned && !(accel && accel->ManyScenes())) || liveStates;
    const bool sceneGpu = (gpuMode && !patterned) || (accel != nullptr && !cpuScene);
    if (!slot.has || slot.gpuMode != sceneGpu)
    {
