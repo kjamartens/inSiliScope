@@ -142,7 +142,7 @@ through it step by step.
   disk, not all the free space (Firefox 10 GiB, often a few GB elsewhere; small in a private window). A Record that
   does not fit asks the browser at Start to let the site store data persistently: Firefox then asks you, and once
   allowed the site may use up to half the disk (allowed later through the site's permissions by the address bar). In
-  Chrome and Edge, which do not raise it so, tick **save to a
+  Chrome and Edge (where that does not change the share), tick **save to a
   file as recorded** and Start asks where to save the .tif; the frames go straight into that file as they are made,
   with no limit but the disk. The player then reads the recording from that file, and Save has nothing left to do for
   the movie alone (a .zip with its settings or ground truth takes the file as its movie). The box's **field** (W × H px, empty = the live
