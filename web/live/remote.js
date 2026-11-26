@@ -142,6 +142,9 @@
   #setDlg .rmLoad[hidden]{display:none}
   #setDlg .rmLoad .rmGrid{align-items:start}
   #setDlg .rmLoad .lab{color:var(--color-text-muted)}
+  #setDlg .rmTick{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--color-accent);margin-left:var(--space-2);vertical-align:middle;opacity:0}
+  #setDlg .rmTick.on{animation:rmTick 900ms ease-out}
+  @keyframes rmTick{from{opacity:1}to{opacity:0}}
   #setDlg .rmMeter .bar{display:flex;height:8px;border-radius:var(--radius-sm);background:var(--color-input-border);overflow:hidden;margin-top:5px}
   #setDlg .rmMeter .bar i{display:block;height:100%;transition:width var(--duration-fast)}
   #setDlg .rmMeter .bar .isc{background:var(--color-accent)} #setDlg .rmMeter .bar .oth{background:var(--color-text-muted)}
@@ -195,9 +198,12 @@
     if (self.liveState && self.liveState.showInfo) self.liveState.showInfo();
   }
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-  // The server machine's load while the window shows a connected server (a 'status' job every 2 s on a connection of
-  // its own, cli/remote_server.cpp LoadSampler): its CPU and memory in use, this server's share in the accent colour.
-  const LD = { ws: null, timer: 0, gen: 0 };
+  // The server machine's load while the window shows a connected server (a 'status' job every second on a connection
+  // of its own, cli/remote_server.cpp LoadSampler): its CPU and memory in use, this server's share in the accent colour.
+  // The CPU is the mean of the last 5 s (the user's choice, 2026-11-26: not a jumpy snapshot); the memory as it is now.
+  // A dot by "CPU" flashes at each reading, so a quiet bar (one thread of 192 CPUs is 0.5 %) is seen to be read.
+  const LD = { ws: null, timer: 0, gen: 0, cpu: [] }, LOAD_EVERY_MS = 1000, LOAD_MEAN_MS = 5000;
+  const fmtN = v => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
   const fmtGB = v => v < 1 ? Math.round(v * 1024) + ' MB' : (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' GB';
   function meter(el, iscFrac, allFrac, left, right, tip) {
     if (!el) return;
@@ -222,16 +228,23 @@
         : 'This server does not report its load (it is not a Linux machine).';
       return;
     }
-    const isc = Math.min(d.iscCpuPct, d.cpuPct);   // (the two are read a moment apart: the share at most the whole)
-    meter($('rmCpu'), isc / 100, d.cpuPct / 100, `<b>${Math.round(d.cpuPct)} %</b> of ${d.cpus} CPUs`, `inSiliScope ${Math.round(isc)} %`,
-      `The server's CPUs in use over the last 2 s; inSiliScope's share in colour. Load average (1 min): ${(+d.load1).toFixed(1)}. ` +
-      `${d.engines} engine${d.engines === 1 ? '' : 's'} of this viewer connected.`);
+    const now = performance.now();
+    LD.cpu.push({ t: now, all: d.cpuPct, isc: Math.min(d.iscCpuPct, d.cpuPct) });   // (read a moment apart: the share at most the whole)
+    while (LD.cpu.length > 1 && now - LD.cpu[0].t > LOAD_MEAN_MS) LD.cpu.shift();
+    const mean = k => LD.cpu.reduce((a, c) => a + c[k], 0) / LD.cpu.length;
+    const all = mean('all'), isc = mean('isc'), iscCpus = isc / 100 * d.cpus;
+    meter($('rmCpu'), isc / 100, all / 100, `<b>${fmtN(all)} %</b> of ${d.cpus} CPUs`, `inSiliScope ${fmtN(iscCpus)} CPU${fmtN(iscCpus) === '1.0' ? '' : 's'}`,
+      `The server's CPUs in use, the mean of the last ${LOAD_MEAN_MS / 1000} s, read every second; inSiliScope's share in colour ` +
+      `(${fmtN(isc)} %). Load average (1 min): ${(+d.load1).toFixed(1)}. ${d.engines} engine${d.engines === 1 ? '' : 's'} of this viewer connected.`);
+    const tick = $('rmTick');
+    if (tick) { tick.classList.remove('on'); void tick.offsetWidth; tick.classList.add('on'); }
     meter($('rmMem'), d.iscMemGB / d.memTotalGB, d.memUsedGB / d.memTotalGB, `<b>${fmtGB(d.memUsedGB)}</b> of ${fmtGB(d.memTotalGB)}`, `inSiliScope ${fmtGB(d.iscMemGB)}`,
       "The server's memory in use (its total less what is available); inSiliScope's share in colour.");
   }
   function watchLoad() {
     if (LD.ws || !self.IscWire) return;
     const gen = ++LD.gen;
+    LD.cpu = [];
     let ws;
     try { ws = new WebSocket(url()); } catch (e) { return; }
     LD.ws = ws;
@@ -245,7 +258,7 @@
       if (d.type !== 'status') return;
       showLoad(d);
       if (d.error) return;   // (a server of before 2026-11-26)
-      LD.timer = setTimeout(ask, 2000);
+      LD.timer = setTimeout(ask, LOAD_EVERY_MS);
     };
     ws.onclose = () => { if (LD.gen === gen) { LD.ws = null; clearTimeout(LD.timer); } };
   }
@@ -268,7 +281,7 @@
       '<a href="https://kjamartens.github.io/inSiliScope/docs/remote/" target="_blank" rel="noopener">Set-up guide ↗</a></p>' +
       '<div class="rmBody" id="rmBody">' +
       '<div class="rmLoad" id="rmLoad" hidden><div class="rmGrid" id="rmMeters">' +
-      '<span class="lab">CPU</span><div class="rmMeter" id="rmCpu"></div>' +
+      '<span class="lab">CPU<i class="rmTick" id="rmTick" aria-hidden="true"></i></span><div class="rmMeter" id="rmCpu"></div>' +
       '<span class="lab">Memory</span><div class="rmMeter" id="rmMem"></div>' +
       '</div><div class="rmOld" id="rmOld" hidden></div></div>' +
       '<div class="rmStatus" id="rmStatus"></div>' +

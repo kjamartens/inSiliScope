@@ -272,7 +272,8 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   threads; the page refuses another protocol / ABI / world), bfp-file, live, live-replay, movie (whole / streamed
   `movie-part` / strips `movie-rows`), setup, panel, options, gt, gt-run, gt-files, status (2026-11-26: `LoadSampler`,
   /proc: the machine's CPU % since the last call, load, memory in use, and the listener's and its engines' CPU % and
-  PSS; the window polls it every 2 s on a connection of its own while it shows a connected server, `watchLoad`). One forked process per
+  PSS; the window polls it every second on a connection of its own while it shows a connected server, `watchLoad`; the CPU
+  the mean of the last 5 s, `LOAD_MEAN_MS`, inSiliScope's share in CPUs; a dot `#rmTick` flashes at each reading). One forked process per
   WebSocket connection (= one browser worker), a reader thread that `_exit`s when it closes (cancels a Record);
   transports: `--socket` (a WebSocket on a Unix socket in a 0700 folder, token `?t=`; a server already on the socket with the same token is stopped by `/stop?t=`, SIGUSR1 to its listener, and replaced, another token refused), `--listen HOST:PORT` (tests,
   the scheduler's job), `--relay`, `--stdio` (u32-framed: Micro-Manager, not yet used); stops with its stdin (the ssh
