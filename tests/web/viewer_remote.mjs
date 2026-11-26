@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // The viewer with a remote server (docs/remote.md; web/live/remote.js, remote_proxy.js; cli/remote_server.cpp): the
 // page finds the server by itself, live frames and a Record come from there (the info line names it), the Record's
-// frames are the ones this browser makes byte for byte, "Stop using it" brings everything back here (the live sample
+// frames are the ones this browser makes byte for byte, the switch off brings everything back here (the live sample
 // going on), the box's command, and a server that stops (its "ssh session", stdin, closed) sends the engines back here.
 //   node tests/web/viewer_remote.mjs --server="build/native/cli/insiliscope_server"
 //   node tests/web/viewer_remote.mjs --server="wsl -d Ubuntu -- /home/me/isc-build/cli/insiliscope_server"   (Windows)
@@ -57,12 +57,12 @@ await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, he
   check(!!host, `the page found the server by itself: ${host}; the menu says "${await page.evaluate(() => document.getElementById('remoteNote').textContent)}"`);
 
   // the box: its command (no $ or backslash: the same in PowerShell, cmd, bash, zsh)
-  const cmd = await page.evaluate(() => { self.iscRemote.open(); return document.getElementById('rmCmd').value; });
+  const cmd = await page.evaluate(() => { self.iscRemote.open(); return document.getElementById('rmCmd').textContent; });
   check(cmd.startsWith(`ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L ${port}:/tmp/isc-abcd1234/s isc-test "`) &&
     new RegExp(` serve --version \\S+ --socket /tmp/isc-abcd1234/s --token ${token}"$`).test(cmd) && !/[$\\]/.test(cmd),
     `the box's command: ${cmd}`);
   // a page that is not a release (this one) asks for dev and shows the build command first
-  const bcmd = await page.evaluate(() => { const e = document.getElementById('rmBuildCmd'); return e ? e.value : ''; });
+  const bcmd = await page.evaluate(() => { const e = document.getElementById('rmBuildCmd'); return e ? e.textContent : ''; });
   check(/ serve --version dev /.test(cmd) && bcmd.startsWith('ssh isc-test "') && / build --ref \S+"$/.test(bcmd) && !/[$\\]/.test(bcmd),
     `the build command of a dev page: ${bcmd}`);
   await page.evaluate(() => document.getElementById('rmClose').click());
@@ -118,9 +118,18 @@ await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, he
   const rr = await record();
   check(rr.remote && rr.frames.length === 6, `a Record of 6 frames on the server (${rr.sec.toFixed(1)} s; frames on disk: ${rr.disk})`);
 
-  // "Stop using it": back here; the live sample goes on (its light replayed on the new worker)
+  // the switch off: back here; the live sample goes on (its light replayed on the new worker)
   const tBefore = await page.evaluate(() => liveState.t);
-  await page.evaluate(() => { self.iscRemote.open(); document.getElementById('rmGo').click(); document.getElementById('rmClose').click(); });
+  const sw = await page.evaluate(() => {
+    self.iscRemote.open();
+    const on = [document.getElementById('rmGo').checked, document.getElementById('rmBody').hidden, document.getElementById('rmState').textContent];
+    document.getElementById('rmGo').click();
+    const off = [document.getElementById('rmGo').checked, document.getElementById('rmBody').hidden, document.getElementById('rmState').textContent];
+    document.getElementById('rmClose').click();
+    return { on, off };
+  });
+  check(sw.on[0] && !sw.on[1] && /^Connected to /.test(sw.on[2]) && !sw.off[0] && sw.off[1] && sw.off[2] === 'Off',
+    `the window's switch: on shows the settings and commands ("${sw.on[2]}"), off only the switch ("${sw.off[2]}")`);
   await until(() => !self.iscRemote.on(), null, 10000);
   const rl = await record();
   const same = rl.frames.length === rr.frames.length && rl.frames.every((f, i) => f.length === rr.frames[i].length && f.every((v, j) => v === rr.frames[i][j]));

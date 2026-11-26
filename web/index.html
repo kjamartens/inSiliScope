@@ -281,6 +281,14 @@ self.iscCoi = (() => {
   .seg{display:flex;border:1px solid var(--color-input-border);border-radius:var(--radius-md);overflow:hidden;flex:none}
   .seg button{border:0;border-radius:0;height:auto;min-height:22px;padding:2px var(--space-3);background:var(--color-input-bg);color:var(--color-text-muted);font-size:var(--font-size-caption);cursor:pointer}
   .seg button+button{border-left:1px solid var(--color-input-border)}
+  /* a switch (.switch): one thing on or off that acts at once (the remote server); a checkbox with role=switch */
+  .switch{display:inline-flex;align-items:center;gap:var(--space-2);cursor:pointer;user-select:none}
+  .switch input{position:absolute;opacity:0;width:1px;height:1px;margin:0}
+  .switch .track{position:relative;flex:none;width:34px;height:18px;border-radius:9px;background:var(--color-input-border);transition:background var(--duration-fast)}
+  .switch .track::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--color-surface);transition:transform var(--duration-fast)}
+  .switch input:checked+.track{background:var(--color-accent)}
+  .switch input:checked+.track::after{transform:translateX(16px)}
+  .switch input:focus-visible+.track{outline:2px solid var(--color-focus-ring);outline-offset:2px}
   .seg button:hover{color:var(--color-text);background:var(--color-surface-hover)}
   .seg button.on,.seg button[aria-checked=true]{background:color-mix(in srgb,var(--color-accent) 28%,var(--color-input-bg));color:var(--color-text)}
   .seg button:focus-visible{outline-offset:-2px}

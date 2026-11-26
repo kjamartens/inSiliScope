@@ -102,15 +102,16 @@ This machine can run inSiliScope.
 
 ## Use it from the viewer
 
-1. In the viewer, open ☰ › **Remote server…**
-2. Fill in the box:
+1. In the viewer, open ☰ › **Remote server…** and turn on **Compute on a remote server**. The settings and the
+   command open under the switch.
+2. Fill in:
     - **Server:** `isc-server`, the name from Step 3 (or `jdoe@compute.example.org`).
-    - **Send to the server:** *Everything, live included* (the default) or *Records, movies and ground truth* (live
+    - **Run there:** *Everything, live included* (the default) or *Records, movies and ground truth* (live
       stays in the browser).
     - **Threads per engine:** how many CPUs each of the viewer's engines may use there (the live view and the
       movies are one engine each). Empty: half the server's CPUs. On a shared machine, leave room for others.
-3. Click **Use it**, then **Copy the command**, paste it into PowerShell and leave that window open. It looks like
-   this:
+3. Under **Run in a terminal and leave it open**, click **Copy**, paste the command into PowerShell and leave that
+   window open. It looks like this:
    ```powershell
    ssh -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -L 18765:/tmp/isc-3f9a0c1e/s isc-server "(curl -fsSL https://raw.githubusercontent.com/kjamartens/inSiliScope/v0.2.0/tools/remote.sh -o ~/.isc-remote.sh || wget -qO ~/.isc-remote.sh https://raw.githubusercontent.com/kjamartens/inSiliScope/v0.2.0/tools/remote.sh) && sh ~/.isc-remote.sh serve --version v0.2.0 --socket /tmp/isc-3f9a0c1e/s --token 5c0e…"
    ```
@@ -126,7 +127,7 @@ This machine can run inSiliScope.
 
 **To stop:** close the PowerShell window or press Ctrl+C. The server ends with it, and the viewer goes on computing in
 the browser; a live view keeps running from where it was (the sample's light so far is replayed in the browser).
-**Stop using it** in the box does the same from the viewer's side. Without a connection for 30 minutes the server
+Turning the switch off does the same from the viewer's side. Without a connection for 30 minutes the server
 also stops by itself.
 
 The command is the same every time on this computer (its socket name and token are kept in the browser), so you can
@@ -142,7 +143,7 @@ release, such as a branch under test or your own checkout, asks for the version 
 once, before you run the box's command. You need no admin rights for this, but the server needs a C++ compiler
 (`g++`) and `make`; most Linux servers have both.
 
-1. The Remote server box shows the build command under **Build first** (the ref is the viewer's branch or commit), for
+1. With the switch on, the Remote server window shows the build command as step 1, **Build the server** (the ref is the viewer's branch or commit), for
    example:
    ```powershell
    ssh isc-server "(curl -fsSL https://raw.githubusercontent.com/kjamartens/inSiliScope/remote-server/tools/remote.sh -o ~/.isc-remote.sh || wget -qO ~/.isc-remote.sh https://raw.githubusercontent.com/kjamartens/inSiliScope/remote-server/tools/remote.sh) && sh ~/.isc-remote.sh build --ref remote-server"
@@ -150,7 +151,7 @@ once, before you run the box's command. You need no admin rights for this, but t
    It downloads the source at that branch, tag or commit and builds the server in `~/.local/share/insiliscope/dev`.
    This takes a few minutes. If the server has no CMake 3.20 or newer, the build fetches one into the same folder
    first. It ends with `dev (remote-server) built and installed`.
-2. Then run the box's **Command** as in [Use it from the viewer](#use-it-from-the-viewer), point 3.
+2. Then run step 2's command as in [Use it from the viewer](#use-it-from-the-viewer), point 3.
 
 Build again after the branch changes: `dev` is whatever you built last. A viewer served from your own checkout
 fetches the launcher from `main`. To use another branch's launcher, set it in the browser's console (F12):

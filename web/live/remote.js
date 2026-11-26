@@ -104,58 +104,106 @@
     };
   }
 
-  // ---- the menu's line and the dialog ----
+  // ---- the menu's line and the window ----
+  // The window (2026-11-26, the user's design): a switch; on, the settings and the command(s) to run open under it.
+  const css = document.createElement('style');
+  css.textContent = `
+  #setDlg .box.rm{width:min(600px,calc(100vw - 32px));padding:var(--space-4) var(--space-5)}
+  #setDlg .rmHead{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-3)}
+  #setDlg .rmHead h3{margin:0;flex:1}
+  #setDlg .rmX{padding:2px 7px;line-height:1}
+  #setDlg .rmTop{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap}
+  #setDlg .rmTop .switch{font-weight:var(--font-weight-semibold)}
+  #setDlg .rmState{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1);font-size:var(--font-size-caption);color:var(--color-text-muted)}
+  #setDlg .rmState::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--color-input-border)}
+  #setDlg .rmState[data-s=on]{color:var(--color-text)} #setDlg .rmState[data-s=on]::before{background:var(--color-status-ok)}
+  #setDlg .rmState[data-s=waiting]::before{background:var(--color-status-warn)}
+  #setDlg .rmState[data-s=refused]{color:var(--color-status-error)} #setDlg .rmState[data-s=refused]::before{background:var(--color-status-error)}
+  #setDlg .rmLead{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--font-size-caption)}
+  #setDlg .rmLead a{color:var(--color-link)}
+  #setDlg .rmBody{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--color-border)}
+  #setDlg .rmGrid{display:grid;grid-template-columns:9.5em minmax(0,1fr);gap:var(--space-2) var(--space-3);align-items:center}
+  #setDlg .rmGrid label{color:var(--color-text-muted)}
+  #setDlg .rmGrid input[type=text],#setDlg .rmGrid select{width:100%;box-sizing:border-box}
+  #setDlg .rmGrid input[type=number]{width:7em}
+  #setDlg .rmMore{margin-top:var(--space-2)}
+  #setDlg .rmMore summary{cursor:pointer;color:var(--color-text-muted);font-size:var(--font-size-caption);margin-bottom:var(--space-2)}
+  #setDlg .rmStep{margin-top:var(--space-4)}
+  #setDlg .rmStepHead{display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-1)}
+  #setDlg .rmStepHead .n{flex:none;width:18px;height:18px;border-radius:50%;background:var(--color-accent);color:var(--color-accent-on);display:inline-flex;align-items:center;justify-content:center;font-size:var(--font-size-caption);font-weight:var(--font-weight-semibold)}
+  #setDlg .rmCode{position:relative;background:var(--color-input-bg);border:1px solid var(--color-input-border);border-radius:var(--radius-md);padding:var(--space-2) 64px var(--space-2) var(--space-3)}
+  #setDlg .rmCode code{display:block;font:var(--font-size-caption)/1.45 var(--font-family-mono);white-space:pre-wrap;word-break:break-all;max-height:7.5em;overflow:auto;user-select:all}
+  #setDlg .rmCopy{position:absolute;top:var(--space-1);right:var(--space-1);padding:2px 8px;font-size:var(--font-size-caption)}
+  #setDlg .rmStatus{margin-top:var(--space-3);font-size:var(--font-size-caption);color:var(--color-text-muted)}
+  #setDlg .rmStatus:empty{display:none}
+  #setDlg .rmStatus.warn{color:var(--color-status-warn)}`;
+  document.head.append(css);
+
+  // the state in a few words (the switch's line), and what to know about it (under the command)
+  function stateText() {
+    if (S.state === 'on' && S.info) return `Connected to ${S.info.host}`;
+    if (S.state === 'refused') return 'Another version';
+    if (S.state === 'waiting') return 'Waiting for the server';
+    return 'Off';
+  }
   function statusText() {
     const i = S.info;
     if (S.state === 'on' && i)
-      return `Connected to ${i.host}: ${i.cpus} CPUs, ${Math.round(i.memGB)} GB, ${i.threads} threads per engine (inSiliScope ${i.version}). ` +
-        (cfg.scope === 'records' ? 'Records, movies and ground truth run there; live runs here.' : 'Live, Records, movies and ground truth run there.');
-    if (S.state === 'refused') return 'Not used: ' + S.reason + '.';
-    if (S.state === 'waiting') return 'Waiting for the server' + (S.reason ? ` (${S.reason})` : '') + ': run the command below in a terminal and leave it open. This page connects by itself; until then it computes here.';
-    return 'Everything is computed in this browser.';
+      return `${i.cpus} CPUs · ${Math.round(i.memGB)} GB · ${i.threads} threads per engine · inSiliScope ${i.version}`;
+    if (S.state === 'refused') return `Not used: ${S.reason}.`;
+    if (S.state === 'waiting' && S.reason) return `Connection ${S.reason}.`;
+    return '';
   }
   function show() {
     const note = $('remoteNote');
     if (note) note.textContent = S.state === 'on' && S.info ? `Computing on ${S.info.host}` : S.state === 'waiting' ? 'Waiting for the remote server…' : S.state === 'refused' ? 'Remote server: another version' : 'Computing in this browser';
-    const st = $('rmStatus');
-    if (st) { st.textContent = statusText(); st.className = S.state === 'refused' ? 'warn' : 'msg'; }
     const go = $('rmGo');
-    if (go) go.textContent = cfg.enabled ? 'Stop using it' : 'Use it';
+    if (go) go.checked = cfg.enabled;
+    const body = $('rmBody');
+    if (body) body.hidden = !cfg.enabled;
+    const st = $('rmState');
+    if (st) { st.textContent = stateText(); st.dataset.s = S.state; }
+    const ss = $('rmStatus');
+    if (ss) { ss.textContent = statusText(); ss.className = 'rmStatus' + (S.state === 'refused' || S.reason ? ' warn' : ''); }
     const cmd = $('rmCmd');
-    if (cmd) cmd.value = command();
+    if (cmd) cmd.textContent = command();
     const bc = $('rmBuildCmd');
-    if (bc) bc.value = buildCommand();
+    if (bc) bc.textContent = buildCommand();
     if (self.liveState && self.liveState.showInfo) self.liveState.showInfo();
   }
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const step = (n, title, tip, id) => '<div class="rmStep"><div class="rmStepHead" title="' + esc(tip) + '">' +
+    (n ? `<span class="n">${n}</span>` : '') + `<span>${title}</span></div>` +
+    `<div class="rmCode"><code id="${id}"></code><button class="rmCopy" data-for="${id}">Copy</button></div></div>`;
   function open() {
     if (!self.iscSettings) return;
-    self.iscSettings.dialog('<h3>Remote server</h3>' +
-      '<div class="msg">A Linux machine (a workstation, a server or a cluster) you can log in to with <code>ssh</code> computes for this ' +
-      'page: you need no admin rights and nothing installed; the server fetches this version of inSiliScope by itself. ' +
-      '<a href="https://kjamartens.github.io/inSiliScope/docs/remote/" target="_blank" rel="noopener">How to set it up ↗</a></div>' +
-      '<div class="row"><label for="rmServer">Server</label><input type="text" id="rmServer" placeholder="isc-server or you@host" ' +
-      'title="The name you log in with: a Host from your SSH configuration, or user@host"></div>' +
-      '<div class="row"><label for="rmScope">Send to the server</label><select id="rmScope">' +
-      '<option value="all">Everything, live included</option><option value="records">Records, movies and ground truth</option></select></div>' +
-      '<div class="row"><label for="rmThreads">Threads per engine</label><input type="number" id="rmThreads" min="1" max="1024" step="1" placeholder="half the CPUs" ' +
-      'title="How many CPUs each engine (live, movies, ground truth) may use. Empty: half of the server\'s. On a shared machine, leave some for others."></div>' +
-      '<details><summary>More</summary>' +
-      '<div class="row"><label for="rmRun">Run through</label><input type="text" id="rmRun" placeholder="srun --cpus-per-task=32 --mem=64G --time=02:00:00" ' +
-      'title="On a cluster with a job scheduler: the command that starts a job (Slurm\'s srun). The server then runs in that job; the login node only relays."></div>' +
-      '<div class="row"><label for="rmPort">Port on this computer</label><input type="number" id="rmPort" min="1024" max="65535" step="1" ' +
-      'title="This computer\'s end of the SSH tunnel (127.0.0.1 only)"></div></details>' +
-      (version() === 'dev'
-        ? '<div class="msg" id="rmDev">This viewer is not a release, so there is no server to download: build one on the server ' +
-          'first (a few minutes; again after each change to the viewer), then run the command below.</div>' +
-          '<div class="row"><label for="rmBuildCmd">Build first</label><textarea id="rmBuildCmd" readonly rows="3" spellcheck="false" ' +
-          'title="Run it once in PowerShell (Windows) or a terminal: it builds the server from the source of this viewer\'s version in your home directory on the server (needs a C++ compiler there)"></textarea></div>'
-        : '') +
-      '<div class="row"><label for="rmCmd">Command</label><textarea id="rmCmd" readonly rows="4" spellcheck="false" ' +
-      'title="Run it in PowerShell (Windows) or a terminal (macOS, Linux) and leave the window open: closing it stops the server"></textarea></div>' +
-      '<div class="row"><span class="sp"></span><button id="rmCopy">Copy the command</button></div>' +
-      '<div id="rmStatus" class="msg"></div>' +
-      '<div class="row"><span class="sp"></span><button id="rmGo"></button><button id="rmClose">Close</button></div>');
+    const dev = version() === 'dev';
+    const box = self.iscSettings.dialog('<div class="rmHead"><h3>Remote server</h3>' +
+      '<button class="rmX" id="rmClose" aria-label="Close" title="Close (Esc)">✕</button></div>' +
+      '<div class="rmTop"><label class="switch"><input type="checkbox" role="switch" id="rmGo"><span class="track"></span>' +
+      '<span>Compute on a remote server</span></label><span class="rmState" id="rmState"></span></div>' +
+      '<p class="rmLead">A Linux machine you can log in to with <code>ssh</code> computes live frames, Records and ground truth. ' +
+      '<a href="https://kjamartens.github.io/inSiliScope/docs/remote/" target="_blank" rel="noopener">Set-up guide ↗</a></p>' +
+      '<div class="rmBody" id="rmBody">' +
+      '<div class="rmGrid">' +
+      '<label for="rmServer">Server</label><input type="text" id="rmServer" placeholder="isc-server or you@host" spellcheck="false" ' +
+      'title="The name you log in with: a Host from your SSH configuration, or user@host">' +
+      '<label for="rmScope">Run there</label><select id="rmScope">' +
+      '<option value="all">Everything, live included</option><option value="records">Records, movies and ground truth</option></select>' +
+      '<label for="rmThreads">Threads per engine</label><input type="number" id="rmThreads" min="1" max="1024" step="1" placeholder="half" ' +
+      'title="CPUs each engine (live, movies, ground truth) may use. Empty: half of the server\'s.">' +
+      '</div>' +
+      '<details class="rmMore"><summary>More</summary><div class="rmGrid">' +
+      '<label for="rmRun">Run through</label><input type="text" id="rmRun" placeholder="srun --cpus-per-task=32 --mem=64G --time=02:00:00" spellcheck="false" ' +
+      'title="On a cluster: the command that starts a job (Slurm\'s srun). The server runs in that job; the login node only relays.">' +
+      '<label for="rmPort">Port on this computer</label><input type="number" id="rmPort" min="1024" max="65535" step="1" ' +
+      'title="This computer\'s end of the SSH tunnel (127.0.0.1 only)">' +
+      '</div></details>' +
+      (dev ? step(1, 'Build the server', 'Once, and again after each change to this viewer. Needs a C++ compiler on the server.', 'rmBuildCmd') : '') +
+      step(dev ? 2 : 0, 'Run in a terminal and leave it open', 'PowerShell on Windows, a terminal on macOS or Linux. Closing it stops the server.', 'rmCmd') +
+      '<div class="rmStatus" id="rmStatus"></div>' +
+      '</div>', () => box.classList.remove('rm'));
+    box.classList.add('rm');
     $('rmServer').value = cfg.server; $('rmScope').value = cfg.scope; $('rmThreads').value = cfg.threads;
     $('rmRun').value = cfg.runThrough; $('rmPort').value = cfg.port;
     const edit = () => {
@@ -167,17 +215,19 @@
       if (S.on && (rescope || report)) { if (report) stop('waiting'); else rebind(); }
     };
     for (const id of ['rmServer', 'rmScope', 'rmThreads', 'rmRun', 'rmPort']) $(id).addEventListener(id === 'rmScope' ? 'change' : 'input', edit);
-    $('rmCopy').onclick = () => {
-      const t = $('rmCmd');
-      t.select();
-      (navigator.clipboard ? navigator.clipboard.writeText(t.value) : Promise.reject()).catch(() => document.execCommand('copy'));
-      $('rmCopy').textContent = 'Copied';
-      setTimeout(() => { if ($('rmCopy')) $('rmCopy').textContent = 'Copy the command'; }, 1500);
+    for (const b of document.querySelectorAll('#setDlg .rmCopy')) b.onclick = () => {
+      const t = $(b.dataset.for).textContent;
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).catch(() => {
+        const r = document.createRange(); r.selectNodeContents($(b.dataset.for));
+        const s = getSelection(); s.removeAllRanges(); s.addRange(r); document.execCommand('copy');
+      });
+      b.textContent = 'Copied';
+      setTimeout(() => { b.textContent = 'Copy'; }, 1500);
     };
-    $('rmGo').onclick = () => {
-      cfg.enabled = !cfg.enabled;
+    $('rmGo').onchange = () => {
+      cfg.enabled = $('rmGo').checked;
       save();
-      if (cfg.enabled) { S.state = 'waiting'; show(); probe(); }
+      if (cfg.enabled) { S.state = 'waiting'; S.reason = ''; show(); probe(); if (!cfg.server) $('rmServer').focus(); }
       else stop('off');
     };
     $('rmClose').onclick = () => self.iscSettings.closeDialog();
