@@ -270,13 +270,16 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   (`cli/scope_wasm.cpp`, its non-Emscripten branch calls `IscHooks()`, `cli/module_hooks.h`) compiled natively, with
   the worker's job glue (`iscEngine.handle`) in C++: hello (protocol 1, ABI, world version, version, host, CPUs, memory,
   threads; the page refuses another protocol / ABI / world), bfp-file, live, live-replay, movie (whole / streamed
-  `movie-part` / strips `movie-rows`), setup, panel, options, gt, gt-run, gt-files. One forked process per
+  `movie-part` / strips `movie-rows`), setup, panel, options, gt, gt-run, gt-files, status (2026-11-26: `LoadSampler`,
+  /proc: the machine's CPU % since the last call, load, memory in use, and the listener's and its engines' CPU % and
+  PSS; the window polls it every 2 s on a connection of its own while it shows a connected server, `watchLoad`). One forked process per
   WebSocket connection (= one browser worker), a reader thread that `_exit`s when it closes (cancels a Record);
   transports: `--socket` (a WebSocket on a Unix socket in a 0700 folder, token `?t=`; a server already on the socket with the same token is stopped by `/stop?t=`, SIGUSR1 to its listener, and replaced, another token refused), `--listen HOST:PORT` (tests,
   the scheduler's job), `--relay`, `--stdio` (u32-framed: Micro-Manager, not yet used); stops with its stdin (the ssh
   session) or `--idle-exit` 30 min. Wire `web/live/remote_wire.js` (u32 JSON length, JSON, 8-aligned blobs, `$b`
   refs; `cli` `OutMsg` / `Decode`); `cli/json_lite.h` (the settings file's JSON parser, shared). Viewer:
-  `web/live/remote.js` (☰ › Compute › Remote server… `#remoteOpen`, `#remoteNote`; `localStorage isc.remote` {enabled,
+  `web/live/remote.js` (☰ › Compute: a state light `#remoteState` (`.stateDot`) with `#remoteNote` and the button `#remoteOpen`; the window
+  (2026-11-26): a switch `#rmGo`, on: `#rmBody` with the settings, the numbered commands and the load meters `#rmLoad`; `localStorage isc.remote` {enabled,
   server, port 18765, threads, scope `all` (default: live too) | `records`, runThrough, token, sock}; probes
   `ws://127.0.0.1:<port>` every 3 s; the command: `ssh -L <port>:/tmp/isc-<sock>/s <server> "(curl .. || wget ..)
   ~/.isc-remote.sh && sh ~/.isc-remote.sh serve --version <page's> ..."`, no `$` or backslash; the launcher from

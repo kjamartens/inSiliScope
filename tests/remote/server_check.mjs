@@ -195,6 +195,17 @@ try {
   for (let i = 0; i < 4; i++) lsl.push(localLive(SL, 1));
   ok(sl.every((r, i) => !r.error && same(r.frames, lsl[i].frames)), `live SIM2D WideField: 4 frames = the module's, byte for byte (server ~${tSl.toFixed(0)} ms/frame)` + (sl.find(r => r.error) ? ' ' + sl.find(r => r.error).error : ''));
 
+  // the machine's load (the Remote server window): CPU and memory, the machine's and this server's share
+  {
+    const s1 = await A.job({ type: 'status', id: 60 }), s2 = await A.job({ type: 'status', id: 61 });
+    const pct = v => typeof v === 'number' && v >= 0 && v <= 100;
+    const linux = s2.memTotalGB !== undefined;
+    ok(!s1.error && !s2.error && s2.cpus >= 1 && (!linux || (pct(s1.cpuPct) && pct(s2.cpuPct) && pct(s2.iscCpuPct) &&
+       s2.memUsedGB > 0 && s2.memUsedGB <= s2.memTotalGB && s2.iscMemGB > 0 && s2.iscMemGB < s2.memUsedGB && s2.load1 >= 0 && s2.engines >= 0)),
+       `status: CPU ${s2.cpuPct} % (this server ${s2.iscCpuPct} %) of ${s2.cpus}, load ${s2.load1}, memory ${(+s2.memUsedGB).toFixed(1)} / ` +
+       `${(+s2.memTotalGB).toFixed(1)} GB (this server ${(+s2.iscMemGB).toFixed(2)} GB), ${s2.engines} other engine(s)` + (s1.error || s2.error ? ' ' + (s1.error || s2.error) : ''));
+  }
+
   // an unknown job and a cancelled one: answered with an error; a closed connection ends its engine
   const bad = await A.job({ type: 'pack', id: 40 });
   ok(!!bad.error, 'a job the server does not take: an error (' + bad.error + ')');

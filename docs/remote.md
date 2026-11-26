@@ -122,7 +122,10 @@ This machine can run inSiliScope.
    ```
 4. The viewer connects by itself within a few seconds. Chrome and Edge may ask whether the site may access devices
    on your local network: choose **Allow** (the "device" is the end of the SSH tunnel on your own PC).
-5. The menu now says **Computing on compute**, and the live view's info line ends with the server's name. The
+5. The menu's Compute line now has a green light and says **Computing on compute**, and the live view's info line
+   ends with the server's name. While connected, the Remote server window shows the server's load, updated every
+   2 s: its CPUs and memory in use, with inSiliScope's share in colour (the whole machine's numbers, so you see what
+   other users take too). The
    Record's frames stream into the viewer as usual and *Save* writes them on your PC.
 
 **To stop:** close the PowerShell window or press Ctrl+C. The server ends with it, and the viewer goes on computing in

@@ -114,11 +114,7 @@
   #setDlg .rmX{padding:2px 7px;line-height:1}
   #setDlg .rmTop{display:flex;align-items:center;gap:var(--space-3);flex-wrap:wrap}
   #setDlg .rmTop .switch{font-weight:var(--font-weight-semibold)}
-  #setDlg .rmState{margin-left:auto;display:inline-flex;align-items:center;gap:var(--space-1);font-size:var(--font-size-caption);color:var(--color-text-muted)}
-  #setDlg .rmState::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--color-input-border)}
-  #setDlg .rmState[data-s=on]{color:var(--color-text)} #setDlg .rmState[data-s=on]::before{background:var(--color-status-ok)}
-  #setDlg .rmState[data-s=waiting]::before{background:var(--color-status-warn)}
-  #setDlg .rmState[data-s=refused]{color:var(--color-status-error)} #setDlg .rmState[data-s=refused]::before{background:var(--color-status-error)}
+  #setDlg .rmTop .stateDot{margin-left:auto}
   #setDlg .rmLead{margin:var(--space-2) 0 0;color:var(--color-text-muted);font-size:var(--font-size-caption)}
   #setDlg .rmLead a{color:var(--color-link)}
   #setDlg .rmBody{margin-top:var(--space-4);padding-top:var(--space-4);border-top:1px solid var(--color-border)}
@@ -136,7 +132,17 @@
   #setDlg .rmCopy{position:absolute;top:var(--space-1);right:var(--space-1);padding:2px 8px;font-size:var(--font-size-caption)}
   #setDlg .rmStatus{margin-top:var(--space-3);font-size:var(--font-size-caption);color:var(--color-text-muted)}
   #setDlg .rmStatus:empty{display:none}
-  #setDlg .rmStatus.warn{color:var(--color-status-warn)}`;
+  #setDlg .rmStatus.warn{color:var(--color-status-warn)}
+  #setDlg .rmLoad{margin-top:var(--space-4)}
+  #setDlg .rmLoad[hidden]{display:none}
+  #setDlg .rmLoad .rmGrid{align-items:start}
+  #setDlg .rmLoad .lab{color:var(--color-text-muted)}
+  #setDlg .rmMeter .bar{display:flex;height:8px;border-radius:var(--radius-sm);background:var(--color-input-border);overflow:hidden;margin-top:5px}
+  #setDlg .rmMeter .bar i{display:block;height:100%;transition:width var(--duration-fast)}
+  #setDlg .rmMeter .bar .isc{background:var(--color-accent)} #setDlg .rmMeter .bar .oth{background:var(--color-text-muted)}
+  #setDlg .rmMeter .v{display:flex;justify-content:space-between;gap:var(--space-3);margin-top:var(--space-1);font-size:var(--font-size-caption);color:var(--color-text-muted)}
+  #setDlg .rmMeter .v b{color:var(--color-text);font-weight:var(--font-weight-medium)}
+  #setDlg .rmKey::before{content:'';display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--color-accent);margin-right:var(--space-1)}`;
   document.head.append(css);
 
   // the state in a few words (the switch's line), and what to know about it (under the command)
@@ -149,20 +155,26 @@
   function statusText() {
     const i = S.info;
     if (S.state === 'on' && i)
-      return `${i.cpus} CPUs · ${Math.round(i.memGB)} GB · ${i.threads} threads per engine · inSiliScope ${i.version}`;
+      return `${i.threads} threads per engine · inSiliScope ${i.version}`;
     if (S.state === 'refused') return `Not used: ${S.reason}.`;
     if (S.state === 'waiting' && S.reason) return `Connection ${S.reason}.`;
     return '';
   }
   function show() {
     const note = $('remoteNote');
-    if (note) note.textContent = S.state === 'on' && S.info ? `Computing on ${S.info.host}` : S.state === 'waiting' ? 'Waiting for the remote server…' : S.state === 'refused' ? 'Remote server: another version' : 'Computing in this browser';
+    if (note) {
+      note.textContent = S.state === 'on' && S.info ? `Computing on ${S.info.host}` : S.state === 'waiting' ? 'Waiting for the remote server…' : S.state === 'refused' ? 'Remote server: another version' : 'Computing in this browser';
+      $('remoteState').dataset.s = S.state;
+      $('remoteState').title = S.state === 'refused' ? S.reason : note.textContent;
+    }
     const go = $('rmGo');
     if (go) go.checked = cfg.enabled;
     const body = $('rmBody');
     if (body) body.hidden = !cfg.enabled;
     const st = $('rmState');
     if (st) { st.textContent = stateText(); st.dataset.s = S.state; }
+    const ld = $('rmLoad');
+    if (ld) { if (S.state === 'on') watchLoad(); else { unwatchLoad(); ld.hidden = true; } }
     const ss = $('rmStatus');
     if (ss) { ss.textContent = statusText(); ss.className = 'rmStatus' + (S.state === 'refused' || S.reason ? ' warn' : ''); }
     const cmd = $('rmCmd');
@@ -172,6 +184,52 @@
     if (self.liveState && self.liveState.showInfo) self.liveState.showInfo();
   }
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  // The server machine's load while the window shows a connected server (a 'status' job every 2 s on a connection of
+  // its own, cli/remote_server.cpp LoadSampler): its CPU and memory in use, this server's share in the accent colour.
+  const LD = { ws: null, timer: 0, gen: 0 };
+  const fmtGB = v => (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' GB';
+  function meter(el, iscFrac, allFrac, left, right, tip) {
+    if (!el) return;
+    const w = f => Math.max(0, Math.min(100, 100 * f)).toFixed(1) + '%';
+    el.innerHTML = `<div class="bar"><i class="isc" style="width:${w(iscFrac)}"></i><i class="oth" style="width:${w(Math.max(0, allFrac - iscFrac))}"></i></div>` +
+      `<div class="v"><span>${left}</span><span class="rmKey">${right}</span></div>`;
+    el.title = tip;
+  }
+  function showLoad(d) {
+    const ld = $('rmLoad');
+    if (!ld || d.error || d.cpuPct === undefined) { if (ld) ld.hidden = true; return; }
+    ld.hidden = false;
+    meter($('rmCpu'), d.iscCpuPct / 100, d.cpuPct / 100, `<b>${Math.round(d.cpuPct)} %</b> of ${d.cpus} CPUs`, `inSiliScope ${Math.round(d.iscCpuPct)} %`,
+      `The server's CPUs in use over the last 2 s; inSiliScope's share in colour. Load average (1 min): ${(+d.load1).toFixed(1)}. ` +
+      `${d.engines} engine${d.engines === 1 ? '' : 's'} of this viewer connected.`);
+    meter($('rmMem'), d.iscMemGB / d.memTotalGB, d.memUsedGB / d.memTotalGB, `<b>${fmtGB(d.memUsedGB)}</b> of ${fmtGB(d.memTotalGB)}`, `inSiliScope ${fmtGB(d.iscMemGB)}`,
+      "The server's memory in use (its total less what is available); inSiliScope's share in colour.");
+  }
+  function watchLoad() {
+    if (LD.ws || !self.IscWire) return;
+    const gen = ++LD.gen;
+    let ws;
+    try { ws = new WebSocket(url()); } catch (e) { return; }
+    LD.ws = ws;
+    ws.binaryType = 'arraybuffer';
+    const ask = () => { if (LD.gen === gen && ws.readyState === 1) ws.send(self.IscWire.encode({ type: 'status', id: 1 })); };
+    ws.onopen = ask;
+    ws.onmessage = e => {
+      if (LD.gen !== gen) return;
+      let d;
+      try { d = self.IscWire.decode(e.data); } catch (err) { return; }
+      if (d.type !== 'status') return;
+      showLoad(d);
+      if (d.error) return;   // (a server of before 2026-11-26)
+      LD.timer = setTimeout(ask, 2000);
+    };
+    ws.onclose = () => { if (LD.gen === gen) { LD.ws = null; clearTimeout(LD.timer); } };
+  }
+  function unwatchLoad() {
+    LD.gen++;
+    clearTimeout(LD.timer);
+    if (LD.ws) { try { LD.ws.close(); } catch (e) { /* closed */ } LD.ws = null; }
+  }
   const step = (n, title, tip, id) => '<div class="rmStep"><div class="rmStepHead" title="' + esc(tip) + '">' +
     (n ? `<span class="n">${n}</span>` : '') + `<span>${title}</span></div>` +
     `<div class="rmCode"><code id="${id}"></code><button class="rmCopy" data-for="${id}">Copy</button></div></div>`;
@@ -181,7 +239,7 @@
     const box = self.iscSettings.dialog('<div class="rmHead"><h3>Remote server</h3>' +
       '<button class="rmX" id="rmClose" aria-label="Close" title="Close (Esc)">✕</button></div>' +
       '<div class="rmTop"><label class="switch"><input type="checkbox" role="switch" id="rmGo"><span class="track"></span>' +
-      '<span>Compute on a remote server</span></label><span class="rmState" id="rmState"></span></div>' +
+      '<span>Compute on a remote server</span></label><span class="stateDot" id="rmState"></span></div>' +
       '<p class="rmLead">A Linux machine you can log in to with <code>ssh</code> computes live frames, Records and ground truth. ' +
       '<a href="https://kjamartens.github.io/inSiliScope/docs/remote/" target="_blank" rel="noopener">Set-up guide ↗</a></p>' +
       '<div class="rmBody" id="rmBody">' +
@@ -201,8 +259,12 @@
       '</div></details>' +
       (dev ? step(1, 'Build the server', 'Once, and again after each change to this viewer. Needs a C++ compiler on the server.', 'rmBuildCmd') : '') +
       step(dev ? 2 : 0, 'Run in a terminal and leave it open', 'PowerShell on Windows, a terminal on macOS or Linux. Closing it stops the server.', 'rmCmd') +
+      '<div class="rmLoad" id="rmLoad" hidden><div class="rmGrid">' +
+      '<span class="lab">CPU</span><div class="rmMeter" id="rmCpu"></div>' +
+      '<span class="lab">Memory</span><div class="rmMeter" id="rmMem"></div>' +
+      '</div></div>' +
       '<div class="rmStatus" id="rmStatus"></div>' +
-      '</div>', () => box.classList.remove('rm'));
+      '</div>', () => { unwatchLoad(); box.classList.remove('rm'); });
     box.classList.add('rm');
     $('rmServer').value = cfg.server; $('rmScope').value = cfg.scope; $('rmThreads').value = cfg.threads;
     $('rmRun').value = cfg.runThrough; $('rmPort').value = cfg.port;

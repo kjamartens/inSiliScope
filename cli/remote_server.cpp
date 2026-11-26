@@ -33,6 +33,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -42,6 +43,7 @@
 #include <vector>
 
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netdb.h>
@@ -627,6 +629,149 @@ bool Handshake(int fd, const std::string& token, const std::string& req)
    return WriteAll(fd, r.data(), r.size());
 }
 
+// ---- the machine's load (the viewer's Remote server window, 2026-11-26) ----
+// A 'status' job: the machine's CPU use since this connection's last status (the first: over 0.25 s), its 1-minute
+// load, its memory in use (MemTotal - MemAvailable), and this server's share: the CPU and the memory (PSS: the pages a
+// fork shares are counted once) of the listener and its engines. Linux /proc; elsewhere the fields are left out.
+pid_t g_listenerPid = 0;   // (Serve's process; 0 under --stdio: this process alone)
+
+struct LoadSampler
+{
+   struct Cpu { unsigned long long total = 0, idle = 0; };
+   bool have = false;
+   Cpu cpu;
+   std::map<pid_t, unsigned long long> ticks;
+   std::chrono::steady_clock::time_point at;
+
+   static bool ReadText(const std::string& path, std::string& out)
+   {
+      FILE* f = std::fopen(path.c_str(), "r");
+      if (!f) return false;
+      char b[4096];
+      out.clear();
+      for (size_t n; (n = std::fread(b, 1, sizeof b, f)) > 0;) out.append(b, n);
+      std::fclose(f);
+      return true;
+   }
+   static bool MachineCpu(Cpu& c)
+   {
+      std::string s;
+      if (!ReadText("/proc/stat", s) || s.compare(0, 4, "cpu ") != 0) return false;
+      unsigned long long v[8] = {};
+      if (std::sscanf(s.c_str() + 4, "%llu %llu %llu %llu %llu %llu %llu %llu", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7]) < 4)
+         return false;
+      c.total = 0;
+      for (unsigned long long x : v) c.total += x;
+      c.idle = v[3] + v[4];   // idle + iowait
+      return true;
+   }
+   // this server's processes: the listener and every process whose parent it is (the engines; their relays' pumps)
+   static std::vector<pid_t> Ours()
+   {
+      std::vector<pid_t> out;
+      const pid_t root = g_listenerPid ? g_listenerPid : ::getpid();
+      out.push_back(root);
+      if (!g_listenerPid) return out;
+      DIR* d = ::opendir("/proc");
+      if (!d) return out;
+      std::string s;
+      while (dirent* e = ::readdir(d))
+      {
+         const pid_t p = static_cast<pid_t>(std::atoi(e->d_name));
+         if (p <= 0 || p == root || !ReadText(std::string("/proc/") + e->d_name + "/stat", s)) continue;
+         const size_t r = s.rfind(')');
+         int ppid = 0;
+         if (r != std::string::npos && std::sscanf(s.c_str() + r + 1, " %*c %d", &ppid) == 1 && ppid == root) out.push_back(p);
+      }
+      ::closedir(d);
+      return out;
+   }
+   static unsigned long long Ticks(pid_t p)
+   {
+      std::string s;
+      if (!ReadText("/proc/" + std::to_string(p) + "/stat", s)) return 0;
+      const size_t r = s.rfind(')');
+      unsigned long long ut = 0, st = 0;
+      if (r == std::string::npos ||
+          std::sscanf(s.c_str() + r + 1, " %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %llu %llu", &ut, &st) != 2)
+         return 0;
+      return ut + st;
+   }
+   static double MemKb(pid_t p)   // PSS, else the resident set
+   {
+      std::string s;
+      if (ReadText("/proc/" + std::to_string(p) + "/smaps_rollup", s))
+      {
+         const size_t k = s.find("\nPss:");
+         if (k != std::string::npos) return std::atof(s.c_str() + k + 5);
+      }
+      if (ReadText("/proc/" + std::to_string(p) + "/statm", s))
+      {
+         unsigned long long sz = 0, res = 0;
+         if (std::sscanf(s.c_str(), "%llu %llu", &sz, &res) == 2) return static_cast<double>(res) * ::sysconf(_SC_PAGE_SIZE) / 1024.0;
+      }
+      return 0;
+   }
+   static double MemInfoKb(const std::string& s, const char* key)
+   {
+      const size_t k = s.find(key);
+      return k == std::string::npos ? -1 : std::atof(s.c_str() + k + std::strlen(key));
+   }
+
+   void Fill(OutMsg& o)
+   {
+      Cpu c0;
+      if (!have)
+      {
+         // a first sample: the next one a quarter of a second on
+         MachineCpu(c0);
+         for (pid_t p : Ours()) ticks[p] = Ticks(p);
+         cpu = c0;
+         at = std::chrono::steady_clock::now();
+         std::this_thread::sleep_for(std::chrono::milliseconds(250));
+      }
+      Cpu c1;
+      const bool cpuOk = MachineCpu(c1);
+      const auto now = std::chrono::steady_clock::now();
+      const double sec = std::chrono::duration<double>(now - at).count();
+      const long hz = ::sysconf(_SC_CLK_TCK), ncpu = ::sysconf(_SC_NPROCESSORS_ONLN);
+      std::map<pid_t, unsigned long long> t1;
+      unsigned long long ours = 0;
+      double memKb = 0;
+      const std::vector<pid_t> procs = Ours();
+      for (pid_t p : procs)
+      {
+         const unsigned long long t = Ticks(p);
+         t1[p] = t;
+         const auto was = ticks.find(p);
+         ours += was == ticks.end() ? t : (t >= was->second ? t - was->second : 0);   // (a new one: all of it is since)
+         memKb += MemKb(p);
+      }
+      o.Num("cpus", static_cast<double>(ncpu > 0 ? ncpu : std::thread::hardware_concurrency()));
+      if (cpuOk && c1.total > cpu.total)
+      {
+         const double dt = static_cast<double>(c1.total - cpu.total), di = static_cast<double>(c1.idle - std::min(c1.idle, cpu.idle));
+         o.Num("cpuPct", std::round(1000.0 * std::max(0.0, 1.0 - di / dt)) / 10.0);
+      }
+      if (hz > 0 && ncpu > 0 && sec > 0)
+         o.Num("iscCpuPct", std::round(1000.0 * std::min(1.0, static_cast<double>(ours) / hz / sec / ncpu)) / 10.0);
+      std::string s;
+      if (ReadText("/proc/loadavg", s)) o.Num("load1", std::atof(s.c_str()));
+      if (ReadText("/proc/meminfo", s))
+      {
+         const double tot = MemInfoKb(s, "MemTotal:"), avail = MemInfoKb(s, "MemAvailable:");
+         if (tot > 0) o.Num("memTotalGB", tot / 1048576.0);
+         if (tot > 0 && avail >= 0) o.Num("memUsedGB", (tot - avail) / 1048576.0);
+      }
+      o.Num("iscMemGB", memKb / 1048576.0);
+      o.Num("engines", static_cast<double>(procs.size() > 2 ? procs.size() - 2 : 0));   // (less the listener and this one)
+      have = true;
+      cpu = c1;
+      ticks.swap(t1);
+      at = now;
+   }
+};
+
 // ---- the engine: iscEngine.handle's remote job types ----
 struct Options
 {
@@ -647,6 +792,7 @@ public:
       try
       {
          if (type == "hello") return Hello(m, id);
+         if (type == "status") return Status(id);
          if (type == "bfp-file") return BfpFile(m);
          if (type == "live") return Live(m, id);
          if (type == "live-replay") return LiveReplay(m, id);
@@ -675,6 +821,7 @@ private:
    Conn& c_;
    Options o_;
    bool profileOn_ = false;
+   LoadSampler load_;
 
    static std::string ReplyType(const std::string& t) { return t; }
    void Error(const std::string& type, const std::string& id, const std::string& e)
@@ -701,6 +848,13 @@ private:
          .Num("cpus", std::thread::hardware_concurrency()).Num("threads", o_.threads > 0 ? o_.threads : std::thread::hardware_concurrency())
          .Num("memGB", pages > 0 && psize > 0 ? static_cast<double>(pages) * psize / 1073741824.0 : 0);
       (void)m;
+      c_.Send(o);
+   }
+
+   void Status(const std::string& id)
+   {
+      OutMsg o("status", id);
+      load_.Fill(o);
       c_.Send(o);
    }
 
@@ -1296,6 +1450,7 @@ int Serve(Listener& L, const Options& o, int idleMin, bool watchStdin)
    std::signal(SIGHUP, OnStop);
    std::signal(SIGUSR1, OnReplaced);
    std::set<pid_t> kids;
+   g_listenerPid = ::getpid();
    auto last = Clock::now();
    while (!g_stop)
    {

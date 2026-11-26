@@ -289,6 +289,12 @@ self.iscCoi = (() => {
   .switch input:checked+.track{background:var(--color-accent)}
   .switch input:checked+.track::after{transform:translateX(16px)}
   .switch input:focus-visible+.track{outline:2px solid var(--color-focus-ring);outline-offset:2px}
+  /* a state light (.stateDot[data-s]): a dot in the state's colour before its words (the remote server: off, waiting, on, refused) */
+  .stateDot{display:inline-flex;align-items:center;gap:var(--space-2);min-width:0;font-size:var(--font-size-caption);color:var(--color-text-muted)}
+  .stateDot::before{content:'';flex:none;width:8px;height:8px;border-radius:50%;background:var(--color-input-border)}
+  .stateDot[data-s=on]{color:var(--color-text)} .stateDot[data-s=on]::before{background:var(--color-status-ok)}
+  .stateDot[data-s=waiting]::before{background:var(--color-status-warn)}
+  .stateDot[data-s=refused]{color:var(--color-status-error)} .stateDot[data-s=refused]::before{background:var(--color-status-error)}
   .seg button:hover{color:var(--color-text);background:var(--color-surface-hover)}
   .seg button.on,.seg button[aria-checked=true]{background:color-mix(in srgb,var(--color-accent) 28%,var(--color-input-bg));color:var(--color-text)}
   .seg button:focus-visible{outline-offset:-2px}
@@ -536,6 +542,9 @@ self.iscCoi = (() => {
   #menu .mrow{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:center;gap:var(--space-3)}
   #menu .mrow>span{font-size:var(--font-size-caption);color:var(--color-text-muted)}
   #menu .mrow .seg{display:flex}
+  #menu .cmp{display:flex;align-items:center;gap:var(--space-3);margin-top:var(--space-2)}
+  #menu .cmp .stateDot{flex:1} #menu .cmp .stateDot span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #menu .cmp button{flex:none;padding:3px var(--space-3)}
   #menu .seg button{flex:1}
   #menu label{display:block;margin:3px 0;cursor:pointer}
   #menu .btns{display:flex;gap:6px;margin-top:8px}
@@ -2057,8 +2066,8 @@ menu.innerHTML = '<h4>Appearance</h4>' +
   '<div class="btns"><button data-act="expand">Expand all</button><button data-act="collapse">Collapse all</button>' +
   '<button data-act="reset" title="Every setting (also those beside the image) back to its default; the rows that differ from it carry a thin bar at their left">Reset all</button></div>' +
   '<div class="note" id="advNote"></div>' +
-  '<h4>Compute</h4><div class="btns"><button id="remoteOpen" title="Let a Linux machine you can log in to with ssh (a workstation, a server, a cluster) compute live frames, Records and ground truth">Remote server…</button></div>' +
-  '<div class="note" id="remoteNote">Computing in this browser</div>' +
+  '<h4>Compute</h4><div class="cmp"><span class="stateDot" id="remoteState" data-s="off"><span id="remoteNote">This browser</span></span>' +
+  '<button id="remoteOpen" title="Let a Linux machine you can log in to with ssh (a workstation, a server, a cluster) compute live frames, Records and ground truth">Remote server…</button></div>' +
   '<h4>Tools</h4><div class="note"><a id="voxelizeLink" href="voxelize.html" target="_blank" rel="noopener" title="A saved ground-truth table to a density stack at any voxel size">Voxelize ground truth ↗</a></div>' +
   '<h4>About</h4>' +
   `<div class="note" id="buildInfo">${buildLine}</div>` +

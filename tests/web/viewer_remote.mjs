@@ -65,6 +65,12 @@ await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, he
   const bcmd = await page.evaluate(() => { const e = document.getElementById('rmBuildCmd'); return e ? e.textContent : ''; });
   check(/ serve --version dev /.test(cmd) && bcmd.startsWith('ssh isc-test "') && / build --ref \S+"$/.test(bcmd) && !/[$\\]/.test(bcmd),
     `the build command of a dev page: ${bcmd}`);
+  // the server machine's load in the window (a 'status' job every 2 s), and the menu's state light
+  await until(() => !document.getElementById('rmLoad').hidden && /%/.test(document.getElementById('rmCpu').textContent), null, 10000);
+  const load = await page.evaluate(() => ({ cpu: document.getElementById('rmCpu').textContent, mem: document.getElementById('rmMem').textContent,
+    light: document.getElementById('remoteState').dataset.s }));
+  check(/^\d+ % of \d+ CPUs.*inSiliScope \d+ %$/.test(load.cpu) && /GB of .*GB.*inSiliScope .*GB$/.test(load.mem) && load.light === 'on',
+    `the window shows the server's load: "${load.cpu}", "${load.mem}"; the menu's light: ${load.light}`);
   await page.evaluate(() => document.getElementById('rmClose').click());
 
   await page.evaluate(() => { const s = document.getElementById('mv_size'); s.value = 64; s.dispatchEvent(new Event('input', { bubbles: true })); });

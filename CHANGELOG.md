@@ -18,7 +18,9 @@ Versions follow semver; while 0.x, any release may change the output for a given
   "Run through" starts it in a scheduler's job (`srun ...`). Release asset `insiliscope-server-linux-x86_64.tar.gz`
   (glibc 2.28+, x86-64). Fixed on the way: a Record started while a settings file's light history was replayed never
   began. Live frames come back at the size the view shows them (a large frame in means of n × n pixels, zoomed in only
-  the part shown, the display range, level bar and saturation warning from that image); snaps and Records whole.
+  the part shown, the display range, level bar and saturation warning from that image); snaps and Records whole. The
+  Remote server window is a switch (on: the settings and the commands to run) with the server's CPU and memory in
+  use, inSiliScope's share in colour; ☰ shows the connection as a state light.
 - **Viewer: Records and movies splat their blinks and draw the camera noise on the GPU** (WebGPU: Chrome, Edge), with
   a WGSL twin of the adapter's Direct3D 11 splat. Frames within float rounding of the CPU's (about 3 samples in 10000 a count apart); a
   256 x 256 px, 40-frame DNA-PAINT movie 0.69 -> 0.16 s on an Intel Iris Xe. The engine's movie stays synchronous: the

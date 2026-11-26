@@ -138,6 +138,7 @@ All of them are styled in `web/index.html`'s `<style>` with tokens only.
 | Icon button | `<button aria-label title>` | ↺, ☰, ⤢, ✕ | always has an `aria-label` and a tooltip |
 | Segmented control | `.seg > button[role=radio]` | 2–5 exclusive choices that are always visible (left view, level, theme, density) | `.on` or `aria-checked=true`; more choices → a select |
 | Switch | `label.switch > input[type=checkbox][role=switch] + .track` and the text | one thing on or off that acts at once (the remote server) | on: the accent; a setting of the simulation is a checkbox row, not a switch |
+| State light | `.stateDot[data-s]` (off, waiting, on, refused) with the words inside | a connection's state (the remote server, in ☰ and its window) | the dot's colour from the status tokens; the words say it too (never colour alone) |
 | Select | `<select>` | a longer list or a preset | a preset select shows "Custom" when edited by hand |
 | Slider + number | `range` row (slider, bold value, unit) or `number` row (field, unit) | a continuous value | the unit is always visible; the wheel steps it |
 | Two-knob slider | `.dual` (`pair` rows) | a min..max range | the boxes and the knobs stay together |
