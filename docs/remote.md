@@ -124,7 +124,7 @@ This machine can run inSiliScope.
    on your local network: choose **Allow** (the "device" is the end of the SSH tunnel on your own PC).
 5. The menu's Compute line now has a green light and says **Computing on compute**, and the live view's info line
    ends with the server's name. While connected, the Remote server window shows the server's load right under the
-   switch, read every second (the CPU as the mean of the last 5 s; inSiliScope's share in CPUs, so one busy thread
+   switch, read every second (the CPU as the mean of the last 10 s; inSiliScope's share in CPUs, so one busy thread
    reads 1.0): its CPUs and memory in use, with inSiliScope's share in colour (the whole machine's
    numbers, so you see what other users take too); the settings and commands fold under **Settings and commands**.
    A server older than the viewer says instead that it does not report its load: run its command again (a viewer

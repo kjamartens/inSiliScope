@@ -200,9 +200,9 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   // The server machine's load while the window shows a connected server (a 'status' job every second on a connection
   // of its own, cli/remote_server.cpp LoadSampler): its CPU and memory in use, this server's share in the accent colour.
-  // The CPU is the mean of the last 5 s (the user's choice, 2026-11-26: not a jumpy snapshot); the memory as it is now.
+  // The CPU is the mean of the last 10 s (the user's choice, 2026-11-26: not a jumpy snapshot); the memory as it is now.
   // A dot by "CPU" flashes at each reading, so a quiet bar (one thread of 192 CPUs is 0.5 %) is seen to be read.
-  const LD = { ws: null, timer: 0, gen: 0, cpu: [] }, LOAD_EVERY_MS = 1000, LOAD_MEAN_MS = 5000;
+  const LD = { ws: null, timer: 0, gen: 0, cpu: [] }, LOAD_EVERY_MS = 1000, LOAD_MEAN_MS = 10000;
   const fmtN = v => (v < 10 ? v.toFixed(1) : String(Math.round(v)));
   const fmtGB = v => v < 1 ? Math.round(v * 1024) + ' MB' : (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' GB';
   function meter(el, iscFrac, allFrac, left, right, tip) {

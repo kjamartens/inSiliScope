@@ -71,7 +71,7 @@ await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, he
     light: document.getElementById('remoteState').dataset.s, folded: !document.getElementById('rmSetup').open }));
   check(/^[\d.]+ % of \d+ CPUs.*inSiliScope [\d.]+ CPUs?$/.test(load.cpu) && /[GM]B of .*GB.*inSiliScope .*[GM]B$/.test(load.mem) && load.light === 'on' && load.folded,
     `the window shows the server's load: "${load.cpu}", "${load.mem}", the settings and commands folded; the menu's light: ${load.light}`);
-  // read every second (the CPU a mean of the last 5 s)
+  // read every second (the CPU a mean of the last 10 s)
   const reads = await page.evaluate(() => new Promise(r => {
     let n = 0;
     const mo = new MutationObserver(() => n++);
