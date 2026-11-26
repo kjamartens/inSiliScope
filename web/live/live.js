@@ -984,6 +984,15 @@ const DISK = L.disk = (() => {
     async file(dir, name) { return (await (await (await root()).getDirectoryHandle(dir)).getFileHandle(name)).getFile(); },
     // bytes this page may still write (the browser's quota for the origin less what it holds)
     async room() { const e = await navigator.storage.estimate(); return Math.max(0, (e.quota || 0) - (e.usage || 0)); },
+    // whether the browser keeps this page's storage (null: not known yet; asked: a Record asked for it). A Record short
+    // of room asks (navigator.storage.persist, in Start's click): Firefox asks the person and then lets a site store
+    // up to half the disk instead of 10 GiB; Chrome decides by itself (its quota does not change).
+    kept: null, asked: false,
+    async keep() {
+      this.asked = true;
+      try { this.kept = !!(navigator.storage.persist && await navigator.storage.persist()); } catch (e) { this.kept = false; }
+      return this.kept;
+    },
     // delete the recordings of closed tabs, and this tab's but those in keep
     async sweep(keep = []) {
       if (!ok) return;
@@ -1000,6 +1009,7 @@ const DISK = L.disk = (() => {
   };
 })();
 DISK.sweep();
+if (DISK.ok && navigator.storage.persisted) navigator.storage.persisted().then(v => { if (DISK.kept === null) DISK.kept = v; }).catch(() => {});
 // ---- a Record straight to a file the person chooses (2026-11-20; Chrome and Edge: the File System Access API) ----
 // "save to a file as recorded" (the Record box, where the browser has a save picker): Start asks for a .tif and the
 // frames go into it as the engine makes them, with no storage quota (the browser's disk storage gives a page a share
@@ -1100,10 +1110,16 @@ function recProblem(room = recRoom) {
     return `A field past ${REC_WHOLE_SIDE} px renders in strips, which write to the disk storage: tick "write frames to disk"` +
       (FILE.ok ? ' or "save to a file as recorded".' : DISK.ok ? '.' : ' (this browser offers no disk storage to this page).');
   if (disk && !file && room !== null && bytes > room)
-    return `Not enough disk storage: ${n} frames of ${w} × ${h} px are ${gbText(bytes)}, this browser lets the page store ` +
-      `${gbText(room)} (at most ${Math.floor(room / (w * h * 2))} frames of this field). ` +
+    return `Not enough disk storage: ${n} frames of ${w} × ${h} px are ${gbText(bytes)}, this browser lets this site ` +
+      `store ${gbText(room)} more (at most ${Math.floor(room / (w * h * 2))} frames of this field): its limit for one ` +
+      'site, not the free disk space. ' +
       (FILE.ok ? 'Tick "save to a file as recorded" (no limit but the disk), or record fewer frames or a smaller field.'
-               : 'Record fewer frames or a smaller field, or free disk space (the browser\'s share grows with it).');
+       : DISK.kept ? 'Record fewer frames or a smaller field, or free disk space.'
+       : DISK.asked
+         ? 'Allow this site to store data persistently (its permissions, by the address bar): then it may use up to ' +
+           'half the disk. Or record fewer frames or a smaller field.'
+         : 'Start asks the browser to let this site store data persistently (up to half the disk); or record fewer ' +
+           'frames or a smaller field.');
   return '';
 }
 function syncRecMsg(text = recProblem()) {
@@ -1345,8 +1361,11 @@ async function startRec() {
     REC.starting = true;
     let refused = '';
     try {
+      // short of room: ask the browser to keep this page's storage first, while the click still counts
+      if (!DISK.kept && !DISK.asked && recRoom !== null && bytes > recRoom) await DISK.keep();
       await DISK.sweep(PLAY.disk ? [PLAY.disk.dir] : []);   // (the recording shown stays: a download may read it)
       recRoom = await DISK.room();
+      if (!DISK.kept && !DISK.asked && bytes > recRoom) { await DISK.keep(); recRoom = await DISK.room(); }
       refused = recProblem(recRoom);
     } catch (e) { disk = null; }
     finally { REC.starting = false; }

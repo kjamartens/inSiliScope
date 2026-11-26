@@ -321,6 +321,37 @@ try {
   check(!(await onDisk()) && Buffer.compare(framesOf(mem), framesOf(fresh)) === 0 && mem.pages.length === 20,
     `fresh: with "write frames to disk" off (in memory) the same ${(framesOf(mem).length / 1e6).toFixed(2)} MB of frames byte for byte`);
   await setDisk(true);
+  // short of room (2026-11-26; Firefox gives a site 10 GiB unless it may store persistently, then half the disk):
+  // the box says it is the browser's limit for the site and that Start asks; Start asks the browser
+  // (navigator.storage.persist); denied, the Record is refused naming the site's permissions; granted, it records.
+  // The browser's quota and answer stood in for, the save picker taken away (as in Firefox).
+  const quota = (grant, room) => page.evaluate(([grant, room]) => {
+    const st = navigator.storage;
+    self.__persistAsked = 0; self.__kept = false;
+    st.estimate = async () => ({ usage: 1e6, quota: 1e6 + (self.__kept ? 1e12 : room) });
+    st.persist = async () => { self.__persistAsked++; self.__kept = grant; return grant; };
+    st.persisted = async () => self.__kept;
+    liveState.file.ok = false; Object.assign(liveState.disk, { kept: false, asked: false });
+  }, [grant, room]);
+  const boxText = () => page.evaluate(() => { const m = document.getElementById('lv_recMsg'); return m.hidden ? '' : m.textContent; });
+  const pickerOk = await page.evaluate(() => liveState.file.ok);
+  await quota(false, 100000);
+  await page.evaluate(() => document.getElementById('lv_rec').click());
+  await page.waitForFunction(() => /Not enough disk storage/.test(document.getElementById('lv_recMsg').textContent), null, { timeout: 5000 });
+  const before = await boxText();
+  await page.evaluate(() => document.getElementById('lv_recGo').click());
+  await page.waitForFunction(() => /Allow this site/.test(document.getElementById('lv_recMsg').textContent), null, { timeout: 5000 });
+  const denied = await page.evaluate(() => ({ asked: self.__persistAsked, on: liveState.rec.on, open: !document.getElementById('lv_recPop').hidden }));
+  check(/limit for one site, not the free disk space\. Start asks/.test(before) && denied.asked === 1 && !denied.on && denied.open &&
+    /Allow this site to store data persistently/.test(await boxText()),
+    `short of room: the box names the site's limit and that Start asks; Start asked once (${denied.asked}), denied: refused, the site's permissions named`);
+  await page.evaluate(() => document.getElementById('lv_rec').click());   // (closes the box)
+  await quota(true, 100000);
+  const granted = await record();
+  check(await page.evaluate(() => self.__persistAsked) === 1 && granted.pages.length === 20,
+    `short of room, persistent storage granted: Start asked once and recorded ${granted.pages.length} frames`);
+  await page.evaluate(ok => { delete navigator.storage.estimate; delete navigator.storage.persist; delete navigator.storage.persisted;
+    liveState.file.ok = ok; }, pickerOk);
   // "save to a file as recorded" (2026-11-20, Chrome / Edge): Start asks for a file (the picker stood in for by a file
   // on the disk storage, which has the same createWritable) and the frames go into it as made, the TIFF's tags written
   // last in front of them; the player reads them from it, Save .tif has nothing left to do.

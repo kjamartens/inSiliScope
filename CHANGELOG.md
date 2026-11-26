@@ -5,6 +5,10 @@ Versions follow semver; while 0.x, any release may change the output for a given
 
 ## Unreleased (changes since v0.1.0-rc23)
 
+- **Viewer Record: room for long recordings in Firefox.** The disk storage a browser gives a site is its limit for
+  that site, not the free disk (Firefox: 10 GiB), and the Record box now says so. A Record that does not fit asks the
+  browser at Start to let the site store data persistently: Firefox asks you, and once allowed a site may use up to
+  half the disk. Refused, the box names the site's permissions.
 - **Viewer: the Microscope view keeps up under BFP light maps.** Its panels waited on the movie worker behind a
   setup readout per settings step, each of which made the maps' light again (~10-15 s there): five steps of the BFP
   slider put the panels about a minute behind (the live image, on its own worker, kept up). Setup readouts now go
