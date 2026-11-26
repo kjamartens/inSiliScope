@@ -279,7 +279,8 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   session) or `--idle-exit` 30 min. Wire `web/live/remote_wire.js` (u32 JSON length, JSON, 8-aligned blobs, `$b`
   refs; `cli` `OutMsg` / `Decode`); `cli/json_lite.h` (the settings file's JSON parser, shared). Viewer:
   `web/live/remote.js` (☰ › Compute: a state light `#remoteState` (`.stateDot`) with `#remoteNote` and the button `#remoteOpen`; the window
-  (2026-11-26): a switch `#rmGo`, on: `#rmBody` with the settings, the numbered commands and the load meters `#rmLoad`; `localStorage isc.remote` {enabled,
+  (2026-11-26): a switch `#rmGo`, on: `#rmBody` = the load meters `#rmLoad` (or `#rmOld`: a server without the status job) and `#rmStatus` under the
+  switch, then `details#rmSetup` (the settings, the numbered commands; folded while connected, `.fold`); `localStorage isc.remote` {enabled,
   server, port 18765, threads, scope `all` (default: live too) | `records`, runThrough, token, sock}; probes
   `ws://127.0.0.1:<port>` every 3 s; the command: `ssh -L <port>:/tmp/isc-<sock>/s <server> "(curl .. || wget ..)
   ~/.isc-remote.sh && sh ~/.isc-remote.sh serve --version <page's> ..."`, no `$` or backslash; the launcher from

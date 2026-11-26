@@ -68,9 +68,21 @@ await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, he
   // the server machine's load in the window (a 'status' job every 2 s), and the menu's state light
   await until(() => !document.getElementById('rmLoad').hidden && /%/.test(document.getElementById('rmCpu').textContent), null, 10000);
   const load = await page.evaluate(() => ({ cpu: document.getElementById('rmCpu').textContent, mem: document.getElementById('rmMem').textContent,
-    light: document.getElementById('remoteState').dataset.s }));
-  check(/^\d+ % of \d+ CPUs.*inSiliScope \d+ %$/.test(load.cpu) && /GB of .*GB.*inSiliScope .*GB$/.test(load.mem) && load.light === 'on',
-    `the window shows the server's load: "${load.cpu}", "${load.mem}"; the menu's light: ${load.light}`);
+    light: document.getElementById('remoteState').dataset.s, folded: !document.getElementById('rmSetup').open }));
+  check(/^\d+ % of \d+ CPUs.*inSiliScope \d+ %$/.test(load.cpu) && /[GM]B of .*GB.*inSiliScope .*[GM]B$/.test(load.mem) && load.light === 'on' && load.folded,
+    `the window shows the server's load: "${load.cpu}", "${load.mem}", the settings and commands folded; the menu's light: ${load.light}`);
+  // a server older than the page (no 'status' job, as before 2026-11-26): it says so where the bars would be
+  const old = await page.evaluate(async () => {
+    const dec = self.IscWire.decode;
+    self.IscWire.decode = b => { const d = dec(b); return d.type === 'status' ? { type: 'status', id: d.id, error: "the remote server does not take 'status' jobs" } : d; };
+    self.iscSettings.closeDialog();
+    self.iscRemote.open();
+    for (let i = 0; i < 50 && document.getElementById('rmOld').hidden; i++) await new Promise(r => setTimeout(r, 100));
+    const r = { text: document.getElementById('rmOld').textContent, meters: !document.getElementById('rmMeters').hidden };
+    self.IscWire.decode = dec;
+    return r;
+  });
+  check(/older than this viewer/.test(old.text) && !old.meters, `an old server: "${old.text}"`);
   await page.evaluate(() => document.getElementById('rmClose').click());
 
   await page.evaluate(() => { const s = document.getElementById('mv_size'); s.value = 64; s.dispatchEvent(new Event('input', { bubbles: true })); });

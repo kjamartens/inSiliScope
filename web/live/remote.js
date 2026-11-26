@@ -130,10 +130,15 @@
   #setDlg .rmCode{position:relative;background:var(--color-input-bg);border:1px solid var(--color-input-border);border-radius:var(--radius-md);padding:var(--space-2) 64px var(--space-2) var(--space-3)}
   #setDlg .rmCode code{display:block;font:var(--font-size-caption)/1.45 var(--font-family-mono);white-space:pre-wrap;word-break:break-all;max-height:7.5em;overflow:auto;user-select:all}
   #setDlg .rmCopy{position:absolute;top:var(--space-1);right:var(--space-1);padding:2px 8px;font-size:var(--font-size-caption)}
-  #setDlg .rmStatus{margin-top:var(--space-3);font-size:var(--font-size-caption);color:var(--color-text-muted)}
+  #setDlg .rmStatus{margin-top:var(--space-1);font-size:var(--font-size-caption);color:var(--color-text-muted)}
   #setDlg .rmStatus:empty{display:none}
   #setDlg .rmStatus.warn{color:var(--color-status-warn)}
-  #setDlg .rmLoad{margin-top:var(--space-4)}
+  #setDlg .rmLoad{margin-bottom:var(--space-1)}
+  #setDlg .rmOld{font-size:var(--font-size-caption);color:var(--color-status-warn)}
+  #setDlg .rmOld[hidden],#setDlg .rmLoad .rmGrid[hidden]{display:none}
+  #setDlg .rmSetup{margin-top:var(--space-4)}
+  #setDlg .rmSetup>summary{display:none;cursor:pointer;color:var(--color-text-muted);font-size:var(--font-size-caption);margin-bottom:var(--space-3)}
+  #setDlg .rmSetup.fold>summary{display:list-item}
   #setDlg .rmLoad[hidden]{display:none}
   #setDlg .rmLoad .rmGrid{align-items:start}
   #setDlg .rmLoad .lab{color:var(--color-text-muted)}
@@ -175,6 +180,12 @@
     if (st) { st.textContent = stateText(); st.dataset.s = S.state; }
     const ld = $('rmLoad');
     if (ld) { if (S.state === 'on') watchLoad(); else { unwatchLoad(); ld.hidden = true; } }
+    const su = $('rmSetup');
+    if (su && su.dataset.s !== S.state) {   // (on a change of state only: a fold opened by hand stays open)
+      su.dataset.s = S.state;
+      su.classList.toggle('fold', S.state === 'on');
+      su.open = S.state !== 'on';
+    }
     const ss = $('rmStatus');
     if (ss) { ss.textContent = statusText(); ss.className = 'rmStatus' + (S.state === 'refused' || S.reason ? ' warn' : ''); }
     const cmd = $('rmCmd');
@@ -187,7 +198,7 @@
   // The server machine's load while the window shows a connected server (a 'status' job every 2 s on a connection of
   // its own, cli/remote_server.cpp LoadSampler): its CPU and memory in use, this server's share in the accent colour.
   const LD = { ws: null, timer: 0, gen: 0 };
-  const fmtGB = v => (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' GB';
+  const fmtGB = v => v < 1 ? Math.round(v * 1024) + ' MB' : (v >= 100 ? Math.round(v) : v.toFixed(1)) + ' GB';
   function meter(el, iscFrac, allFrac, left, right, tip) {
     if (!el) return;
     const w = f => Math.max(0, Math.min(100, 100 * f)).toFixed(1) + '%';
@@ -197,9 +208,22 @@
   }
   function showLoad(d) {
     const ld = $('rmLoad');
-    if (!ld || d.error || d.cpuPct === undefined) { if (ld) ld.hidden = true; return; }
+    if (!ld) return;
     ld.hidden = false;
-    meter($('rmCpu'), d.iscCpuPct / 100, d.cpuPct / 100, `<b>${Math.round(d.cpuPct)} %</b> of ${d.cpus} CPUs`, `inSiliScope ${Math.round(d.iscCpuPct)} %`,
+    // a server older than this viewer has no 'status' job (an error), or one off Linux has no numbers
+    const none = !!d.error || d.cpuPct === undefined;
+    $('rmMeters').hidden = none;
+    $('rmOld').hidden = !none;
+    if (none) {
+      $('rmOld').textContent = d.error
+        ? (version() === 'dev'
+          ? 'This server is older than this viewer and does not report its load. Build it again (step 1 under Settings and commands), then run step 2 again.'
+          : 'This server is older than this viewer and does not report its load. Run the command under Settings and commands again: it starts this version.')
+        : 'This server does not report its load (it is not a Linux machine).';
+      return;
+    }
+    const isc = Math.min(d.iscCpuPct, d.cpuPct);   // (the two are read a moment apart: the share at most the whole)
+    meter($('rmCpu'), isc / 100, d.cpuPct / 100, `<b>${Math.round(d.cpuPct)} %</b> of ${d.cpus} CPUs`, `inSiliScope ${Math.round(isc)} %`,
       `The server's CPUs in use over the last 2 s; inSiliScope's share in colour. Load average (1 min): ${(+d.load1).toFixed(1)}. ` +
       `${d.engines} engine${d.engines === 1 ? '' : 's'} of this viewer connected.`);
     meter($('rmMem'), d.iscMemGB / d.memTotalGB, d.memUsedGB / d.memTotalGB, `<b>${fmtGB(d.memUsedGB)}</b> of ${fmtGB(d.memTotalGB)}`, `inSiliScope ${fmtGB(d.iscMemGB)}`,
@@ -243,6 +267,12 @@
       '<p class="rmLead">A Linux machine you can log in to with <code>ssh</code> computes live frames, Records and ground truth. ' +
       '<a href="https://kjamartens.github.io/inSiliScope/docs/remote/" target="_blank" rel="noopener">Set-up guide ↗</a></p>' +
       '<div class="rmBody" id="rmBody">' +
+      '<div class="rmLoad" id="rmLoad" hidden><div class="rmGrid" id="rmMeters">' +
+      '<span class="lab">CPU</span><div class="rmMeter" id="rmCpu"></div>' +
+      '<span class="lab">Memory</span><div class="rmMeter" id="rmMem"></div>' +
+      '</div><div class="rmOld" id="rmOld" hidden></div></div>' +
+      '<div class="rmStatus" id="rmStatus"></div>' +
+      '<details class="rmSetup" id="rmSetup" open><summary>Settings and commands</summary>' +
       '<div class="rmGrid">' +
       '<label for="rmServer">Server</label><input type="text" id="rmServer" placeholder="isc-server or you@host" spellcheck="false" ' +
       'title="The name you log in with: a Host from your SSH configuration, or user@host">' +
@@ -259,12 +289,7 @@
       '</div></details>' +
       (dev ? step(1, 'Build the server', 'Once, and again after each change to this viewer. Needs a C++ compiler on the server.', 'rmBuildCmd') : '') +
       step(dev ? 2 : 0, 'Run in a terminal and leave it open', 'PowerShell on Windows, a terminal on macOS or Linux. Closing it stops the server.', 'rmCmd') +
-      '<div class="rmLoad" id="rmLoad" hidden><div class="rmGrid">' +
-      '<span class="lab">CPU</span><div class="rmMeter" id="rmCpu"></div>' +
-      '<span class="lab">Memory</span><div class="rmMeter" id="rmMem"></div>' +
-      '</div></div>' +
-      '<div class="rmStatus" id="rmStatus"></div>' +
-      '</div>', () => { unwatchLoad(); box.classList.remove('rm'); });
+      '</details></div>', () => { unwatchLoad(); box.classList.remove('rm'); });
     box.classList.add('rm');
     $('rmServer').value = cfg.server; $('rmScope').value = cfg.scope; $('rmThreads').value = cfg.threads;
     $('rmRun').value = cfg.runThrough; $('rmPort').value = cfg.port;
