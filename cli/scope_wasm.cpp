@@ -935,11 +935,9 @@ ISC_API const char* isc_live_paths() { return g_livePaths.c_str(); }
 // sends what is seen, not a 2048 px frame of 8 MB: the part [x, x + span] x [y, y + span] (fractions of the frame's
 // width and height) in means of b x b pixels, b = the most that keeps the part at least px pixels across (1: the
 // pixels themselves). Returns the shown image's pixel count (-1: no frame), at isc_live_view_image();
-// isc_live_view_json() = {"shown": {"w", "h", "x0", "y0", "bin"} (x0, y0: its first pixel in the frame), "stats":
-// {"min", "max", "lo", "hi" (live.js autoRange: 0.1 and 99.9 % of every step-th pixel), "saturated" (65535),
-// "hist": kLiveViewBins counts over [min, max]}} -- the whole frame's, so the display range and the level bar are the
-// frame's. The page's own module does the same for its frames (one display path).
-static constexpr int kLiveViewBins = 256;
+// isc_live_view_json() = {"shown": {"w", "h", "x0", "y0", "bin"}} (x0, y0: its first pixel in the frame). The display
+// range, the level bar and the saturation count are the page's, from the image it shows (the user's choice,
+// 2026-11-26). The page's own module does the same for its frames (one display path).
 ISC_API int32_t isc_live_view(double x, double y, double span, int32_t px)
 {
    const size_t W = static_cast<size_t>(std::max(0, g_liveW)), H = static_cast<size_t>(std::max(0, g_liveH));
@@ -972,37 +970,8 @@ ISC_API int32_t isc_live_view(double x, double y, double span, int32_t px)
          }
          g_liveView[j * w + i] = static_cast<uint16_t>((sum + nb / 2) / nb);
       }
-   // the whole frame's statistics
-   const size_t n = W * H;
-   uint16_t mn = 65535, mx = 0;
-   size_t sat = 0;
-   for (size_t i = 0; i < n; i++)
-   {
-      const uint16_t v = fr[i];
-      mn = std::min(mn, v);
-      mx = std::max(mx, v);
-      sat += v >= 65535;
-   }
-   std::vector<uint32_t> hist(kLiveViewBins, 0);
-   const double k = static_cast<double>(kLiveViewBins) / (static_cast<double>(mx) - mn + 1);
-   for (size_t i = 0; i < n; i++)
-      hist[std::min<size_t>(kLiveViewBins - 1, static_cast<size_t>((fr[i] - mn) * k))]++;
-   const size_t step = std::max<size_t>(1, n / 20000);
-   std::vector<uint16_t> smp;
-   smp.reserve(n / step + 1);
-   for (size_t i = 0; i < n; i += step)
-      smp.push_back(fr[i]);
-   std::sort(smp.begin(), smp.end());
-   const uint16_t lo = smp[static_cast<size_t>(std::floor(static_cast<double>(smp.size()) * 0.001))];
-   const int hi = std::max<int>(lo + 1, smp[std::min(smp.size() - 1, static_cast<size_t>(std::floor(static_cast<double>(smp.size()) * 0.999)))]);
-   std::string j = "{\"shown\":{\"w\":" + std::to_string(w) + ",\"h\":" + std::to_string(h) + ",\"x0\":" +
-                   std::to_string(x0) + ",\"y0\":" + std::to_string(y0) + ",\"bin\":" + std::to_string(bin) +
-                   "},\"stats\":{\"min\":" + std::to_string(mn) + ",\"max\":" + std::to_string(mx) + ",\"lo\":" +
-                   std::to_string(lo) + ",\"hi\":" + std::to_string(hi) + ",\"saturated\":" + std::to_string(sat) +
-                   ",\"hist\":[";
-   for (int b = 0; b < kLiveViewBins; b++)
-      j += (b ? "," : "") + std::to_string(hist[static_cast<size_t>(b)]);
-   g_liveViewJson = j + "]}}";
+   g_liveViewJson = "{\"shown\":{\"w\":" + std::to_string(w) + ",\"h\":" + std::to_string(h) + ",\"x0\":" +
+                    std::to_string(x0) + ",\"y0\":" + std::to_string(y0) + ",\"bin\":" + std::to_string(bin) + "}}";
    return static_cast<int32_t>(w * h);
 }
 ISC_API const uint16_t* isc_live_view_image() { return g_liveView.data(); }

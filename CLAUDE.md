@@ -288,9 +288,9 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   while remote. Live frames at the view's size (2026-11-25): a running live view's job carries `view` (`viewWanted`:
   the part shown + a 15 % margin when zoomed, the view's device pixels across it); the module's `isc_live_view`
   (`cli/scope_wasm.cpp`, the worker's `liveFrame` and the server's `Live` alike) crops the last frame and averages b x b
-  bins (b = the most that keeps it >= those pixels) and gives the whole frame's stats (min, max, the `autoRange` lo / hi,
-  saturated, 256-bin histogram): `d.view` {shown, stats}; the page's `L.full`, `L.region` (the canvas's part, its
-  transform in `applyZoom`), `L.stats` (auto range, level bar, status.js saturation); snaps and Records whole. Launcher `tools/remote.sh` (POSIX sh, LF only: `.gitattributes`): check, install
+  bins (b = the most that keeps it >= those pixels): `d.view` {shown}; the page's `L.full`, `L.region` (the canvas's
+  part, its transform in `applyZoom`); the auto range, level bar and saturation from the shown image (2026-11-26, the
+  user's choice; whole-frame stats sent along were dropped); snaps and Records whole. Launcher `tools/remote.sh` (POSIX sh, LF only: `.gitattributes`): check, install
   (`--from`), serve (`--run-through 'srun ...'`: the server in the job on TCP, a relay on the socket), stdio, render,
   build (`--ref`: the source from codeload built as version dev, for a page that is no release, its box shows the
   command; CMake 3.30.5 fetched when the system has none of 3.20+), uninstall; versions in `~/.local/share/insiliscope/<tag>` (`ISC_REMOTE_HOME`), the last three kept, release asset

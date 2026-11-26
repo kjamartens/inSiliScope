@@ -213,8 +213,7 @@ function checks() {
   if (fr && L.frames) {
     const max = 65535;   // the 16-bit camera
     let n = 0;
-    if (L.stats) n = L.stats.saturated;   // (a live view's frame: the whole frame's count)
-    else for (let i = 0; i < fr.length; i++) if (fr[i] >= max) n++;
+    for (let i = 0; i < fr.length; i++) if (fr[i] >= max) n++;
     if (n) add('saturated', 'warn', `${n} pixel${n > 1 ? 's' : ''} saturated`, `The brightest pixels reach the camera's maximum (${max} ADU), so their values are clipped. Lower the laser power or the exposure.`);
   }
   const expMs = +$('mv_exposure-ms').value || 50;

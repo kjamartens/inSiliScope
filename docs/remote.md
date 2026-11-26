@@ -24,8 +24,8 @@ Remote computing helps most for Records of large fields (1000 px and up), ground
 BFP light maps, and long multi-D plans. For a small live field your own PC is often just as fast: every frame makes
 a round trip over the network. Live frames come back at the size the live view shows them: a 2048 × 2048 px frame
 on a view about 1000 pixels across arrives as 1024 × 1024 means of 2 × 2 pixels (a quarter of the bytes), and zoomed
-in, only the part shown. The display range, the level bar and the saturation warning still come from the whole
-frame. Snaps and Records arrive whole.
+in, only the part shown. The display range, the level bar and the saturation warning come from that image (a
+single saturated pixel can average away in a bin). Snaps and Records arrive whole.
 
 ## Step 1: check that you can log in
 

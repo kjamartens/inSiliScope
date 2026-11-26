@@ -169,28 +169,21 @@ try {
   const wl = await A.job({ type: 'live', id: 35, spec: WL, reset: true, t: 0, lit: true });
   const lwl = localLive(WL, 1);
   ok(!wl.error && same(wl.frames, lwl.frames), 'live WideField frame = the module\'s, byte for byte' + (wl.error ? ' ' + wl.error : ''));
-  // a live view's frame (job.view, isc_live_view: the shown part in bins, the whole frame's statistics)
+  // a live view's frame (job.view, isc_live_view: the shown part in bins)
   const VW = { x: 0.3, y: 0.2, span: 0.5, px: 10 };
   const lv = await A.job({ type: 'live', id: 34, spec: WL, t: 0.05, lit: true, view: VW });
   const lvl = localLive(WL, 1), vn = M._isc_live_view(VW.x, VW.y, VW.span, VW.px);
   const lvf = M.HEAPU16.slice(M._isc_live_view_image() / 2, M._isc_live_view_image() / 2 + vn), lvj = JSON.parse(M.UTF8ToString(M._isc_live_view_json()));
   ok(!lv.error && same(lv.frames, lvf) && deepEq(lv.view, lvj), `live view = the module's, byte for byte (${lvj.shown.w}x${lvj.shown.h} in ${lvj.shown.bin}x${lvj.shown.bin} bins from (${lvj.shown.x0}, ${lvj.shown.y0}))` + (lv.error ? ' ' + lv.error : ''));
-  {   // the shown image and the statistics against the whole frame, here
-    const F = lvl.frames, W = 48, sh = lvj.shown, st = lvj.stats, b = sh.bin;
+  {   // the shown image against the whole frame, here
+    const F = lvl.frames, W = 48, sh = lvj.shown, b = sh.bin;
     let mean = true;
     for (let j = 0; j < sh.h && mean; j++) for (let i = 0; i < sh.w; i++) {
       let sum = 0;
       for (let v = 0; v < b; v++) for (let u = 0; u < b; u++) sum += F[(sh.y0 + j * b + v) * W + sh.x0 + i * b + u];
       if (Math.floor((sum + (b * b >> 1)) / (b * b)) !== lvf[j * sh.w + i]) { mean = false; break; }
     }
-    const smp = [], step = Math.max(1, (F.length / 20000) | 0);
-    for (let i = 0; i < F.length; i += step) smp.push(F[i]);
-    smp.sort((a, c) => a - c);
-    const lo = smp[Math.floor(smp.length * 0.001)], hi = Math.max(lo + 1, smp[Math.min(smp.length - 1, Math.floor(smp.length * 0.999))]);
-    let mn = 65535, mx = 0;
-    for (const v of F) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
-    ok(sh.bin === 2 && sh.w === 12 && sh.h === 12 && mean && st.min === mn && st.max === mx && st.lo === lo && st.hi === hi &&
-       st.hist.reduce((a, c) => a + c, 0) === F.length, `live view: the bins' means, the frame's min / max / auto range (${st.lo}..${st.hi}) and histogram`);
+    ok(sh.bin === 2 && sh.w === 12 && sh.h === 12 && mean && Object.keys(lvj).join() === 'shown', `live view: the means of 2x2 bins, no other data`);
   }
   // live SIM2D WideField
   const SL = SSPEC.replace('frames=4', 'frames=1');

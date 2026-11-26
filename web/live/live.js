@@ -548,12 +548,11 @@ function autoRange(fr) {
 // exposures ran at ~20 fps, 2026-11-12).
 function draw(d) {
   L.frame = d.frames; L.spec = d.spec || L.pendingSpec || '';
-  // the frame's size; a live view's frame comes as the part shown, in bins (d.view, isc_live_view), with the whole
-  // frame's statistics (the display range, the level bar, saturation); snaps and recordings whole
+  // the frame's size; a live view's frame comes as the part shown, in bins (d.view, isc_live_view); the display
+  // range, the level bar and saturation are the shown image's (the user's choice); snaps and recordings whole
   L.full = { w: d.w, h: d.h };
   const sh = d.view && d.view.shown;
   L.w = sh ? sh.w : d.w; L.h = sh ? sh.h : d.h;
-  L.stats = sh ? d.view.stats : null;
   const R = sh ? { x: sh.x0 / d.w, y: sh.y0 / d.h, s: sh.w * sh.bin / d.w, bin: sh.bin } : null;
   const was = L.region;
   L.region = R;
@@ -567,7 +566,7 @@ function drawNow() {
   if (!L.newFrame || !L.frame) return;
   L.newFrame = false;
   if ($('lv_auto').checked) {
-    const [lo, hi] = L.stats ? [L.stats.lo, L.stats.hi] : autoRange(L.frame);
+    const [lo, hi] = autoRange(L.frame);
     // a little smoothing so the display does not flicker with the blinks
     L.lo = L.frames > 1 && L.hiSet ? Math.round(0.7 * L.lo + 0.3 * lo) : lo;
     L.hi = L.frames > 1 && L.hiSet ? Math.round(0.7 * L.hi + 0.3 * hi) : hi;
@@ -606,20 +605,15 @@ function drawHist(newFrame) {
   $('lv_lvl').classList.toggle('empty', !fr);
   if (!fr) { $('lv_lut').style.background = ''; return; }
   if (newFrame || !hist) {
-    const st = L.stats;
     let mn = 65535, mx = 0;
-    if (st) { mn = st.min; mx = st.max; }
-    else for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    for (let i = 0; i < fr.length; i++) { const v = fr[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
     const now = performance.now(), rec = { t: now, mn, mx, top: 0 };
     hRecent.push(rec);
     while (hRecent.length > 1 && now - hRecent[0].t > HIST_KEEP_MS) hRecent.shift();
     hMin = Math.min(...hRecent.map(r => r.mn)); hMax = Math.max(hMin + 1, ...hRecent.map(r => r.mx));
     hist = new Float64Array(NB);
     const k = NB / (hMax - hMin + 1);
-    if (st) {   // (the frame's bins over its own range, into these)
-      const nb = st.hist.length, bw = (st.max - st.min + 1) / nb;
-      for (let b = 0; b < nb; b++) if (st.hist[b]) hist[Math.min(NB - 1, Math.max(0, ((st.min + (b + 0.5) * bw - hMin) * k) | 0))] += st.hist[b];
-    } else for (let i = 0; i < fr.length; i++) hist[Math.min(NB - 1, ((fr[i] - hMin) * k) | 0)]++;
+    for (let i = 0; i < fr.length; i++) hist[Math.min(NB - 1, ((fr[i] - hMin) * k) | 0)]++;
     for (let b = 0; b < NB; b++) { hist[b] = Math.log10(1 + hist[b]); rec.top = Math.max(rec.top, hist[b]); }
     hTop = Math.max(...hRecent.map(r => r.top));
   }
@@ -824,7 +818,7 @@ window.addEventListener('isc-reset', () => {
   $('lv_auto').checked = true; $('lv_auto').dispatchEvent(new Event('change'));
   setLiveFrac(0.5, true); resizeCanvas(); drawScale();   // the panel's width (the splitter) too
 });
-$('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = L.stats ? [L.stats.lo, L.stats.hi] : autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
+$('lv_auto').addEventListener('change', () => { L.hiSet = false; if (L.frame && $('lv_auto').checked) { const [lo, hi] = autoRange(L.frame); L.lo = lo; L.hi = hi; $('lv_lo').value = lo; $('lv_hi').value = hi; paint(); drawHist(); } });
 
 const MODES = ['dSTORM', 'PALM', 'DNA-PAINT', 'WideField'];
 // One short line, always: the speed alone (fps and ms per frame; a snap the ms), or an error. The rest -- the image and

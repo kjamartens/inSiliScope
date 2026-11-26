@@ -74,16 +74,16 @@ await runViewer('viewer remote', { watchdogSec: 280, viewport: { width: 1200, he
   const info = await page.evaluate(() => ({ text: document.getElementById('lv_info').textContent, title: document.getElementById('lv_info').title }));
   check(info.text.endsWith(' · ' + host) && info.title.includes('computed on the remote server ' + host), `live from the server: "${info.text}"`);
   // a live view's frames from the server (job.view, isc_live_view): a 1024 px frame comes in bins down to the view's
-  // pixels with the whole frame's statistics; zoomed in, the part shown (and a margin), its own pixels
+  // pixels; zoomed in, the part shown (and a margin), its own pixels
   const setSize = v => page.evaluate(v => { const s = document.getElementById('mv_size'); s.value = v; s.dispatchEvent(new Event('input', { bubbles: true })); }, v);
   const view = () => page.evaluate(() => ({ w: liveState.w, h: liveState.h, n: liveState.frame.length, full: liveState.full, region: liveState.region,
-    frames: liveState.frames, stats: liveState.stats && { lo: liveState.stats.lo, hi: liveState.stats.hi, bins: liveState.stats.hist.length },
+    frames: liveState.frames,
     px: Math.round(document.getElementById('liveView').clientWidth * devicePixelRatio), transform: document.getElementById('lv_cv').style.transform }));
   await setSize(1024);
   await until(() => liveState.remote && liveState.full && liveState.full.w === 1024 && liveState.region, null, 120000);
   const v1 = await view();
-  check(v1.region.bin >= 2 && v1.w === Math.floor(1024 / v1.region.bin) && v1.n === v1.w * v1.h && v1.w >= v1.px && v1.stats && v1.stats.bins === 256,
-    `live view: a 1024 px frame shown as ${v1.w}×${v1.h} (${v1.region.bin}×${v1.region.bin} bins, the view ${v1.px} px), the frame's display range ${v1.stats && v1.stats.lo}..${v1.stats && v1.stats.hi}`);
+  check(v1.region.bin >= 2 && v1.w === Math.floor(1024 / v1.region.bin) && v1.n === v1.w * v1.h && v1.w >= v1.px,
+    `live view: a 1024 px frame shown as ${v1.w}×${v1.h} (${v1.region.bin}×${v1.region.bin} bins, the view ${v1.px} px)`);
   await page.evaluate(() => {
     const r = document.getElementById('liveView').getBoundingClientRect();
     document.getElementById('liveView').dispatchEvent(new WheelEvent('wheel', { ctrlKey: true, deltaY: -555, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
