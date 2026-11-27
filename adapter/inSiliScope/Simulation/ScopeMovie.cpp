@@ -5427,6 +5427,54 @@ private:
 // grid focus: that one alone), blended linearly, the neighbours prefetched. A focus move reuses the grid's maps (and the
 // prefetched neighbours) instead of making a new map (~0.2 s at 256 px). The blend is exact on the grid; in between it is
 // the linear interpolation of smooth maps (the defocused imager; HILO's sheet moving tan theta_s um per um of focus).
+// The last finished background maps (Begin: the blend of two slices as floats, the imager's part and its mean), by
+// the job's key + focus: the two used last.
+struct BgDoneMemo
+{
+   struct Entry
+   {
+      std::vector<double> key;
+      std::vector<float> map, im;
+      double mean = 0;
+   };
+   std::mutex mu;
+   std::deque<Entry> done;
+   static BgDoneMemo& Get()
+   {
+      static BgDoneMemo* d = new BgDoneMemo;
+      return *d;
+   }
+   bool Take(const std::vector<double>& key, std::vector<float>& map, std::vector<float>& im, double& mean)
+   {
+      std::lock_guard<std::mutex> lock(mu);
+      for (const Entry& e : done)
+         if (e.key == key && e.map.size() == map.size())
+         {
+            map = e.map;
+            if (!e.im.empty())
+               im = e.im;
+            mean = e.mean;
+            return true;
+         }
+      return false;
+   }
+   void Put(std::vector<double> key, const std::vector<float>& map, const std::vector<float>& im, double mean)
+   {
+      std::lock_guard<std::mutex> lock(mu);
+      done.push_front({ std::move(key), map, im, mean });
+      while (done.size() > 2)
+         done.pop_back();
+   }
+   size_t Bytes()
+   {
+      std::lock_guard<std::mutex> lock(mu);
+      size_t b = 0;
+      for (const Entry& e : done)
+         b += (e.map.capacity() + e.im.capacity()) * sizeof(float);
+      return b;
+   }
+};
+
 void BlendedBgSlice(const BgJob& job, std::vector<double>& im, std::vector<double>& lat)
 {
    const double step = kBackgroundFocusStepUm, pivot = job.es.pivotUm;
@@ -5529,6 +5577,7 @@ void ScopeMemoryReport(MemoryReport& r)
    AddPsfKernelMemory(r);
    AddFiducialMemory(r);
    r.Add("bg.maps", BgMapCache::Get().Bytes());
+   r.Add("bg.finished", BgDoneMemo::Get().Bytes());
    MovieCache& c = SharedMovieCache();
    // (A movie in progress holds it: the viewer's WebGPU session between its begin and end.)
    std::unique_lock<std::mutex> lk(c.mutex, std::try_to_lock);
@@ -5595,6 +5644,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    SampleSource& source = m.cache.source;
    m.cache.live = m.carry;
    TimingLog("fl.configure", TimingSince(tPhase));
+   auto tGap = TimingClock::now();   // (the stretches between the named phases: fl.setup.*)
 
    // ---- groups: (structure, state) with their PSF and detected photons per frame ----
    struct Want { int s; bool pre; const StatePhysics* st; };
@@ -5838,7 +5888,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // The blinks under a clock map (JS mapEvents): every dye on its own clock (isc_events_in_map; a dye the light does
    // not reach emits nothing), each event's photons x its factor under a shaped beam. Without one: at start-sec.
    // (the kept ones moved down in place: a long movie's blinks are its largest list, 2026-11-20)
-   double evMapSetSec = 0, evExciteSec = 0, evCore[10] = {};
+   double evMapSetSec = 0, evExciteSec = 0, evCore[11] = {};
    auto mapEvents = [&]() -> bool {
       std::vector<BlinkEvent> got;
       auto tPart = TimingClock::now();
@@ -5848,7 +5898,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       source.SetClockMap(nullptr);
       if (!ok)
          return false;
-      isc::QueryTimesOut(evCore, 10);   // (this thread's last block walk: the events query's)
+      isc::QueryTimesOut(evCore, 11);   // (this thread's last block walk: the events query's)
       tPart = TimingClock::now();
       size_t kept = 0;
       for (BlinkEvent& e : got)
@@ -5869,6 +5919,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       return true;
    };
    auto queryEvents = [&]() { return m.map ? mapEvents() : source.Events(S.q, all); };
+   TimingLog("fl.setup.before-events", TimingSince(tGap));
    tPhase = TimingClock::now();
 #if defined(__EMSCRIPTEN__)
    kernels();
@@ -5885,6 +5936,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
 #endif
    TimingLog("fl.psf-kernels", psfSec, std::to_string(m.groups.size()).c_str());
    TimingLog("fl.events-query", eventsSec);
+   tGap = TimingClock::now();
    if (queryBlinks && m.map)
    {
       // Where the query's time goes (2026-11-27): the map handed to the core, the core's query (its calls: 2 = the
@@ -5901,7 +5953,8 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       std::snprintf(extra, sizeof extra, "%.0f cells, %.0f blocks, %.0f prepped, %.0f forks", evCore[9], evCore[6],
                     evCore[7], evCore[8]);
       TimingLog("fl.events-core.walk", evCore[0], extra);
-      TimingLog("fl.events-core.cells", evCore[1]);
+      std::snprintf(extra, sizeof extra, "%.0f cells' assets made", evCore[10]);
+      TimingLog("fl.events-core.cells", evCore[1], extra);
       TimingLog("fl.events-core.generate", evCore[2]);
       TimingLog("fl.events-core.prep", evCore[3]);
       TimingLog("fl.events-core.take", evCore[4]);
@@ -6096,6 +6149,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    for (Group& g : m.groups)
       if (!g.pre && binnedPossible)
          g.binned.Setup(g.blinkKernel.valid ? &g.blinkKernel : nullptr, g.sigmaPx, S.W, S.H, S.blinkBinnedUpscale);
+   TimingLog("fl.setup.after-events", TimingSince(tGap));
    tPhase = TimingClock::now();
    m.eventCount = 0;
    for (const BlinkEvent& e : all)
@@ -6294,6 +6348,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       }
    }
    TimingLog("fl.windows", TimingSince(tPhase), std::to_string(windows.size()).c_str());
+   tGap = TimingClock::now();
    // The ground truth's continuous dyes (GroundTruth.h): every population's windows, the mean-field ones' too (fetched
    // for the list only), each dye's window in the sample's time, its rate at its excitation and its photons over this
    // movie.
@@ -6493,18 +6548,30 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          job.key.push_back(job.rowY0);
          job.key.push_back(job.sensorH);
       }
-      std::vector<double> im, lat;
-      BlendedBgSlice(job, im, lat);
-      const size_t n = static_cast<size_t>(S.W) * S.H;
-      double sum = 0.0;
-      for (size_t k = 0; k < n; ++k)
+      // The finished map of the last jobs (2026-11-27): a live frame at an unchanged light and focus blended the two
+      // grid slices and summed the imager again, every pixel on the calling thread (~10 ms at 1024 px). The same
+      // numbers: the map is a function of the job's key, the focus and what is kept (bgIm under a varying pattern).
+      std::vector<double> doneKey = job.key;
+      doneKey.push_back(job.es.pivotUm);
+      doneKey.push_back(m.varies ? 1.0 : 0.0);
+      const auto tBg = TimingClock::now();
+      if (!BgDoneMemo::Get().Take(doneKey, m.bgMap, m.bgIm, m.imagerMean))
       {
-         sum += im[k];
-         m.bgMap[k] = static_cast<float>(lat[k] + im[k]);
-         if (m.varies)
-            m.bgIm[k] = static_cast<float>(im[k]);
+         std::vector<double> im, lat;
+         BlendedBgSlice(job, im, lat);
+         const size_t n = static_cast<size_t>(S.W) * S.H;
+         double sum = 0.0;
+         for (size_t k = 0; k < n; ++k)
+         {
+            sum += im[k];
+            m.bgMap[k] = static_cast<float>(lat[k] + im[k]);
+            if (m.varies)
+               m.bgIm[k] = static_cast<float>(im[k]);
+         }
+         m.imagerMean = sum / (S.W * S.H);
+         BgDoneMemo::Get().Put(std::move(doneKey), m.bgMap, m.bgIm, m.imagerMean);
       }
-      m.imagerMean = sum / (S.W * S.H);
+      TimingLog("fl.bg-blend", TimingSince(tBg));
    }
    // The fluorescent slide (Slide.h): per excitation geometry (a set of line shares) the layer's collected light, the
    // background's imager model over the layer's thickness (a slice of its focus grid at rate 1, BlendedBgSlice), and
@@ -6677,6 +6744,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
       m.slide = std::move(SM);
       TimingLog("fl.slide-setup", TimingSince(tSlide));
    }
+   TimingLog("fl.setup.after-windows", TimingSince(tGap));
    m.setupSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - m.t0).count();
    TimingLog("fl.setup", m.setupSec);
    return true;

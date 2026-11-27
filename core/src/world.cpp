@@ -20,9 +20,9 @@ QueryTimes& LastQueryTimes()
 void QueryTimesOut(double* out, int n)
 {
    const QueryTimes& t = LastQueryTimes();
-   const double v[10] = { t.walk, t.cells, t.generate, t.prep, t.take, t.rows, (double)t.blocks, (double)t.prepped,
-                          (double)t.forks, (double)t.nCells };
-   for (int i = 0; i < n && i < 10; i++) out[i] = v[i];
+   const double v[11] = { t.walk, t.cells, t.generate, t.prep, t.take, t.rows, (double)t.blocks, (double)t.prepped,
+                          (double)t.forks, (double)t.nCells, (double)t.cellsBuilt };
+   for (int i = 0; i < n && i < 11; i++) out[i] = v[i];
 }
 
 namespace {
@@ -297,6 +297,7 @@ void World::DropCaches()
    dyeIndex_.clear();
    dyeCount_ = 0;
    prefetchDone_.valid = false;
+   assetFloor_ = 0;
    for (WalkMemo& m : walkMemo_) m = WalkMemo();
 }
 
@@ -409,7 +410,7 @@ CellAssets& World::Assets(const Cell& c, bool withMts)
    if (withMts) EnsureMts(seed_, *a, p_);
    stats_.cellsBuilt++;
    assets_.emplace_front(key, std::move(a));
-   while (assets_.size() > assetCap_) assets_.pop_back();
+   while (assets_.size() > std::max(assetCap_, assetFloor_)) assets_.pop_back();
    return *assets_.front().second;
 }
 
@@ -513,6 +514,8 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
    std::vector<DyeBlock*> walked;
    std::vector<const Cell*> cells;
    CellsInRectPtr(x0, y0, x1, y1, cells);
+   assetFloor_ = cells.size();   // (kept until the next walk: this window's cells stay cached)
+   const long built0 = stats_.cellsBuilt;
    // The assets of the cells not cached, built in parallel (Assets takes them
    // in the usual order). Not under a deadline: that walk may stop early.
    if (!deadline_) PrebuildAssets(cells);
@@ -625,6 +628,7 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
       dyeLru_.pop_back();
       evictions_++;
    }
+   qt.cellsBuilt = stats_.cellsBuilt - built0;
    if (memoOk && !hardEvicted && !stopped_) {
       WalkMemo& m = walkMemo_[walkMemoNext_++ % walkMemo_.size()];
       m.x0 = x0; m.y0 = y0; m.x1 = x1; m.y1 = y1; m.zMin = zMin; m.zMax = zMax;

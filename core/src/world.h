@@ -128,10 +128,11 @@ struct PersistentEvent {
 struct QueryTimes {
    double walk = 0, cells = 0, generate = 0, prep = 0, take = 0, rows = 0;
    long blocks = 0, prepped = 0, forks = 0, nCells = 0;
+   long cellsBuilt = 0;   // cell assets made in the walk (each frame: the window holds more cells than the cache)
 };
 QueryTimes& LastQueryTimes();
 // ... as numbers for a host outside the core's headers: walk, cells, generate, prep, take, rows, blocks, prepped,
-// forks, nCells (at most n).
+// forks, nCells, cellsBuilt (at most n).
 void QueryTimesOut(double* out, int n);
 
 struct WorldStats {
@@ -521,6 +522,10 @@ private:
    std::unique_ptr<OrigamiField> origami_;   // specimen 1
    std::unique_ptr<FiducialField> fiducials_;   // every specimen
    size_t assetCap_;
+   // The cells of the last dye-block walk's window: the asset cache holds at least these (2026-11-27). A window of
+   // more cells than assetCap_ (48: a 2048 px field at 100 nm is ~60) evicted its first cells' assets while it
+   // walked its last, and built them all again on the next walk.
+   size_t assetFloor_ = 0;
    size_t dyeCap_;
    size_t dyeHardCap_ = std::numeric_limits<size_t>::max();   // (none; size_t is 32-bit in WebAssembly)
    std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> blocks_;
