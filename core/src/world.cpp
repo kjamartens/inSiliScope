@@ -1771,6 +1771,35 @@ void World::BlockBox(DyeBlock& b) const
    b.box = true;
 }
 
+void World::MemoryOut(double* out, int n) const
+{
+   double v[7] = {};
+   auto bytes = [](const auto& vec) { return (double)vec.capacity() * sizeof(vec[0]); };
+   for (const auto& e : dyeLru_) {
+      const DyeBlock& b = e.second;
+      v[0] += 1;
+      v[1] += (double)b.dyes.size();
+      v[2] += bytes(b.dyes);
+      v[3] += bytes(b.events);
+      v[4] += bytes(b.pEvents);
+      for (const DyeBlock::Slot& s : b.parked) {
+         v[3] += bytes(s.events) + sizeof(DyeBlock::Slot);
+         v[4] += bytes(s.pEvents);
+      }
+      if (b.map) {
+         const DyeBlock::MapState& m = *b.map;
+         v[5] += sizeof(DyeBlock::MapState) + bytes(m.mark) + bytes(m.clock) + bytes(m.rate) + bytes(m.E) + bytes(m.H) +
+                 bytes(m.from) + bytes(m.stepHi) + bytes(m.remHi) + bytes(m.tAct) + bytes(m.endAt) + bytes(m.isLive) +
+                 bytes(m.heap) + bytes(m.live) + bytes(m.arena) + bytes(m.cont) + bytes(m.end) + bytes(m.byEnd) +
+                 bytes(m.out) + bytes(m.contOut);
+      }
+      // (the list node's two pointers, the index's node and bucket: ~4 pointers + the key again)
+      v[6] += sizeof(std::pair<BlockKey, DyeBlock>) + sizeof(BlockKey) + 6 * sizeof(void*);
+   }
+   for (const WalkMemo& m : walkMemo_) v[6] += bytes(m.blocks);
+   for (int i = 0; i < n && i < 7; i++) out[i] = v[i];
+}
+
 World::DyeBlock::MapState& World::MapStateOf(DyeBlock& b) const
 {
    if (!b.map) b.map = std::make_shared<DyeBlock::MapState>();

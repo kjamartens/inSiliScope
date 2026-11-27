@@ -12,6 +12,8 @@
 // uint16 pixels one after another (to compare two builds); --hash prints a per-frame FNV-1a of the pixels.
 // ISC_TIMING=1 / ISC_THREADS=1 apply as for the cli.
 #include "LiveScope.h"
+#include "MemoryReport.h"
+#include "Timing.h"
 #include "ScopeMovie.h"
 
 #include <chrono>
@@ -126,6 +128,12 @@ int main(int argc, char** argv)
    double s2 = 0;
    for (size_t i = half; i < ms.size(); ++i)
       s2 += ms[i];
+   if (TimingPrinting())   // what the caches hold after the frames (ISC_MEMORY lines)
+   {
+      MemoryReport mem;
+      ScopeMemoryReport(mem);
+      mem.Log();
+   }
    std::printf("mean frames 1..%zu: %.1f ms; second half: %.1f ms\n", ms.size() - 1,
                ms.size() > 1 ? s / (ms.size() - 1) : 0.0, ms.size() > half ? s2 / (ms.size() - half) : 0.0);
    return 0;

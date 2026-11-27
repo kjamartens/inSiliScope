@@ -157,6 +157,10 @@ public:
    // window with more dyes than the cap is not regenerated on every query.
    World(uint32_t seed, const Params& p, size_t assetCacheCells = 48, size_t dyeCacheDyes = 2000000);
    World(World&&) = default;
+   // What the dye-block cache holds (a diagnostic, not the ABI; bytes by capacity): out[0] blocks, [1] dyes, [2] the
+   // dyes' records, [3] cached blinks (dSTORM / PALM schedules, parked ones too), [4] persistent-site blinks
+   // (DNA-PAINT), [5] the clock map's per-dye state, [6] the blocks themselves (list node, index entry, walk memo).
+   void MemoryOut(double* out, int n) const;
    World& operator=(World&&) = default;
    ~World();   // flushes the block store
 

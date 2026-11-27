@@ -30,6 +30,14 @@ static_assert(ISC_MODE_DNA_PAINT == (int)isc::LabelMode::DnaPaint && ISC_MODE_WI
 struct IscParams { isc::Params p; };
 struct IscWorld { isc::World w; std::vector<isc::WorldDye> scratch; std::vector<isc::WorldEvent> events; };
 
+// (a host's memory report, outside the ABI: World::MemoryOut)
+namespace isc {
+void WorldMemoryOut(const IscWorld* w, double* out, int n)
+{
+   if (w) w->w.MemoryOut(out, n);
+}
+} // namespace isc
+
 namespace {
 // The clock map's flat buffer (isc_world_set_clock_map). No exceptions (the WASM builds abort on a throw): a short
 // buffer or a bad count sets bad, reads 0 (counts their least), and the read gives up.

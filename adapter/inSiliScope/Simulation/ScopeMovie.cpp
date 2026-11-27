@@ -61,7 +61,8 @@
 #include <thread>
 #endif
 
-namespace isc { void QueryTimesOut(double* out, int n); }   // (core/src/world.h: a diagnostic, not the ABI)
+namespace isc { void QueryTimesOut(double* out, int n); }
+namespace isc { void WorldMemoryOut(const IscWorld* w, double* out, int n); }   // (core/src/world.h MemoryOut)   // (core/src/world.h: a diagnostic, not the ABI)
 
 namespace sim {
 
@@ -5592,6 +5593,21 @@ void ScopeMemoryReport(MemoryReport& r)
          kv.second->scene.AddMemory(r);
          AddPsfStackMemory(r, kv.second->psfCache);
       }
+   // The core's dye-block cache, by owner (2026-11-27), and per dye.
+   {
+      double w[7] = {};
+      isc::WorldMemoryOut(c.source.World(), w, 7);
+      r.Add("world.dye-records", w[2]);
+      r.Add("world.blinks-scheduled", w[3]);
+      r.Add("world.blinks-persistent", w[4]);
+      r.Add("world.clock-map-state", w[5]);
+      r.Add("world.blocks", w[6]);
+      if (TimingPrinting() && w[1] > 0)
+         std::fprintf(stderr,
+                      "ISC_MEMORY world: %.0f blocks, %.0f dyes; bytes per dye: records %.1f, scheduled blinks %.1f, "
+                      "persistent blinks %.1f, clock-map state %.1f, blocks %.1f\n",
+                      w[0], w[1], w[2] / w[1], w[3] / w[1], w[4] / w[1], w[5] / w[1], w[6] / w[1]);
+   }
    double running = 0.0;
    for (const auto& kv : c.running)
       running += VectorBytes(kv.second.acc) + VectorBytes(kv.second.in) + VectorBytes(kv.second.key);
