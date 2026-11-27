@@ -924,9 +924,9 @@ self.iscCoi = (() => {
 <script src="live/mm_config.js"></script>
 <script src="live/bfp_examples.js"></script>
 <script src="origami_designs.js"></script>
-<script src="insiliscope_module.js?v=8f727d8c5833"></script>
+<script src="insiliscope_module.js?v=4873227d2811"></script>
 <!-- The threaded module (ISC_MODULE_MT_SRC) only on a cross-origin isolated page: the live worker runs it. -->
-<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=e168e664184e"><\/script>');</script>
+<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=b11095ef9964"><\/script>');</script>
 <script src="live/scope_panels.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="splat_gpu.js"></script>
@@ -1544,8 +1544,8 @@ const UI_GROUPS = [
     { kind: 'html', html: '<div class="sub" id="bfpReadout"></div>', show: FL },
     // Structured illumination (spec/ALGORITHM.md "Structured illumination"): the light as coherent beams in the BFP at
     // the BFP position's radius, the pattern stepping with the frame. A type pick sets the radius and the polarization.
-    select('mv_sim-type', 'Pattern', 'Structured illumination: the light as coherent beams in the objective\'s back focal plane, whose fringes step with the frame (the live sample counts its frames; a recording starts at 0). Off: one beam at the BFP position. SIM2D: two beams at ±position, 3 phases × 3 orientations. SIM3D: + the centre beam, 5 phases × 3 orientations. LatticeSIM2D: ±x and ±y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets the BFP position to the type\'s radius (2D 0.95, 3D and the lattices 0.9) and the polarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern\'s cycle mean, each frame\'s image on its exact pattern. The BFP light maps (the BFP maps row, Expert): LightSheet, an inclined light sheet (an elliptical spot at the BFP position, the sheet\'s thickness × width; a pick sets 0.9); RingTIRF, a spot at the BFP position turned once round in every exposure, unpolarized (a pick sets 1.03); Maps, the BFP maps alone. <code>Lasers.Pattern</code>',
-      [['0', 'Off'], ['1', 'SIM2D'], ['2', 'SIM3D'], ['3', 'LatticeSIM2D'], ['4', 'LatticeSIM3D'], ['5', 'Custom'], ['6', 'LightSheet'], ['7', 'RingTIRF'], ['8', 'Maps']], '0', { show: FL,
+    select('mv_sim-type', 'Pattern', 'Structured illumination: the light as coherent beams in the objective\'s back focal plane, whose fringes step with the frame (the live sample counts its frames; a recording starts at 0). Off: one beam at the BFP position. SIM2D: two beams at ±position, 3 phases × 3 orientations. SIM3D: + the centre beam, 5 phases × 3 orientations. LatticeSIM2D: ±x and ±y, 9 phases. LatticeSIM3D: + the centre, 13 phases (the pairs stepping 2:3). Custom: the Beams matrix alone. A pick sets the BFP position to the type\'s radius (2D 0.95, 3D and the lattices 0.9) and the polarization to S; past 1 the beams are evanescent (TIRF-SIM). The kinetics run on the pattern\'s cycle mean, each frame\'s image on its exact pattern. The BFP light maps (the BFP maps row, Expert): LightSheet, an inclined light sheet (an elliptical spot at the BFP position, the sheet\'s thickness × width; a pick sets 0.9); RingTIRF, a spot at the BFP position turned once round in every exposure, unpolarized (a pick sets 1.03); Maps, the BFP maps alone. CSLM: a focused spot (the pupil filled to the pupil fill × NA) scanned line by line over the scan field, the camera taking what it swept in each exposure (no pinhole); where the scan time does not divide the exposure, a frame shows the band it swept (the kinetics run on the scan\'s mean). <code>Lasers.Pattern</code>',
+      [['0', 'Off'], ['1', 'SIM2D'], ['2', 'SIM3D'], ['3', 'LatticeSIM2D'], ['4', 'LatticeSIM3D'], ['5', 'Custom'], ['6', 'LightSheet'], ['7', 'RingTIRF'], ['8', 'Maps'], ['9', 'CSLM']], '0', { show: FL,
         apply: v => { const r = { '1': 0.95, '2': 0.9, '3': 0.9, '4': 0.9, '6': 0.9, '7': 1.03 }[v]; const o = {}; if (r) o['mv_illum-bfp'] = r; if (+v >= 1 && +v <= 5) o['mv_sim-polarization'] = '0'; return o; },
         kids: [
           select('mv_sim-polarization', 'Polarization', 'Every beam\'s polarization: S (across its plane of incidence: full fringe contrast; the lattice\'s x and y pairs then do not interfere, LatticeSIM3D\'s centre beam is linear diagonal), P, Circular, LinearX (the pupil field along the lab x axis) or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S. <code>Lasers.PatternPolarization</code>',
@@ -1564,6 +1564,11 @@ const UI_GROUPS = [
           num('mv_sim-phase-drift-turns-per-sec', 'Phase slide', 'turns/s', 'Each beam\'s phase drifts at its phase step × this: the pattern slides along its stepping direction. 0 = none. <code>Lasers.PatternPhaseDriftTurnsPerSec</code>', -100, 100, 0.01, 0, { adv, show: FL }),
           num('mv_sheet-thickness-um', 'Sheet thickness', 'µm', 'Pattern LightSheet: the sheet\'s thickness, FWHM across the beam (an estimate). <code>Lasers.SheetThicknessUm</code>', 0.1, 50, 0.1, 3, { adv, show: FL }),
           num('mv_sheet-width-um', 'Sheet width', 'µm', 'Pattern LightSheet: the sheet\'s width along y, FWHM (0 = the beam\'s FWHM). <code>Lasers.SheetWidthUm</code>', 0, 500, 1, 0, { adv, show: FL }),
+          num('mv_cslm-fov-um', 'Scan field', 'µm', 'Pattern CSLM: the scanned field\'s side, centred on the axis (0 = the camera\'s field). <code>Lasers.ScanFieldUm</code>', 0, 1000, 0.1, 0, { adv, show: FL }),
+          num('mv_cslm-pixel-nm', 'Scan pixel', 'nm', 'Pattern CSLM: the spacing of the scan lines and of the pixels along a line (an estimate). <code>Lasers.ScanPixelNm</code>', 1, 10000, 1, 100, { adv, show: FL }),
+          num('mv_cslm-dwell-us', 'Pixel dwell', 'µs', 'Pattern CSLM: the time the spot takes per scan pixel; it moves along a line at the pixel / the dwell (an estimate). <code>Lasers.ScanDwellUs</code>', 0.01, 1e6, 0.01, 2, { adv, show: FL }),
+          num('mv_cslm-flyback-us', 'Line flyback', 'µs', 'Pattern CSLM: the dark time per line, back to its start (an estimate). <code>Lasers.ScanFlybackUs</code>', 0, 1e7, 1, 10, { adv, show: FL }),
+          num('mv_cslm-fill', 'Pupil fill', '×', 'Pattern CSLM: the spot\'s NA = this × the objective\'s NA (at most the medium\'s index: no supercritical light). <code>Lasers.ScanFill</code>', 0.01, 1, 0.01, 1, { adv, show: FL }),
           text('mv_bfp-maps', 'BFP maps', 'The back focal plane\'s light as maps over the pupil, one statement per line (or separated by ;): <b>I</b> intensity, <b>phase</b> (turns), <b>pol</b> (° from s; <i>unpolarized</i>), <b>polLab</b> (a lab angle), <b>ellip</b> (turns), <b>tiltX</b> and <b>tiltY</b> (the entry angle, °: the light lands f tan(tilt) off the axis), <b>focus</b> (° from parallel, towards its lit region\'s centre: + converging), <b>coherent</b> (0 or 1: coherent regions add as fields, incoherent points as intensities), <b>T</b> and <b>duty</b> (lit while (t − T) mod 1 &lt; duty), <b>scanX</b>, <b>scanY</b>, <b>scanRot</b> (°, functions of t: one field moved or turned per time slot, fast). Variables: ux, uy, r (u units: 1 = the critical angle), phi (rad), nm, t (the cycle, 0..1), umax, uc, bfp (the BFP position), w (the beam\'s spot radius in u), fwhm, ns, ni, na, f, sheetT, sheetW. Functions: exp log sqrt abs sin cos tan asin acos atan atan2 hypot min max pow floor ceil round mod step gauss spot clamp if, and img("file.tif") (a map image picked below; row 0 = +uy, a page per time slot). # starts a comment. Shown: the Pattern\'s own equations; an edit sets the Pattern to Maps. The same power through the pupil as one beam. Example, CLSM-like: I = r &lt; umax; coherent = 0; scanX = 0.2*sin(2*pi*t); scanY = 0.2*cos(2*pi*t). <code>Lasers.BfpMaps</code>', undefined, { rows: 6, maxlength: 8000, show: FL }),
           { kind: 'html', html: '<div class="sub" id="bfpMapsMsg"></div><div class="sub"><select class="bfpExample" aria-label="BFP maps examples" title="An example of the BFP maps: its equations in the box (the Pattern Maps), or a Pattern type"></select> <button type="button" id="bfpMapFilesBtn" title="Images for img(&quot;name&quot;) in the BFP maps: a PNG (grey: the mean of R, G and B) or a TIFF (8, 16 or 32-bit, a page per time slot); the square = the pupil, u from −umax to umax, the top row at +uy">Map images…</button> <span id="bfpMapFilesList"></span><input type="file" id="bfpMapFiles" accept=".png,.tif,.tiff" multiple hidden></div>', show: FL, expert: true },
           num('mv_bfp-slots', 'Time slots', '', 'The BFP maps\' time slots per cycle: t = (slot + 0.5) / slots (0 = 64 when a map depends on t, else 1). <code>Lasers.BfpSlots</code>', 0, 4096, 1, 0, { adv, show: FL }),
@@ -8062,7 +8067,7 @@ mapsEl.addEventListener('keydown', ev => { if (ev.key === 'Enter' && (ev.ctrlKey
 mapsEl.addEventListener('blur', showMaps);
 document.getElementById('mv_sim-type').addEventListener('change', () => {
   const v = document.getElementById('mv_sim-type').value;
-  if (!self.ISC_QUIET && (v === '6' || v === '7')) MAPS.user = null;
+  if (!self.ISC_QUIET && (v === '6' || v === '7' || v === '9')) MAPS.user = null;
   showMaps();
 });
 for (const k of ['mv_illum-bfp', 'mv_sheet-thickness-um', 'mv_sheet-width-um', 'mv_bfp-slots', 'mv_bfp-cycle-frames'])
@@ -8302,7 +8307,14 @@ async function drawPatternReadout() {
   if (!out) return;
   try {
     const ex = (await setupJob(movieSpec(), specNow)).excitation;
-    const p = ex && ex.pattern;
+    const p = ex && ex.pattern, sc = ex && ex.scan;
+    // CSLM: the raster, the scan time against the exposure, the spot and its peak
+    if (sc) {
+      const per = sc.period_frames === 1 ? 'whole scans: every frame alike' : sc.period_frames > 1 ? `the frames repeat every ${sc.period_frames}` : 'every frame its own part of the scan';
+      out.textContent = `CSLM: ${sc.lines} lines of ${sc.pixel_nm.toFixed(0)} nm over ${sc.field_um.toFixed(1)} µm, line ${sc.line_ms.toPrecision(3)} ms, scan ${sc.scan_sec.toPrecision(3)} s = ` +
+        `${sc.scans_per_frame.toPrecision(3)} per frame (${per}); the spot NA ${sc.na_ex.toFixed(2)}, FWHM ${sc.fwhm_lateral_nm.toFixed(0)} × ${sc.fwhm_axial_nm.toFixed(0)} nm at ${sc.line_nm} nm, its peak ${sc.peak_per_setting.toPrecision(3)} × the laser setting`;
+      return;
+    }
     if (!p || p.type === 'Off') { out.textContent = ex && ex.pattern ? `one beam; its spot ${p.spot_radius_um.toFixed(0)} µm in the pupil` : ''; return; }
     const lit = self.ISC_DYE_DATA.lasers.filter(nm => +document.getElementById('mv_laser-' + nm).value > 0);
     const nm = lit.length ? lit[lit.length - 1] : 640, per = (p.period_nm[nm] || []).map(v => v.toFixed(0)).join(', ');
@@ -8312,7 +8324,7 @@ async function drawPatternReadout() {
 }
 let patternTimer = 0;
 function schedulePatternReadout() { clearTimeout(patternTimer); patternTimer = setTimeout(drawPatternReadout, 150); }
-for (const k of ['mv_sim-type', 'mv_sim-polarization', 'mv_sim-phases', 'mv_sim-angles', 'mv_sim-order', 'mv_sim-centre-amp', 'mv_illum-bfp', 'mv_illum-fwhm', 'mv_tube-length-mm', 'mv_bf-n-medium', 'mv_na', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
+for (const k of ['mv_cslm-fov-um', 'mv_cslm-pixel-nm', 'mv_cslm-dwell-us', 'mv_cslm-flyback-us', 'mv_cslm-fill', 'mv_exposure-ms', 'mv_sim-type', 'mv_sim-polarization', 'mv_sim-phases', 'mv_sim-angles', 'mv_sim-order', 'mv_sim-centre-amp', 'mv_illum-bfp', 'mv_illum-fwhm', 'mv_tube-length-mm', 'mv_bf-n-medium', 'mv_na', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
   document.getElementById(k)?.addEventListener('input', schedulePatternReadout);
 beamsEl.addEventListener('change', schedulePatternReadout);
 schedulePatternReadout();
@@ -8414,7 +8426,7 @@ async function drawBfpReadout() {
       : ex.regime === 'Clipped' ? `: beyond the pupil edge (${ex.u_max.toFixed(3)}), no light` : ': the beam straight up');
   } catch (e) { if (!e.superseded) out.textContent = ''; }   // (superseded: a later one fills it)
 }
-for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', 'mv_sim-type', 'mv_sheet-thickness-um', 'mv_sheet-width-um', 'mv_bfp-slots', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
+for (const k of ['mv_illum-bfp', 'mv_illum-profile', 'mv_illum-fwhm', 'mv_bf-n-medium', 'mv_size', 'mv_pixel-nm', 'mv_sim-type', 'mv_sheet-thickness-um', 'mv_sheet-width-um', 'mv_cslm-fov-um', 'mv_cslm-pixel-nm', 'mv_cslm-dwell-us', 'mv_cslm-flyback-us', 'mv_cslm-fill', 'mv_bfp-slots', ...self.ISC_DYE_DATA.lasers.map(nm => 'mv_laser-' + nm)])
   document.getElementById(k)?.addEventListener('input', scheduleBfpReadout);
 scheduleBfpReadout();
 

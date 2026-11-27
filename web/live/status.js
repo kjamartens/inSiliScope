@@ -121,7 +121,13 @@ function drawFacts() {
       ls.length ? ls.map(l => `${targetName(l.structure)}: ${l.dye_name}, ${l.mode} (${Math.round(100 * (l.main.detected_fraction || 0))} % of its light detected)`).join('\n') : 'No target is labelled']);
     const ex = S && S.excitation, lit = litLines(), depth = depthOf(ex, lit);
     let light = '…', tip = '';
-    if (ex) {
+    if (ex && ex.scan) {
+      // CSLM: a focused spot, no epi / HILO / TIRF beam (the BFP position does not enter)
+      const sc = ex.scan;
+      light = 'CSLM';
+      tip = `CSLM: a spot of NA ${sc.na_ex.toFixed(2)} scanned over ${sc.field_um.toFixed(1)} µm, a scan every ${(sc.scan_sec * 1000).toPrecision(3)} ms` +
+        (lit.length ? '\n' + lit.map(l => `${l.nm} nm: ${+l.kw.toFixed(3)} kW/cm² (the scan field's mean)`).join('\n') : '\nno laser reaches the sample');
+    } else if (ex) {
       // (HILO whose light reaches over 100 µm deep -- a beam close to the axis -- reads as Epi: it lights the whole sample)
       const regime = ex.regime === 'HILO' && depth > 100000 ? 'Epi' : ex.regime;
       light = regime;   // (the depth: in the tooltip)
@@ -190,7 +196,7 @@ function checks() {
     }
     // TIRF: the light reaches only a short way up
     const ex = S.excitation, depth = depthOf(ex, lit);
-    if (ex && ex.regime === 'TIRF' && depth > 0 && z * 1000 > Math.max(500, 3 * depth))
+    if (ex && !ex.scan && ex.regime === 'TIRF' && depth > 0 && z * 1000 > Math.max(500, 3 * depth))
       add('tirf', 'warn', 'The focus is above the TIRF light', `TIRF lights only about ${fmtUm(depth)} above the coverslip, and the focus is at ${z} µm. Focus near 0 µm, or lower the BFP position (Illumination) for HILO.`);
   }
   // the focus

@@ -218,6 +218,27 @@ await runViewer('viewer sim', { watchdogSec: 180 }, async ({ page, check }) => {
   check(parked === '6', `the BFP position at 0.02 leaves LightSheet on (${parked})`);
   await set('mv_sim-type', '0');
 
+  // CSLM (spec/ALGORITHM.md "Confocal laser scanning (CSLM) excitation"): the pick leaves the BFP position, its rows
+  // go into the spec, the readout gives the raster from the setup job (25.6 um / 100 nm = 256 lines, 1 whole scan
+  // per 50 ms frame at 0.75 us / 0 flyback: whole scans), and a dwell that does not divide the exposure says so.
+  await set('mv_illum-bfp', '0.3');
+  await set('mv_sim-type', '9');
+  await set('mv_exposure-ms', '50');
+  await set('mv_cslm-fov-um', '25.6');
+  await set('mv_cslm-flyback-us', '0');
+  await set('mv_cslm-dwell-us', '0.762939453125');
+  const ro9 = () => page.evaluate(() => document.getElementById('patternReadout').textContent);
+  const whole = await page.waitForFunction(() => /^CSLM: 256 lines .*whole scans/.test(document.getElementById('patternReadout').textContent),
+    null, { timeout: 90000 }).then(() => true, () => false);
+  const cs = await page.evaluate(() => ({ bfp: +document.getElementById('mv_illum-bfp').value, spec: movieSpec() }));
+  check(whole && cs.bfp === 0.3 && / sim-type=9( |$)/.test(cs.spec) && / cslm-fov-um=25\.6( |$)/.test(cs.spec) && / cslm-flyback-us=0( |$)/.test(cs.spec),
+    `CSLM: the BFP position kept, the rows in the spec, the readout "${await ro9()}"`);
+  await set('mv_cslm-dwell-us', '1');
+  const part = await page.waitForFunction(() => /every frame its own part of the scan/.test(document.getElementById('patternReadout').textContent),
+    null, { timeout: 90000 }).then(() => true, () => false);
+  check(part, `CSLM at 1 us: the scan (65.5 ms) does not divide the frame: "${await ro9()}"`);
+  await set('mv_sim-type', '0');
+
   // The beams at the BFP's centre (below 0.05) with a pattern on: the pattern Off (epi); back above, the pattern again,
   // at the position set (not the type's radius)
   await set('mv_sim-type', '1');
