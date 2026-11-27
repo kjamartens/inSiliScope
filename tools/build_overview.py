@@ -34,7 +34,13 @@ def label_font(px):
     return None
 
 
+# The cell field the spots here were chosen on: the defaults until 2026-11-27 (now the "Round, smooth" cell at
+# occupancy 0.7 and jitter 1). Pinned so the images stay what they were; choose new spots to show the new field.
+OLD_FIELD = {"occupancy": 0.33, "cell-diam-min-um": 25, "cell-diam-max-um": 35, "p.jitter": 0.8, "p.cellElongMin": 0.5, "p.cellElongMax": 1, "p.cellBlob": 1.75, "p.cellRough": 0.15, "p.cellFractalDim": 1.35}
+
+
 def cli_geometry(cli, opts, size_um, detail):
+    opts = {**OLD_FIELD, **opts}
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "g.json")
         args = [cli, "--geometry-json", path, "--geometry-um", str(size_um), "--geometry-detail", "1" if detail else "0"]
@@ -171,6 +177,7 @@ def draw_structures(geo, path):
 
 
 def movie(cli, opts, path_webp):
+    opts = {**OLD_FIELD, **opts}
     with tempfile.TemporaryDirectory() as d:
         tif = os.path.join(d, "m.tif")
         args = [cli, "--out", tif]

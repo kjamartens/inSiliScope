@@ -77,7 +77,7 @@ ISC_API int32_t isc_abi_version(void);
  * with every change that moves a cell (packing, RawCandidate): the packed
  * block caches (isc_world_set_cache_dir, the viewer's local storage) are
  * keyed on it, so stale poses are never taken for current ones. */
-#define ISC_WORLD_VERSION "2026-10-05"
+#define ISC_WORLD_VERSION "2026-11-27"
 ISC_API const char* isc_world_version(void);
 
 /* ---- RNG (bit-exact with the JS prototype) ---- */

@@ -88,6 +88,11 @@ const double INF = std::numeric_limits<double>::infinity();
 Params Cheap()
 {
    Params p;
+   // The field the checks were written on: the core's defaults until 2026-11-27 (now the "Round, smooth" cell at
+   // occupancy 0.7 and jitter 1, the user's choice; the golden "builtin" case pins those).
+   p.density = 0.33; p.jitter = 0.8;
+   p.cellDiamMin = 25; p.cellDiamMax = 35; p.cellElongMin = 0.5; p.cellElongMax = 1;
+   p.cellBlob = 1.75; p.cellRough = 0.15; p.cellFractalDim = 1.35;
    p.npcDensity = 0;
    p.relaxIters = 10;
    p.mtDensity = 0.15;
@@ -97,6 +102,10 @@ Params Cheap()
 IscParams* AbiParams(std::initializer_list<std::pair<const char*, double>> extra = {})
 {
    IscParams* p = isc_params_new();
+   for (const auto& e : std::initializer_list<std::pair<const char*, double>>{
+           { "density", 0.33 }, { "jitter", 0.8 }, { "cellDiamMin", 25 }, { "cellDiamMax", 35 }, { "cellElongMin", 0.5 },
+           { "cellElongMax", 1 }, { "cellBlob", 1.75 }, { "cellRough", 0.15 }, { "cellFractalDim", 1.35 } })
+      isc_params_set(p, e.first, e.second);   // (Cheap()'s field)
    isc_params_set(p, "npcDensity", 0);
    isc_params_set(p, "relaxIters", 10);
    isc_params_set(p, "mtDensity", 0.15);

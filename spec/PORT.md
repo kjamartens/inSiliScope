@@ -1599,3 +1599,12 @@ spec/ALGORITHM.md "The live events query" and "Dye positions at 0.1 nm". No ABI 
   calls, events), `ScopeMemoryReport` rows `world.*` and `bg.finished`, `kEstBlinkDyeBytes` 39.
 - Checks: ctest (42), `live_bench --hash` before / after over 10 scenes for the memo steps (equal), `--dump` for the
   lattice (the differences above).
+
+## 34. Default field and field of view (2026-11-27)
+
+spec/ALGORITHM.md "Default field". Defaults only: `core/src/params.h` (jitter 1, density 0.70, cellDiam 20-30,
+cellElongMin 0.8, cellBlob 0.6, cellRough 0.05, cellFractalDim 1.2), `ScopeMovie.cpp` options `occupancy` 0.70,
+`cell-diam-min-um` 20, `cell-diam-max-um` 30, `size` 256, `Registry/SceneState.cpp` `cellFieldDefaults`, the viewer's
+rows and its Cell shape list (`Round, smooth` blob 0.6 first, `Blobby` = the old default), `tools/make_cellfield_block.mjs`.
+`ISC_WORLD_VERSION` "2026-11-27". Goldens: old cases explicit on `FIELD0` (bit for bit), new `defaults` cases. No ABI
+change. Generated again: `web/live/mm_config.js`, `docs/micro-manager.md`, the viewer modules, `adapter_pixel_hash_ref.txt`.

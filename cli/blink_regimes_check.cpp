@@ -8,6 +8,7 @@
 //
 //   blink_regimes_check          exit code 0 = all checks passed
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
+#include "test_field.h"
 #include "BinnedBlinks.h"
 #include "BlinkExpectation.h"
 #include "Parallel.h"
@@ -126,6 +127,7 @@ void ExpectationVsCore()
    // One world, relabelled per case; the microtubules alone, a cheap packing and a sixth of the microtubules (~4e4
    // dyes in the window: a 4 sigma bound of ~10 %).
    IscParams* params = isc_params_new();
+   testfield::Set(params);
    isc_params_set(params, "npcDensity", 0);
    isc_params_set(params, "relaxIters", 10);
    isc_params_set(params, "mtDensity", 0.15);
@@ -215,7 +217,7 @@ double MovieTotal(const std::string& text, double* fluct = nullptr)
    double total = 0.0;
    std::vector<double> sum, sum2;
    long frames = 0;
-   if (!ParseScopeSpec(text, spec, err) ||
+   if (!ParseScopeSpec(testfield::Spec() + text, spec, err) ||
        !RenderScopeMovie(spec, [&](long, const std::vector<uint16_t>& adu) {
           sum.resize(adu.size(), 0.0);
           sum2.resize(adu.size(), 0.0);
@@ -262,7 +264,7 @@ void DefaultsSparse()
       std::string err;
       ScopeMovieInfo info;
       std::vector<uint16_t> all;
-      if (ParseScopeSpec(text, spec, err))
+      if (ParseScopeSpec(testfield::Spec() + text, spec, err))
          RenderScopeMovie(spec, [&](long, const std::vector<uint16_t>& a) {
             all.insert(all.end(), a.begin(), a.end());
             return true;

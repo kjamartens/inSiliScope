@@ -23,7 +23,9 @@ dropped caches.
 
 The plane is divided into chunks (default 26 µm). Each chunk has at most one candidate cell centre, jittered within the
 chunk (a stratified-jitter point field: O(1) per chunk, no global state, unlike Poisson-disk sampling). An occupancy
-draw decides whether the candidate becomes a cell.
+draw decides whether the candidate becomes a cell. By default 70 % of the chunks hold a candidate and a centre may
+lie anywhere in its chunk (position jitter 1); cells that stay stuck against their neighbours are dropped by the
+packing.
 
 Cell outline: an ellipse (random elongation, rotation) whose *geometric mean* diameter is drawn from a range, modulated by
 a few angular harmonics ("blobbiness") to look like a confluent-culture cell. Keeping the diameter meaningful at any
@@ -31,10 +33,15 @@ blobbiness needed three separate fixes (a symmetric clamp, a numeric area correc
 floor instead of whole-cell scaling); they are described in `spec/ALGORITHM.md` and must not be "simplified" away.
 On top of the lobes the outline has a fractal wiggle: harmonics 6-64 with amplitudes \(\propto k^{-(2.5-D)}\), so a
 box-counting dimension \(D\) (a self-affine outline has \(D = 2 - H\) for Hurst exponent \(H\)
-[[gneiting2004](../../references.md#gneiting2004)], and amplitudes \(\propto k^{-(H+1/2)}\)). `cellFractalDim` defaults to
-1.35: box counting on the contours of cultured MCF10A epithelial cells gives \(D = 1.352 \pm 0.044\), whatever their shape
-[[kim2015](../../references.md#kim2015)]. The wiggle is scaled by the blobbiness (`cellRough` x `cellBlob`: a round cell
-stays smooth).
+[[gneiting2004](../../references.md#gneiting2004)], and amplitudes \(\propto k^{-(H+1/2)}\)). Box counting on the contours of
+cultured MCF10A epithelial cells gives \(D = 1.352 \pm 0.044\), whatever their shape
+[[kim2015](../../references.md#kim2015)]: the viewer's *Blobby* cell shape takes 1.35. The wiggle is scaled by the
+blobbiness (`cellRough` x `cellBlob`: a round cell stays smooth).
+
+The default cell is the viewer's *Round, smooth* shape: 20-30 µm across, elongation 0.8-1, blobbiness 0.6, roughness
+0.05, fractal dimension 1.2 (a choice for a clean default field, not a measured cell line). The other shapes of the
+viewer's Cell shape list (Blobby -- the default until November 2026 --, Elongated, Spread, Small, Irregular) set the
+same parameters.
 
 The outline built up term by term on one cell, from the cli's geometry output:
 

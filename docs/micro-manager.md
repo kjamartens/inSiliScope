@@ -286,9 +286,9 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearLamina_BoundTimeSec` | Advanced | 0.05 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
 | `NuclearLamina_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
 | `NuclearLamina_Binder` | Advanced | IgG2-PAINT | `Legacy`, `IgG2-STORM`, `IgG1-STORM`, `IgG2-PAINT`, `IgG1-PAINT`, `Nanobody`, `Nanobody-PAINT`, `SNAP-Halo`, `FP` | How the nuclear lamina' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in numbers before the linkage model. |
-| `CellDiameterMinUm` | Advanced | 25 | 5 .. 100 | Smallest cell diameter, um. |
-| `CellDiameterMaxUm` | Advanced | 35 | 5 .. 100 | Largest cell diameter, um. |
-| `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
+| `CellDiameterMinUm` | Advanced | 20 | 5 .. 100 | Smallest cell diameter, um. |
+| `CellDiameterMaxUm` | Advanced | 30 | 5 .. 100 | Largest cell diameter, um. |
+| `Occupancy` | Advanced | 0.7 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
 | `MicrotubuleDensityPerUm2` | Advanced | 0.9 | 0 .. 2 | Microtubule density, per um^2 of cell. |
 | `NuclearPoreDensityPerUm2` | Advanced | 8 | 0 .. 30 | Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (8; measured 5-8.6 in HeLa and U2OS nuclei; 0 = no pores, the target is off). |
 | `NuclearLaminaDensityPerUm2` | Advanced | 2000 | 100 .. 10000 | Nuclear lamina points per um^2 of nuclear envelope, uniform by area (2000, an estimate: a random stand-in for the lamin network). Unlabelled by default: NuclearLamina_Label turns it on. |
@@ -329,12 +329,12 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearPoreRingSepNm` | Expert | 50 | 0 .. 150 | Distance between a pore's cytoplasmic and nucleoplasmic ring, nm. |
 | `NuclearPoreCornerSpreadNm` | Expert | 12 | 0 .. 30 | Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm. |
 | `NuclearLaminaPoreExclusionNm` | Expert | 40 | 0 .. 300 | Diameter of the lamina-free disc around each nuclear pore's centre, nm (40). |
-| `PositionJitter` | Expert | 0.8 | 0.1 .. 1 | How far a cell centre may move from its packing block's centre, as a fraction of the block (a jittered grid). |
-| `CellElongationMin` | Expert | 0.5 | 0.1 .. 1 | Short-to-long axis ratio of a cell's footprint, minimum (1 = round). |
+| `PositionJitter` | Expert | 1 | 0.1 .. 1 | How far a cell centre may move from its packing block's centre, as a fraction of the block (a jittered grid). |
+| `CellElongationMin` | Expert | 0.8 | 0.1 .. 1 | Short-to-long axis ratio of a cell's footprint, minimum (1 = round). |
 | `CellElongationMax` | Expert | 1 | 0.1 .. 1 | Short-to-long axis ratio of a cell's footprint, maximum (1 = round). |
-| `CellBlobbiness` | Expert | 1.75 | 0 .. 4 | Amplitude of the large lobes of a cell's outline (0 = a smooth ellipse). |
-| `CellRoughness` | Expert | 0.15 | 0 .. 1 | Fine fractal wiggle of a cell's outline (harmonics 6-64), x the blobbiness; 0 = smooth lobes only. |
-| `CellFractalDim` | Expert | 1.35 | 1 .. 2 | Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2. |
+| `CellBlobbiness` | Expert | 0.6 | 0 .. 4 | Amplitude of the large lobes of a cell's outline (0 = a smooth ellipse). |
+| `CellRoughness` | Expert | 0.05 | 0 .. 1 | Fine fractal wiggle of a cell's outline (harmonics 6-64), x the blobbiness; 0 = smooth lobes only. |
+| `CellFractalDim` | Expert | 1.2 | 1 .. 2 | Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2. |
 | `NucLongAxisMinUm` | Expert | 8 | 2 .. 30 | Long axis of the nucleus, minimum (um). |
 | `NucLongAxisMaxUm` | Expert | 12 | 2 .. 30 | Long axis of the nucleus, maximum (um). |
 | `NucAxisRatioMin` | Expert | 0.6 | 0.2 .. 1 | Short-to-long axis ratio of the nucleus footprint, minimum. |

@@ -48,7 +48,9 @@ export async function runViewer(name, { watchdogSec = 120, viewport = { width: 1
     page.on('pageerror', e => errors.push(e.message));
     const port = server.address().port;
     if (initScript) await page.addInitScript(initScript, initArg);
-    await page.goto(`http://localhost:${port}/index.html${query}`);
+    // (the checks look at places of the default scene of before 2026-11-27: index.html's ?defaults=2026-10)
+    const q = /[?&]defaults=/.test(query) ? query : query + (query.includes('?') ? '&' : '?') + 'defaults=2026-10';
+    await page.goto(`http://localhost:${port}/index.html${q}`);
     if (waitCells)
       await page.waitForFunction(() => window.iscScene && +document.getElementById('hud').dataset.cells > 0 && iscScene.packingIdle(),
         null, { timeout: watchdogSec * 1000 });

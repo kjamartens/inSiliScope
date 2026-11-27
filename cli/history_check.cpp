@@ -15,6 +15,7 @@
 //                          check: run it on a quiet machine, not under ctest)
 //
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
+#include "test_field.h"
 #include "DyeLibrary.h"
 #include "Excitation.h"
 #include "LightHistory.h"
@@ -55,7 +56,7 @@ ScopeSpec Spec(const std::string& text)
 {
    ScopeSpec s;
    std::string err;
-   if (!ParseScopeSpec(text, s, err))
+   if (!ParseScopeSpec(testfield::Spec() + text, s, err))
    {
       std::printf("FAIL  spec '%s': %s\n", text.c_str(), err.c_str());
       std::exit(1);
@@ -683,6 +684,7 @@ int main(int argc, char** argv)
       return g_failures ? 1 : 0;
    }
    IscParams* p = isc_params_new();
+   testfield::Set(p);
    IscWorld* w = isc_world_new(1249, p);
    Fresh(w);
    Dose(w, "FlatTop epi", "illum-profile=FlatTop illum-bfp=0", { 0.0, 2.5 });

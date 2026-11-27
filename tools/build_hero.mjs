@@ -55,7 +55,7 @@ const ctx = await browser.newContext({ viewport: { width: 1600, height: 828 }, d
 const page = await ctx.newPage();
 page.on('pageerror', e => console.log('pageerror', e.message));
 try {
-  await page.goto(`http://localhost:${server.address().port}/index.html?live=0`);
+  await page.goto(`http://localhost:${server.address().port}/index.html?live=0&defaults=2026-10`);   // (the loop's path was laid on that field)
   await page.waitForFunction(() => window.liveState && typeof genWorkers !== 'undefined' && genWorkers.ok, null, { timeout: 120000 });
   await clipOf(page, '#canvasHost');
   const box = await page.locator('#cv').boundingBox();

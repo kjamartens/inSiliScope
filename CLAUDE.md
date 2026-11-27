@@ -152,6 +152,19 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   lattice back on round values. `tools/adapter_pixel_hash_ref.txt` rewritten for it (TOTAL ea7812da..., "TOTAL before pores"
   63a4ad7e...; was 38083c20... / 9ea3aad1...; `dstorm` and at times `mean-field` flip from run to run under load,
   before the series too). Open: 2048 px on jupiter, the stage-move walk.
+- **Default field (2026-11-27, the user's choice; spec/ALGORITHM.md "Default field", spec/PORT.md 34):** occupancy
+  0.70 (was 0.33), position jitter 1 (0.8), the cell the viewer's "Round, smooth" shape with blobbiness 0.6 (20-30 um,
+  elongation 0.8-1, roughness 0.05, D 1.2; the old default is the list's "Blobby"), field of view 256 px in the cli and
+  viewer (128; MM's was 256); in `core/src/params.h`, the engine options, MM `cellFieldDefaults`, the viewer rows and
+  the block wrapper; `ISC_WORLD_VERSION` 2026-11-27. **Everything that looks at a place of the old field pins it**:
+  golden cases on `FIELD0` in `make_cases.mjs` (old outputs bit for bit; `defaults` cases d00 / m08 / p05 for today's),
+  `cli/test_field.h` (`testfield::Spec()` / `Set` / `Params`), `world_tests.cpp` `Cheap()`, `tools/isc_mm.py`
+  `load_scope(old_field=True)`, the viewer's `?defaults=2026-10` (old field + 128 px; `tests/web/browser.mjs` adds it
+  to every check's URL, `tools/build_hero.mjs` too), `gallery/manifest.json` `defaults`, `tools/physics_figures/common.py`
+  / `build_overview.py` / `bench.py` `OLD_FIELD`. A new test or figure either pins it the same way or picks its spot on
+  the new field. The published gallery / figures / overview still show the old cell (new spots: not chosen yet).
+  `adapter_pixel_hash_ref.txt` rewritten (TOTAL 2b627d7c...). A remote server or page of the other world version is
+  refused (build the server at the page's ref).
 - **Camera size and the memory check (2026-11-18, branch `large-fov`, spec/ALGORITHM.md "Large fields of view"):**
   MM `Camera.SensorWidthPx` / `SensorHeightPx` (16..4096, any time but during an acquisition, as Binning; replaced the
   pre-init `FovSize`); spec `height` (0 = square; `size` = the width), `ScopeMovieDims` caps `kMaxFovPx` 4096; a

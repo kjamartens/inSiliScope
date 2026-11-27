@@ -8,6 +8,7 @@
 //   - --history-before: a past equal to the movie's settings changes nothing, a power step acts from then on.
 //
 //   probes_check          exit code 0 = all checks passed (writes probes_check_* files in the working directory)
+#include "test_field.h"
 #include "PsfGeneratorBridge.h"
 #include "RenderPresets.h"
 #include "ScopeResolved.h"
@@ -39,7 +40,7 @@ ScopeSpec Spec(const char* text)
 {
    ScopeSpec s;
    std::string err;
-   if (!ParseScopeSpec(text, s, err))
+   if (!ParseScopeSpec(testfield::Spec() + std::string(text), s, err))
    {
       std::printf("FAIL  spec %s: %s\n", text, err.c_str());
       std::exit(1);

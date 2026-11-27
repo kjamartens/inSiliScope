@@ -67,8 +67,8 @@ function cellFieldFactory(SRC) {
   // microtubules; opts.params { npcDensity: 8, ... } adds them (sites with structure 1). No nuclear lamina either
   // (laminDensity 0, the core's default; ABI 16): opts.params { laminDensity: 50 } adds it (structure 2).
   const DEFAULTS = {
-    chunkSize: 26, jitter: 0.8, density: 0.33,
-    cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35,
+    chunkSize: 26, jitter: 1, density: 0.7,
+    cellDiamMin: 20, cellDiamMax: 30, cellElongMin: 0.8, cellElongMax: 1, cellBlob: 0.6, cellRough: 0.05, cellFractalDim: 1.2,
     nucLongMin: 8, nucLongMax: 12, nucRatioMin: 0.6, nucRatioMax: 1, nucHeightMin: 0.2, nucHeightMax: 0.3,
     nucOffsetFrac: 0.1, nucMargin: 0.5, nucBaseMin: 0.4, nucBaseMax: 0.9,
     nucIrregMin: 0.03, nucIrregMax: 0.2, nucBendMin: 0, nucBendMax: 0.3, nucSmooth: 2.5, nucThickIrreg: 0.1,

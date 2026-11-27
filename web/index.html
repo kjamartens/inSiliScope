@@ -924,9 +924,9 @@ self.iscCoi = (() => {
 <script src="live/mm_config.js"></script>
 <script src="live/bfp_examples.js"></script>
 <script src="origami_designs.js"></script>
-<script src="insiliscope_module.js?v=5da9e9a13ef3"></script>
+<script src="insiliscope_module.js?v=8f727d8c5833"></script>
 <!-- The threaded module (ISC_MODULE_MT_SRC) only on a cross-origin isolated page: the live worker runs it. -->
-<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=5f8ff4cdafd0"><\/script>');</script>
+<script>if (self.iscCoi.threads) document.write('<script src="insiliscope_module_mt.js?v=e168e664184e"><\/script>');</script>
 <script src="live/scope_panels.js"></script>
 <script src="wf_gpu.js"></script>
 <script src="splat_gpu.js"></script>
@@ -963,6 +963,10 @@ const SPECIMEN_DEFAULT = DD.specimens.findIndex(sp => sp.id === DD.specimenDefau
 const mounted = () => DD.specimens[typeof document !== 'undefined' && $('mv_specimen') ? +$('mv_specimen').value
                                                                                        : SPECIMEN_DEFAULT];
 const CF = () => mounted().id === 'CellField', NR = () => mounted().id === 'Nanorulers';
+// ?defaults=2026-10 (for testing): the default cell field and camera field of before 2026-11-27 (occupancy 33 %,
+// jitter 0.8, the 'Blobby' cell, 128 px). The browser checks and the Home page's 3D loop look at places of that
+// field; the defaults since are the 'Round, smooth' cell at occupancy 70 % and jitter 1, 256 px (the user's choice).
+const D0 = typeof location !== 'undefined' && /[?&]defaults=2026-10(&|$)/.test(location.search), d0 = (now, before) => D0 ? before : now;
 const DATA = () => CF() && !!self.ISC_SHOW_DATA;   // the View's simulated-data layers, hidden for now
 const FID = () => typeof document === 'undefined' || !$('mv_fid-density') || +$('mv_fid-density').value > 0;   // beads on
 const TARGETS = DD.specimens.flatMap(sp => sp.targets.map(t => Object.assign({ specimen: sp.id }, t)));
@@ -1343,8 +1347,8 @@ const UI_GROUPS = [
       DD.specimens.map((sp, i) => [String(i), sp.name]), String(SPECIMEN_DEFAULT)),
     num('seed', 'Seed', 'integer', 'One seed for the whole simulation, as Micro-Manager\'s <code>inSiliScope.RandomSeed</code> and the cli\'s <code>seed</code>: the world (every cell, microtubule, ruler and dye, a pure function of (seed, position)) is drawn from seed ^ 0x43454C4C, the blinking, drift and camera noise from the seed itself. 42 is the default of Micro-Manager, the cli and the gallery.', null, null, 1, 42),
     button('reseed', 'Randomize seed', 'Draw a new random seed.'),
-    range('density', 'Occupancy', '%', 'Share of chunks that hold a cell, before packing drops cells that stay stuck. <code>CellField.Occupancy</code>', 0.05, 1, 0.01, 0.33, { show: CF, fmt: v => (100 * v).toFixed(0) }),
-    range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, 0.8, { adv, show: CF, fmt: fx(2) }),
+    range('density', 'Occupancy', '%', 'Share of chunks that hold a cell, before packing drops cells that stay stuck. <code>CellField.Occupancy</code>', 0.05, 1, 0.01, d0(0.70, 0.33), { show: CF, fmt: v => (100 * v).toFixed(0) }),
+    range('jitter', 'Position jitter', '× chunk', 'How far a cell centre may move from its chunk centre, as a fraction of the chunk (a jittered grid). Below 1 two neighbours stay at least chunk × (1 − jitter) apart.', 0.1, 1, 0.02, d0(1, 0.8), { adv, show: CF, fmt: fx(2) }),
     num('chunkSize', 'Chunk size', 'µm', 'Side of the square chunk grid. One candidate cell per chunk, so this sets the mean cell spacing. <code>CellField.ChunkSizeUm</code>', 4, 200, 1, 26, { adv, show: CF }),
   ] },
   // The DNA-origami nanorulers (core params origami*, core/src/origami.*; Micro-Manager: Nanorulers).
@@ -1369,18 +1373,18 @@ const UI_GROUPS = [
   ] },
   { id: 'shape', title: 'Cell shape', open: true, show: CF, items: [
     preset('cellShape', 'Cell shape', 'Sets the footprint and outline (the rows below) to a typical cell shape. Rough starting points, not measured values; editing a row shows "Custom".', {
-      'Default': { cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35 },
-      'Round, smooth': { cellDiamMin: 20, cellDiamMax: 30, cellElongMin: 0.8, cellElongMax: 1, cellBlob: 0.3, cellRough: 0.05, cellFractalDim: 1.2 },
+      'Round, smooth': { cellDiamMin: 20, cellDiamMax: 30, cellElongMin: 0.8, cellElongMax: 1, cellBlob: 0.6, cellRough: 0.05, cellFractalDim: 1.2 },
+      'Blobby': { cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35 },
       'Elongated': { cellDiamMin: 30, cellDiamMax: 50, cellElongMin: 0.25, cellElongMax: 0.5, cellBlob: 1, cellRough: 0.15, cellFractalDim: 1.35 },
       'Spread, lobed': { cellDiamMin: 35, cellDiamMax: 55, cellElongMin: 0.5, cellElongMax: 1, cellBlob: 3, cellRough: 0.3, cellFractalDim: 1.45 },
       'Small, compact': { cellDiamMin: 12, cellDiamMax: 18, cellElongMin: 0.7, cellElongMax: 1, cellBlob: 0.75, cellRough: 0.1, cellFractalDim: 1.3 },
       'Irregular, rough': { cellDiamMin: 25, cellDiamMax: 40, cellElongMin: 0.4, cellElongMax: 1, cellBlob: 2.5, cellRough: 0.5, cellFractalDim: 1.6 },
     }, [
-      pair('cellDiam', 'Diameter', 'µm', 'Footprint diameter, drawn per cell between min and max. <code>CellField.CellDiameterMinUm</code> / <code>CellDiameterMaxUm</code>', 5, 80, 0.5, 25, 35),
-      pair('cellElong', 'Elongation', 'ratio', 'Short-to-long axis ratio of the footprint, per cell (1 = round).', 0.1, 1, 0.05, 0.5, 1),
-      range('cellBlob', 'Blobbiness', 'a.u.', 'Amplitude of the large lobes of the outline (0 = smooth ellipse).', 0, 4, 0.05, 1.75, { fmt: fx(2) }),
-      range('cellRough', 'Roughness', '× blob', 'Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.', 0, 1, 0.01, 0.15, { adv, fmt: fx(2) }),
-      range('cellFractalDim', 'Fractal dim.', 'D', "Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.", 1, 2, 0.01, 1.35, { adv, fmt: fx(2) }),
+      pair('cellDiam', 'Diameter', 'µm', 'Footprint diameter, drawn per cell between min and max. <code>CellField.CellDiameterMinUm</code> / <code>CellDiameterMaxUm</code>', 5, 80, 0.5, d0(20, 25), d0(30, 35)),
+      pair('cellElong', 'Elongation', 'ratio', 'Short-to-long axis ratio of the footprint, per cell (1 = round).', 0.1, 1, 0.05, d0(0.8, 0.5), 1),
+      range('cellBlob', 'Blobbiness', 'a.u.', 'Amplitude of the large lobes of the outline (0 = smooth ellipse).', 0, 4, 0.05, d0(0.6, 1.75), { fmt: fx(2) }),
+      range('cellRough', 'Roughness', '× blob', 'Fine fractal wiggle of the outline (harmonics 6-64), scaled with blobbiness. 0 = smooth lobes only.', 0, 1, 0.01, d0(0.05, 0.15), { adv, fmt: fx(2) }),
+      range('cellFractalDim', 'Fractal dim.', 'D', "Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2 (space-filling). Measured cell contours: ~1.35.", 1, 2, 0.01, d0(1.2, 1.35), { adv, fmt: fx(2) }),
     ]),
   ] },
   { id: 'nucleus', title: 'Nucleus', show: CF, items: [
@@ -1628,7 +1632,7 @@ const UI_GROUPS = [
           num('mv_cic', 'CIC', 'e⁻/px/frame', 'EMCCD clock-induced charge. <code>Camera.EMCCD_CicElectrons</code>', 0, 1, 'any', 0.002, { adv }),
           num('mv_bit-depth', 'Bit depth', 'bits', 'EMCCD ADC bit depth. <code>Camera.BitDepth</code>', 8, 16, 1, 16, { adv }),
         ] }),
-    num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, 128),
+    num('mv_size', 'Field of view', 'px', 'Square camera field of view, centred on the view centre.', 8, 512, 8, d0(256, 128)),
     num('emissionMag', 'Magnification', '×', 'Magnification between the objective and the camera (tube lens / relay); a camera preset sets its own (Kinetix22 0.667, iXon Ultra 897 1.6). The pixel size follows. <code>EmissionPath.EmissionMagnification</code>', 0.1, 10, 'any', 0.667),
     { kind: 'html', html: '<div class="sub" id="magReadout"></div>' },
     num('mv_pixel-nm', 'Pixel size', 'nm', 'Camera pixel size in the sample plane, as Micro-Manager works it out: the camera\'s sensor pixel / (objective × magnification). Typing a size sets the Magnification that gives it (the camera and objective stay). <code>Camera.PixelSizeNm</code>', 10, null, 'any', 100, { derived: true, changedWith: 'emissionMag' }),

@@ -1605,6 +1605,27 @@ WideField the same; dSTORM has few dyes (records 32, clock state 25, blinks 5 by
   walked).
 - `world_checks` `DyeDetails`: a dye with no linkage is within 0.09 nm of its site (was: on it).
 
+## Default field: the Round, smooth cell, occupancy 0.7, jitter 1, 256 px (2026-11-27)
+
+The user's choice. The core's compiled-in defaults (`core/src/params.h`), the engine's options, Micro-Manager's
+`CellField` rows, the viewer's rows and the webSMLM block's wrapper: `density` (occupancy) 0.33 -> 0.70, `jitter` 0.8
+-> 1, `cellDiamMin` / `Max` 25 / 35 -> 20 / 30, `cellElongMin` 0.5 -> 0.8, `cellBlob` 1.75 -> 0.6, `cellRough` 0.15 ->
+0.05, `cellFractalDim` 1.35 -> 1.2 (the viewer's "Round, smooth" shape with blobbiness 0.6, was 0.3; the old default
+shape is its "Blobby"); the engine's and the viewer's field of view `size` 128 -> 256 px (Micro-Manager's was 256).
+`ISC_WORLD_VERSION` 2026-11-27 (a server or a block cache of the old defaults is another world).
+
+- **Goldens:** every case of `tests/parity/make_cases.mjs` now writes the old field out (`FIELD0`), so the outputs
+  frozen from the JS stay bit for bit (38 of 38 equal after the re-freeze); new cases `d00`, `m08`, `p05` (parameter
+  set `defaults`: nothing set) freeze today's defaults from the C++.
+- **What looks at a place of the old field keeps that field**, by name: the engine's checks (`cli/test_field.h`:
+  history_check, blink_regimes, brightfield, cli_probes), `world_tests.cpp` `Cheap()` / `AbiParams`, the adapter's
+  Python tests (`tools/isc_mm.py` `OLD_FIELD`, `load_scope(old_field=True)`), the browser checks and the Home page's
+  3D loop (`index.html?defaults=2026-10`, added by `tests/web/browser.mjs` and `tools/build_hero.mjs`: the old field
+  and 128 px), the gallery (`gallery/manifest.json` `defaults`), the physics figures (`common.py` `OLD_FIELD`), the
+  overview (`build_overview.py`) and the benchmarks (`bench.py`: their history stays comparable). So the published
+  images still show the old cell until new spots are chosen; `adapter_pixel_hash` (the adapter's real defaults) moved
+  in every config and was rewritten.
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but
