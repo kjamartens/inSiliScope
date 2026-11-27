@@ -160,8 +160,11 @@ bool SampleSource::Configure(const SampleSettings& s, std::string& err)
 namespace {
 // The rows of a cap/total query (stride ISC_EVENT_STRIDE) as BlinkEvents in q's frame.
 template <class Query>
-bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std::vector<BlinkEvent>& out)
+bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std::vector<BlinkEvent>& out,
+               SampleSource::QueryTiming* timing = nullptr)
 {
+   const auto tCore = std::chrono::steady_clock::now();
+   int calls = 0;
    // The core's cap/total convention: grow and ask again (the second call is
    // served from its caches).
    int32_t cap = static_cast<int32_t>(buf.size() / ISC_EVENT_STRIDE);
@@ -169,6 +172,7 @@ bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std:
    for (;;)
    {
       n = query(buf.empty() ? nullptr : buf.data(), cap);
+      ++calls;
       if (n < 0)
          return false;
       if (n <= cap)
@@ -176,12 +180,20 @@ bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std:
       cap = n + n / 4;
       buf.resize(static_cast<size_t>(cap) * ISC_EVENT_STRIDE);
    }
+   const auto tRows = std::chrono::steady_clock::now();
    out.reserve(out.size() + static_cast<size_t>(n));
    for (int32_t i = 0; i < n; ++i)
    {
       BlinkEvent b;
       SampleSource::MapRow(q, &buf[static_cast<size_t>(i) * ISC_EVENT_STRIDE], b);
       out.push_back(b);
+   }
+   if (timing)
+   {
+      timing->coreSec = std::chrono::duration<double>(tRows - tCore).count();
+      timing->rowsSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - tRows).count();
+      timing->calls = calls;
+      timing->events = n;
    }
    return true;
 }
@@ -252,7 +264,7 @@ bool SampleSource::Events(const SampleQuery& q, std::vector<BlinkEvent>& out)
    const double t1 = q.tSec + q.spanSec;
    return EventRows(q, buf_, [&](double* b, int32_t cap) {
       return isc_events_in_window(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, t1, b, cap);
-   }, out);
+   }, out, &lastQuery_);
 }
 
 bool SampleSource::Continuous(const SampleQuery& q, std::vector<BlinkEvent>& out)
@@ -356,7 +368,7 @@ bool SampleSource::EventsInMap(const SampleQuery& q, std::vector<BlinkEvent>& ou
    const double t1 = q.tSec + q.spanSec;
    return EventRows(q, buf_, [&](double* b, int32_t cap) {
       return isc_events_in_map(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, t1, b, cap);
-   }, out);
+   }, out, &lastQuery_);
 }
 
 bool SampleSource::ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate,

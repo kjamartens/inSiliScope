@@ -11,7 +11,24 @@
 
 namespace isc {
 
+QueryTimes& LastQueryTimes()
+{
+   static thread_local QueryTimes t;
+   return t;
+}
+
+void QueryTimesOut(double* out, int n)
+{
+   const QueryTimes& t = LastQueryTimes();
+   const double v[10] = { t.walk, t.cells, t.generate, t.prep, t.take, t.rows, (double)t.blocks, (double)t.prepped,
+                          (double)t.forks, (double)t.nCells };
+   for (int i = 0; i < n && i < 10; i++) out[i] = v[i];
+}
+
 namespace {
+
+using QClock = std::chrono::steady_clock;
+inline double QSince(QClock::time_point t0) { return std::chrono::duration<double>(QClock::now() - t0).count(); }
 
 constexpr size_t BLOCK_CACHE_MAX = 4096;
 
@@ -280,6 +297,7 @@ void World::DropCaches()
    dyeIndex_.clear();
    dyeCount_ = 0;
    prefetchDone_.valid = false;
+   for (WalkMemo& m : walkMemo_) m = WalkMemo();
 }
 
 std::vector<Cell> World::PackBlock(int32_t bx, int32_t by) const
@@ -437,16 +455,69 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
                             const BlockPrep& prep, const BlockNeeds& needs, Fn fn)
 {
    query_++;
+   QueryTimes& qt = LastQueryTimes();
+   qt = QueryTimes();
+   const QClock::time_point tWalk = QClock::now();
+   struct WalkTime {
+      QueryTimes& q; QClock::time_point t0;
+      ~WalkTime() { q.walk = QSince(t0); }
+   } walkTime{ qt, tWalk };
    if (origami_) {
       ForEachOrigamiBlock(x0, y0, x1, y1, prep, needs, fn);
       return;
    }
    if (NoCells()) return;   // a bead sample: no labelled structure
+   // The window walked before, nothing evicted since: its blocks as that walk found them (WalkMemo), their prep in
+   // one parallel pass over all of them (was one per cell), then fn in the walk's order. Not under a deadline (that
+   // walk may stop early) or a hard cap (that walk lets blocks go as it goes).
+   // (a remembered walk makes no dyes, so under the hard cap now it stays under it)
+   const bool memoOk = !deadline_ && dyeCount_ <= dyeHardCap_;
+   bool hardEvicted = false;
+   if (memoOk)
+      for (WalkMemo& m : walkMemo_) {
+         if (!m.valid || m.evictions != evictions_ || m.labelVersion != labelVersion_ || m.x0 != x0 || m.y0 != y0 ||
+             m.x1 != x1 || m.y1 != y1 || m.zMin != zMin || m.zMax != zMax)
+            continue;
+         const std::vector<DyeBlock*>& bl = m.blocks;
+         const uint64_t q = query_;
+         constexpr size_t CHUNK = 64;
+         QClock::time_point tPart = QClock::now();
+         ParallelFor((bl.size() + CHUNK - 1) / CHUNK, 1, [&](size_t ci) {
+            const size_t end = std::min(bl.size(), (ci + 1) * CHUNK);
+            for (size_t k = ci * CHUNK; k < end; k++) {
+               DyeBlock& b = *bl[k];
+               b.used = q;
+               if (prep && needs(b)) prep(b);
+            }
+         });
+         qt.prep = QSince(tPart);
+         qt.forks = 1;
+         qt.blocks = (long)bl.size();
+         qt.prepped = prep ? (long)bl.size() : 0;   // (at most: needs() is asked in the pass)
+         tPart = QClock::now();
+         for (DyeBlock* b : bl) {
+            fn(*b);
+            b->done = q;
+         }
+         qt.take = QSince(tPart);
+         stats_.dyeBlockHits += (long)bl.size();
+         while (dyeCount_ > dyeCap_ && !dyeLru_.empty() && dyeLru_.back().second.used != query_) {
+            dyeCount_ -= dyeLru_.back().second.dyes.size();
+            dyeIndex_.erase(dyeLru_.back().first);
+            dyeLru_.pop_back();
+            evictions_++;
+         }
+         m.evictions = evictions_;   // (whatever went was not this window's: it keeps the blocks it used)
+         return;
+      }
+   std::vector<DyeBlock*> walked;
    std::vector<const Cell*> cells;
    CellsInRectPtr(x0, y0, x1, y1, cells);
    // The assets of the cells not cached, built in parallel (Assets takes them
    // in the usual order). Not under a deadline: that walk may stop early.
    if (!deadline_) PrebuildAssets(cells);
+   qt.cells = QSince(tWalk);
+   qt.nCells = (long)cells.size();
    const double mtReach = MtDyeReach(), blockReach = DYE_BLOCK_UM / 2 + mtReach;
    // The envelope's targets (JS world.js forEachDyeBlock): the pores' then the lamina's blocks reaching within rb of the
    // rect, after the microtubules'.
@@ -497,29 +568,46 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
       work.clear();
       for (size_t k = 0; k < batch.size(); k++)
          if (!batch[k].b->generated) work.push_back(k);
+      QClock::time_point tPart = QClock::now();
       ParallelFor(work.size(), 2, [&](size_t w) {
          const Item& it = batch[work[w]];
          if (it.structure == STRUCTURE_NPC) GenerateNpcDyes(*it.b, c, A, it.block);
          else if (it.structure == STRUCTURE_LAMIN) GenerateLaminDyes(*it.b, c, A, it.block);
          else GenerateDyes(*it.b, c, A.mts[it.mt].pts, *A.frames[it.mt], it.mt, it.block);
       });
+      if (!work.empty()) {
+         qt.generate += QSince(tPart);
+         qt.forks++;
+      }
       for (size_t k : work) dyeCount_ += batch[k].b->dyes.size();
+      qt.blocks += (long)batch.size();
       if (prep) {
          work.clear();
          for (size_t k = 0; k < batch.size(); k++)
             if (needs(*batch[k].b)) work.push_back(k);
+         tPart = QClock::now();
          ParallelFor(work.size(), 2, [&](size_t w) { prep(*batch[work[w]].b); });
+         if (!work.empty()) {
+            qt.prep += QSince(tPart);
+            qt.forks++;
+            qt.prepped += (long)work.size();
+         }
       }
+      tPart = QClock::now();
       for (const Item& it : batch) {
          fn(*it.b);
          it.b->done = query_;
       }
+      qt.take += QSince(tPart);
+      if (memoOk)
+         for (const Item& it : batch) walked.push_back(it.b);
       // ABI 21: past the hard cap, the blocks this query has finished with go (each block is walked once a query;
       // the earlier cells' blocks lie behind this one's in the LRU), down to the cap: a window of more dyes than fit
       // in memory (a wide strip of a large movie) is walked through, not held whole.
       if (dyeCount_ > dyeHardCap_)
          while (dyeCount_ > dyeCap_ && !dyeLru_.empty() &&
                 (dyeLru_.back().second.used != query_ || dyeLru_.back().second.done == query_)) {
+            hardEvicted = true;
             dyeCount_ -= dyeLru_.back().second.dyes.size();
             dyeIndex_.erase(dyeLru_.back().first);
             dyeLru_.pop_back();
@@ -536,6 +624,14 @@ void World::ForEachDyeBlock(double x0, double y0, double x1, double y1, double z
       dyeIndex_.erase(dyeLru_.back().first);
       dyeLru_.pop_back();
       evictions_++;
+   }
+   if (memoOk && !hardEvicted && !stopped_) {
+      WalkMemo& m = walkMemo_[walkMemoNext_++ % walkMemo_.size()];
+      m.x0 = x0; m.y0 = y0; m.x1 = x1; m.y1 = y1; m.zMin = zMin; m.zMax = zMax;
+      m.evictions = evictions_;
+      m.labelVersion = labelVersion_;
+      m.blocks.swap(walked);
+      m.valid = true;
    }
 }
 
@@ -570,15 +666,25 @@ void World::ForEachOrigamiBlock(double x0, double y0, double x1, double y1, cons
    std::vector<size_t> work;
    for (size_t k = 0; k < batch.size(); k++)
       if (!batch[k]->generated) work.push_back(k);
+   QueryTimes& qt = LastQueryTimes();
+   QClock::time_point tPart = QClock::now();
    ParallelFor(work.size(), 8, [&](size_t w) { GenerateOrigamiDyes(*batch[work[w]], mols[work[w]]); });
+   qt.generate += QSince(tPart);
    for (size_t k : work) dyeCount_ += batch[k]->dyes.size();
+   qt.blocks = (long)batch.size();
    if (prep) {
       work.clear();
       for (size_t k = 0; k < batch.size(); k++)
          if (needs(*batch[k])) work.push_back(k);
+      tPart = QClock::now();
       ParallelFor(work.size(), 2, [&](size_t w) { prep(*batch[work[w]]); });
+      qt.prep += QSince(tPart);
+      qt.prepped = (long)work.size();
+      qt.forks++;
    }
+   tPart = QClock::now();
    for (DyeBlock* b : batch) fn(*b);
+   qt.take += QSince(tPart);
    while (dyeCount_ > dyeCap_ && !dyeLru_.empty() && dyeLru_.back().second.used != query_) {
       dyeCount_ -= dyeLru_.back().second.dyes.size();
       dyeIndex_.erase(dyeLru_.back().first);
@@ -983,6 +1089,7 @@ bool World::SetLabel(int structure, const Label& l)
    cur = nl;
    labelVersion_++;
    prefetchDone_.valid = false;
+   for (WalkMemo& m : walkMemo_) m = WalkMemo();   // (their blocks may go; the label version is in their key too)
    if (dyesChange) {
       dyeLru_.clear();
       dyeIndex_.clear();

@@ -7,6 +7,7 @@
 #include "world.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -454,7 +455,9 @@ int32_t EventRowsOut(IscWorld* w, double* out, int32_t cap)
 {
    std::vector<isc::WorldEvent>& e = w->events;
    if (e.size() > (size_t)INT32_MAX) return -1;
+   const auto tRows = std::chrono::steady_clock::now();
    for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
+   isc::LastQueryTimes().rows = std::chrono::duration<double>(std::chrono::steady_clock::now() - tRows).count();
    const int32_t n = (int32_t)e.size();
    if (e.capacity() * sizeof(isc::WorldEvent) > (32u << 20)) std::vector<isc::WorldEvent>().swap(e);
    return n;

@@ -203,7 +203,17 @@ public:
    // for a world made later.
    void SetDyeHardCap(double dyes);
 
+   // Where the last Events / EventsInMap call's time went (a diagnostic: the fl.events-* phases).
+   struct QueryTiming
+   {
+      double coreSec = 0, rowsSec = 0;
+      int calls = 0;      // core queries made (2: the row buffer was too small, the whole query ran again)
+      long events = 0;
+   };
+   const QueryTiming& LastQuery() const { return lastQuery_; }
+
 private:
+   QueryTiming lastQuery_;
    IscWorld* world_ = nullptr;
    SampleSettings settings_;
    double dyeHardCap_ = 1e15;

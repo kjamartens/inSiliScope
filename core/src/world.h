@@ -122,6 +122,18 @@ struct PersistentEvent {
    uint32_t dye, bin, j;
 };
 
+// Where the last dye-block query of this thread spent its time (seconds; a diagnostic, not part of the ABI: the
+// engine's fl.events-core.* phases). walk = the whole block walk; generate / prep = its parallel parts (wall time);
+// take = the serial per-block callbacks; rows = the C ABI's row copy. forks = ParallelFor calls with work.
+struct QueryTimes {
+   double walk = 0, cells = 0, generate = 0, prep = 0, take = 0, rows = 0;
+   long blocks = 0, prepped = 0, forks = 0, nCells = 0;
+};
+QueryTimes& LastQueryTimes();
+// ... as numbers for a host outside the core's headers: walk, cells, generate, prep, take, rows, blocks, prepped,
+// forks, nCells (at most n).
+void QueryTimesOut(double* out, int n);
+
 struct WorldStats {
    long blocksPacked = 0, cellsBuilt = 0, framesBuilt = 0;
    long blocksInjected = 0;     // packed blocks taken from another world (SetPackedBlock)
@@ -520,6 +532,18 @@ private:
    size_t dyeCount_ = 0;
    uint64_t query_ = 0;                    // counts queries, for DyeBlock::used
    uint64_t evictions_ = 0, labelVersion_ = 0;
+   // The last walks of ForEachDyeBlock (2026-11-27): a window's blocks in walk order, kept while no block was evicted
+   // and no label changed. A live view asks for the same window every frame; finding its blocks again (the cells'
+   // assets, every block's midpoint test, a hash lookup and an LRU splice each) was ~11 of a 1024 px frame's 18 ms
+   // events query, all on the calling thread. A cache only: the blocks and their order are the walk's.
+   struct WalkMemo {
+      double x0 = 0, y0 = 0, x1 = 0, y1 = 0, zMin = 0, zMax = 0;
+      uint64_t evictions = 0, labelVersion = 0;
+      bool valid = false;
+      std::vector<DyeBlock*> blocks;
+   };
+   std::array<WalkMemo, 4> walkMemo_;
+   size_t walkMemoNext_ = 0;
    // Prefetch: its time limit while it runs (ForEachDyeBlock stops past it)
    // and the last region it completed.
    bool PastDeadline();

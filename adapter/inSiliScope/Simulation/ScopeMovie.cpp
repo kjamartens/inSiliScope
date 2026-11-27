@@ -61,6 +61,8 @@
 #include <thread>
 #endif
 
+namespace isc { void QueryTimesOut(double* out, int n); }   // (core/src/world.h: a diagnostic, not the ABI)
+
 namespace sim {
 
 namespace {
@@ -5836,12 +5838,18 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
    // The blinks under a clock map (JS mapEvents): every dye on its own clock (isc_events_in_map; a dye the light does
    // not reach emits nothing), each event's photons x its factor under a shaped beam. Without one: at start-sec.
    // (the kept ones moved down in place: a long movie's blinks are its largest list, 2026-11-20)
+   double evMapSetSec = 0, evExciteSec = 0, evCore[10] = {};
    auto mapEvents = [&]() -> bool {
       std::vector<BlinkEvent> got;
-      const bool ok = source.SetClockMap(&m.map->buffer) && source.EventsInMap(S.q, got);
+      auto tPart = TimingClock::now();
+      const bool mapOk = source.SetClockMap(&m.map->buffer);
+      evMapSetSec = TimingSince(tPart);
+      const bool ok = mapOk && source.EventsInMap(S.q, got);
       source.SetClockMap(nullptr);
       if (!ok)
          return false;
+      isc::QueryTimesOut(evCore, 10);   // (this thread's last block walk: the events query's)
+      tPart = TimingClock::now();
       size_t kept = 0;
       for (BlinkEvent& e : got)
       {
@@ -5857,6 +5865,7 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          all.swap(got);
       else
          all.insert(all.end(), got.begin(), got.end());
+      evExciteSec = TimingSince(tPart);
       return true;
    };
    auto queryEvents = [&]() { return m.map ? mapEvents() : source.Events(S.q, all); };
@@ -5876,6 +5885,28 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
 #endif
    TimingLog("fl.psf-kernels", psfSec, std::to_string(m.groups.size()).c_str());
    TimingLog("fl.events-query", eventsSec);
+   if (queryBlinks && m.map)
+   {
+      // Where the query's time goes (2026-11-27): the map handed to the core, the core's query (its calls: 2 = the
+      // row buffer was too small and the whole query ran twice), the rows as BlinkEvents, the factor per event; and
+      // inside the core's block walk: finding the cells, the parallel prep (wall), the blocks' answers taken in order,
+      // the rows written.
+      const SampleSource::QueryTiming& qt = source.LastQuery();
+      char extra[160];
+      std::snprintf(extra, sizeof extra, "%ld events, %d calls", qt.events, qt.calls);
+      TimingLog("fl.events-map-set", evMapSetSec);
+      TimingLog("fl.events-core", qt.coreSec, extra);
+      TimingLog("fl.events-rows", qt.rowsSec);
+      TimingLog("fl.events-excite", evExciteSec);
+      std::snprintf(extra, sizeof extra, "%.0f cells, %.0f blocks, %.0f prepped, %.0f forks", evCore[9], evCore[6],
+                    evCore[7], evCore[8]);
+      TimingLog("fl.events-core.walk", evCore[0], extra);
+      TimingLog("fl.events-core.cells", evCore[1]);
+      TimingLog("fl.events-core.generate", evCore[2]);
+      TimingLog("fl.events-core.prep", evCore[3]);
+      TimingLog("fl.events-core.take", evCore[4]);
+      TimingLog("fl.events-core.rows", evCore[5]);
+   }
    source.ReleaseBuffersOver(32u << 20);   // (a long movie's query rows: not kept beside its blinks)
    if (!psfOk)
    {
