@@ -290,7 +290,7 @@ Upcoming ideas:
   faster on a 32-core A40 server, WideField and SIM slower, live not helped, and the frames no longer the browser's
   byte for byte; kept: `WidefieldGpuHost` over a `GpuBackend`, `SplatGpuHost` for the viewer), [x] the blink splat + noise on the viewer's WebGPU
   (2026-11-24: `cli/gpu_js_backend.cpp`, `web/splat_gpu.js`, a synchronous read-back through an OffscreenCanvas;
-  `tests/web/viewer_gpu_splat.mjs`). Next: [ ] the live events query off the frame's critical path (2026-11-25,
+  `tests/web/viewer_gpu_splat.mjs`). [x] the live events query off the frame's critical path (2026-11-27: the serial part was `World::ForEachDyeBlock` finding the window's blocks again every frame, ~11 of 18 ms at 1024 px; `WalkMemo` remembers the walk, the query 18-34 -> 4-8 ms and falling with threads, frames bit for bit; the finished background map kept (`BgDoneMemo`), the window's cell assets kept (`assetFloor_`); the run-ahead thread not needed; open: 2048 px on jupiter (`tests/remote/hpc_check.sh`), a stage move still walks per cell), [x] dye positions at 0.1 nm (2026-11-27, the user's point: `World::DyeStore`, 32 -> 16 bytes a dye, the whole per-dye memory of DNA-PAINT and WideField; a deliberate move of every dye by <= 0.05 nm per axis, goldens unchanged; spec/ALGORITHM.md). Was: the live events query off the frame's critical path (2026-11-25,
   measured, a session of its own: `fl.events-query` does not scale with threads (1024 px DNA-PAINT, laptop: 14.6 ms on 2
   threads, 17.2 on 12, while the frame drops 206 -> 119 ms), so on jupiter's 96 threads it is ~220 of ~294 ms at 2048 px;
   its cost follows the blinks, not the call (1 frame 16 ms, 4 frames 27 ms/frame, 16 frames 33 ms/frame:

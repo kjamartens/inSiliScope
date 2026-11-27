@@ -710,9 +710,9 @@ void World::GenerateOrigamiDyes(DyeBlock& blk, const OrigamiMolecule& m) const
    blk.structure = STRUCTURE_ORIGAMI;
    blk.zLo = INFINITY; blk.zHi = -INFINITY;
    for (const OrigamiSite& d : sites) {
-      blk.dyes.push_back({ d.x, d.y, d.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
-      blk.zLo = std::min(blk.zLo, d.z);
-      blk.zHi = std::max(blk.zHi, d.z);
+      const PackedDye q = blk.dyes.push_back({ d.x, d.y, d.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
+      blk.zLo = std::min(blk.zLo, q.z);
+      blk.zHi = std::max(blk.zHi, q.z);
    }
    blk.phase = Pcg4d((uint32_t)m.tx, (uint32_t)m.ty, (uint32_t)m.i, ORIGAMI_SALT).a;
    blk.generated = true;
@@ -828,9 +828,10 @@ void World::GenerateDyes(DyeBlock& blk, const Cell& c, const std::vector<Pt3>& p
       double wx, wy;
       if (!rotated) { wx = c.x + d.pos.x; wy = c.y + d.pos.y; }
       else { wx = c.x + d.pos.x * cr - d.pos.y * sr; wy = c.y + d.pos.x * sr + d.pos.y * cr; }
-      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
-      blk.zLo = std::min(blk.zLo, d.pos.z);
-      blk.zHi = std::max(blk.zHi, d.pos.z);
+      const PackedDye q =
+         blk.dyes.push_back({ wx, wy, d.pos.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
+      blk.zLo = std::min(blk.zLo, q.z);
+      blk.zHi = std::max(blk.zHi, q.z);
    }
    blk.phase = Pcg4d((uint32_t)c.cx, (uint32_t)c.cy, (uint32_t)mtIndex, (uint32_t)block).a;
    blk.generated = true;
@@ -856,9 +857,10 @@ void World::GenerateNpcDyes(DyeBlock& blk, const Cell& c, const CellAssets& A, i
       double wx, wy;
       if (!rotated) { wx = c.x + d.pos.x; wy = c.y + d.pos.y; }
       else { wx = c.x + d.pos.x * cr - d.pos.y * sr; wy = c.y + d.pos.x * sr + d.pos.y * cr; }
-      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
-      blk.zLo = std::min(blk.zLo, d.pos.z);
-      blk.zHi = std::max(blk.zHi, d.pos.z);
+      const PackedDye q =
+         blk.dyes.push_back({ wx, wy, d.pos.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
+      blk.zLo = std::min(blk.zLo, q.z);
+      blk.zHi = std::max(blk.zHi, q.z);
    }
    blk.phase = Pcg4d((uint32_t)c.cx, (uint32_t)c.cy, 0x80000000u | (uint32_t)block, NPC_DYE_SALT).a;
    blk.generated = true;
@@ -883,9 +885,10 @@ void World::GenerateLaminDyes(DyeBlock& blk, const Cell& c, const CellAssets& A,
       double wx, wy;
       if (!rotated) { wx = c.x + d.pos.x; wy = c.y + d.pos.y; }
       else { wx = c.x + d.pos.x * cr - d.pos.y * sr; wy = c.y + d.pos.x * sr + d.pos.y * cr; }
-      blk.dyes.push_back({ wx, wy, d.pos.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
-      blk.zLo = std::min(blk.zLo, d.pos.z);
-      blk.zHi = std::max(blk.zHi, d.pos.z);
+      const PackedDye q =
+         blk.dyes.push_back({ wx, wy, d.pos.z, d.id, ((uint32_t)d.k << 24) | ((uint32_t)d.n & 0xFFFFFFu) });
+      blk.zLo = std::min(blk.zLo, q.z);
+      blk.zHi = std::max(blk.zHi, q.z);
    }
    blk.phase = Pcg4d((uint32_t)c.cx, (uint32_t)c.cy, 0x80000000u | (uint32_t)block, LAMIN_DYE_SALT).a;
    blk.generated = true;
@@ -1779,7 +1782,7 @@ void World::MemoryOut(double* out, int n) const
       const DyeBlock& b = e.second;
       v[0] += 1;
       v[1] += (double)b.dyes.size();
-      v[2] += bytes(b.dyes);
+      v[2] += (double)b.dyes.Bytes();
       v[3] += bytes(b.events);
       v[4] += bytes(b.pEvents);
       for (const DyeBlock::Slot& s : b.parked) {

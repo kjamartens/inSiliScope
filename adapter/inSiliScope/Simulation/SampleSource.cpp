@@ -19,7 +19,8 @@
 namespace sim {
 
 namespace {
-// The dye cache's cap (dyes; the core keeps the blocks a query uses beyond it): ~16M (~1.5-3 GB) natively, the whole
+// The dye cache's cap (dyes; the core keeps the blocks a query uses beyond it): ~16M natively (16 bytes a dye record
+// since 2026-11-27, 256 MB; with the blinks and clocks of a blink mode up to ~40 bytes a dye), the whole
 // z column of a 12.8 um FOV plus margin at 100% labelling is ~9M, so focusing through the cell and moving about a FOV
 // in xy come back from the cache, not regenerated. In the browser (where the movie world lives across movies) a 4M
 // soft cap: a 256 px WideField movie uses ~4M dyes, which the cap never evicts while they are in use.

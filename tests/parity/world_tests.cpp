@@ -2965,7 +2965,9 @@ void DyeDetails(uint32_t seed, const Params& p, const Cell& c0)
             else {
                const double dx = r.dye.x - r.site.x, dy = r.dye.y - r.site.y, dz = r.dye.z - r.site.z;
                const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-               if (linked ? !(dist <= reach) : dist != 0) d = Fmt("dye %zu: %.6g nm from its site", i, dist * 1000);
+               // (the dye sits on the 0.1 nm lattice, ABI-neutral since 2026-11-27: at most half a step per axis from
+               // where the generator put it, 0.087 nm in all)
+               if (linked ? !(dist <= reach + 0.09e-3) : !(dist <= 0.09e-3)) d = Fmt("dye %zu: %.6g nm from its site", i, dist * 1000);
             }
             const bool wantDir = pass == 2 || structs[si] != STRUCTURE_LAMIN;
             if (d.empty() && r.hasDir != wantDir) d = Fmt("dye %zu: dipole %s", i, r.hasDir ? "given for Free" : "missing");

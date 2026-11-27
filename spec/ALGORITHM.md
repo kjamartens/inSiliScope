@@ -1548,6 +1548,63 @@ through the pupil as the legacy beam at the line's setting; editing Expert, the 
 - **Limits:** CPU only (no GPU path); the slide under maps takes the cycle mean (no per-frame fringes); MM has no
   `bfp-map-px` row (a readout's).
 
+## The live events query: a window's block walk remembered (2026-11-27)
+
+A live frame asks the core for the blinks of its window (`isc_events_in_map`). The answer is made per 1 um dye block
+in parallel, but finding the window's blocks was not: per cell its assets, per block a midpoint test, a hash lookup and
+an LRU splice, then one fork/join per cell -- all on the calling thread, every frame, for the same window. At 1024 px
+DNA-PAINT (31229 blocks in 15 cells, 3317 blinks in the frame) that was ~11 of the query's 18 ms, so the query did not
+get faster with threads (and on a 96-thread server it was most of a 2048 px frame).
+
+- **`WalkMemo`** (`World::ForEachDyeBlock`): the last 4 walks' windows with their blocks in walk order, valid while no
+  dye block was evicted and no label changed (`evictions_`, `labelVersion_`), not under a prefetch deadline or past the
+  hard cap. A remembered walk preps its blocks in one parallel pass (chunks of 64 over all cells) and takes their
+  answers in the walk's order. A cache: the same blocks in the same order, so the same events (frames bit for bit:
+  `live_bench --hash` over 10 scenes, ctest `live_scope`, `world_checks`).
+- **The window's cells stay cached** (`assetFloor_`): the asset cache holds at least the cells of the last walk. A
+  window of more cells than its 48 (a 2048 px field at 100 nm: ~60) evicted its first cells' assets while walking its
+  last, and built them all again on the next walk.
+- **The finished background map** (`BgDoneMemo`, the engine): a shaped beam's background per pixel was blended from the
+  two focus-grid slices and summed again every frame, serially (~10 ms at 1024 px); the two maps finished last are
+  kept by the job's key and focus.
+- Phases: `fl.events-map-set`, `fl.events-core` (events, core calls), `fl.events-rows`, `fl.events-excite`,
+  `fl.events-core.walk` / `.cells` (assets made) / `.generate` / `.prep` / `.take` / `.rows`, `fl.bg-blend`,
+  `fl.setup.before-events` / `.after-events` / `.after-windows` (the stretches between the named phases).
+- Measured (12-thread laptop under other load, 1024 px DNA-PAINT, 2 / 6 / 12 threads): the query 23.8 / 18.0 / 33.9 ms
+  -> 8.4 / 5.9 / 4.3 ms; a quiet run: 4.7 of a 130 ms frame at 6 threads. A run-ahead thread was planned for the case
+  the query stayed dominant, and not built.
+- Not covered: a stage move (a new window every frame) walks per cell as before; the blocks' answers are still taken
+  one by one on the calling thread (~1.5 ms at 1024 px).
+
+## Dye positions at 0.1 nm (2026-11-27)
+
+The user's point: a dye's position needs no more than 0.1 nm, and the dyes are what a large field holds. Measured
+(`ISC_MEMORY world.*`, `World::MemoryOut`): in the dense modes the dye record is the whole per-dye memory -- DNA-PAINT
+at 512 px: 6.48 M dyes, 32.0 bytes each of records against 0.5 of blinks, 0.6 of clock state, 0.3 of block overhead;
+WideField the same; dSTORM has few dyes (records 32, clock state 25, blinks 5 bytes per dye).
+
+- **The record** (`World::DyeStore`, was `std::vector<PackedDye>` of three doubles + id + lattice address, 32 bytes):
+  16 bytes -- three int16 offsets in 0.1 nm steps from the block's first dye (+-3.27 um: a 1 um block with its
+  linkage), id, lattice address. A block that reaches further keeps int32 offsets (20 bytes).
+- **The dye's position is the lattice's**: step g = floor(v x 1e4 - phase + 0.5) per axis, position (g + phase) / 1e4
+  um, read the same by every consumer (`operator[]` gives a `PackedDye` as before); nothing downstream sees the
+  generator's value. At most 0.05 nm per axis from it (0.087 nm in all). Single IEEE operations only (no libm): the
+  same bits on every platform and thread count.
+- **The phase** (0.3819660112501051, 2 - the golden ratio): on a round lattice dyes lie exactly on the hosts' grid
+  edges (25 nm dye planes and cells, pixel edges, 0.25 um tiles), where a dye is in one cell or its neighbour by the
+  last bit of how the edge was computed: ctest `widefield` "dye tiles == one density query" lost 12 of 139898 dyes.
+  Off the round values a dye is never nearer than 0.038 nm to such an edge.
+- **What moves**: every dye by up to 0.05 nm per axis, so every image by rounding -- and by more where a threshold
+  is crossed (a dose-clock blink across a frame's edge or the dim-blink cut). live_bench 256 px, 8 frames, against the
+  build before: DNA-PAINT 0.03 % of the pixels differ (max 5 ADU), nanorulers 0.06 % (7), WideField 1.5 % (24 of
+  23298), SIM2D WideField 1.6 % (21), dSTORM 3.4 % (max 450 ADU, mean 0.5: blinks at a threshold), PALM none.
+  The goldens are unchanged (`spec/golden` freezes the generators' outputs, not the blocks' world positions), no cell
+  moves, `ISC_WORLD_VERSION` and the ABI stay.
+- **Memory**: dye records 198 -> 99 MB at 512 px DNA-PAINT (x4 at 1024 px, x16 at 2048 px: 3.2 -> 1.6 GB);
+  `kEstBlinkDyeBytes` 55 -> 39 (the memory check and the strips' dye cap). Speed unchanged or better (half the memory
+  walked).
+- `world_checks` `DyeDetails`: a dye with no linkage is within 0.09 nm of its site (was: on it).
+
 ## Known limitations / not yet done
 
 - **Wobble path length ×**'s own slider now goes down to 0.9 (from a 1.0 floor), but

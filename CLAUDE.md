@@ -131,6 +131,26 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   aborted movie worker is replaced alone, its jobs told "out of memory" (`spawnDyesWorker`, `workerErrorText`). Viewer
   heap at 40 nm, two WideField labels: 1470-1855 MB (two aborts) -> 592-979 MB; cli 40 nm 256 px LatticeSIM3D 2301 ->
   1140 MB. Checks: `tests/web/wasm_heap_check.mjs`, `viewer_oom.mjs`, ctest `sr_render` (the layout's memcmp).
+- **The live events query and the dye record (2026-11-27, branch `remote-server`, spec/ALGORITHM.md "The live events
+  query" and "Dye positions at 0.1 nm", spec/PORT.md 33, `claude_notes/2026-11-27_live-events-query-and-dye-memory.md`):**
+  the query was serial because `World::ForEachDyeBlock` re-found the window's dye blocks every frame on the calling
+  thread (assets, midpoint test, hash lookup + LRU splice per block, a fork/join per cell: ~11 of 18 ms at 1024 px
+  DNA-PAINT, 31229 blocks). `WalkMemo` (4 windows' block lists, valid while `evictions_` / `labelVersion_` stand, not
+  under a deadline or past the hard cap): a remembered walk is one parallel pass over all blocks, then the answers in
+  walk order; bit for bit. `assetFloor_`: the asset cache holds the last walk's cells (a 2048 px field's ~60 cells
+  against 48 were rebuilt every frame). Engine `BgDoneMemo`: the finished shaped-beam background map kept (was
+  re-blended per pixel every frame, ~10 ms at 1024 px). Query 18-34 -> 4-8 ms at 2 / 6 / 12 threads (laptop under
+  load). Phases `fl.events-map-set` / `-core` / `-rows` / `-excite`, `fl.events-core.walk` / `.cells` / `.generate` /
+  `.prep` / `.take` / `.rows`, `fl.bg-blend`, `fl.setup.before-events` / `.after-events` / `.after-windows`
+  (diagnostics outside the ABI: `isc::QueryTimesOut`, `isc::WorldMemoryOut`). **Dye positions at 0.1 nm** (the user's
+  choice): `World::DyeStore`, 16 bytes a dye (int16 offsets in 0.1 nm steps from the block's first dye, id, kn; was
+  three doubles, 32 bytes: the whole per-dye memory of DNA-PAINT and WideField, 198 -> 99 MB at 512 px); the position
+  is the lattice's, `(g + kPhase) / 1e4` um with `kPhase` 0.38197 so no dye lies on a host grid's edge (on the round
+  lattice tiled and whole density queries disagreed); every dye moves <= 0.05 nm per axis, frames by rounding and at
+  thresholds (dSTORM 3.4 % of pixels, max 450 ADU); goldens, ABI and `ISC_WORLD_VERSION` unchanged; `ISC_MEMORY
+  world.*` rows and bytes per dye (live_bench prints them with `ISC_TIMING=1`); `kEstBlinkDyeBytes` 39. Do not put the
+  lattice back on round values. Open: 2048 px on jupiter, the stage-move walk, `tools/adapter_pixel_hash_ref.txt`
+  (moves with the dyes: rewrite it on a machine with the adapter build).
 - **Camera size and the memory check (2026-11-18, branch `large-fov`, spec/ALGORITHM.md "Large fields of view"):**
   MM `Camera.SensorWidthPx` / `SensorHeightPx` (16..4096, any time but during an acquisition, as Binning; replaced the
   pre-init `FovSize`); spec `height` (0 = square; `size` = the width), `ScopeMovieDims` caps `kMaxFovPx` 4096; a

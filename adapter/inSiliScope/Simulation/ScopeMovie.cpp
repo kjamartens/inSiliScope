@@ -8293,7 +8293,8 @@ namespace {
 // beyond its kernels, a WideField label ~20, BrightField ~300-540 per pixel at quality 3.
 constexpr double kEstBaseBytes = 0.40e9;           // the process, the world, the tables
 constexpr double kEstKernelBytes = 0.40e9;         // one labelled target's PSF stack and its splat sums
-constexpr double kEstBlinkDyeBytes = 55;           // a dye of a blink mode (DNA-PAINT, dSTORM, PALM) in the core
+constexpr double kEstBlinkDyeBytes = 39;           // a dye of a blink mode (DNA-PAINT, dSTORM, PALM) in the core (55 less
+                                                   // the 16 the dye record lost, 2026-11-27: 32 -> 16 bytes)
 constexpr double kEstContinuousDyeBytes = 25;      // a WideField dye: the core's and the dye index's
 constexpr double kEstPixelBytes = 16;              // per pixel: noise maps, background map
 constexpr double kEstFramePixelBytes = 14;         // per pixel and frame in flight: photons and ADU

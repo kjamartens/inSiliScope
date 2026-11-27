@@ -25,10 +25,12 @@
 #include "parallel.h"
 #include "params.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <list>
@@ -152,7 +154,7 @@ class World {
 public:
    // Caches: cell assets (LRU, cells) and dye blocks (LRU, bounded by the
    // number of dyes they hold; a 12.8 um FOV beside a nucleus is ~400k dyes
-   // at the default 10% labelling, ~50 bytes each plus ~60 per blink). The
+   // at the default 10% labelling, 16 bytes each (DyeStore) plus ~60 per blink). The
    // dye cap is soft: blocks the current query uses are never evicted, so a
    // window with more dyes than the cap is not regenerated on every query.
    World(uint32_t seed, const Params& p, size_t assetCacheCells = 48, size_t dyeCacheDyes = 2000000);
@@ -355,17 +357,94 @@ private:
       const StructClock* dose;
    };
    ClockView ViewOf(int s) const { return { HistoryOf(s), histFp_[(size_t)s], nullptr }; }
-   // A dye in its block (issue 16: millions of dyes in a dense FOV, so the
-   // cell, microtubule and structure are the block's): world position, id,
-   // and the lattice address kn = k << 24 | n.
+   // A dye of a block as the queries read it (issue 16: millions of dyes in a dense FOV, so the cell, microtubule and
+   // structure are the block's): world position, id, and the lattice address kn = k << 24 | n.
    struct PackedDye {
       double x, y, z;
       uint32_t id, kn;
       int32_t K() const { return (int32_t)(kn >> 24); }
       int32_t N() const { return (int32_t)(kn & 0xFFFFFFu); }
    };
+   // A block's dyes as kept (2026-11-27, spec/ALGORITHM.md "Dye positions at 0.1 nm"): 16 bytes each, was 32 (three
+   // doubles) -- the dye record is the whole per-dye memory of a dense field (DNA-PAINT, WideField: 6.5 M dyes in a
+   // 55 um window). A position is on a 0.1 nm lattice, step g = floor(v x 1e4 - kPhase + 0.5) per axis, kept as an int16
+   // offset from the block's first dye (+-3.27 um: a 1 um block and its linkage; a block that reaches further keeps
+   // int32 offsets, 20 bytes); the dye's position IS (g + kPhase) / 1e4 um, the same for every
+   // reader: nothing downstream sees the generator's unrounded value. Only IEEE-rounded single operations (a product, sums,
+   // floor, an integer's conversion, a quotient; no libm): the same bits on every platform and thread count.
+   class DyeStore {
+   public:
+      static constexpr double kStepsPerUm = 10000.0;
+      // The lattice sits a fixed part of a step off the round values (2 - the golden ratio): a host's grids (25 nm
+      // dye planes and cells, pixel edges, 0.25 um tiles) have their edges on round numbers, and a dye exactly on an
+      // edge is in one cell or its neighbour by the last bit of how that edge was computed -- ctest widefield's
+      // "dye tiles == one density query" lost 12 of 139898 dyes on the round lattice. Off it, a dye is never nearer
+      // than 0.038 nm to such an edge.
+      static constexpr double kPhase = 0.3819660112501051;
+      static int64_t Steps(double um) { return (int64_t)std::floor(um * kStepsPerUm - kPhase + 0.5); }
+      static double Um(int64_t steps) { return ((double)steps + kPhase) / kStepsPerUm; }
+      size_t size() const { return wide_.empty() ? rec_.size() : wide_.size(); }
+      bool empty() const { return rec_.empty() && wide_.empty(); }
+      void clear()
+      {
+         rec_.clear();
+         wide_.clear();
+         based_ = false;
+      }
+      void reserve(size_t n) { rec_.reserve(n); }
+      size_t Bytes() const { return rec_.capacity() * sizeof(Rec) + wide_.capacity() * sizeof(Wide); }
+      // Adds d at its 0.1 nm position, which it returns (the dye as every reader will see it).
+      PackedDye push_back(const PackedDye& d)
+      {
+         const int64_t g[3] = { Steps(d.x), Steps(d.y), Steps(d.z) };
+         if (!based_) {
+            base_[0] = g[0]; base_[1] = g[1]; base_[2] = g[2];
+            based_ = true;
+         }
+         const int64_t o[3] = { g[0] - base_[0], g[1] - base_[1], g[2] - base_[2] };
+         auto fits = [](int64_t v) { return v >= INT16_MIN && v <= INT16_MAX; };
+         if (wide_.empty() && fits(o[0]) && fits(o[1]) && fits(o[2])) {
+            rec_.push_back({ (int16_t)o[0], (int16_t)o[1], (int16_t)o[2], 0, d.id, d.kn });
+         } else {
+            if (wide_.empty()) {
+               wide_.reserve(std::max(rec_.capacity(), rec_.size() + 1));
+               for (const Rec& r : rec_) wide_.push_back({ r.dx, r.dy, r.dz, r.id, r.kn });
+               std::vector<Rec>().swap(rec_);
+            }
+            wide_.push_back({ (int32_t)o[0], (int32_t)o[1], (int32_t)o[2], d.id, d.kn });
+         }
+         return { Um(g[0]), Um(g[1]), Um(g[2]), d.id, d.kn };
+      }
+      PackedDye operator[](size_t i) const
+      {
+         if (wide_.empty()) {
+            const Rec& r = rec_[i];
+            return { Um(base_[0] + r.dx), Um(base_[1] + r.dy), Um(base_[2] + r.dz), r.id, r.kn };
+         }
+         const Wide& r = wide_[i];
+         return { Um(base_[0] + r.dx), Um(base_[1] + r.dy), Um(base_[2] + r.dz), r.id, r.kn };
+      }
+      // (for (const PackedDye& d : dyes): each dye by value)
+      struct Iter {
+         const DyeStore* s;
+         size_t i;
+         PackedDye operator*() const { return (*s)[i]; }
+         Iter& operator++() { ++i; return *this; }
+         bool operator!=(const Iter& o) const { return i != o.i; }
+      };
+      Iter begin() const { return { this, 0 }; }
+      Iter end() const { return { this, size() }; }
+
+   private:
+      struct Rec { int16_t dx, dy, dz; uint16_t pad; uint32_t id, kn; };
+      struct Wide { int32_t dx, dy, dz; uint32_t id, kn; };
+      int64_t base_[3] = { 0, 0, 0 };
+      bool based_ = false;
+      std::vector<Rec> rec_;
+      std::vector<Wide> wide_;
+   };
    struct DyeBlock {
-      std::vector<PackedDye> dyes;          // world coordinates
+      DyeStore dyes;                        // world coordinates, on the 0.1 nm grid
       int32_t cx = 0, cy = 0, mtIndex = 0;  // mtIndex -1 on a pore or lamina block
       uint32_t h1 = 0;                      // DyeH1 of the microtubule (NpcH1 / LaminH1 of the cell's pores / lamina)
       int32_t structure = STRUCTURE_MT;

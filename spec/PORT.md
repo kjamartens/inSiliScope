@@ -1576,3 +1576,26 @@ branch).
   a Record in strips takes the CPU path (`movieInStrips`), `isc_wf_begin` refuses a field past 4096 px; a frame past
   4096^2 px plays as its centre; the settings file keeps the field (`size` / `height`, `recordField`, `liveSize`).
   Checks: `viewer_live_record.mjs`, `viewer_save.mjs`.
+
+## 33. The live events query's walk memo, dye positions at 0.1 nm (2026-11-27)
+
+spec/ALGORITHM.md "The live events query" and "Dye positions at 0.1 nm". No ABI change, goldens and
+`ISC_WORLD_VERSION` unchanged (no cell moves; the goldens hold the generators' outputs).
+
+- `World::ForEachDyeBlock`: `WalkMemo` (4 windows: the blocks in walk order; valid for unchanged `evictions_` and
+  `labelVersion_`, `!deadline_`, `dyeCount_ <= dyeHardCap_`; cleared by `DropCaches` and a label change), the remembered
+  walk one `ParallelFor` over chunks of 64 blocks (`used`, `needs`, `prep`), `fn` and `done` in order, the end-of-walk
+  eviction as before. `assetFloor_` = the last walk's cell count, the asset cache's least size. Bit for bit.
+- `World::DyeStore` (world.h) replaces the block's `std::vector<PackedDye>`: 16-byte records (int16 offsets in 0.1 nm
+  steps from the first dye, id, kn; int32 offsets when a block reaches past +-3.27 um), `push_back` returns the dye at
+  its lattice position (the generators take `zLo` / `zHi` from it), `operator[]` and the range-for give `PackedDye` by
+  value. Lattice: `Steps(v) = floor(v x 1e4 - kPhase + 0.5)`, `Um(g) = (g + kPhase) / 1e4`, `kPhase` 0.3819660112501051.
+  **Not bit for bit with before, on purpose**: every dye up to 0.05 nm per axis from the generator's position.
+- Diagnostics outside the ABI (declared by the host as `isc::SetWorldThreads` is): `isc::QueryTimesOut` (the calling
+  thread's last block walk: walk, cells, generate, prep, take, rows seconds; blocks, prepped, forks, cells, assets
+  made), `isc::WorldMemoryOut(IscWorld*, ...)` (blocks, dyes, bytes of records / scheduled blinks / persistent blinks /
+  clock-map state / block overhead).
+- Engine: `BgDoneMemo` (the finished background map, 2 kept), `SampleSource::LastQuery()` (core seconds, row seconds,
+  calls, events), `ScopeMemoryReport` rows `world.*` and `bg.finished`, `kEstBlinkDyeBytes` 39.
+- Checks: ctest (42), `live_bench --hash` before / after over 10 scenes for the memo steps (equal), `--dump` for the
+  lattice (the differences above).
