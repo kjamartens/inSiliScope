@@ -2168,6 +2168,26 @@ self.ISC_MM_TIERS = {
 "tier": "Expert",
 "prop": "Camera.EMCCD_CicElectrons"
 },
+"cslm-dwell-us": {
+"tier": "Advanced",
+"prop": "Lasers.ScanDwellUs"
+},
+"cslm-fill": {
+"tier": "Advanced",
+"prop": "Lasers.ScanFill"
+},
+"cslm-flyback-us": {
+"tier": "Advanced",
+"prop": "Lasers.ScanFlybackUs"
+},
+"cslm-fov-um": {
+"tier": "Advanced",
+"prop": "Lasers.ScanFieldUm"
+},
+"cslm-pixel-nm": {
+"tier": "Advanced",
+"prop": "Lasers.ScanPixelNm"
+},
 "dark-per-sec": {
 "tier": "Advanced",
 "prop": "Camera.DarkCurrentElectronsPerSec"
@@ -3401,6 +3421,12 @@ self.ISC_MM_TIERS = {
 "Lasers.PatternRestart": "Advanced",
 "Lasers.PatternState": "Advanced",
 "Lasers.Preset": "Basic",
+"Lasers.ScanDwellUs": "Advanced",
+"Lasers.ScanFieldUm": "Advanced",
+"Lasers.ScanFill": "Advanced",
+"Lasers.ScanFlybackUs": "Advanced",
+"Lasers.ScanPixelNm": "Advanced",
+"Lasers.ScanTimeSec": "Advanced",
 "Lasers.SheetThicknessUm": "Advanced",
 "Lasers.SheetWidthUm": "Advanced",
 "Lasers.SpotRadiusUm": "Advanced",
@@ -4377,10 +4403,16 @@ self.ISC_MM_CFG = {
 "5": "Custom",
 "6": "LightSheet",
 "7": "RingTIRF",
-"8": "Maps"
+"8": "Maps",
+"9": "CSLM"
 }
 },
 "sets": {
+"CSLM": {
+"illum-bfp": "0",
+"sim-polarization": "0",
+"sim-type": "9"
+},
 "Custom": {
 "illum-bfp": "0",
 "sim-polarization": "0",
@@ -4946,6 +4978,51 @@ self.ISC_MM_CFG = {
 "kind": "num",
 "opts": {
 "sheet-width-um": null
+}
+},
+{
+"dev": "Lasers",
+"prop": "ScanFieldUm",
+"tier": "Advanced",
+"kind": "num",
+"opts": {
+"cslm-fov-um": null
+}
+},
+{
+"dev": "Lasers",
+"prop": "ScanPixelNm",
+"tier": "Advanced",
+"kind": "num",
+"opts": {
+"cslm-pixel-nm": null
+}
+},
+{
+"dev": "Lasers",
+"prop": "ScanDwellUs",
+"tier": "Advanced",
+"kind": "num",
+"opts": {
+"cslm-dwell-us": null
+}
+},
+{
+"dev": "Lasers",
+"prop": "ScanFlybackUs",
+"tier": "Advanced",
+"kind": "num",
+"opts": {
+"cslm-flyback-us": null
+}
+},
+{
+"dev": "Lasers",
+"prop": "ScanFill",
+"tier": "Advanced",
+"kind": "num",
+"opts": {
+"cslm-fill": null
 }
 },
 {

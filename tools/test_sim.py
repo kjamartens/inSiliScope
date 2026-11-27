@@ -310,6 +310,29 @@ def main():
         pass
     core.setProperty("Lasers", "Pattern", "Off")
     print(f"Maps OK: RingTIRF at 1.03 ({eq[:40]}...), LightSheet at 0.9, an edit -> Maps, refusals, a map image")
+
+    # CSLM (spec/ALGORITHM.md "Confocal laser scanning (CSLM) excitation"): the scan time, a whole scan per exposure
+    # (125 lines x 125 x 1.28 us = 20 ms) against two thirds of one (1.92 us: 30 ms), where a third of the rows stays
+    # dark in each frame.
+    core.setProperty("Lasers", "Pattern", "CSLM")
+    t_scan = float(core.getProperty("Lasers", "ScanTimeSec"))
+    assert 0.02 < t_scan < 0.05, f"the default scan time {t_scan} s"
+    core.setProperty("Lasers", "ScanFieldUm", "12.5")
+    core.setProperty("Lasers", "ScanPixelNm", "100")
+    core.setProperty("Lasers", "ScanFlybackUs", "0")
+    core.setProperty("Lasers", "ScanDwellUs", "1.28")
+    t_scan = float(core.getProperty("Lasers", "ScanTimeSec"))
+    assert abs(t_scan - 0.02) < 1e-9, f"125 lines of 125 x 1.28 us: {t_scan} s"
+    whole = snap(core).astype(float) - dark
+    core.setProperty("Lasers", "ScanDwellUs", "1.92")
+    part = snap(core).astype(float) - dark
+    wb, pb = whole.reshape(8, 16, -1).mean(axis=(1, 2)), part.reshape(8, 16, -1).mean(axis=(1, 2))
+    lit = wb > 5
+    ratio = pb[lit] / wb[lit]
+    assert lit.sum() >= 4, f"too few lit row blocks in the whole scan: {wb}"
+    assert ratio.min() < 0.3 and ratio.max() > 0.7, f"two thirds of a scan should leave dark rows: {np.round(ratio, 2)}"
+    core.setProperty("Lasers", "Pattern", "Off")
+    print(f"CSLM OK: scan 20 ms, a part scan's row blocks at {np.round(ratio, 2)} of the whole scan's")
     print(f"test_sim OK in {time.time() - t_start:.1f} s")
 
 

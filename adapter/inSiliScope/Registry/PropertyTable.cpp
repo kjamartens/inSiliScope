@@ -906,7 +906,10 @@ std::vector<PropDef> BuildTable()
                               "frame's image on its exact pattern. The BFP light maps (BfpMaps): LightSheet (an "
                               "inclined light sheet: an elliptical spot at BfpPosition, SheetThicknessUm x "
                               "SheetWidthUm; a pick sets BfpPosition 0.9), RingTIRF (a spot at BfpPosition turned "
-                              "once round per exposure, unpolarized; a pick sets 1.03), Maps (BfpMaps alone).");
+                              "once round per exposure, unpolarized; a pick sets 1.03), Maps (BfpMaps alone). CSLM: a "
+                              "focused spot (the pupil filled to ScanFill x NA) scanned over ScanFieldUm, the camera "
+                              "taking what it swept in each exposure (no pinhole; ScanPixelNm, ScanDwellUs, "
+                              "ScanFlybackUs; the kinetics on the scan's mean).");
          ThenText(d, [](H& h) {
             const int t = static_cast<int>(h.State().Option("sim-type"));
             const double r = sim::SimTypeDefaultRadius(t);
@@ -921,7 +924,7 @@ std::vector<PropDef> BuildTable()
                h.Notify("sim-polarization");
             }
             // A map preset: its own equations (BfpMaps shows them; an edit makes the type Maps).
-            if (t == sim::SIM_LIGHT_SHEET || t == sim::SIM_RING_TIRF)
+            if (t == sim::SIM_LIGHT_SHEET || t == sim::SIM_RING_TIRF || t == sim::SIM_CSLM)
             {
                h.State().SetTextOption("bfp-maps", "");
                h.Notify("bfp-maps");
@@ -1132,6 +1135,41 @@ std::vector<PropDef> BuildTable()
                  "Pattern LightSheet: the sheet's thickness, FWHM across the beam (um; 3, an estimate)."));
          add(Opt(L, "SheetWidthUm", Tier::Advanced, "sheet-width-um", 0, 500,
                  "Pattern LightSheet: the sheet's width along y, FWHM (um; 0 = the beam's, IlluminationFwhmPct)."));
+         // CSLM (Pattern CSLM): the raster and the spot.
+         add(Opt(L, "ScanFieldUm", Tier::Advanced, "cslm-fov-um", 0, 1000,
+                 "Pattern CSLM: the scanned field's side, centred on the axis (um; 0 = the camera's field)."));
+         add(Opt(L, "ScanPixelNm", Tier::Advanced, "cslm-pixel-nm", 1, 10000,
+                 "Pattern CSLM: the scan pixel: the spacing of the lines and of the pixels along a line (nm; 100, an "
+                 "estimate)."));
+         add(Opt(L, "ScanDwellUs", Tier::Advanced, "cslm-dwell-us", 0.01, 1e6,
+                 "Pattern CSLM: the pixel dwell time (us; 2, an estimate): the spot moves along a line at the pixel / "
+                 "the dwell."));
+         add(Opt(L, "ScanFlybackUs", Tier::Advanced, "cslm-flyback-us", 0, 1e7,
+                 "Pattern CSLM: the flyback per line, dark (us; 10, an estimate)."));
+         add(Opt(L, "ScanFill", Tier::Advanced, "cslm-fill", 0.01, 1,
+                 "Pattern CSLM: the pupil's fill: the spot's NA = ScanFill x NA (at most the medium's index: no "
+                 "supercritical light)."));
+         {
+            PropDef r = Row(L, "ScanTimeSec", Tier::Advanced, "cslm-scan-sec",
+                            "Pattern CSLM: one whole scan's time, lines x (pixels x dwell + flyback) (s; read-only).");
+            r.readOnly = true;
+            r.invalidate = Invalidate::None;
+            r.get = [](H& h) {
+               const double p = std::max(1.0, h.State().Option("cslm-pixel-nm")) / 1000.0;
+               double L = h.State().Option("cslm-fov-um");
+               if (L <= 0)
+               {
+                  const sim::ScopeSpec spec = BuildScopeSpec(h.State(), 0, 0, 0, 0, 1);
+                  // (the engine's: the longer side, as ScopeExcitationSpec's fovSpanUm)
+                  L = std::max(sim::ScopeSpecGet(spec, "size"), sim::ScopeSpecGet(spec, "height")) *
+                      sim::ScopeSpecGet(spec, "pixel-nm") / 1000.0;
+               }
+               const double N = std::ceil(L / p - 1e-9);
+               return N * (N * h.State().Option("cslm-dwell-us") + h.State().Option("cslm-flyback-us")) * 1e-6;
+            };
+            r.set = [](H&, double) {};
+            add(r);
+         }
       }
       {
          // The frame program's state (read-only): the counter, the state it gives, the fringe period.
