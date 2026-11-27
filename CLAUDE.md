@@ -918,6 +918,37 @@ focus (`followFocus`; the focus dashed, a slider mark `Control::mark`). Checks: 
 `light-sheet`, `ring-tirf`. Slow: a focused coherent beam over much of the pupil (radial ring 12 s native, 72 s in the
 single-thread viewer module; a full pupil ~2 min native). Not yet: GPU, the slide's per-frame fringes under maps.
 
+**CSLM excitation (2026-11-27, branch `cslm`, spec/ALGORITHM.md "Confocal laser scanning (CSLM) excitation", spec/PORT.md
+35, docs/physics/dyes-and-light-path.md "Confocal laser scanning (CSLM)"):** `sim-type` 9 CSLM is a focused spot
+scanned line by line over a square field, with camera detection. The pinhole comes later (the user's plan).
+`Simulation/ScanSpot.*`:
+- `FocusedSpot`: a scalar Debye spot of NA_ex = `cslm-fill` x NA, at most 0.999 n_s. It is numerical up to 40 rad of
+  defocus phase, then the geometric limit **cos^3 / z^2**, which is |E|^2 (cos^4 left a 10 % step). Each plane has
+  unit power, kept as the sweep and band integrals C / D.
+- `ScanProgram`: `cslm-fov-um` (0 = the camera's field), `cslm-pixel-nm`, `cslm-dwell-us`, `cslm-flyback-us`; free
+  running from frame 0. A frame's light is exact (its runs, `ScanRunsOf`), so frames show bands when the scan time
+  does not divide the exposure.
+- `ScanPeriodFrames`: q frames, else 0, meaning every frame is its own state (as the SIM phase drift; `PerFrameStates`).
+- `MakeScanLight` is a `BfpLight` whose mean volume serves the kinetics, the light history and the imager background
+  (16 nodes, `kScanCollectNodes`), with the `ScanLight` attached.
+- The setting is the field-mean irradiance.
+- The mean field's plane factors come from FFT images per spot plane (`PlaneImageOf`, 96 MB), read per cell
+  (`PlaneMeanPrep::scanUses`; one common grid per dye plane cost ~0.1 s a plane).
+
+MM: `Lasers.Pattern` CSLM, `ScanFieldUm` / `ScanPixelNm` / `ScanDwellUs` / `ScanFlybackUs` / `ScanFill` (Advanced),
+read-only `ScanTimeSec`. Viewer: `mv_cslm-*` (Advanced), `#patternReadout`, and the Info box's Light "CSLM". Setup JSON
+`excitation.scan`.
+
+Checks:
+- ctest `cslm` (`cli/cslm_check.cpp`, ~2 s)
+- `tools/test_sim.py` (CSLM rows)
+- `tests/web/viewer_sim.mjs`
+- figure `cslm-spot`
+- gallery `cslm`, `cslm-band`
+
+Cost: live WideField x2 at 256 px on one thread, 1.7 s a frame (SIM2D 0.76). Not yet: the pinhole, the slide per
+frame, GPU.
+
 **Exact light history (2026-10-15/16, core ABI 14, spec/ALGORITHM.md "Exact light history", spec/PORT.md 23; branch
 `claude/exact-dose`):** every dye of every consumer reads its kinetics at the dose at its own (x, y, z), smooth in all
 three, one core query per movie. It replaced the stepped history (two lateral levels per 0.25 um tile, 12 z bands,

@@ -1608,3 +1608,14 @@ cellElongMin 0.8, cellBlob 0.6, cellRough 0.05, cellFractalDim 1.2), `ScopeMovie
 rows and its Cell shape list (`Round, smooth` blob 0.6 first, `Blobby` = the old default), `tools/make_cellfield_block.mjs`.
 `ISC_WORLD_VERSION` "2026-11-27". Goldens: old cases explicit on `FIELD0` (bit for bit), new `defaults` cases. No ABI
 change. Generated again: `web/live/mm_config.js`, `docs/micro-manager.md`, the viewer modules, `adapter_pixel_hash_ref.txt`.
+
+## 35. CSLM excitation (2026-11-27)
+
+spec/ALGORITHM.md "Confocal laser scanning (CSLM) excitation". New `Simulation/ScanSpot.*` (`FocusedSpot`, `ScanProgram`,
+`ScanRunsOf`, `ScanPeriodFrames`, `ScanLight`, `MakeScanLight`) and ctest `cslm`. `sim-type` 9 `CSLM` (`SIM_CSLM`,
+`SimTypeIsScan`); options `cslm-fov-um`, `cslm-pixel-nm`, `cslm-dwell-us`, `cslm-flyback-us`, `cslm-fill` (part
+settings). `BfpLight::Scan`; `Excitation` gets the scan runs, `PerFrameStates`, `PrepareScanPlane` and
+`PlaneMeanPrep::scanUses`. Setup JSON gets `excitation.scan`; the panels get CSLM text. MM: `Lasers.Pattern` CSLM,
+`Lasers.ScanFieldUm`, `ScanPixelNm`, `ScanDwellUs`, `ScanFlybackUs`, `ScanFill` (Advanced) and read-only `ScanTimeSec`.
+Viewer: `mv_cslm-*`, `#patternReadout`, and the Info box's Light. No ABI or golden change; defaults unchanged.
+Not yet: the pinhole (confocal detection), the slide's per-frame light, GPU.

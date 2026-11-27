@@ -21,7 +21,8 @@ Ideas, roughly in order of interest. Contributions welcome; see [Extending](exte
 - **Excitation**: epi, HILO and TIRF are one slider (the BFP position, 2026-10-14); structured illumination as
   coherent beams in the back focal plane with a frame program (2026-10-30; the kinetics on the pattern's cycle mean,
   the mean field on the CPU under a pattern); any light in the back focal plane as maps (2026-11-19: equations or
-  images; presets LightSheet and RingTIRF; CPU only); still missing: the exact per-frame dose under a pattern, a GPU
+  images; presets LightSheet and RingTIRF; CPU only); a focused spot scanned over a field (CSLM, 2026-11-27: camera
+  detection; the pinhole, i.e. confocal detection, still to come); still missing: the exact per-frame dose under a pattern, a GPU
   path for the maps, the slide's per-frame fringes under them, emission-side (detection pupil) maps, the GPU mean field under a pattern, stroboscopic light through the frame program, supercritical-angle
   emission near the coverslip and the beam's angular spread.
 - **Widefield**: a defocus law for the optional Gaussian PSF (`WidefieldGaussianSigmaUm`), and a check of the Direct3D

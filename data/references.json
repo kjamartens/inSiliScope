@@ -320,7 +320,7 @@
       "volume": "253",
       "pages": "358-379",
       "doi": "10.1098/rspa.1959.0200",
-      "use": "the vectorial focus-field model behind PSFGenerator's Richards & Wolf PSF (Renderer.PsfModel = RichardsWolf); the aplanatic system's (cos theta)^(1/2) apodization from energy conservation under the sine condition, i.e. equal power per object-space solid angle (the free imager's collected column, excitation.js collectionRings)",
+      "use": "the vectorial focus-field model behind PSFGenerator's Richards & Wolf PSF (Renderer.PsfModel = RichardsWolf); the aplanatic system's (cos theta)^(1/2) apodization from energy conservation under the sine condition, i.e. equal power per object-space solid angle (the free imager's collected column, excitation.js collectionRings); the CSLM excitation spot (Simulation/ScanSpot.cpp: the scalar Debye focus of a filled pupil with that apodization)",
       "checked": "bibliographic details from the Crossref DOI record; named as the source of the Richards & Wolf model on the PSFGenerator page (bigwww.epfl.ch/algorithms/psfgenerator); the apodization is the standard result of its section 2, written from the formula (the paper is not open; not re-read)"
     },
     "kirshner2013": {

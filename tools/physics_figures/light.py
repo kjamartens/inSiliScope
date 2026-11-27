@@ -470,6 +470,50 @@ def sim_spot(ctx):
                   % (f_um / 1000, w_default, lam, lam * 1e-3 * f_um / (np.pi * 100), f_um * np.tan(np.deg2rad(0.1))))
 
 
+# ---- CSLM (spec/ALGORITHM.md "Confocal laser scanning (CSLM) excitation") ----
+# 96 lines of 100 nm over the 9.6 um field, no flyback: 96^2 dwells = 50 ms (whole scans) or 75 ms (2/3 of one per frame)
+CSLM = {"sim-type": "CSLM", "cslm-flyback-us": 0, "mt-mode": "WideField", "mt-dye": -1, "light-preset": "auto"}
+CSLM_WHOLE_US, CSLM_BAND_US = 50000 / 96 ** 2, 75000 / 96 ** 2
+
+
+@register("cslm-spot", "dyes-and-light-path")
+def cslm_spot(ctx):
+    e = sim_setup(ctx, dict(CSLM, **{"cslm-dwell-us": CSLM_WHOLE_US}), "cslm-setup", size=96)
+    sc = e["scan"]
+    whole, _, _, _ = movie(ctx, dict(CSLM, **{"cslm-dwell-us": CSLM_WHOLE_US}), "cslm-whole", frames=1, photons=False)
+    band, _, setup_b, _ = movie(ctx, dict(CSLM, **{"cslm-dwell-us": CSLM_BAND_US}), "cslm-band", frames=3, photons=False)
+    sc_b = setup_b["excitation"]["scan"]
+
+    def draw(fig, st):
+        gs = fig.add_gridspec(1, 5, width_ratios=[1.25, 1, 1, 1, 1])
+        ax = fig.add_subplot(gs[0, 0])
+        xs, zs = np.array(e["section_x_um"]), np.array(e["section_z_um"])
+        s = np.array(e["section"]).reshape(len(zs), len(xs))
+        ax.imshow(s, origin="lower", aspect="auto", cmap="magma", vmin=0, extent=[xs[0], xs[-1], zs[0], zs[-1]])
+        ax.set_xlabel("x (µm)", fontsize=7)
+        ax.set_ylabel("z (µm), the scan's mean", fontsize=7)
+        ax.tick_params(labelsize=6)
+        lo, hi = robust_range(np.concatenate([whole[0].ravel(), band.ravel()]))
+        for i, (a, t) in enumerate([(whole[0], "50 ms scan: whole"), (band[0], "75 ms scan: frame 0"),
+                                    (band[1], "frame 1"), (band[2], "frame 2")]):
+            ax = fig.add_subplot(gs[0, 1 + i])
+            ax.imshow(a, cmap="gray", vmin=lo, vmax=hi, origin="upper")
+            ax.set_title(t, fontsize=8)
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    body = ctx.plot("", draw, h=2.6, alt="CSLM: the scan's mean light in an x-z section and camera frames of a whole and a part scan")
+    return figure(body,
+                  "CSLM over the 9.6 µm field (96 lines of 100 nm, no flyback; widefield microtubules at %s nm, the "
+                  "spot NA %.2f: FWHM %.0f nm across, %.0f nm along the axis, its peak %s × the laser setting). Left: "
+                  "the scan's mean light in an x-z section, the focus at 0.5 µm; the defocused cone of a high-NA spot spreads "
+                  "it well beyond the field. Then 50 ms camera frames: a dwell of %.3f µs makes one whole scan per "
+                  "frame, so every frame is alike; %.3f µs (a 75 ms scan) sweeps two thirds of the field in each frame, "
+                  "so the band moves on from frame to frame (%.3g scans per frame; one shared contrast).\n"
+                  % (sc["line_nm"], sc["na_ex"], sc["fwhm_lateral_nm"], sc["fwhm_axial_nm"],
+                     sig(sc["peak_per_setting"], 3), CSLM_WHOLE_US, CSLM_BAND_US, sc_b["scans_per_frame"]))
+
+
 # ---- BFP light maps (spec/ALGORITHM.md "BFP light maps") ----
 def bfp_examples():
     """The examples of web/live/bfp_examples.js (the viewer's Examples list): JSON after "ISC_BFP_EXAMPLES ="."""

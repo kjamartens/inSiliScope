@@ -1548,6 +1548,80 @@ through the pupil as the legacy beam at the line's setting; editing Expert, the 
 - **Limits:** CPU only (no GPU path); the slide under maps takes the cycle mean (no per-frame fringes); MM has no
   `bfp-map-px` row (a readout's).
 
+## Confocal laser scanning (CSLM) excitation (2026-11-27)
+
+A focused laser spot scanned over a field, with the camera detecting and no pinhole yet (`sim-type` 9 CSLM;
+`Simulation/ScanSpot.*`; docs/physics/dyes-and-light-path.md "Confocal laser scanning (CSLM)"). The spot's shape is
+known from the filled pupil, so it is computed directly instead of through the BFP maps' numerical pupil field, which
+would take minutes for a fully lit pupil. The user's choices:
+
+- **Exact per frame.** Each frame holds the light the spot swept during its exposure: whole scans plus the partial
+  scan inside the window. Where the scan time does not divide the exposure, a frame shows a band. The scan runs freely
+  from t = 0 of the frame counter, so its phase carries over from frame to frame.
+- **What the dyes see.** Blinks and the mean field get the frame's time-averaged light at the dye. The kinetics, the
+  light history and the imager background get the scan's long-run mean, as SIM uses its cycle mean.
+- **The spot.** A uniformly filled pupil of NA_ex = `cslm-fill` x NA. Supercritical angles are dropped (NA_ex <=
+  0.999 n_s), and there are no aberrations.
+- **The scan options.** Field `cslm-fov-um` (0 = the camera's field, its longer side), pixel `cslm-pixel-nm`, dwell
+  `cslm-dwell-us` and flyback `cslm-flyback-us`. The defaults (100 nm, 2 us, 10 us) are *estimates*.
+- **Power.** The laser setting is the irradiance averaged over the scan field and over time, flyback included:
+  P = setting x field^2 / duty. The spot's peak is a readout.
+
+**The spot** (`FocusedSpot`, one per lit line): scalar Debye in the medium,
+I(rho, z) ~ |int_0^thx sqrt(cos t) sin t J0(k rho sin t) exp(i k z cos t) dt|^2. The sqrt(cos) is the aplanatic
+apodization [richards1959]. The integral is evaluated numerically while k |z| (1 - cos thx) <= 40 rad; beyond that it
+switches to its geometric limit, cos^3 t / z^2 with tan t = rho / |z|. That is |E|^2: the flux density cos^4 t / z^2
+over the obliquity cos t. Using cos^4 left a 10 % step where the two met. Each plane holds unit power, because |E|^2
+over a plane carries sin t dt per angle by Parseval. The reach is 99 % of that power plus 8 lambda / NA_ex, and the rest
+is renormalized. Planes are spaced z_{j+1} = z_j + dz0 + 0.08 z_j
+(dz0 = 0.1 lambda / (n (1 - cos thx))), out to `bfp-z-sample-um`; beyond that the end plane holds. Each plane keeps
+two tables:
+- C(a, b) = int_{-inf}^a I(sqrt(x^2 + b^2)) dx, the sweep of one line;
+- D(a, b) = int_{-inf}^b C(a, b') db', a band of lines.
+
+Both are read with Catmull-Rom interpolation. Above 2 lines per spot FWHM the core is 0 and every line is a strip.
+
+**The raster** (`ScanProgram`):
+- N = ceil(field / pixel) lines along x (unidirectional), stepping in +y, centred on the axis.
+- line time = N tau + flyback, scan time T = N x line time, speed v = pixel / tau.
+- A frame [F E, (F + 1) E] is a list of runs: lines k1..k2 swept from xs to xe, w times (`ScanRunsOf`).
+- Its light relative to the setting is (K / E) x the sum of w (C(x - xs) - C(x - xe)) over the runs' lines, where
+  K = field^2 / (duty v).
+- Lines near the point (within 6 FWHM plus a pixel) are summed one by one; farther lines are integrated as strips
+  through D (`RunSum`). The interior of one whole scan is exactly 1.
+- `ScanPeriodFrames`: q <= 64 when q E is a whole number of scans (1: every frame is the mean), else 0, meaning every
+  frame is a state of its own (as a SIM phase drift; `Excitation::PerFrameStates`, the movie's `driftsPhase`, the
+  frame in `exciteKey`).
+
+**In the engine:**
+- `MakeScanLight` returns a `BfpLight`: its mean volume (per line, relative to the focal plane, a fine tile at
+  FWHM / 2.5 over the field and a coarse window) built from the mean runs, with the `ScanLight` attached
+  (`BfpLight::Scan`). So `MeanAt`, the light history's components, `ImagerMap` (16 nodes under CSLM,
+  `kScanCollectNodes`: 32 took the DNA-PAINT background map 4.1 s) and `AtBall` all work unchanged.
+- `Excitation::SetFrame` takes the frame's runs; `At` evaluates them.
+- The mean field's plane factors (`PrepareScanPlane`): per spot plane, an FFT convolution of the rasterized sweep
+  (each line split linearly between grid rows) with the cell-averaged spot plane, memoised per frame window
+  (`PlaneImageOf`, 96 MB). A dye plane weights the spot planes by the exact integral of their linear interpolation in
+  |z|, and each cell reads those images bicubically, so no common grid is made: resampling onto one took ~0.1 s per dye
+  plane.
+- Beads take the frame / mean ratio (`DcAtBall` = the mean ball).
+- The fluorescent slide takes the scan mean (*not yet* per frame).
+
+**Checks:** ctest `cslm` (`cli/cslm_check.cpp`, ~2 s):
+- the Airy pattern at low NA, the FWHMs;
+- runs against a time-stepped sweep;
+- the interior of a whole scan = 1, and q frames of T / q;
+- a band's edges;
+- the Excitation paths against the scan light;
+- periods 1 and 5, the bead ratio.
+
+`tools/test_sim.py` (MM: the scan time, a part scan's dark rows) and `tests/web/viewer_sim.mjs` (the readout).
+
+**Cost:**
+- WideField 128 px, 6 frames: 4.5 s.
+- Live WideField x2 at 256 px on one thread, steady: 1.7 s a frame (Off 20 ms, SIM2D 0.76 s): the cell values per dye
+  plane.
+
 ## The live events query: a window's block walk remembered (2026-11-27)
 
 A live frame asks the core for the blinks of its window (`isc_events_in_map`). The answer is made per 1 um dye block

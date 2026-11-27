@@ -317,6 +317,42 @@ computation, RingTIRF ~10⁻³, SIM2D as maps 4·10⁻⁴ (Fast 4·10⁻³); it 
 without threads, 3 s at Fast). A field of view too fine for the memory (1 GB natively, 256 MB in the viewer) is sampled
 coarser, and the BFP panel's caption says so.
 
+## Confocal laser scanning (CSLM)
+
+`sim-type` **CSLM** (MM `Lasers.Pattern`; the viewer's Pattern) focuses the laser to a diffraction-limited spot and
+scans it over a field line by line, while the camera detects. There is no pinhole yet: the camera takes all the light
+the spot swept during each exposure. The spot's shape is known from the filled pupil, so it is computed directly rather
+than through the BFP maps. It is the scalar Debye focus of a uniformly filled pupil of NA = `cslm-fill` × the
+objective's NA, with the aplanatic √cos θ apodization [[richards1959](../references.md#richards1959)]. Angles past the
+critical angle are left out, so there is no evanescent light, and the pupil carries no aberrations. At the default
+NA 1.4 in a medium of 1.337, the spot at 561 nm is about 200 nm wide (FWHM) and about 420 nm long.
+
+The **scan** covers a square of `cslm-fov-um` (MM `ScanFieldUm`; 0 = the camera's field), centred on the axis:
+
+- Lines are `cslm-pixel-nm` apart (`ScanPixelNm`, 100 nm).
+- The spot dwells `cslm-dwell-us` per pixel along each line (`ScanDwellUs`, 2 µs).
+- Each line ends with a dark flyback of `cslm-flyback-us` (`ScanFlybackUs`, 10 µs).
+- The scan time is lines × (pixels × dwell + flyback); MM shows it as `ScanTimeSec`.
+- The defaults are *estimates*. They give a 25.6 µm field in about 0.13 s.
+
+The scan runs freely from the start of the frame count. Each frame holds exactly the light swept during its exposure,
+so the light at a point is the integral of the moving spot over the lines passed.
+- **When the exposure is a whole number of scans,** every frame is alike.
+- **When it is not,** each frame shows a band: the rows swept in that frame are lit, the rest stay dark, and the band
+  moves from frame to frame. The readout under the Pattern says which case applies.
+
+The **laser setting** is the irradiance averaged over the scan field and over time, flyback included. The spot carries
+the setting × the field's area / the duty cycle, so its peak is thousands of times the setting. The readout shows that
+factor.
+
+**What the dyes see** is the same as under SIM. Each frame's own light drives the emission. The scan's long-run mean
+drives the kinetics, the bleaching history and the imager background. A defocused high-NA spot spreads wide, and its
+light reaches far beyond the field: the defocused cone of light in the figure. **Limits:** no pinhole (that comes
+next); the fluorescent slide takes the scan's mean, not each frame's band; computed on the CPU, and a frame whose scan
+does not repeat over the frames makes its mean-field planes afresh.
+
+<!-- fig:cslm-spot -->
+
 ## The DNA-PAINT imager background
 
 Unbound imager in the illuminated volume adds an offset per pixel and second of

@@ -299,3 +299,8 @@ Upcoming ideas:
   or run it ahead on a spare thread, smoothly), [ ] the release's manylinux tarball tried on a
   real cluster, [ ] Micro-Manager (`Renderer.Remote*`, ssh in stdio mode; the adapter's live producer on `LiveScope`
   first), [ ] the cell workers (world view) remote, [ ] Windows servers.
+- CSLM (2026-11-27, branch `cslm`, spec/ALGORITHM.md "Confocal laser scanning (CSLM) excitation", spec/PORT.md 35):
+  [x] the excitation (a scalar Debye spot scanned over a field, camera detection; `sim-type` CSLM, MM `Lasers.Scan*`,
+  the viewer rows and readout, figure `cslm-spot`, gallery `cslm` / `cslm-band`), [ ] the pinhole (confocal detection),
+  [ ] the fluorescent slide per frame under a scan, [ ] faster mean-field planes per frame (live WideField 1.7 s a frame
+  on one thread).
