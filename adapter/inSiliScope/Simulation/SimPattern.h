@@ -52,14 +52,18 @@ enum SimType
 {
    SIM_OFF = 0, SIM_2D = 1, SIM_3D = 2, SIM_LATTICE_2D = 3, SIM_LATTICE_3D = 4, SIM_CUSTOM = 5,
    // BFP light maps (BfpField.h, 2026-11-19): no beam set; the light from equations over the pupil.
-   SIM_LIGHT_SHEET = 6, SIM_RING_TIRF = 7, SIM_MAPS = 8
+   SIM_LIGHT_SHEET = 6, SIM_RING_TIRF = 7, SIM_MAPS = 8,
+   // Confocal laser scanning (ScanSpot.h, 2026-11-27): a focused spot scanned over a field; analytic, no maps.
+   SIM_CSLM = 9
 };
 // The types whose light is a map set (BfpField.h) rather than beams.
 inline bool SimTypeIsMaps(int type) { return type >= SIM_LIGHT_SHEET && type <= SIM_MAPS; }
+// The scanned spot (its light a BfpLight made analytically, ScanSpot.h MakeScanLight).
+inline bool SimTypeIsScan(int type) { return type == SIM_CSLM; }
 enum SimPolarization { SIM_POL_S = 0, SIM_POL_P = 1, SIM_POL_CIRCULAR = 2, SIM_POL_LINEAR_X = 3, SIM_POL_UNPOLARIZED = 4 };
 enum SimOrder { SIM_ORDER_ANGLE_MAJOR = 0, SIM_ORDER_PHASE_MAJOR = 1 };
 const std::vector<std::string>& SimTypeNames();   // Off, SIM2D, SIM3D, LatticeSIM2D, LatticeSIM3D, Custom, LightSheet,
-                                                  // RingTIRF, Maps
+                                                  // RingTIRF, Maps, CSLM
 const std::vector<std::string>& SimPolarizationNames();   // S, P, Circular, LinearX, Unpolarized
 const std::vector<std::string>& SimOrderNames();          // AngleMajor, PhaseMajor
 const std::vector<std::string>& SimAnchorNames();         // Focus, Coverslip (sim-anchor: where the beams are in phase)

@@ -29,7 +29,7 @@ constexpr uint32_t kPhaseSeedSalt = 0x53494D50u;   // "SIMP"
 const std::vector<std::string>& SimTypeNames()
 {
    static const std::vector<std::string> v = { "Off",        "SIM2D",      "SIM3D",    "LatticeSIM2D", "LatticeSIM3D",
-                                               "Custom",     "LightSheet", "RingTIRF", "Maps" };
+                                               "Custom",     "LightSheet", "RingTIRF", "Maps",         "CSLM" };
    return v;
 }
 

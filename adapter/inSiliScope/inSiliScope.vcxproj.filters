@@ -100,6 +100,9 @@
     <ClCompile Include="Simulation\BfpField.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
+    <ClCompile Include="Simulation\ScanSpot.cpp">
+      <Filter>Simulation</Filter>
+    </ClCompile>
     <ClCompile Include="Simulation\Spectra.cpp">
       <Filter>Simulation</Filter>
     </ClCompile>
@@ -274,6 +277,9 @@
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\BfpField.h">
+      <Filter>Simulation</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation\ScanSpot.h">
       <Filter>Simulation</Filter>
     </ClInclude>
     <ClInclude Include="Simulation\MemoryReport.h">

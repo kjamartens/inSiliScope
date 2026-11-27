@@ -260,7 +260,8 @@ void FrameControl(const IllumPreview& P, std::vector<Control>& c)
 std::string StateCaption(const IllumPreview& P)
 {
    if (P.maps)
-      return !P.mapsError.empty() ? "the BFP maps: " + P.mapsError : "BFP maps: " + P.mapsCaption;
+      return !P.mapsError.empty() ? (P.scan ? "CSLM: " : "the BFP maps: ") + P.mapsError
+                                  : (P.scan ? "CSLM: " : "BFP maps: ") + P.mapsCaption;
    const size_t nb = P.beams.size() / IllumPreview::kBeamStride;
    if (!P.patterned)
       return nb == 1 ? "one beam at u = " + Fmt("%.2f", P.beams[6]) : std::to_string(nb) + " beams";
@@ -271,6 +272,8 @@ std::string StateCaption(const IllumPreview& P)
 
 std::string IllumTitle(const sim::ScopeSpec& spec, const IllumPreview& P)
 {
+   if (P.scan)
+      return "CSLM, pupil fill " + Fmt("%.2f", sim::ScopeSpecGet(spec, "cslm-fill"));
    return std::string(P.patterned ? OptionName(spec, "sim-type") : "one beam") + ", BFP position " +
           Fmt("%.2f", sim::ScopeSpecGet(spec, "illum-bfp"));
 }
@@ -394,6 +397,10 @@ std::string RegimeText(const sim::ScopeSpec& spec)
       const sim::BfpLight* L = ex.Maps();
       if (!L)
          return "BFP maps: " + ex.Spec().mapsError;
+      if (const sim::ScanLight* S = L->Scan())
+         return "CSLM: a focused spot of NA " + Fmt("%.2f", L->UOuter() * S->Params().nS) + at + ", FWHM " +
+                Fmt("%.0f", S->Spot(0).FwhmLateralUm() * 1000) + " nm, scanned over " +
+                Fmt("%.1f", S->Program().N * S->Program().p) + " \xC2\xB5m";
       std::string t = L->Evanescent() && L->Propagating() && ex.Regime() != sim::REGIME_TIRF
                          ? "evanescent and propagating light (" + Fmt("%.0f", 100 * L->EvanescentShare()) + " % evanescent)"
                       : L->Evanescent()                   ? "evanescent (TIRF), 1/e depth " + Fmt("%.0f", L->DecayPerNm() * nm * 1000) + " nm" + at
@@ -446,7 +453,9 @@ bool BfpPanel(const sim::ScopeSpec& spec, const std::map<std::string, double>& p
    const double s = n / (2 * P.uSpan);
    Builder::Image im{ "bfp" };
    im.title = "Back focal plane, from above";
-   im.note = P.maps ? "the maps' intensity over the exposure (its time slots summed); dashed: the critical circle u = 1; "
+   im.note = P.scan ? "the filled pupil (uniform; NA_ex = fill x NA, at most the medium's index); dashed: the critical "
+                      "circle u = 1; solid: the pupil edge"
+           : P.maps ? "the maps' intensity over the exposure (its time slots summed); dashed: the critical circle u = 1; "
                       "solid: the pupil edge"
                     : "dashed: the critical circle u = 1; solid: the pupil edge; each beam's spot ringed, its polarization a bar "
                       "(circular: an arrow); evanescent beams in blue";
@@ -499,7 +508,8 @@ bool BfpPanel(const sim::ScopeSpec& spec, const std::map<std::string, double>& p
    const std::string regime = RegimeText(spec);
    if (!regime.empty())
       rows.push_back({ "Light", regime });
-   rows.push_back({ "Pattern", P.maps ? OptionName(spec, "sim-type") + " (BFP maps)"
+   rows.push_back({ "Pattern", P.scan ? std::string("CSLM (a focused spot scanned; the camera takes what it swept)")
+                               : P.maps ? OptionName(spec, "sim-type") + " (BFP maps)"
                                : P.patterned ? OptionName(spec, "sim-type") + ", polarization " + OptionName(spec, "sim-polarization")
                                              : "none (one beam)" });
    if (P.maps && !P.mapNames.empty())

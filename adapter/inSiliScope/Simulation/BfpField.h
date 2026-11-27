@@ -64,6 +64,8 @@
 
 namespace sim {
 
+class ScanLight;
+
 struct BfpLightParams
 {
    std::string text;                // the equations
@@ -167,6 +169,8 @@ public:
    // The sampling in words when it fell short of N (a tile made coarser to fit the memory budget, the pupil capped);
    // empty when the light was sampled as asked.
    const std::string& SamplingNote() const { return samplingNote_; }
+   // CSLM (ScanSpot.h): the scan and its spots (the frames' light); nullptr for maps. Kept by Slim.
+   const ScanLight* Scan() const { return scan_.get(); }
 
 private:
    struct Line
@@ -176,6 +180,7 @@ private:
       BfpLightField mean;
    };
    friend struct BfpBuilder;
+   friend struct ScanLightBuilder;
    BfpLightParams params_;
    uint64_t hash_ = 0;
    bool pivotDependent_ = false;
@@ -186,6 +191,7 @@ private:
    double evanescentShare_ = 0, reachUm_ = 0;
    bool slim_ = false;
    std::string info_, samplingNote_;
+   std::shared_ptr<const ScanLight> scan_;
 };
 
 // The built-in equations of the light-map types (sim-type LightSheet, RingTIRF, Maps), and their slots.

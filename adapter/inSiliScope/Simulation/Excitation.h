@@ -37,6 +37,7 @@
 #pragma once
 
 #include "BfpField.h"
+#include "ScanSpot.h"
 #include "SimPattern.h"
 
 #include <cmath>
@@ -70,6 +71,8 @@ constexpr int kCollectDirs = 24, kCollectTirfSteps = 64, kCollectNodes = 64;
 // fine fringes asked for a node per pixel, a column integral each (3.3 s at 128 px natively, ~30 s in the viewer's
 // worker, again at every focus step); the background is mostly light collected out of focus, which smooths them.
 constexpr int kMapCollectNodes = 32;
+// CSLM: the scan's mean is flat over its field, soft at its edges (the collected imager blurs them further).
+constexpr int kScanCollectNodes = 16;
 constexpr double kCollectRatio = 1.15, kCollectDz0 = 0.05;
 
 struct ExcitationSpec
@@ -120,7 +123,11 @@ public:
    // The frame program's period (1 for the legacy beam).
    int Period() const;
    // The pattern changes with the frame (a program of several frames, or a phase drift).
-   bool Varies() const { return patterned_ && (mapped_ ? Period() > 1 : spec_.beams.Varies()); }
+   bool Varies() const { return patterned_ && (mapped_ ? Period() > 1 || PerFrameStates() : spec_.beams.Varies()); }
+   // CSLM (ScanSpot.h; Mapped too): the frame's light is the scan's over its exposure, the cycle mean the long-run one.
+   const ScanLight* Scan() const { return spec_.maps ? spec_.maps->Scan() : nullptr; }
+   // Every frame its own light (a scan whose time and the exposure repeat after no kScanMaxPeriod frames).
+   bool PerFrameStates() const { return Scan() != nullptr && scanPeriod_ == 0; }
    // The frame whose pattern At gives (Patterned; the program's state and the phase drift at it); cheap (the terms
    // per line are recompiled, no grids).
    void SetFrame(long long frame);
@@ -304,6 +311,11 @@ private:
    double fwhmUm_ = 1, sig_ = 1, r0_ = 1, edge_ = 1, flatTop0_ = 1, reachUm_ = 0;
    bool clipped_ = false, tirf_ = false, uniform_ = false, tilted_ = false, patterned_ = false, mapped_ = false;
    int mapState_ = 0;
+   // CSLM: the frame's sweeps and their norm (SetFrame), the period (0: none).
+   std::vector<ScanRun> scanRuns_;
+   double scanNorm_ = 0;
+   int scanPeriod_ = 1;
+   void PrepareScanPlane(double z0, double z1, const ExcitationShares& shares, PlaneMeanPrep& p) const;
    // The frame's beam envelopes at a point (Patterned): env[j] for the state's beam j.
    void FrameEnvelopes(double x, double y, double z, std::vector<double>& env) const;
    std::vector<Component> comps_;

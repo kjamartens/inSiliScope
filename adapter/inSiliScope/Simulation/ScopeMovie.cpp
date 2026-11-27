@@ -159,7 +159,7 @@ const char* PartOf(const std::string& n)
       return "sample";
    // how the instrument is driven: the light, the filters in place, the camera's settings, the render quality
    if (starts("laser-") || starts("wf-") || starts("mean-field-") || starts("blink-") || starts("bf-") ||
-       starts("sim-") || starts("bfp-") || starts("sheet-") || (starts("psf-") && !starts("psf-sample-")) ||
+       starts("sim-") || starts("bfp-") || starts("sheet-") || starts("cslm-") || (starts("psf-") && !starts("psf-sample-")) ||
        in({ "light-preset", "ex-filter", "dichroic", "em-filter", "illum-bfp", "modality", "light-epi", "light-trans",
             "size", "height", "em-gain", "z-range-um" }))
       return "settings";
@@ -291,7 +291,7 @@ const OptionTable& Options()
          { "illum-fwhm", 100, "Lasers.IlluminationFwhmPct: the FWHM of the beam (Gaussian, FlatTop), % of the field of view's longer side (its width when square)" },
          { "illum-bfp", 0, "Lasers.BfpPosition: the laser spot in the back focal plane, from its centre (0, epi) to the critical angle (1); between: HILO, above: TIRF up to the pupil edge NA / n_medium (beyond it no light reaches the sample). Unset: that of the light preset (DNA-PAINT: HILO; the nanorulers: TIRF)" },
          { "illum-geometry", 0, "deprecated, ignored (was Lasers.IlluminationGeometry: Epi; illum-bfp replaces it)" },
-         { "sim-type", 0, "Lasers.Pattern: structured illumination, the light as coherent beams in the back focal plane (spec/ALGORITHM.md \"Structured illumination\"): 0 Off (one beam at illum-bfp), 1 SIM2D (two beams at +-illum-bfp, 3 phases x 3 angles), 2 SIM3D (+ the centre beam, 5 phases x 3 angles), 3 LatticeSIM2D (+-x, +-y, 9 phases), 4 LatticeSIM3D (+ the centre, 13 phases stepped 2:3), 5 Custom (the beam matrix alone); the BFP light maps (spec/ALGORITHM.md \"BFP light maps\", bfp-maps): 6 LightSheet (an inclined light sheet: an elliptical spot at illum-bfp, sheet-thickness-um x sheet-width-um), 7 RingTIRF (the spot at illum-bfp turned once round per exposure), 8 Maps (bfp-maps alone; empty: the one beam as a map); names accepted. The pattern's phase and angle step with the frame (the frame program); the kinetics run on the cycle mean (the beams' incoherent sum)" },
+         { "sim-type", 0, "Lasers.Pattern: structured illumination, the light as coherent beams in the back focal plane (spec/ALGORITHM.md \"Structured illumination\"): 0 Off (one beam at illum-bfp), 1 SIM2D (two beams at +-illum-bfp, 3 phases x 3 angles), 2 SIM3D (+ the centre beam, 5 phases x 3 angles), 3 LatticeSIM2D (+-x, +-y, 9 phases), 4 LatticeSIM3D (+ the centre, 13 phases stepped 2:3), 5 Custom (the beam matrix alone); the BFP light maps (spec/ALGORITHM.md \"BFP light maps\", bfp-maps): 6 LightSheet (an inclined light sheet: an elliptical spot at illum-bfp, sheet-thickness-um x sheet-width-um), 7 RingTIRF (the spot at illum-bfp turned once round per exposure), 8 Maps (bfp-maps alone; empty: the one beam as a map); 9 CSLM (confocal laser scanning, spec/ALGORITHM.md \"Confocal laser scanning (CSLM) excitation\": a focused spot of NA x cslm-fill scanned over cslm-fov-um, the camera taking what it swept in each exposure; cslm-*); names accepted. The pattern's phase and angle step with the frame (the frame program); the kinetics run on the cycle mean (the beams' incoherent sum)" },
          { "sim-polarization", 0, "Lasers.PatternPolarization: every beam's polarization, 0 S (perpendicular to its plane of incidence: full fringe contrast, the lattice's orthogonal pairs; LatticeSIM3D's centre beam linear diagonal under S and P), 1 P, 2 Circular, 3 LinearX (the pupil field along the lab x axis), 4 Unpolarized (the mean of the S and P patterns); names accepted" },
          { "sim-anchor", 0, "Lasers.PatternAnchor: the plane the beams are in phase at, which the pattern's axial structure is fixed to: 0 Focus (a grating or SLM conjugate to the focal plane: the fringes move with the focus and the sample moves through them, by the stage or the objective alike), 1 Coverslip (the fringes fixed to the sample: an illumination that does not move with the focus); the evanescent decay is from the coverslip either way; names accepted" },
          { "sim-phases", 0, "Lasers.PatternPhases: phase steps per angle (0 = the type's: 3, 5, 9, 13)" },
@@ -311,6 +311,11 @@ const OptionTable& Options()
          { "bfp-map-px", 512, "the Microscope view's BFP drawing, pixels per side (over 1.1 x the pupil); no Micro-Manager row (MM has no such readout)" },
          { "sheet-thickness-um", 3, "Lasers.SheetThicknessUm: the LightSheet type's thickness, FWHM across the beam (estimate)" },
          { "sheet-width-um", 0, "Lasers.SheetWidthUm: the LightSheet type's width along y, FWHM (0 = the beam's, illum-fwhm)" },
+         { "cslm-fov-um", 0, "Lasers.ScanFieldUm: the CSLM type's scan field, the side of a square centred on the optical axis, um (0 = the camera's field of view). The laser setting is the irradiance averaged over it" },
+         { "cslm-pixel-nm", 100, "Lasers.ScanPixelNm: the CSLM type's scan pixel: the line spacing and the step along a line, nm (estimate: Nyquist for a high-NA spot)" },
+         { "cslm-dwell-us", 2, "Lasers.ScanDwellUs: the CSLM type's pixel dwell time, us: the spot moves one scan pixel per dwell along a line (estimate: a typical galvo scan)" },
+         { "cslm-flyback-us", 10, "Lasers.ScanFlybackUs: the CSLM type's line flyback, us, the spot dark (estimate)" },
+         { "cslm-fill", 1, "Lasers.ScanFill: the CSLM type's pupil fill: the excitation NA is this x the objective's NA (angles past the critical angle of the medium dropped)" },
          { "frame0", 0, "the movie's first frame's index in the sample's frame sequence (the frame program: a live producer passes its running counter here; a stack starts at 0). Not a user setting" },
          { "chamber-height-um", 100, "Lasers.ChamberHeightUm: depth of the imager solution over the coverslip (estimate: a tape/flow chamber), um; the DNA-PAINT free-imager background is its column integral of the excitation (epi: all of it; HILO: the sheet; TIRF: ~ the penetration depth)" },
          { "ex-filter", idx(ExcitationFilterIds(), DefaultExcitationFilter()), "ExcitationFilter: laser clean-up filter in front of the dichroic; each laser line is scaled by its transmission there (names accepted)" },
@@ -1378,7 +1383,7 @@ BeamSet ScopeBeamSet(const ScopeSpec& spec)
       if (j >= 0)
          rows[j].push_back({ c, kv.second });
    }
-   if ((type == SIM_OFF && rows.empty()) || SimTypeIsMaps(type))
+   if ((type == SIM_OFF && rows.empty()) || SimTypeIsMaps(type) || SimTypeIsScan(type))
       return BeamSet();   // the legacy single beam (Excitation::Make's old path); the BFP light maps carry no beams
    BeamSet set = MakeBeams(type, ScopeBfpPosition(spec), pol, O("sim-centre-amp"));
    if (O("sim-phases") > 0)
@@ -1472,8 +1477,8 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
    e.beams = ScopeBeamSet(spec);
    e.anchorFocus = O("sim-anchor") == 0;
    const int simType = static_cast<int>(O("sim-type"));
-   const bool maps = SimTypeIsMaps(simType);
-   if (!e.beams.beams.empty() || maps)
+   const bool maps = SimTypeIsMaps(simType), scan = SimTypeIsScan(simType);
+   if (!e.beams.beams.empty() || maps || scan)
    {
       // A beam set: the pupil's geometry, the lines the pattern is made for (the strongest at the sample sets the
       // envelope widths of a spot size), the phase drift's seed and frame time, the first frame.
@@ -1524,6 +1529,24 @@ ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec)
          p.zSampleUm = std::max(1.0, O("bfp-z-sample-um"));
          p.samplesPerPeriod = std::max(2.0, O("bfp-samples-per-period"));
          e.maps = BfpLight::Make(p, e.mapsError);
+      }
+      if (scan)
+      {
+         // CSLM (ScanSpot.h): the scanned spot's light, made analytically.
+         ScanLightParams p;
+         for (const LaserLine& l : lines)
+            if (l.kWPerCm2 > 0)
+               p.lines.push_back(l.nm);
+         p.lambdaRefNm = e.lambdaRefNm;
+         p.na = e.na;
+         p.nS = e.nMed;
+         p.fieldUm = O("cslm-fov-um") > 0 ? O("cslm-fov-um") : e.fovSpanUm;
+         p.pixelUm = std::max(1.0, O("cslm-pixel-nm")) / 1000.0;
+         p.dwellSec = std::max(1e-3, O("cslm-dwell-us")) * 1e-6;
+         p.flybackSec = std::max(0.0, O("cslm-flyback-us")) * 1e-6;
+         p.fill = std::min(1.0, std::max(0.01, O("cslm-fill")));
+         p.zSampleUm = std::max(1.0, O("bfp-z-sample-um"));
+         e.maps = MakeScanLight(p, e.mapsError);
       }
    }
    return e;
@@ -3960,12 +3983,14 @@ struct FluorescenceMovie::Impl
       const ExcitationShares sh = { { ex.Spec().lambdaRefNm, 1.0 } };
       std::vector<float>& out = bgStates[st];
       out.resize(bgMap.size());
-      for (unsigned y = 0; y < S.H; ++y)
+      // Rows on threads (each its own slot; the same values): a CSLM frame's light is a sum over its sweeps per pixel.
+      ParallelFor(S.H, [&](unsigned y) {
          for (unsigned x = 0; x < S.W; ++x)
          {
             const size_t k = static_cast<size_t>(y) * S.W + x;
             out[k] = static_cast<float>(bgIm[k] + S.p.backgroundPhotons * ex.At(x * um - axisX, y * um - axisY, 0.0, sh));
          }
+      });
       return out;
    }
    std::chrono::steady_clock::time_point t0;
@@ -5766,10 +5791,18 @@ bool FluorescenceMovie::Begin(const ScopeSpec& spec, bool gpuMode, std::string& 
          // when the light depends on it).
          std::vector<double> k;
          AppendBeamKey(k, es);
+         // CSLM: the exposure sets every frame's sweeps; a scan that never repeats over the frames makes each frame its
+         // own light (its first frame's index, as a phase drift's).
+         if (const ScanLight* sc = es.maps->Scan())
+         {
+            k.push_back(-3.0);
+            k.push_back(es.expSec);
+            k.push_back(ScanPeriodFrames(es.expSec, sc->Program().scanSec) == 0 ? static_cast<double>(es.frame) : 0.0);
+         }
          m.exciteKey.insert(m.exciteKey.end() - 1, k.begin(), k.end());
       }
       m.varies = S.excite.Varies();
-      m.driftsPhase = es.beams.driftTurnsPerSqrtSec > 0 || es.beams.driftTurnsPerSec != 0;
+      m.driftsPhase = es.beams.driftTurnsPerSqrtSec > 0 || es.beams.driftTurnsPerSec != 0 || S.excite.PerFrameStates();
       m.period = S.excite.Period();
       // Every state's Excitation made here (ExciteFor memoizes lazily; frames render in parallel batches and the
       // beads' frame scale reads it per frame).

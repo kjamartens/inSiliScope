@@ -329,13 +329,18 @@ void Excitation::MakeMapped(const ExcitationSpec& s)
          F_ += L->Mean(l).At(0.0, 0.0, zp_, zp_);
       F_ /= L->LineCount();
    }
+   scanPeriod_ = Scan() ? ScanPeriodFrames(s.expSec, Scan()->Program().scanSec) : 1;
    SetFrame(s.frame);
 }
 
 int Excitation::Period() const
 {
    if (mapped_)
+   {
+      if (Scan())
+         return std::max(1, scanPeriod_);
       return spec_.maps ? std::max(1, spec_.maps->Period()) : 1;
+   }
    return patterned_ ? std::max(1, spec_.beams.Period()) : 1;
 }
 
@@ -356,12 +361,17 @@ double Excitation::MapAt(double x, double y, double z, const ExcitationShares& s
    if (!L || clipped_ || L->IsSlim())
       return 0.0;
    double s = 0.0;
+   const ScanLight* S = mean ? nullptr : L->Scan();
    for (const ExcitationLine& l : shares)
    {
       if (!(l.share != 0.0))
          continue;
       const int li = L->LineOf(l.nm);
-      s += l.share * (mean ? L->Mean(li) : L->State(li, mapState_)).At(x, y, z, zp_);
+      // CSLM: the frame's sweeps, exactly (ScanSpot.h); the mean is the volume.
+      if (S)
+         s += l.share * S->At(li, scanRuns_, scanNorm_, x, y, z - zp_);
+      else
+         s += l.share * (mean ? L->Mean(li) : L->State(li, mapState_)).At(x, y, z, zp_);
    }
    return s;
 }
@@ -387,6 +397,8 @@ void Excitation::SetFrame(long long frame)
       spec_.frame = frame;
       const int n = Period();
       mapState_ = n > 1 ? static_cast<int>(((frame % n) + n) % n) : 0;
+      if (const ScanLight* S = Scan())
+         S->FrameRuns(frame, spec_.expSec, scanRuns_, scanNorm_);
       return;
    }
    if (!patterned_)
@@ -718,6 +730,16 @@ double Excitation::AtBall(double x, double y, double z, double rUm, const Excita
 
 double Excitation::DcAtBall(double x, double y, double z, double rUm, const ExcitationShares& shares) const
 {
+   // CSLM: the scan's mean over the ball (a bead's light is its mean x the frame's over the mean: the frame's).
+   if (mapped_ && Scan())
+   {
+      if (!(rUm > 0))
+         return MapAt(x, y, z, shares, true);
+      const double a = rUm * std::sqrt(0.6);
+      return (MapAt(x + a, y, z, shares, true) + MapAt(x - a, y, z, shares, true) + MapAt(x, y + a, z, shares, true) +
+              MapAt(x, y - a, z, shares, true) + MapAt(x, y, z + a, shares, true) + MapAt(x, y, z - a, shares, true)) /
+             6.0;
+   }
    // Maps: no separate incoherent part (the frame's light is the volume): the same as AtBall, the ratio 1.
    if (mapped_)
       return AtBall(x, y, z, rUm, shares);
@@ -806,6 +828,110 @@ double Excitation::PlaneMean(double x, double y, double z0, double z1, double ce
    return s;
 }
 
+// CSLM: the frame's light averaged over the plane [z0, z1] on one grid over the field and the spot's reach there: the
+// spot's tables' planes weighted by the exact integral of their linear interpolation in |z| over the plane, each plane's
+// rows made at once (ScanSpot.h FocusedSpot::PlaneRow).
+void Excitation::PrepareScanPlane(double z0, double z1, const ExcitationShares& shares, PlaneMeanPrep& p) const
+{
+   const BfpLight* L = spec_.maps.get();
+   const ScanLight* S = L->Scan();
+   const ScanProgram& g = S->Program();
+   p.mapped = true;
+   p.tn = 0;
+   p.tslice.clear();
+   const double a = std::max(0.0, z0) - zp_, b = std::max(std::max(0.0, z0), z1) - zp_;
+   struct Use { int line; int j; double w; };
+   std::vector<Use> uses;
+   double reach = 0.0, step = 1e9;
+   for (const ExcitationLine& l : shares)
+   {
+      if (!(l.share != 0.0))
+         continue;
+      const int li = L->LineOf(l.nm);
+      const FocusedSpot& sp = S->Spot(li);
+      std::vector<double> w(static_cast<size_t>(sp.PlaneCount()), 0.0);
+      if (!(b - a > 1e-9))
+      {
+         int j0, j1;
+         double t;
+         sp.Bracket(a, j0, j1, t);
+         w[static_cast<size_t>(j0)] += 1.0 - t;
+         w[static_cast<size_t>(j1)] += t;
+      }
+      else
+      {
+         // Pieces between a, b, 0 and the planes' +-z: on each the interpolation is linear in z (its mean the midpoint's).
+         std::vector<double> cuts = { a, b };
+         if (a < 0.0 && b > 0.0)
+            cuts.push_back(0.0);
+         for (int j = 0; j < sp.PlaneCount(); ++j)
+            for (double zz : { sp.PlaneZ(j), -sp.PlaneZ(j) })
+               if (zz > a && zz < b)
+                  cuts.push_back(zz);
+         std::sort(cuts.begin(), cuts.end());
+         for (size_t c = 0; c + 1 < cuts.size(); ++c)
+         {
+            const double len = cuts[c + 1] - cuts[c];
+            if (!(len > 0.0))
+               continue;
+            int j0, j1;
+            double t;
+            sp.Bracket(0.5 * (cuts[c] + cuts[c + 1]), j0, j1, t);
+            w[static_cast<size_t>(j0)] += len * (1.0 - t) / (b - a);
+            w[static_cast<size_t>(j1)] += len * t / (b - a);
+         }
+      }
+      for (int j = 0; j < sp.PlaneCount(); ++j)
+         if (w[static_cast<size_t>(j)] > 0.0)
+            uses.push_back({ li, j, l.share * w[static_cast<size_t>(j)] });
+   }
+   // Each used plane's light on its own grid (FFT, memoised per frame window: the next dye plane shares its planes),
+   // then their weighted sum on the finest of those grids over the widest.
+   std::vector<std::shared_ptr<const ScanPlaneImage>> ims;
+   for (const Use& u : uses)
+   {
+      ims.push_back(S->PlaneImageOf(u.line, u.j, scanRuns_, scanNorm_));
+      reach = std::max(reach, -ims.back()->x0);
+      step = std::min(step, ims.back()->dx);
+   }
+   if (ims.empty())
+   {
+      p.sn = 2;
+      p.sdx = 1.0;
+      p.sx0 = 0.0;
+      p.slice.assign(4, 0.0f);
+      return;
+   }
+   if (ims.size() == 1 && std::fabs(uses[0].w - 1.0) < 1e-15)
+   {
+      p.sn = ims[0]->n;
+      p.sdx = ims[0]->dx;
+      p.sx0 = ims[0]->x0;
+      p.slice = ims[0]->v;
+      return;
+   }
+   double dx = step;
+   while (2.0 * reach / dx + 1.0 > 1025.0)
+      dx *= 1.25;
+   p.sn = 2 * static_cast<int>(std::ceil(reach / dx)) + 1;
+   p.sdx = dx;
+   p.sx0 = -(p.sn - 1) / 2 * dx;
+   p.slice.assign(static_cast<size_t>(p.sn) * p.sn, 0.0f);
+   ParallelFor(static_cast<unsigned>(p.sn), [&](unsigned j) {
+      float* row = p.slice.data() + static_cast<size_t>(j) * p.sn;
+      const double y = p.sx0 + j * dx;
+      for (size_t k = 0; k < uses.size(); ++k)
+      {
+         const ScanPlaneImage& im = *ims[k];
+         const bool same = std::fabs(im.dx - dx) < 1e-12 && std::fabs(im.x0 - p.sx0) < 1e-9 && im.n == p.sn;
+         for (int i = 0; i < p.sn; ++i)
+            row[i] += static_cast<float>(
+               uses[k].w * (same ? im.v[static_cast<size_t>(j) * im.n + i]
+                                 : BfpBicubic(im.v.data(), im.n, im.n, im.x0, im.x0, im.dx, p.sx0 + i * dx, y)));
+      }
+   });
+}
+
 void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const ExcitationShares& shares,
                                   PlaneMeanPrep& p) const
 {
@@ -818,6 +944,11 @@ void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const Exc
    p.slice.clear();
    if (!p.ok)
       return;
+   if (mapped_ && Scan() && !spec_.maps->IsSlim())
+   {
+      PrepareScanPlane(z0, z1, shares, p);
+      return;
+   }
    if (mapped_)
    {
       // The plane's mean on the finest of the lines' grids over the window; PlaneMeanAt reads it bicubically.
@@ -1249,7 +1380,7 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
       if (n <= 1)
          return 1;
       return static_cast<unsigned>(
-         std::min(static_cast<double>(mapped_ ? kMapCollectNodes : kCollectNodes), std::max(2.0, std::ceil((n - 1) * um / g) + 1)));
+         std::min(static_cast<double>(mapped_ ? (Scan() ? kScanCollectNodes : kMapCollectNodes) : kCollectNodes), std::max(2.0, std::ceil((n - 1) * um / g) + 1)));
    };
    const unsigned nx = axis(W), ny = axis(HS);
    auto nodeAt = [&](unsigned k, unsigned nn, unsigned n) { return nn <= 1 ? 0.0 : (n - 1) * um * k / (nn - 1); };

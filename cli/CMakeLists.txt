@@ -18,6 +18,7 @@ set(ISC_SIM_SRC
   ${ISC_SIM}/BfpExpr.cpp
   ${ISC_SIM}/BfpMaps.cpp
   ${ISC_SIM}/BfpField.cpp
+  ${ISC_SIM}/ScanSpot.cpp
   ${ISC_SIM}/LightHistory.cpp
   ${ISC_SIM}/Spectra.cpp
   ${ISC_SIM}/Fft2d.cpp
@@ -204,6 +205,10 @@ if(ISC_BUILD_TESTS AND NOT EMSCRIPTEN)
   add_executable(bfp_maps_check bfp_maps_check.cpp)
   target_link_libraries(bfp_maps_check PRIVATE insiliscope_sim)
   add_test(NAME bfp_maps COMMAND bfp_maps_check)
+  # CSLM (ScanSpot.h): the spot against the Airy, the scan's frames against a time-stepped sum, the periods.
+  add_executable(cslm_check cslm_check.cpp)
+  target_link_libraries(cslm_check PRIVATE insiliscope_sim)
+  add_test(NAME cslm COMMAND cslm_check)
 
   # The exact light history (LightHistory.h): its folds and maps against independent sums, the core reading them.
   add_executable(history_check history_check.cpp)

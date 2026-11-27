@@ -142,6 +142,8 @@ struct IllumPreview
    // slots summed); the other maps in use (non-default where lit) at the frame state's first slot, each n x n as bfp.
    bool maps = false;
    std::string mapsCaption, mapsError;
+   // CSLM (maps too): bfp is the filled pupil; mapsCaption the scan's numbers.
+   bool scan = false;
    std::vector<std::string> mapNames;
    std::vector<std::vector<float>> mapImages;
    std::vector<std::pair<float, float>> mapRanges;

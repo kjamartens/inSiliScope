@@ -112,6 +112,28 @@ void ExcitationBeamsJson(Json& j, const sim::Excitation& ex, int simType)
       j.KNum("compute_sec", L ? L->ComputeSec() : 0.0);
       j.KNum("bytes", L ? static_cast<double>(L->Bytes()) : 0.0);
       j.Close('}');
+      // CSLM: the raster, its times, the spot (the first lit line's) and how the exposure meets the scan.
+      if (const sim::ScanLight* S = L ? L->Scan() : nullptr)
+      {
+         const sim::ScanProgram& g = S->Program();
+         j.Key("scan");
+         j.Open('{');
+         j.KNum("field_um", g.N * g.p);
+         j.KNum("lines", g.N);
+         j.KNum("pixel_nm", g.p * 1000.0);
+         j.KNum("dwell_us", g.tau * 1e6);
+         j.KNum("flyback_us", g.fb * 1e6);
+         j.KNum("line_ms", g.lineSec * 1e3);
+         j.KNum("scan_sec", g.scanSec);
+         j.KNum("scans_per_frame", es.expSec / g.scanSec);
+         j.KNum("period_frames", sim::ScanPeriodFrames(es.expSec, g.scanSec));
+         j.KNum("na_ex", std::min(S->Params().fill * S->Params().na, 0.999 * S->Params().nS));
+         j.KNum("line_nm", S->Spot(0).Nm());
+         j.KNum("fwhm_lateral_nm", S->Spot(0).FwhmLateralUm() * 1000.0);
+         j.KNum("fwhm_axial_nm", S->Spot(0).FwhmAxialUm() * 1000.0);
+         j.KNum("peak_per_setting", S->PeakPerSetting(0));
+         j.Close('}');
+      }
    }
    // The beams: a set's (the frame's state: rotated, phased), or the legacy beam as one row.
    std::vector<sim::Beam> beams = patterned ? ex.State().beams : std::vector<sim::Beam>();
@@ -332,6 +354,29 @@ static void MapsPreview(const sim::Excitation& ex, const sim::ExcitationShares& 
    const sim::BfpLight* L = ex.Maps();
    if (!L)
       return;
+   // CSLM: the filled pupil (a uniform disc of radius NA_ex / n_s), the scan's numbers as the caption.
+   if (const sim::ScanLight* S = L->Scan())
+   {
+      out.scan = true;
+      out.bfp.assign(static_cast<size_t>(n) * n, 0.0f);
+      const double r = L->UOuter();
+      for (int j = 0; j < n; ++j)
+         for (int i = 0; i < n; ++i)
+         {
+            const double u = (i + 0.5) / n * 2 * out.uSpan - out.uSpan, v = (j + 0.5) / n * 2 * out.uSpan - out.uSpan;
+            out.bfp[static_cast<size_t>(j) * n + i] = u * u + v * v <= r * r ? 1.0f : 0.0f;
+         }
+      const sim::ScanProgram& g = S->Program();
+      const double E = ex.Spec().expSec;
+      const int q = sim::ScanPeriodFrames(E, g.scanSec);
+      char b[200];
+      std::snprintf(b, sizeof b, "%d lines over %.1f um, scan %.4g s = %.3g per frame (%s)", g.N, g.N * g.p, g.scanSec,
+                    E / g.scanSec,
+                    q == 1 ? "whole scans: every frame the same" : q > 1 ? (std::to_string(q) + " frames repeat").c_str()
+                                                                         : "every frame its own part of the scan");
+      out.mapsCaption = b;
+      return;
+   }
    const sim::BfpLightParams& prm = L->Params();
    const int S = std::max(1, L->Slots()), C = prm.cycleFrames, st = ex.MapState();
    double nm = prm.lambdaRefNm, best = -1;
