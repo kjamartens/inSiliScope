@@ -294,7 +294,8 @@ void FocusedSpot::Make(double nm, double naEx, double nS, double zMaxUm)
 void FocusedSpot::MakePlane(Plane& q, double z) const
 {
    const double lam = nm_ * 1e-3;
-   const double c99 = std::sqrt(cosX_ * cosX_ + (1.0 - kRayShare) * sinX_ * sinX_);
+   // (|E|^2 over a plane carries sin t dt per angle (Parseval): kRayShare of it lies within cos t >= c99)
+   const double c99 = 1.0 - kRayShare * (1.0 - cosX_);
    const double tan99 = std::sqrt(std::max(0.0, 1.0 - c99 * c99)) / c99;
    const double R0 = z * tan99 + kTailLambdas * lam / naEx_;
    q.z = z;
@@ -314,10 +315,12 @@ void FocusedSpot::MakePlane(Plane& q, double z) const
       if (geometric)
       {
          const double tn = rho / z;
+         // |E|^2 = cos^3 t / z^2: the stationary-phase limit of the Debye integral (the flux, cos^4, over the obliquity
+         // cos t); cos^4 put too little light at wide angles: a 10 % step where the two met.
          if (tn <= tanX)
          {
             const double c2 = 1.0 / (1.0 + tn * tn);
-            I[static_cast<size_t>(i)] = c2 * c2 / (z * z);
+            I[static_cast<size_t>(i)] = c2 * std::sqrt(c2) / (z * z);
          }
          continue;
       }

@@ -16,7 +16,7 @@
 //                   I(rho, z) ~ |int_0^thx sqrt(cos t) sin t J0(k rho sin t)
 //                                exp(i k z cos t) dt|^2,
 //                numerically up to k |z| (1 - cos thx) = kDebyeAxialRad, then
-//                its geometric limit cos^4 t / z^2 (tan t = rho / |z|). Each
+//                its geometric limit cos^3 t / z^2 (tan t = rho / |z|). Each
 //                plane holds unit power (to 99 % of the rays and 8 lambda /
 //                NA_ex: the rest renormalized). Kept per plane as two tables:
 //                C(a, b) = int_{-inf}^{a} I(sqrt(x^2 + b^2)) dx (a line's sweep)

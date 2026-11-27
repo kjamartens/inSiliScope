@@ -835,14 +835,12 @@ void Excitation::PrepareScanPlane(double z0, double z1, const ExcitationShares& 
 {
    const BfpLight* L = spec_.maps.get();
    const ScanLight* S = L->Scan();
-   const ScanProgram& g = S->Program();
    p.mapped = true;
    p.tn = 0;
    p.tslice.clear();
    const double a = std::max(0.0, z0) - zp_, b = std::max(std::max(0.0, z0), z1) - zp_;
    struct Use { int line; int j; double w; };
    std::vector<Use> uses;
-   double reach = 0.0, step = 1e9;
    for (const ExcitationLine& l : shares)
    {
       if (!(l.share != 0.0))
@@ -887,49 +885,17 @@ void Excitation::PrepareScanPlane(double z0, double z1, const ExcitationShares& 
    }
    // Each used plane's light on its own grid (FFT, memoised per frame window: the next dye plane shares its planes),
    // then their weighted sum on the finest of those grids over the widest.
-   std::vector<std::shared_ptr<const ScanPlaneImage>> ims;
+   // (PlaneMeanAt reads each at the cell, weighted: resampling them onto one grid per dye plane cost ~0.1 s a plane.)
+   p.scanUses.clear();
    for (const Use& u : uses)
-   {
-      ims.push_back(S->PlaneImageOf(u.line, u.j, scanRuns_, scanNorm_));
-      reach = std::max(reach, -ims.back()->x0);
-      step = std::min(step, ims.back()->dx);
-   }
-   if (ims.empty())
+      p.scanUses.emplace_back(S->PlaneImageOf(u.line, u.j, scanRuns_, scanNorm_), u.w);
+   if (p.scanUses.empty())
    {
       p.sn = 2;
       p.sdx = 1.0;
       p.sx0 = 0.0;
       p.slice.assign(4, 0.0f);
-      return;
    }
-   if (ims.size() == 1 && std::fabs(uses[0].w - 1.0) < 1e-15)
-   {
-      p.sn = ims[0]->n;
-      p.sdx = ims[0]->dx;
-      p.sx0 = ims[0]->x0;
-      p.slice = ims[0]->v;
-      return;
-   }
-   double dx = step;
-   while (2.0 * reach / dx + 1.0 > 1025.0)
-      dx *= 1.25;
-   p.sn = 2 * static_cast<int>(std::ceil(reach / dx)) + 1;
-   p.sdx = dx;
-   p.sx0 = -(p.sn - 1) / 2 * dx;
-   p.slice.assign(static_cast<size_t>(p.sn) * p.sn, 0.0f);
-   ParallelFor(static_cast<unsigned>(p.sn), [&](unsigned j) {
-      float* row = p.slice.data() + static_cast<size_t>(j) * p.sn;
-      const double y = p.sx0 + j * dx;
-      for (size_t k = 0; k < uses.size(); ++k)
-      {
-         const ScanPlaneImage& im = *ims[k];
-         const bool same = std::fabs(im.dx - dx) < 1e-12 && std::fabs(im.x0 - p.sx0) < 1e-9 && im.n == p.sn;
-         for (int i = 0; i < p.sn; ++i)
-            row[i] += static_cast<float>(
-               uses[k].w * (same ? im.v[static_cast<size_t>(j) * im.n + i]
-                                 : BfpBicubic(im.v.data(), im.n, im.n, im.x0, im.x0, im.dx, p.sx0 + i * dx, y)));
-      }
-   });
 }
 
 void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const ExcitationShares& shares,
@@ -942,6 +908,7 @@ void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const Exc
    p.lines.clear();
    p.mapped = false;
    p.slice.clear();
+   p.scanUses.clear();
    if (!p.ok)
       return;
    if (mapped_ && Scan() && !spec_.maps->IsSlim())
@@ -1065,6 +1032,16 @@ void Excitation::PreparePlaneMean(double z0, double z1, double cellUm, const Exc
 
 double Excitation::PlaneMeanAt(double x, double y, const PlaneMeanPrep& p) const
 {
+   if (!p.scanUses.empty())
+   {
+      double v = 0.0;
+      for (const auto& u : p.scanUses)
+      {
+         const ScanPlaneImage& im = *u.first;
+         v += u.second * BfpBicubic(im.v.data(), im.n, im.n, im.x0, im.x0, im.dx, x, y);
+      }
+      return v > 0.0 ? v : 0.0;
+   }
    if (p.mapped)
    {
       const bool inTile = p.tn > 0 && x >= p.tx0 + p.tdx && y >= p.tx0 + p.tdx && x <= p.tx0 + (p.tn - 2) * p.tdx &&

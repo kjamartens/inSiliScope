@@ -166,17 +166,34 @@ void Windows()
 void Interior()
 {
    // A wide field at a high NA (capped at the medium): a whole scan's interior is the setting at every height the
-   // spot's rays still fall within the field (at 3 um, 99 % of them within 27 um).
+   // spot's light still falls within the field (|E|^2 weights the rays by sin t: at 1.25 um 99 % of it within 23 um;
+   // at 3 um it reaches 55 um, past the field).
    auto L = Make(1.4, 1.0, 60.0, 0.1, 2.0, 10.0, 488);
    const ScanLight& S = *L->Scan();
    std::vector<ScanRun> runs;
    double norm;
    S.MeanRuns(runs, norm);
    double worst = 0;
-   for (double zr : { 0.0, 0.25, 1.0, 3.0 })
+   for (double zr : { 0.0, 0.25, 1.0, 1.25 })
       for (double x : { -3.0, 0.0, 2.17 })
          worst = std::max(worst, std::fabs(S.At(0, runs, norm, x, 0.43, zr) - 1.0));
-   Check(worst < 3e-3, F("whole scan's interior = 1 at z 0..3 um (worst %.2g)", worst));
+   Check(worst < 3e-3, F("whole scan's interior = 1 at z 0..1.25 um (worst %.2g)", worst));
+   // No step where the Debye integral gives way to its geometric limit (k |z| (1 - cos thx) = 40 rad): a 9.6 um field's
+   // mean, whose centre drops smoothly as the spot spreads past it (cos^4 instead of cos^3 left a 10 % step there).
+   {
+      auto L2 = Make(1.4, 1.0, 9.6, 0.1, 2.0, 10.0, 488);
+      const ScanLight& S2 = *L2->Scan();
+      std::vector<ScanRun> r2;
+      double n2;
+      S2.MeanRuns(r2, n2);
+      const double nS = S2.Params().nS, sx = std::min(1.4, 0.999 * nS) / nS;
+      const double zs = 40.0 / (2.0 * 3.141592653589793 * nS / 0.488 * (1.0 - std::sqrt(1.0 - sx * sx)));
+      const double a = S2.At(0, r2, n2, 0.0, 0.0, zs - 0.15), b = S2.At(0, r2, n2, 0.0, 0.0, zs + 0.15),
+                   c = S2.At(0, r2, n2, 0.0, 0.0, zs + 0.45);
+      // (falling across it at a like slope on each side: 0.3 um each)
+      Check(a > b && b > c && (a - b) < 3.0 * (b - c) && (b - c) < 3.0 * (a - b),
+            F("no step at the geometric limit (|z| -+0.15, +0.45 um): %.4f, %.4f, %.4f", a, b, c));
+   }
    // A frame of whole scans (E = 2 T) = the mean.
    S.FrameRuns(7, 2 * S.Program().scanSec, runs, norm);
    Check(std::fabs(S.At(0, runs, norm, 0.4, -1.1, 0.5) - 1.0) < 3e-3, "a frame of two whole scans = the mean");

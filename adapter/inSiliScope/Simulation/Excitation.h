@@ -246,6 +246,8 @@ public:
       int sn = 0;
       double sx0 = 0, sdx = 1;
       std::vector<float> slice;
+      // CSLM: the spot planes' images and their weights (read at each cell: no common grid made per plane).
+      std::vector<std::pair<std::shared_ptr<const ScanPlaneImage>, double>> scanUses;
       int tn = 0;
       double tx0 = 0, tdx = 1;
       std::vector<float> tslice;
