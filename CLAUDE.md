@@ -149,8 +149,9 @@ on 100 nm plane edges moved its recording-vs-live comparison 0.2 %). New phases 
   lattice tiled and whole density queries disagreed); every dye moves <= 0.05 nm per axis, frames by rounding and at
   thresholds (dSTORM 3.4 % of pixels, max 450 ADU); goldens, ABI and `ISC_WORLD_VERSION` unchanged; `ISC_MEMORY
   world.*` rows and bytes per dye (live_bench prints them with `ISC_TIMING=1`); `kEstBlinkDyeBytes` 39. Do not put the
-  lattice back on round values. Open: 2048 px on jupiter, the stage-move walk, `tools/adapter_pixel_hash_ref.txt`
-  (moves with the dyes: rewrite it on a machine with the adapter build).
+  lattice back on round values. `tools/adapter_pixel_hash_ref.txt` rewritten for it (TOTAL ea7812da..., "TOTAL before pores"
+  63a4ad7e...; was 38083c20... / 9ea3aad1...; `dstorm` and at times `mean-field` flip from run to run under load,
+  before the series too). Open: 2048 px on jupiter, the stage-move walk.
 - **Camera size and the memory check (2026-11-18, branch `large-fov`, spec/ALGORITHM.md "Large fields of view"):**
   MM `Camera.SensorWidthPx` / `SensorHeightPx` (16..4096, any time but during an acquisition, as Binning; replaced the
   pre-init `FovSize`); spec `height` (0 = square; `size` = the width), `ScopeMovieDims` caps `kMaxFovPx` 4096; a
