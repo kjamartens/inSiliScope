@@ -310,6 +310,175 @@ try {
     'fresh: the header says a fresh recording, its spec is the 20-frame movie from the box\'s start time (default 0 s)');
   check(fresh.info.t === tBefore, `fresh: the live sample's time stays: ${tBefore.toFixed(2)} -> ${fresh.info.t.toFixed(2)} s`);
   console.log(`      fresh record ${fresh.recSec.toFixed(1)} s for 20 frames (wall)`);
+  // "write frames to disk" (on by default, 2026-11-20): the frames went to the disk storage (OPFS); the same Record
+  // with them in memory gives the same frames byte for byte
+  const onDisk = () => page.evaluate(() => !!(liveState.play.store && liveState.play.store.disk));
+  const setDisk = on => page.evaluate(v => { const c = document.getElementById('lv_recDisk'); c.checked = v; c.dispatchEvent(new Event('change')); }, on);
+  const framesOf = r => r.buf.subarray(r.pages[0].data);
+  check(await onDisk(), 'fresh: the frames were written to the browser\'s disk storage (OPFS), not held in the tab');
+  await setDisk(false);
+  const mem = await record();
+  check(!(await onDisk()) && Buffer.compare(framesOf(mem), framesOf(fresh)) === 0 && mem.pages.length === 20,
+    `fresh: with "write frames to disk" off (in memory) the same ${(framesOf(mem).length / 1e6).toFixed(2)} MB of frames byte for byte`);
+  await setDisk(true);
+  // short of room (2026-11-26; Firefox gives a site 10 GiB unless it may store persistently, then half the disk):
+  // the box says it is the browser's limit for the site and that Start asks; Start asks the browser
+  // (navigator.storage.persist); denied, the Record is refused naming the site's permissions; granted, it records.
+  // The browser's quota and answer stood in for, the save picker taken away (as in Firefox).
+  const quota = (grant, room) => page.evaluate(([grant, room]) => {
+    const st = navigator.storage;
+    self.__persistAsked = 0; self.__kept = false;
+    st.estimate = async () => ({ usage: 1e6, quota: 1e6 + (self.__kept ? 1e12 : room) });
+    st.persist = async () => { self.__persistAsked++; self.__kept = grant; return grant; };
+    st.persisted = async () => self.__kept;
+    liveState.file.ok = false; Object.assign(liveState.disk, { kept: false, asked: false });
+  }, [grant, room]);
+  const boxText = () => page.evaluate(() => { const m = document.getElementById('lv_recMsg'); return m.hidden ? '' : m.textContent; });
+  const pickerOk = await page.evaluate(() => liveState.file.ok);
+  await quota(false, 100000);
+  await page.evaluate(() => document.getElementById('lv_rec').click());
+  await page.waitForFunction(() => /Not enough disk storage/.test(document.getElementById('lv_recMsg').textContent), null, { timeout: 5000 });
+  const before = await boxText();
+  await page.evaluate(() => document.getElementById('lv_recGo').click());
+  await page.waitForFunction(() => /Allow this site/.test(document.getElementById('lv_recMsg').textContent), null, { timeout: 5000 });
+  const denied = await page.evaluate(() => ({ asked: self.__persistAsked, on: liveState.rec.on, open: !document.getElementById('lv_recPop').hidden }));
+  check(/limit for one site, not the free disk space\. Start asks/.test(before) && denied.asked === 1 && !denied.on && denied.open &&
+    /Allow this site to store data persistently/.test(await boxText()),
+    `short of room: the box names the site's limit and that Start asks; Start asked once (${denied.asked}), denied: refused, the site's permissions named`);
+  await page.evaluate(() => document.getElementById('lv_rec').click());   // (closes the box)
+  await quota(true, 100000);
+  const granted = await record();
+  check(await page.evaluate(() => self.__persistAsked) === 1 && granted.pages.length === 20,
+    `short of room, persistent storage granted: Start asked once and recorded ${granted.pages.length} frames`);
+  await page.evaluate(ok => { delete navigator.storage.estimate; delete navigator.storage.persist; delete navigator.storage.persisted;
+    liveState.file.ok = ok; }, pickerOk);
+  // "save to a file as recorded" (2026-11-20, Chrome / Edge): Start asks for a file (the picker stood in for by a file
+  // on the disk storage, which has the same createWritable) and the frames go into it as made, the TIFF's tags written
+  // last in front of them; the player reads them from it, Save .tif has nothing left to do.
+  let picks = 0;
+  const toFile = async () => {
+    const name = `picked-${++picks}.tif`, t = Date.now();
+    await page.evaluate(name => {
+      self.showSaveFilePicker = async () => (await navigator.storage.getDirectory()).getFileHandle(name, { create: true });
+      const c = document.getElementById('lv_recFile'); c.checked = true; c.dispatchEvent(new Event('change'));
+      document.getElementById('lv_rec').click();
+      document.getElementById('lv_recGo').click();
+    }, name);
+    await page.waitForFunction(name => liveState.play.on && liveState.play.saved === name && !liveState.rec.on, name, { timeout: 240000 });
+    const sec = (Date.now() - t) / 1000;
+    const out = await page.evaluate(async name => {
+      const c = document.getElementById('lv_recFile'); c.checked = false; c.dispatchEvent(new Event('change'));
+      const f = await (await (await navigator.storage.getDirectory()).getFileHandle(name)).getFile();
+      const u8 = new Uint8Array(await f.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+      // the Save box: the movie alone is saved already
+      const dlg = document.getElementById('setDlg');
+      dlg.hidden = true;
+      document.getElementById('lv_playSave').click();
+      while (dlg.hidden || !document.getElementById('svGo')) await new Promise(r => setTimeout(r, 20));
+      const msg = document.getElementById('svMsg').textContent;
+      document.getElementById('svCancel').click();
+      return { b64: btoa(s), msg, info: document.getElementById('lv_info').title, frame: await liveState.play.store.frame(0) };
+    }, name);
+    const buf = Buffer.from(out.b64, 'base64');
+    return { buf, pages: readTiff(buf), sec, msg: out.msg, info: out.info, name, frame0: out.frame };
+  };
+  const fileOk = (r, w, h, kind) => {
+    const d0 = r.pages[0] || {};
+    check(r.pages.length === 20 && r.pages.every((p, k) => p.w === w && p.h === h && p.bits === 16 && p.data === d0.data + k * w * h * 2) &&
+      r.buf.length === d0.data + 20 * w * h * 2 && /^ImageJ=1\.11a\nimages=20\nframes=20\n/.test(d0.desc || '') && Math.abs(d0.xres - 1000 / fresh.info.px) < 1e-4,
+      `${kind}, saved to a file as recorded: ${r.name}: 20 pages of ${d0.w} × ${d0.h}, the tags in front (frames from byte ${d0.data}), ` +
+      `the file cut after the last (${(r.buf.length / 1e6).toFixed(2)} MB, ${r.sec.toFixed(1)} s)`);
+    check(/already saved as picked-\d+\.tif/.test(r.msg) && /written to picked-\d+\.tif/.test(r.info),
+      `${kind}: the info names the file, the Save box says the movie is saved already ("${r.msg.slice(0, 60)}...")`);
+  };
+  {
+    const fr = await toFile();
+    fileOk(fr, 128, 128, 'fresh');
+    check(Buffer.compare(framesOf(fr), framesOf(fresh)) === 0 && Object.keys(fr.frame0).length === 128 * 128,
+      'fresh: the file\'s frames = the disk storage\'s Record byte for byte; the player reads them from the file');
+    // with its settings file: a .zip whose movie.tif is the file
+    const [, z] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.evaluate(async () => {
+      const dlg = document.getElementById('setDlg');
+      dlg.hidden = true; self.iscLastSave = null;
+      document.getElementById('lv_playSave').click();
+      while (dlg.hidden || !document.getElementById('svGo')) await new Promise(r => setTimeout(r, 20));
+      document.getElementById('svSet').checked = true; document.getElementById('svGt').checked = false;
+      document.getElementById('svGo').click();
+      while (!self.iscLastSave) await new Promise(r => setTimeout(r, 20));
+      const u8 = new Uint8Array(await self.iscLastSave.blob.arrayBuffer());
+      let s = '';
+      for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+      return { entries: self.iscLastSave.entries, b64: btoa(s) };
+    })]);
+    const zb = Buffer.from(z.b64, 'base64');
+    // an entry's size as the central directory has it (Zip64: its extra field)
+    const zipSize = (b, name) => {
+      for (let i = b.length - 46; i >= 0; i--) {
+        if (b.readUInt32LE(i) !== 0x02014b50 || b.toString('latin1', i + 46, i + 46 + b.readUInt16LE(i + 28)) !== name) continue;
+        const u = b.readUInt32LE(i + 24);
+        return u !== 0xffffffff ? u : Number(b.readBigUInt64LE(i + 46 + b.readUInt16LE(i + 28) + 4));
+      }
+      return -1;
+    };
+    check(z.entries.includes('movie.tif') && z.entries.includes('settings.isc.json') && zipSize(zb, 'movie.tif') === fr.buf.length,
+      `fresh: Save with its settings: a .zip of ${z.entries.join(', ')}, its movie.tif the file (${(zb.length / 1e6).toFixed(2)} MB)`);
+  }
+
+  // A Record field larger than live (2026-11-20, docs/dev/LARGE_RECORDS.md part C): the box says the beam scales with
+  // the field before Start and the world view outlines it; the recording has the size asked, centred on the stage
+  // (its centre's blinks = the live-size recording's: their temporal variance images correlate, a crop 8 px off not).
+  const setField = (w, h) => page.evaluate(([w, h]) => {
+    for (const [id, v] of [['lv_recW', w], ['lv_recH', h]]) {
+      const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('change'));
+    }
+  }, [w, h]);
+  await setField(256, 192);
+  const box = await page.evaluate(() => {
+    document.getElementById('lv_rec').click();
+    const n = document.getElementById('lv_recFieldNote'), o = { open: self.ISC_REC_FIELD, hidden: n.hidden, text: n.textContent };
+    document.getElementById('lv_rec').click();
+    return { ...o, shut: self.ISC_REC_FIELD };
+  });
+  check(!box.hidden && /256 × 192 px/.test(box.text) && /beam scales with the field/.test(box.text) && /centred on the stage/.test(box.text) &&
+    box.open && box.open.w === 256 && box.open.h === 192 && box.shut === null,
+    `field: the box says the field and that the beam scales with it before Start ("${box.text.slice(0, 120)}..."), the world view outlines it while open`);
+  const big = await record();
+  const bd = big.pages[0] || {}, bspec = (/insiliscope\.spec=(.*)/.exec(bd.desc || '') || [])[1] || '', fspec = (/insiliscope\.spec=(.*)/.exec(df.desc || '') || [])[1] || '';
+  const xy = s => [(/(^| )x=(\S+)/.exec(s) || [])[2], (/(^| )y=(\S+)/.exec(s) || [])[2]].join(',');
+  check(big.pages.length === 20 && big.pages.every(p => p.w === 256 && p.h === 192) && / size=256( |$)/.test(bspec) && / height=192( |$)/.test(bspec) &&
+    xy(bspec) === xy(fspec) && /insiliscope_live_256x192x20\.tif/.test(big.dl.suggestedFilename()),
+    `field: ${big.dl.suggestedFilename()}: 20 pages of 256 × 192 at the stage (${xy(bspec)})`);
+  const varImg = (r, w, h, x0, y0, n) => {   // each pixel's variance over the 20 frames (the blinks; noise is flat)
+    const m = new Float64Array(n * n), q = new Float64Array(n * n);
+    for (let k = 0; k < 20; k++) {
+      const f = new Uint16Array(r.buf.buffer.slice(r.buf.byteOffset + r.pages[k].data, r.buf.byteOffset + r.pages[k].data + w * h * 2));
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const v = f[(y0 + y) * w + x0 + x]; m[y * n + x] += v; q[y * n + x] += v * v; }
+    }
+    return m.map((s, i) => q[i] / 20 - (s / 20) ** 2);
+  };
+  const corr = (a, b) => {
+    const ma = a.reduce((s, v) => s + v, 0) / a.length, mb = b.reduce((s, v) => s + v, 0) / b.length;
+    let sab = 0, saa = 0, sbb = 0;
+    for (let i = 0; i < a.length; i++) { sab += (a[i] - ma) * (b[i] - mb); saa += (a[i] - ma) ** 2; sbb += (b[i] - mb) ** 2; }
+    return sab / Math.sqrt(saa * sbb);
+  };
+  const ref = varImg(fresh, 128, 128, 8, 8, 112);
+  const cIn = corr(varImg(big, 256, 192, 64 + 8, 32 + 8, 112), ref), cOff = corr(varImg(big, 256, 192, 64 + 16, 32 + 8, 112), ref);
+  check(cIn > 0.5 && cIn > cOff + 0.3, `field: centred on the stage: its centre's blinks (variance over the frames) correlate ${cIn.toFixed(3)} with the live-size recording's (8 px off: ${cOff.toFixed(3)})`);
+  // past 4096 px a side: rendered in strips (the module refuses it whole), the rows written into the frames file
+  await setField(4104, 24);
+  const wide = await record();
+  check(wide.pages.length === 20 && wide.pages.every(p => p.w === 4104 && p.h === 24) && await onDisk(),
+    `field past 4096 px: ${wide.pages.length} pages of ${(wide.pages[0] || {}).w} × ${(wide.pages[0] || {}).h}, rendered in strips onto the disk storage (${wide.recSec.toFixed(1)} s; ${((/insiliscope\.spec=(.*)/.exec((wide.pages[0] || {}).desc || '') || [])[1] || '').match(/(^| )(size|height)=\S+/g)})`);
+  {
+    // the strips' rows posted to the page and written at their places in the file
+    const wf = await toFile();
+    fileOk(wf, 4104, 24, 'field past 4096 px');
+    check(Buffer.compare(framesOf(wf), framesOf(wide)) === 0, 'field past 4096 px: the file\'s frames (the strips\' rows) = the disk storage\'s byte for byte');
+  }
+  await setField('', '');
 
   // "continue the live sample": the frames go on from the live sample
   await page.evaluate(() => { const c = document.getElementById('lv_recLive'); c.checked = true; c.dispatchEvent(new Event('change')); });
@@ -317,6 +486,13 @@ try {
   const cont = await record();
   const dc = fileChecks(cont, 'continue');
   check(/\ninsiliscope=live recording\n/.test(dc.desc || ''), 'continue: the header says a live recording');
+  check(await onDisk(), 'continue: the chunks\' frames were written to the disk storage at their places');
+  {
+    const cf = await toFile();
+    fileOk(cf, 128, 128, 'continue');
+    check(/\ninsiliscope=live recording\n/.test((cf.pages[0] || {}).desc || '') && Buffer.compare(framesOf(cf), framesOf(cont)) !== 0,
+      'continue: the chunks written into the file, a live recording going on from the sample (other frames)');
+  }
   check(Math.abs(cont.info.t - (t2 + 20 * cont.info.exp / 1000)) < 1e-6, `continue: the sample's time runs on by 20 frames: ${t2.toFixed(2)} -> ${cont.info.t.toFixed(2)} s`);
   const recMs = await page.evaluate(() => liveState.rec.engineMs / 20);
   console.log(`      continue record ${cont.recSec.toFixed(1)} s for 20 frames (wall); engine ${recMs.toFixed(1)} ms/frame; info: ${cont.info.text.split('\n').pop()}`);

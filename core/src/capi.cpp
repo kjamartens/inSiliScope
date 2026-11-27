@@ -7,6 +7,7 @@
 #include "world.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -28,6 +29,14 @@ static_assert(ISC_MODE_DNA_PAINT == (int)isc::LabelMode::DnaPaint && ISC_MODE_WI
 
 struct IscParams { isc::Params p; };
 struct IscWorld { isc::World w; std::vector<isc::WorldDye> scratch; std::vector<isc::WorldEvent> events; };
+
+// (a host's memory report, outside the ABI: World::MemoryOut)
+namespace isc {
+void WorldMemoryOut(const IscWorld* w, double* out, int n)
+{
+   if (w) w->w.MemoryOut(out, n);
+}
+} // namespace isc
 
 namespace {
 // The clock map's flat buffer (isc_world_set_clock_map). No exceptions (the WASM builds abort on a throw): a short
@@ -307,10 +316,26 @@ int32_t isc_dye_details_in_window(IscWorld* w, double x0, double y0, double x1, 
    }
 }
 
+namespace {
+// A dye count as a size_t, saturated (size_t is 32-bit in WebAssembly: 1e15, "none", overflowed it).
+size_t DyeCount(double dyes)
+{
+   const double top = (double)std::numeric_limits<size_t>::max();
+   return dyes >= top ? std::numeric_limits<size_t>::max() : (size_t)dyes;
+}
+} // namespace
+
 int32_t isc_world_set_dye_cache(IscWorld* w, double maxDyes)
 {
    if (!w || !(maxDyes >= 0) || !std::isfinite(maxDyes)) return -1;
-   w->w.SetDyeCacheCap((size_t)std::min(maxDyes, 1e15));
+   w->w.SetDyeCacheCap(DyeCount(std::min(maxDyes, 1e15)));
+   return 0;
+}
+
+int32_t isc_world_set_dye_cache_hard(IscWorld* w, double maxDyes)
+{
+   if (!w || !(maxDyes >= 0) || !std::isfinite(maxDyes)) return -1;
+   w->w.SetDyeCacheHardCap(DyeCount(std::min(maxDyes, 1e15)));
    return 0;
 }
 
@@ -431,6 +456,22 @@ void WriteEventRow(const isc::WorldEvent& e, double* o)
 }
 } // namespace
 
+namespace {
+// The rows of w->events into out (at most cap), the total returned. A large list's buffer is let go after (a long
+// movie's blinks, 2026-11-20: it stayed beside the host's copy for the whole movie; the next call fills it again).
+int32_t EventRowsOut(IscWorld* w, double* out, int32_t cap)
+{
+   std::vector<isc::WorldEvent>& e = w->events;
+   if (e.size() > (size_t)INT32_MAX) return -1;
+   const auto tRows = std::chrono::steady_clock::now();
+   for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
+   isc::LastQueryTimes().rows = std::chrono::duration<double>(std::chrono::steady_clock::now() - tRows).count();
+   const int32_t n = (int32_t)e.size();
+   if (e.capacity() * sizeof(isc::WorldEvent) > (32u << 20)) std::vector<isc::WorldEvent>().swap(e);
+   return n;
+}
+} // namespace
+
 int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, double y1,
                              double zMin, double zMax, double t0, double t1, double* out, int32_t cap)
 {
@@ -439,9 +480,7 @@ int32_t isc_events_in_window(IscWorld* w, double x0, double y0, double x1, doubl
       std::vector<isc::WorldEvent>& e = w->events;
       e.clear();
       w->w.EventsInWindow(x0, y0, x1, y1, zMin, zMax, t0, t1, e);
-      if (e.size() > (size_t)INT32_MAX) return -1;
-      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
-      return (int32_t)e.size();
+      return EventRowsOut(w, out, cap);
    } catch (...) {
       return -1;
    }
@@ -455,9 +494,7 @@ int32_t isc_continuous_in_window(IscWorld* w, double x0, double y0, double x1, d
       std::vector<isc::WorldEvent>& e = w->events;
       e.clear();
       w->w.ContinuousInWindow(x0, y0, x1, y1, zMin, zMax, tMin, e);
-      if (e.size() > (size_t)INT32_MAX) return -1;
-      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
-      return (int32_t)e.size();
+      return EventRowsOut(w, out, cap);
    } catch (...) {
       return -1;
    }
@@ -496,9 +533,7 @@ int32_t isc_events_in_map(IscWorld* w, double x0, double y0, double x1, double y
       std::vector<isc::WorldEvent>& e = w->events;
       e.clear();
       w->w.EventsInMap(x0, y0, x1, y1, zMin, zMax, t0, t1, e);
-      if (e.size() > (size_t)INT32_MAX) return -1;
-      for (size_t i = 0; i < e.size() && (int32_t)i < cap; i++) WriteEventRow(e[i], out + i * ISC_EVENT_STRIDE);
-      return (int32_t)e.size();
+      return EventRowsOut(w, out, cap);
    } catch (...) {
       return -1;
    }

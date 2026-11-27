@@ -224,6 +224,9 @@ Upcoming ideas:
   2026-10-31: [x] live SIM with blinking labels: the frame counter out of the excitation key (bit for bit; DNA-PAINT
   SIM2D at 256 px 320 -> 105 ms), [x] dSTORM's initial ON and PALM's pre state under the cycle-mean light (Quality
   Exhaustive: each frame's pattern, `sim-frame-pattern-continuous`).
+  2026-11-23: [x] the phase matrix (Expert): per frame of the cycle each opposing beam pair's phase difference in
+  degrees, the program's by default, keys `sim-pair-phase.<s>.<k>`, MM `Lasers.PatternPhaseMatrix`, the viewer's Phase
+  matrix, cli `--sim-phase-matrix`; ctest `sim_pattern`, `tools/test_sim.py`, `tests/web/viewer_sim.mjs`.
 - 2026-11-03 (branch `general_fixes`): [x] the Microscope view: a Sample | Microscope switch in the title bar swaps
   the world view for panels the C++ describes (`cli/scope_panels.*`: typed views, controls, one float buffer;
   `isc_scope_panels` / `isc_scope_panel`), drawn by `web/live/scope_panels.js`: the light path drawn in the middle
@@ -265,3 +268,34 @@ Upcoming ideas:
   `test_sim.py`, `viewer_sim.mjs`, `settings_unit.mjs`. Next: [ ] a GPU path, [ ] the slide's per-frame fringes under
   maps, [ ] a faster focused coherent beam (a full pupil: minutes; the field's reach over the whole volume),
   [ ] emission-side maps (a detection pupil), [ ] the imager background's map on more than 32 nodes cheaply.
+- Large records (2026-11-20, branch `large-records`, docs/dev/LARGE_RECORDS.md, spec/PORT.md 32): [x] A: the Record's
+  frames and ground truth on the browser's disk storage (OPFS) as made, [x] B: movies in strips (engine windows of the
+  sensor, cli `--strip-rows`, the module's strips, the ground truth per strip; ctest `strips`, `strips_unit.mjs`),
+  [x] C: a Record field of its own, centred on the stage (the box's size, the beam notice, the outline, strips past
+  4096 px, the settings file; `viewer_live_record.mjs`, `viewer_save.mjs`).
+- Multi-D Record (2026-11-23, `web/live/mda.js`, `mda_ui.js`): [x] the plan (positions, nested for blocks over
+  positions / Z / any setting, recordings), run as one continuing live sample, [x] its editor (Advanced+), [x] Save:
+  OME-TIFF / ImageJ per position / flat + index.csv, [x] the plan in settings files; checks `mda_unit.mjs`,
+  `tiff_unit.mjs`, `viewer_mda.mjs`. Next: [ ] ground truth for a plan, [ ] save to a file as recorded, [ ] a repeat
+  (time-lapse) loop with an interval, [ ] fresh-sample / strip plans.
+- Remote server (2026-11-24, branch `remote-server`, docs/remote.md): [x] `insiliscope_server` (`cli/remote_server.cpp`:
+  the viewer module's C ABI natively, its worker jobs in C++; a WebSocket on a 0700 Unix socket with a token, TCP for
+  the tests and the scheduler relay, stdio; one process per connection), [x] the wire (`web/live/remote_wire.js`), the
+  engines' proxy (`remote_proxy.js`: local fallback, OPFS writes on the page's side), the box and the probe
+  (`remote.js`), live / Records / movies / ground truth remote by default, the live sample replayed on a switch, [x]
+  the launcher `tools/remote.sh` (check, install, serve, `--run-through`, stdio, render, build (dev from source), uninstall; versions in
+  `~/.local/share/insiliscope`), [x] checks `tests/remote/server_check.mjs` (= the module byte for byte),
+  `launcher_check.py`, `tests/web/viewer_remote.mjs`, [x] docs, the server's GPU (2026-11-24: native WebGPU
+  through wgpu-native, the WideField scenes and the blink splat + noise; tried and rolled back the same day: movies 0-16 %
+  faster on a 32-core A40 server, WideField and SIM slower, live not helped, and the frames no longer the browser's
+  byte for byte; kept: `WidefieldGpuHost` over a `GpuBackend`, `SplatGpuHost` for the viewer), [x] the blink splat + noise on the viewer's WebGPU
+  (2026-11-24: `cli/gpu_js_backend.cpp`, `web/splat_gpu.js`, a synchronous read-back through an OffscreenCanvas;
+  `tests/web/viewer_gpu_splat.mjs`). [x] the live events query off the frame's critical path (2026-11-27: the serial part was `World::ForEachDyeBlock` finding the window's blocks again every frame, ~11 of 18 ms at 1024 px; `WalkMemo` remembers the walk, the query 18-34 -> 4-8 ms and falling with threads, frames bit for bit; the finished background map kept (`BgDoneMemo`), the window's cell assets kept (`assetFloor_`); the run-ahead thread not needed; open: 2048 px on jupiter (`tests/remote/hpc_check.sh`), a stage move still walks per cell), [x] dye positions at 0.1 nm (2026-11-27, the user's point: `World::DyeStore`, 32 -> 16 bytes a dye, the whole per-dye memory of DNA-PAINT and WideField; a deliberate move of every dye by <= 0.05 nm per axis, goldens unchanged; spec/ALGORITHM.md). Was: the live events query off the frame's critical path (2026-11-25,
+  measured, a session of its own: `fl.events-query` does not scale with threads (1024 px DNA-PAINT, laptop: 14.6 ms on 2
+  threads, 17.2 on 12, while the frame drops 206 -> 119 ms), so on jupiter's 96 threads it is ~220 of ~294 ms at 2048 px;
+  its cost follows the blinks, not the call (1 frame 16 ms, 4 frames 27 ms/frame, 16 frames 33 ms/frame:
+  `live_bench --chunk n`), so a blink lookup over a stretch saves no work. Find the serial part (the core's
+  `World::EventsInMap` block walk and merge, the engine's row conversion and `ExciteAt` per event) and make it parallel
+  or run it ahead on a spare thread, smoothly), [ ] the release's manylinux tarball tried on a
+  real cluster, [ ] Micro-Manager (`Renderer.Remote*`, ssh in stdio mode; the adapter's live producer on `LiveScope`
+  first), [ ] the cell workers (world view) remote, [ ] Windows servers.

@@ -5,9 +5,13 @@ import { pcg4d } from './pcg4d.mjs';
 
 const out = [];
 
-// Parameter sets. "builtin" sets nothing: C++ uses its compiled-in defaults
-// (frozen from the retired JS prototype's HTML defaults, so they also check the
-// defaults did not move).
+// Parameter sets. Each stands on FIELD0, the cell field of the retired JS prototype's HTML defaults (the core's
+// compiled-in defaults until 2026-11-27, when the defaults became the "Round, smooth" cell at occupancy 0.7 and
+// jitter 1, the user's choice): written out, so the outputs frozen from the JS stay as they were, bit for bit.
+// "builtin" sets nothing else: every other compiled-in default, which it checks did not move. "defaults" sets
+// nothing at all: the compiled-in defaults of today (frozen from the C++).
+const FIELD0 = { density: 0.33, jitter: 0.8, cellDiamMin: 25, cellDiamMax: 35, cellElongMin: 0.5, cellElongMax: 1,
+                 cellBlob: 1.75, cellRough: 0.15, cellFractalDim: 1.35 };
 const PARAM_SETS = {
   builtin: {},
   blobby: { cellBlob: 3.2, density: 0.6 },
@@ -39,7 +43,8 @@ const PARAM_SETS = {
   laminjam: { nucAsym: 0, npcDensity: 25, npcMinDistNm: 0, laminDensity: 200, laminNpcExclNm: 300, mtDensity: 0.1 },
 };
 for (const [name, kv] of Object.entries(PARAM_SETS))
-  out.push(['params', name, ...Object.entries(kv).map(([k, v]) => `${k}=${v}`)].join(' '));
+  out.push(['params', name, ...Object.entries({ ...FIELD0, ...kv }).map(([k, v]) => `${k}=${v}`)].join(' '));
+out.push('params defaults');
 
 // RNG addresses: int32 edges, JS `|0` wrap of values beyond 2^32, negatives -- each edge once (the RNG is integer
 // arithmetic: one wrong operation changes every address; 2026-10-27, was every combination, 252).
@@ -83,6 +88,9 @@ out.push('cells m06 2024 nucplain -2 -2 2 2 1');
 out.push('cells m07 9001 nucwild -2 -2 2 2 1');
 out.push('case n00 4711 nucwild -4 -4 5 5');
 out.push('case r00 31337 rough -4 -4 5 5');
+// Today's compiled-in defaults (2026-11-27): a packing window, a cell's mesh and microtubules, its pores.
+out.push('case d00 1249 defaults -5 -5 4 4');
+out.push('cells m08 1249 defaults -2 -2 1 1 1');
 
 // DNA-origami nanorulers (specimen 1, ABI 12): the molecules of a window (origami.js / origami.cpp), their bent
 // outline and every designed strand. origami <id> <seed> <x0> <y0> <x1> <y1> [origami param=value ...]
@@ -95,6 +103,7 @@ out.push('npcs p01 2024 nucplain -2 -2 2 2 1');
 out.push('npcs p02 9001 nucwild -2 -2 2 2 1');
 out.push('npcs p03 77 npcvar -3 -3 3 3 1');
 out.push('npcs p04 4711 npcjam -3 -3 3 3 1');
+out.push('npcs p05 1249 defaults -2 -2 1 1 1');
 // The nuclear lamina (structure 2, ABI 16): lamin <id> <seed> <params> <cx0> <cy0> <cx1> <cy1> <maxCells>.
 out.push('lamin l00 1249 lamin -2 -2 1 1 1');
 out.push('lamin l01 77 laminjam -3 -3 3 3 1');

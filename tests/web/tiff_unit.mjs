@@ -7,7 +7,14 @@
 //   - a BigTIFF (forced) read back here: the IFD chain, each page's offset, size and pixels, the description, the
 //     pixel size (a RATIONAL in its entry); with Python and tifffile at hand, tifffile reads it the same;
 //   - a 4.4 GB movie's layout, made with a Blob that only counts its parts (the frames are one array 520 times): a
-//     BigTIFF by itself, every page's offset where its frame is, past 4 GB too.
+//     BigTIFF by itself, every page's offset where its frame is, past 4 GB too;
+//   - a Record written straight to a file (2026-11-20, tiffHead with dataAt): room kept in front of the frames, the
+//     tags written last for the 4 frames it has, classic and BigTIFF: read back here and by tifffile, the pixels the
+//     same as the plain file's.
+//   - a multi-D Record's files (2026-11-23, web/live/mda.js): the OME-TIFF (pages pointing at the frames in run order
+//     and at one shared blank frame, writeTiffPaged) and an ImageJ hyperstack per position; with tifffile, the OME
+//     series per position are (C, Z, T, Y, X), every plane at its (c, z, t), the blank ones zero; the hyperstack's
+//     channels / slices / frames.
 //   node tests/web/tiff_unit.mjs
 import fs from 'node:fs';
 import os from 'node:os';
@@ -20,8 +27,8 @@ const t0 = performance.now();
 let fail = 0;
 const check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? 'ok  ' : 'FAIL'}  ${what}`); };
 const html = fs.readFileSync(path.join(ROOT, 'web/index.html'), 'utf8');
-const a = html.indexOf('function writeTiff16('), b = html.indexOf('\nfunction saveMovieTiff(');
-const writeTiff16 = new Function(html.slice(a, b) + '; return writeTiff16;')();
+const a = html.indexOf('function tiffHeadBytes('), b = html.indexOf('\nfunction saveMovieTiff(');
+const [writeTiff16, tiffHead, tiffHeadBytes, writeTiffPaged] = new Function(html.slice(a, b) + '; return [writeTiff16, tiffHead, tiffHeadBytes, writeTiffPaged];')();
 
 // The writer before 2026-11-19 (one array, one buffer, classic only), verbatim.
 function oldWriteTiff16(frames, w, h, n, desc, pxUm) {
@@ -105,6 +112,13 @@ for (const pxUm of [0, 0.1]) {
 }
 check(same(await bytes(writeTiff16(parts, w, h, 4, desc, 0.1)), await bytes(oldWriteTiff16(movie, w, h, 4, desc, 0.1))),
   'the first 4 of 6 frames from parts = the old writer\'s');
+// a recording on the disk storage: its frames file as one Blob (all frames, or the first 4)
+{
+  const file = new Blob([movie]);
+  check(same(await bytes(writeTiff16([file], w, h, n, desc, 0.1)), await bytes(oldWriteTiff16(movie, w, h, n, desc, 0.1))) &&
+        same(await bytes(writeTiff16([file], w, h, 4, desc, 0.1)), await bytes(oldWriteTiff16(movie, w, h, 4, desc, 0.1))),
+    'the frames as a Blob (a frames file on the disk storage): all 6 and the first 4 = the old writer\'s');
+}
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'isc-tiff-'));
 const bigFile = await bytes(writeTiff16(parts, w, h, n, desc, 0.1, true));
@@ -116,6 +130,22 @@ const bigFile = await bytes(writeTiff16(parts, w, h, n, desc, 0.1, true));
     `a BigTIFF (forced) read back: ${r.pages.length} pages, sizes, offsets, pixels, the description, 10 px/um`);
   fs.writeFileSync(path.join(dir, 'big.tif'), bigFile);
   fs.writeFileSync(path.join(dir, 'classic.tif'), await bytes(writeTiff16(movie, w, h, n, desc, 0.1)));
+}
+
+// A Record straight to a file: room for 6 frames' tags (a BigTIFF's, the description's bytes and some), 4 frames
+// written, the tags for those 4 at the start, the file cut after the 4th frame.
+for (const big of [false, true]) {
+  const d4 = desc.replace(/=6/g, '=4'), at = tiffHeadBytes(n, 4096, 0.1, true) + 64;
+  const head = new Uint8Array(tiffHead(w, h, 4, d4, 0.1, big, at));
+  const file = new Uint8Array(at + 4 * px * 2);
+  file.set(head, 0);
+  file.set(new Uint8Array(movie.buffer, 0, 4 * px * 2), at);
+  const r = readTiff(file);
+  check(head.length <= at && r.big === big && r.pages.length === 4 && r.pages.every((p, k) => p.offset === at + k * px * 2 &&
+      p.bytes === px * 2 && same(new Uint16Array(file.slice(p.offset, p.offset + px * 2).buffer), movie.subarray(k * px, (k + 1) * px))) &&
+      r.pages[0].desc === d4,
+    `straight to a file (${big ? 'BigTIFF' : 'classic'}): tags ${head.length} of ${at} bytes kept, 4 pages where the frames are`);
+  fs.writeFileSync(path.join(dir, big ? 'inplace_big.tif' : 'inplace.tif'), file);
 }
 
 // 520 frames of 2048 x 2048 px (4.4 GB) through a Blob that keeps its parts uncopied: the layout only.
@@ -134,6 +164,38 @@ const bigFile = await bytes(writeTiff16(parts, w, h, n, desc, 0.1, true));
     `${(r.pages[N - 1].offset / 1e9).toFixed(2)} GB, each where its frame is`);
 }
 
+// A multi-D Record's files: 2 positions x 2 z x (A 3 frames; B with a setting, 2 frames), stopped 1 frame short, so
+// both short cells and a missing one are blank. Frame f's pixels = f + 1 (a blank plane: 0).
+const self = globalThis.self || (globalThis.self = globalThis);
+new Function('self', fs.readFileSync(path.join(ROOT, 'web/live/settings_core.js'), 'utf8'))(self);
+new Function('self', fs.readFileSync(path.join(ROOT, 'web/live/mda.js'), 'utf8'))(self);
+const MD = self.ISC_MDA;
+const mplan = { positions: [{ name: 'P one', x: 0, y: 0, z: 1 }, { name: 'P2', x: 5, y: 5, z: 1 }], root: [
+  { kind: 'loop', axis: 'position', values: 'P one, P2', children: [
+    { kind: 'loop', axis: 'z', values: '0, 0.5', relative: true, children: [
+      { kind: 'record', name: 'A', frames: 3, exposureMs: 10, settings: {} },
+      { kind: 'record', name: 'B', frames: 2, exposureMs: 20, settings: { 'laser-561': 3 } }] }] }] };
+const mb = MD.expand(mplan, { x: 0, y: 0, z: 0 }), mgot = 19, ML = MD.layout(mb, mgot, mplan.positions);
+const mw = 7, mh = 5, mpx = mw * mh;
+const mframes = Array.from({ length: mgot }, (_, f) => new Uint16Array(mpx).fill(f + 1));
+const mrun = new Uint16Array(mgot * mpx);
+mframes.forEach((a, f) => mrun.set(a, f * mpx));
+const blank = new Uint16Array(mpx);
+const ome = MD.files(ML, 'ome')[0], lay = MD.pagedLayout(ome, mgot, mpx);
+const omeBlob = writeTiffPaged([mrun.subarray(0, 10 * mpx), mrun.subarray(10 * mpx), blank], lay.dataBytes, mw, mh, ome.pages.length,
+  MD.omeXml(ML, mb, ome, { w: mw, h: mh, pxUm: 0.1 }), 0.1, lay.pageAt);
+const omeFile = await bytes(omeBlob), omeR = readTiff(omeFile);
+const omeHead = omeFile.length - lay.dataBytes;
+check(omeR.pages.length === ome.pages.length && omeR.pages.every((p, k) => p.offset === omeHead + lay.pageAt(k) && p.bytes === mpx * 2),
+  `OME-TIFF: ${omeR.pages.length} pages, each at its frame or the one blank frame`);
+fs.writeFileSync(path.join(dir, 'mda.ome.tif'), omeFile);
+const ij = MD.files(ML, 'imagej');
+for (const f of ij) {
+  const parts = MD.pageParts(f, i => mframes[i], blank);
+  fs.writeFileSync(path.join(dir, 'mda_' + f.name), await bytes(writeTiff16(parts, mw, mh, parts.length, MD.imagejDesc(ML), 0.1)));
+}
+check(ij.map(f => f.name).join() === 'P_one.tif,P2.tif', 'ImageJ: a file per position, safe names');
+
 // tifffile, if there is one: the BigTIFF and the classic file the same movie.
 let py = null;
 for (const exe of ['python3', 'python']) {
@@ -148,6 +210,36 @@ else {
   let out = '';
   try { out = execFileSync(py, ['-I', '-c', script, path.join(dir, 'big.tif'), path.join(dir, 'classic.tif')], { encoding: 'utf8' }); } catch (e) { out = String(e.stderr || e); }
   check(/^True False \(6, 11, 37\) True \(10000000, 1000000\)/.test(out.trim()), `tifffile reads the BigTIFF as the classic file: ${out.trim()}`);
+  const s2 = 'import sys, tifffile, numpy as np\n' +
+    'y = np.stack([p.asarray() for p in tifffile.TiffFile(sys.argv[3]).pages])[:4]\n' +
+    'for f in sys.argv[1:3]:\n' +
+    '    t = tifffile.TiffFile(f); x = np.stack([p.asarray() for p in t.pages]); print(t.is_bigtiff, x.shape, bool((x == y).all()))\n';
+  try { out = execFileSync(py, ['-I', '-c', s2, path.join(dir, 'inplace.tif'), path.join(dir, 'inplace_big.tif'), path.join(dir, 'classic.tif')], { encoding: 'utf8' }); } catch (e) { out = String(e.stderr || e); }
+  check(/^False \(4, 11, 37\) True\s+True \(4, 11, 37\) True$/.test(out.trim()), `tifffile reads the files written in place: ${out.trim().replace(/\s+/g, ' ')}`);
+}
+if (py) {
+  // the expected planes: (p, c, z, t) -> f + 1 or 0
+  const want = ML.P.map((_, p) => ML.C.map((_, c) => ML.Z.map((_, z) => Array.from({ length: ML.T }, (_, t) => {
+    const v = ML.cells.get(p + '|' + z + '|' + c); return v && t < v.length ? v[t] + 1 : 0; }))));
+  const s3 = ['import sys, json, tifffile, numpy as np',
+    't = tifffile.TiffFile(sys.argv[1]); out = []',
+    'for s in t.series:',
+    '    a = s.asarray(); out.append([s.axes, list(a.shape), a[..., 0, 0].tolist(), bool((a == a[..., :1, :1]).all())])',
+    'ij = [tifffile.TiffFile(f) for f in sys.argv[2:]]',
+    'out.append([[m.imagej_metadata.get(k) for k in ("channels", "slices", "frames")] + [list(m.series[0].shape), m.series[0].axes] for m in ij])',
+    'out.append([m.asarray()[..., 0, 0].tolist() for m in ij])',
+    'print(json.dumps(out))'].join('\n');
+  let out = '';
+  try { out = execFileSync(py, ['-I', '-c', s3, path.join(dir, 'mda.ome.tif'), ...ij.map(f => path.join(dir, 'mda_' + f.name))], { encoding: 'utf8' }); } catch (e) { out = String(e.stderr || e); }
+  let r = null;
+  try { r = JSON.parse(out); } catch (e) { /* below */ }
+  const T = ML.T, C = ML.C.length, Z = ML.Z.length;
+  check(r && r.length === 4 && r.slice(0, 2).every(s => s[0] === 'CZTYX' && s[1].join() === [C, Z, T, mh, mw].join() && s[3]),
+    `tifffile: the OME series per position are (C, Z, T, Y, X) = (${C}, ${Z}, ${T}, ${mh}, ${mw}): ${out.trim().slice(0, 160)}`);
+  check(r && r.slice(0, 2).every((s, p) => JSON.stringify(s[2]) === JSON.stringify(want[p])), 'tifffile: every OME plane at its (c, z, t), the blank ones zero');
+  check(r && r[2].every(m => m.slice(0, 3).join() === [C, Z, T].join() && m[4] === 'TZCYX'), 'tifffile: the ImageJ hyperstacks: channels, slices, frames');
+  const wantIj = want.map(pc => Array.from({ length: T }, (_, t) => ML.Z.map((_, z) => ML.C.map((_, c) => pc[c][z][t]))));
+  check(r && JSON.stringify(r[3]) === JSON.stringify(wantIj), 'tifffile: the ImageJ planes in their places');
 }
 fs.rmSync(dir, { recursive: true, force: true });
 console.log(`tiff unit: ${fail ? fail + ' FAILED' : 'all ok'}, ${((performance.now() - t0) / 1000).toFixed(2)} s`);

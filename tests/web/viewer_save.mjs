@@ -60,7 +60,8 @@ function readTiff(buf) {
 }
 const same = (a, b) => a && b && a.length === b.length && a.every((x, i) => x === b[i]);
 
-await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, height: 800 } }, async ({ page, check, port }) => {
+// (?gpu=0: the Records on the CPU, as the cli's: bit for bit)
+await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, height: 800 }, query: '?live=0&gpu=0' }, async ({ page, check, port }) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'isc-save-'));
   try {
     await page.waitForFunction(() => window.liveState && typeof genWorkers !== 'undefined' && genWorkers.ok, null, { timeout: 120000 });
@@ -122,6 +123,17 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
     check(frames.length === 9 && /^frame,t_start_s,exposure_s,stage_x_um/.test(frames[0]), `gt/frames.csv: a row per frame (${frames.length - 1})`);
     const closed = await page.evaluate(() => document.getElementById('setDlg').hidden && /saved insiliscope_live_64x64x8\.zip/.test(document.getElementById('lv_info').title));
     check(closed, 'the box closes, the info names the saved zip');
+    // "write frames to disk" (on by default): the recording's frames file and the ground truth's spool on the disk
+    // storage (OPFS), the zip made from them (the cli checks below: the same bytes)
+    const opfs = await page.evaluate(async () => {
+      const dir = liveState.play.disk && liveState.play.disk.dir;
+      if (!dir) return null;
+      const d = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('isc-rec')).getDirectoryHandle(dir), out = [];
+      for await (const [n, h] of d.entries()) out.push(`${n} ${(await h.getFile()).size}`);
+      return out.sort();
+    });
+    check(!!opfs && opfs.some(f => /^frames\.raw 65536$/.test(f)) && opfs.some(f => /^gt-\d+\.spool [1-9]/.test(f)),
+      `the recording on the disk storage: ${opfs ? opfs.join(', ') : 'none'}`);
     // its open_in_napari.py opens it in napari (stood in for: tests/web/napari_open_check.py)
     {
       const zp = path.join(dir, 'recording_for_napari.zip');
@@ -150,6 +162,39 @@ await runViewer('viewer save', { watchdogSec: 240, viewport: { width: 1200, heig
       const tables = names.filter(n => /^gt\/.*\.(csv|txt|tif)$/.test(n));
       const diff = tables.filter(n => !same(fs.readFileSync(path.join(gtDir, n.slice(3))), z[n]));
       check(!diff.length, `insiliscope_cli --gt-out: ${tables.length} files byte for byte${diff.length ? ' (differ: ' + diff.join(', ') + ')' : ''}`);
+
+      // A Record with a field of its own (96 x 80 px, larger than the live 64): its settings file says the field (the
+      // settings' size / height, the measurement's recordField beside the live size), the cli renders the same frames
+      // and tables from it
+      await page.evaluate(() => {
+        for (const [id, v] of [['lv_recW', 96], ['lv_recH', 80], ['lv_recN', 6]]) {
+          const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('input')); e.dispatchEvent(new Event('change'));
+        }
+        document.getElementById('lv_rec').click();
+        document.getElementById('lv_recGo').click();
+      });
+      await page.waitForFunction(() => liveState.play.on && liveState.play.w === 96, null, { timeout: 120000 });
+      await openBox();
+      const [dlF] = await Promise.all([page.waitForEvent('download', { timeout: 180000 }), page.evaluate(() => {
+        for (const id of ['svSet', 'svGt']) document.getElementById(id).checked = true;
+        document.getElementById('svGt').dispatchEvent(new Event('change'));
+        document.getElementById('svGo').click();
+      })]);
+      const zf = unzip(fs.readFileSync(await dlF.path())), sf = JSON.parse(new TextDecoder().decode(zf['settings.isc.json']));
+      const sv = sf.parts.settings.values, mv = sf.parts.measurement.viewer || {};
+      const fdir = path.join(dir, 'field');
+      fs.mkdirSync(path.join(fdir, 'gt'), { recursive: true });
+      fs.writeFileSync(path.join(fdir, 'settings.isc.json'), zf['settings.isc.json']);
+      execFileSync(cli, ['--settings', path.join(fdir, 'settings.isc.json'), '--out', path.join(fdir, 'm.tif'), '--gt-out', path.join(fdir, 'gt')], { stdio: 'pipe' });
+      const fm = fs.readFileSync(path.join(fdir, 'm.tif')), fa = readTiff(fm), fb = readTiff(zf['movie.tif']), fpx = 96 * 80 * 2;
+      const fSame = fa.length === 6 && fb.length === 6 && fa.every((p, k) => p.w === 96 && p.h === 80 &&
+        same(fm.subarray(p.data, p.data + fpx), zf['movie.tif'].subarray(fb[k].data, fb[k].data + fpx)));
+      const fTables = Object.keys(zf).filter(n => /^gt\/.*\.(csv|txt)$/.test(n));
+      const fDiff = fTables.filter(n => !same(fs.readFileSync(path.join(fdir, 'gt', n.slice(3))), zf[n]));
+      check(sv.size === 96 && sv.height === 80 && mv.recordField && mv.recordField.w === 96 && mv.recordField.h === 80 && mv.liveSize === 64 &&
+        fSame && !fDiff.length,
+        `a 96 × 80 field Record: its settings file says the field (live 64 kept beside it); the cli renders its 6 frames bit for bit and ${fTables.length} tables byte for byte${fDiff.length ? ' (differ: ' + fDiff.join(', ') + ')' : ''}`);
+      await page.evaluate(() => { for (const id of ['lv_recW', 'lv_recH']) { const e = document.getElementById(id); e.value = ''; e.dispatchEvent(new Event('change')); } });
     }
 
     const tool = await page.evaluate(() => { const a = document.getElementById('voxelizeLink'); return a && a.closest('#menu') ? a.getAttribute('href') : null; });

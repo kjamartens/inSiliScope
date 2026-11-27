@@ -9,14 +9,16 @@ namespace isc {
 struct Params {
    // Field
    double chunkSize = 26;
-   double jitter = 0.8;
-   double density = 0.33;   // chunk occupancy
+   // (2026-11-27, the user's choice: jitter 1 and occupancy 0.7, were 0.8 and 0.33; the cell the viewer's
+   // "Round, smooth" look with blobbiness 0.6, was diameter 25-35, elongation 0.5-1, blob 1.75, rough 0.15, D 1.35)
+   double jitter = 1.0;
+   double density = 0.70;   // chunk occupancy
    // Cell
-   double cellDiamMin = 25, cellDiamMax = 35;
-   double cellElongMin = 0.5, cellElongMax = 1;
-   double cellBlob = 1.75;
-   double cellRough = 0.15;        // fractal edge tail amplitude (x cellBlob); 0 = off
-   double cellFractalDim = 1.35;   // box-counting dimension of the tail, [1, 2]
+   double cellDiamMin = 20, cellDiamMax = 30;
+   double cellElongMin = 0.8, cellElongMax = 1;
+   double cellBlob = 0.6;
+   double cellRough = 0.05;        // fractal edge tail amplitude (x cellBlob); 0 = off
+   double cellFractalDim = 1.2;    // box-counting dimension of the tail, [1, 2]
    // Nucleus
    double nucLongMin = 8, nucLongMax = 12;
    double nucRatioMin = 0.6, nucRatioMax = 1;

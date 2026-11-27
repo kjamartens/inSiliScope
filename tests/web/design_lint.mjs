@@ -41,7 +41,7 @@ const html = rd('web/index.html');
 const st = html.indexOf('<style>'), en = html.indexOf('</style>');
 scan('web/index.html <style>', html.slice(st, en), html.slice(0, st).split('\n').length);
 for (const f of ['web/design/theme.js', 'web/live/live.js', 'web/live/mobile.js', 'web/live/scope_panels.js',
-  'web/live/settings_file.js', 'web/live/mm_config_ui.js']) scan(f, rd(f));
+  'web/live/settings_file.js', 'web/live/mm_config_ui.js', 'web/live/mda_ui.js', 'web/live/remote.js']) scan(f, rd(f));
 
 // 3. contrast
 function rgb(c, bg) {

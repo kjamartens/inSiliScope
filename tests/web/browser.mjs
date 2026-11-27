@@ -16,8 +16,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(path.join(ROOT, 'web/tools/package.json'));
 const arg = k => { const a = process.argv.find(s => s.startsWith('--' + k)); return a ? (a.split('=')[1] || true) : null; };
 
+// initScript: a function run in the page before its own scripts (page.addInitScript), e.g. to put settings in its storage.
+// args: more of Chromium's switches (with the hardware GPU's). A body that returns 'skip' ends with exit 77 (a visible
+// skip: nothing checked).
 export async function runViewer(name, { watchdogSec = 120, viewport = { width: 1000, height: 700 }, query = '?live=0',
-  waitCells = true } = {}, body) {
+  waitCells = true, initScript = null, initArg = undefined, args = [] } = {}, body) {
   let chromium;
   try { ({ chromium } = require('playwright')); }
   catch { ({ chromium } = await import('/opt/node22/lib/node_modules/playwright/index.mjs')); }
@@ -39,19 +42,22 @@ export async function runViewer(name, { watchdogSec = 120, viewport = { width: 1
   let code = 0;
   try {
     browser = await chromium.launch({ channel: arg('channel') || undefined,
-      args: arg('swiftshader') ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--enable-gpu', '--ignore-gpu-blocklist'] });
+      args: arg('swiftshader') ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : ['--enable-gpu', '--ignore-gpu-blocklist', ...args] });
     const page = await browser.newPage({ viewport });
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     const port = server.address().port;
-    await page.goto(`http://localhost:${port}/index.html${query}`);
+    if (initScript) await page.addInitScript(initScript, initArg);
+    // (the checks look at places of the default scene of before 2026-11-27: index.html's ?defaults=2026-10)
+    const q = /[?&]defaults=/.test(query) ? query : query + (query.includes('?') ? '&' : '?') + 'defaults=2026-10';
+    await page.goto(`http://localhost:${port}/index.html${q}`);
     if (waitCells)
       await page.waitForFunction(() => window.iscScene && +document.getElementById('hud').dataset.cells > 0 && iscScene.packingIdle(),
         null, { timeout: watchdogSec * 1000 });
     check(true, `${name}: the viewer is up`);
-    await body({ page, check, port });
+    const skip = await body({ page, check, port }) === 'skip';
     if (errors.length) { fail++; console.log(`FAIL  page errors: ${errors.join('; ')}`); }
-    code = fail ? 1 : 0;
+    code = fail ? 1 : skip ? 77 : 0;
   } catch (e) {
     console.log(`FAIL  ${name}: ${e.message.split('\n')[0]} (the last check that ended: ${last})`);
     code = 2;
@@ -60,7 +66,7 @@ export async function runViewer(name, { watchdogSec = 120, viewport = { width: 1
     if (browser) await browser.close().catch(() => {});
     server.close();
   }
-  console.log(`${name}: ${code ? 'FAILED' : 'PASS'} (${sec()} s)`);
+  console.log(`${name}: ${code === 77 ? 'SKIP (exit 77)' : code ? 'FAILED' : 'PASS'} (${sec()} s)`);
   process.exit(code);
 }
 

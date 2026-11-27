@@ -37,7 +37,8 @@ def search_paths(require_mm=True):
     return [d for d in (os.environ.get("ADAPTER_DIR"), os.environ.get("MM_DIR") or find_mm_dir()) if d]
 
 
-def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICES, epi=True, trans=False, pores=False):
+def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICES, epi=True, trans=False, pores=False,
+               old_field=True):
     """The hub and its devices (labels = device names), initialized; camera, stages and shutter roles set. The light:
     the lasers open (fluorescence) unless epi is False, the lamp open if trans; autoshutter off; the sample's time
     paused between acquisitions (SampleHolder.TimeWhileIdle). The cell field's nuclear pores (on by default since
@@ -64,7 +65,19 @@ def load_scope(core, seed=42, fov="128x128", detail="Expert", devices=ALL_DEVICE
         core.setProperty("SampleHolder", "TimeWhileIdle", "Paused")
     if "CellField" in devices and not pores:
         core.setProperty("CellField", "NuclearPores_Label", "None")
+    if "CellField" in devices and old_field:
+        for name, value in OLD_FIELD:
+            if core.hasProperty("CellField", name):   # (rows above the Detail tier do not exist)
+                core.setProperty("CellField", name, value)
     set_light(core, epi, trans)
+
+
+# The cell field the checks were written on: the defaults until 2026-11-27 (now the "Round, smooth" cell at occupancy
+# 0.7 and position jitter 1, the user's choice). The checks aim at places of that field (a stage position on a cell, a
+# stretch of microtubules), so load_scope pins it unless old_field is False.
+OLD_FIELD = (("Occupancy", 0.33), ("CellDiameterMinUm", 25), ("CellDiameterMaxUm", 35), ("PositionJitter", 0.8),
+             ("CellElongationMin", 0.5), ("CellElongationMax", 1), ("CellBlobbiness", 1.75), ("CellRoughness", 0.15),
+             ("CellFractalDim", 1.35))
 
 
 def set_fov(core, fov):

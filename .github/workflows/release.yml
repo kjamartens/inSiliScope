@@ -83,6 +83,44 @@ jobs:
           name: cellfield_block
           path: dist/
 
+  # The remote server (docs/remote.md): insiliscope_server + insiliscope_cli for Linux x86-64, built on glibc 2.28
+  # (manylinux_2_28: runs on any distribution from ~2019 on) with libstdc++ linked in, as the tarball tools/remote.sh
+  # installs; its checks against the viewer's module and the launcher on the built files.
+  server:
+    needs: tests
+    runs-on: ubuntu-latest
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build (glibc 2.28, static libstdc++)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cmake -S . -B build/server -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+          cmake --build build/server --target insiliscope_server insiliscope_cli -j "$(nproc)"
+      - name: Checks (the server = the viewer's module byte for byte; the launcher)
+        run: |
+          node tests/remote/server_check.mjs --server build/server/cli/insiliscope_server
+          /opt/python/cp312-cp312/bin/python tests/remote/launcher_check.py --bin-dir build/server/cli
+      - name: Package
+        run: |
+          d=insiliscope-server-$VERSION
+          mkdir -p dist/$d/bin
+          cp build/server/cli/insiliscope_server build/server/cli/insiliscope_cli dist/$d/bin/
+          strip dist/$d/bin/*
+          echo "$VERSION" > dist/$d/VERSION
+          cp LICENSE THIRD_PARTY_NOTICES.md dist/$d/
+          (cd dist && tar czf insiliscope-server-linux-x86_64.tar.gz $d && sha256sum insiliscope-server-linux-x86_64.tar.gz | tee insiliscope-server-linux-x86_64.tar.gz.sha256)
+          ldd dist/$d/bin/insiliscope_server; objdump -T dist/$d/bin/insiliscope_server | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server
+          path: |
+            dist/insiliscope-server-linux-x86_64.tar.gz
+            dist/insiliscope-server-linux-x86_64.tar.gz.sha256
+
   gallery:
     needs: tests
     if: ${{ !(inputs.hotfix || contains(inputs.version || github.ref_name, '-hotfix')) }}
@@ -160,9 +198,9 @@ jobs:
             bench_live.json
 
   release:
-    needs: [dll, block, gallery, mm-bench]
+    needs: [dll, block, server, gallery, mm-bench]
     # a hotfix runs without the gallery and benchmark jobs (skipped); anything else needs all four
-    if: ${{ !cancelled() && needs.dll.result == 'success' && needs.block.result == 'success' && (needs.mm-bench.result == 'success' || ((inputs.hotfix || contains(inputs.version || github.ref_name, '-hotfix')) && needs.gallery.result == 'skipped' && needs.mm-bench.result == 'skipped')) }}
+    if: ${{ !cancelled() && needs.dll.result == 'success' && needs.block.result == 'success' && needs.server.result == 'success' && (needs.mm-bench.result == 'success' || ((inputs.hotfix || contains(inputs.version || github.ref_name, '-hotfix')) && needs.gallery.result == 'skipped' && needs.mm-bench.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -194,6 +232,7 @@ jobs:
             echo "- \`mmgr_dal_inSiliScope.dll\`: Micro-Manager device adapter (Windows x64, GPL-3.0). Needs a [Micro-Manager 2.0 nightly build](https://micro-manager.org/Micro-Manager_Nightly_Builds) with device interface ${di} (from 21 February 2026 on); older builds refuse it. Copy it into the Micro-Manager folder; getting started: https://kjamartens.github.io/inSiliScope/docs/micro-manager/"
             echo "- \`inSiliScope_Basic.cfg\`, \`inSiliScope_Advanced.cfg\`, \`inSiliScope_Expert.cfg\`: Micro-Manager hardware configurations (the devices, Channel/Objective/Camera/Quality/Drift groups, pixel sizes) at each level of detail."
             echo "- \`cellfield_block.js\`: drop-in CellField block for webSMLM (\`node tools/sync_cellfield.mjs <file>\` in that repo)."
+            echo "- \`insiliscope-server-linux-x86_64.tar.gz\`: the remote server for Linux x86-64 (glibc 2.28+); the viewer's Remote server… box has a server fetch it by itself: https://kjamartens.github.io/inSiliScope/docs/remote/"
             echo "- \`LICENSE\`, \`LICENSE-GPL-3.0.txt\`, \`THIRD_PARTY_NOTICES.md\`: the licences of the DLL and of what it includes."
             echo "- \`gallery.zip\`, \`benchmarks.json\`: rendered examples and timings: the cli, and Micro-Manager live speed with where each frame's time goes (also on the project site)."
             if [ -f prev_tag ]; then echo "  This is a hotfix: both are carried over from $(cat prev_tag), not rendered again."; fi
@@ -215,6 +254,8 @@ jobs:
             assets/mmgr_dal_inSiliScope-windows-x64/THIRD_PARTY_NOTICES.md \
             assets/cellfield_block/cellfield_block.js \
             assets/cellfield_block/cellfield_block.js.sha256 \
+            assets/server/insiliscope-server-linux-x86_64.tar.gz \
+            assets/server/insiliscope-server-linux-x86_64.tar.gz.sha256 \
             assets/gallery/gallery.zip assets/benchmarks/benchmarks.json \
             --target "$GITHUB_SHA" --title "inSiliScope $VERSION" --notes-file notes.md
 

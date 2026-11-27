@@ -62,6 +62,15 @@ function current(over, specText) {
     sample: { userDyes: [1, 2, 3].filter(n => USER_DYES.added[n - 1]).map(n => ({ slot: n, name: $('ud' + n + '-name').value, mode: +$('ud' + n + '-mode').value })) },
     measurement: { recordFrames: +$('lv_recN').value || 100, recordStartSec: Math.max(0, +$('lv_recT').value || 0) },
   };
+  // A Record's own field (web/live/live.js recFieldSpec; its size and height are the settings' size / height, so the
+  // cli renders it): the live field kept beside it, which a load gives the live view back (the Record box the field).
+  if (over && over.size !== undefined) {
+    viewer.measurement.recordField = { w: +over.size, h: +(over.height || over.size) };
+    viewer.measurement.liveSize = +$('mv_size').value || 128;
+  }
+  // a multi-D plan in use (web/live/mda.js; the Record box's "multi-D plan" ticked): a load puts it back in the box
+  const lp = self.liveState && self.liveState.recPlan;
+  if (lp && lp.on()) viewer.measurement.recordPlan = lp.get();
   return { values, viewer };
 }
 const historyOut = () => C.historyOut(ENG(), L.log, L.t);
@@ -177,6 +186,8 @@ function setKey(k, raw, note) {
   if (zj && self.ISC_ZERN) { self.ISC_ZERN.set(+zj[1], v); return; }   // (the seed's; the viewer's own 3 um: checked after)
   const bj = /^beam\.(\d+)\.([A-Za-z]+)$/.exec(k);
   if (bj && self.ISC_BEAMS) { const c = ['ux', 'uy', 'spot', 'tiltX', 'tiltY', 'amp', 'phase', 'pol', 'ellip', 'phaseStep', 'nm'].indexOf(bj[2]); if (c >= 0) self.ISC_BEAMS.set(+bj[1], c, v); return; }
+  const pj = /^sim-pair-phase\.(\d+)\.(\d+)$/.exec(k);
+  if (pj && self.ISC_PHASES) { self.ISC_PHASES.set(+pj[1], +pj[2], v); return; }
   if (k === 'qe-curve') {
     const flat = v === CUSTOM_CAMERA();
     setControl($('qeFlat'), flat, note);
@@ -192,7 +203,8 @@ function setKey(k, raw, note) {
 }
 // The order a part's keys are set in: the specimen and the camera first (they move other rows), the pixel size last
 // (it sets the Magnification that gives it).
-const rank = k => (k === 'specimen' ? 0 : k === 'camera-preset' ? 1 : k === 'pixel-nm' ? 3 : 2);
+// The phase matrix's entries after the Pattern (a Pattern pick forgets the matrix).
+const rank = k => (k === 'specimen' ? 0 : k === 'camera-preset' ? 1 : k === 'pixel-nm' ? 3 : /^sim-pair-phase\./.test(k) ? 2.5 : 2);
 function applyView(values, note) {
   for (const [k, v] of Object.entries(values || {})) {
     if (k === 'view.scale') { if (+v > 0) view.scale = +v; continue; }
@@ -224,21 +236,38 @@ async function applyFile(file, parts) {
       DYE_UI.refreshUserDyes();
     }
     if (want.includes('instrument') && self.ISC_ZERN) self.ISC_ZERN.clear();   // (the file's zern.<j>, if any, follow)
+    if (want.includes('settings') && self.ISC_PHASES) self.ISC_PHASES.clear();   // (the file's sim-pair-phase.<s>.<k> follow)
     const iv = want.includes('instrument') && file.parts.instrument.viewer;
     if (iv && self.mmConfig && iv.objectiveMag) self.mmConfig.setObjectiveMag(+iv.objectiveMag);
     if (iv && iv.emissionMag) setControl($('emissionMag'), +iv.emissionMag, note);
     // the BFP maps' images before the text that names them
     for (const p of want) for (const [n, b] of C.filesIn(file.parts[p])) if (self.iscSendBfpFile) self.iscSendBfpFile(n, b);
+    // A Record with a field of its own (recordField): its size and height go into the Record box, the live field is
+    // the one kept beside them (the live view is square: a height is only ever a Record's).
+    const mv = want.includes('measurement') && file.parts.measurement.viewer;
+    const rf = mv && mv.recordField && +mv.recordField.w > 0 ? mv.recordField : null;
     // twice: a handler the first pass fires may move a value set before it
     for (let pass = 0; pass < 2; pass++)
       for (const p of want) {
         if (p === 'view') continue;
         const keys = Object.keys(file.parts[p].values || {}).sort((a, b) => rank(a) - rank(b));
-        for (const k of keys) setKey(k, file.parts[p].values[k], pass ? null : note);
+        for (const k of keys) {
+          if (k === 'height' || (rf && k === 'size')) continue;
+          setKey(k, file.parts[p].values[k], pass ? null : note);
+        }
       }
-    const mv = want.includes('measurement') && file.parts.measurement.viewer;
+    if (rf) {
+      if (want.includes('settings') && +mv.liveSize > 0) setControl($('mv_size'), +mv.liveSize, note);
+      for (const [id, v] of [['lv_recW', rf.w], ['lv_recH', rf.h]]) { $(id).value = v; fire($(id)); }
+    }
+    else if (want.includes('settings') && +(file.parts.settings.values || {}).height > 0 && note)
+      note('height: the live field is square (a field of its own: the Record box)');
     if (mv && mv.recordFrames) { $('lv_recN').value = mv.recordFrames; fire($('lv_recN')); }
     if (mv && mv.recordStartSec !== undefined) { $('lv_recT').value = mv.recordStartSec; fire($('lv_recT')); }
+    if (mv && mv.recordPlan && Array.isArray(mv.recordPlan.root) && self.liveState && self.liveState.recPlan) {
+      self.liveState.recPlan.set(mv.recordPlan);
+      if (!$('lv_recPlan').checked) { $('lv_recPlan').checked = true; fire($('lv_recPlan')); }
+    }
     if (want.includes('view')) applyView(file.parts.view.values, note);
   } finally { self.ISC_QUIET = false; }
   uiSync();

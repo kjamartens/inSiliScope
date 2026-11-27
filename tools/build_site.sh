@@ -61,7 +61,7 @@ docs_dir: .site_docs
 mkdocs build --config-file .mkdocs_site.yml --site-dir "$OUT/docs"
 rm -f .mkdocs_site.yml
 
-cp web/index.html web/illumination.html web/voxelize.html web/open_in_napari.py web/insiliscope_module.js web/insiliscope_module_mt.js web/coi_sw.js web/build_info.js web/wf_gpu.js web/dye_library.js web/origami_designs.js web/social.jpg "$OUT/"
+cp web/index.html web/illumination.html web/voxelize.html web/open_in_napari.py web/insiliscope_module.js web/insiliscope_module_mt.js web/coi_sw.js web/build_info.js web/wf_gpu.js web/splat_gpu.js web/dye_library.js web/origami_designs.js web/social.jpg "$OUT/"
 for d in scene anim encode live design bfp_maps; do if [ -d web/$d ]; then cp -r web/$d "$OUT/$d"; fi; done
 # The viewer's About names the release it was deployed with (pages.yml's newest tag) and the commit it was built from.
 build_tag=""; [ -f release_assets/release_tag ] && build_tag="$(tr -d '[:space:]' < release_assets/release_tag)"

@@ -1024,6 +1024,23 @@ Off and no matrix).
   a reconstruction needs to separate them (`OrdersSeparate`, ctest; the lattice ratios are *estimates* that satisfy
   it). The program is a general mechanism (`FrameLight` carries a `scale` reserved for a stroboscopic light): a light
   that depends on the frame number goes through it.
+- **The phase matrix** (Expert, 2026-11-23; `Lasers.PatternPhaseMatrix`, keys `sim-pair-phase.<s>.<k>`, cli
+  `--sim-phase-matrix "<rows>"`): the phases as the **phase difference between opposing beams** (the user's ask: a
+  per-frame position in phase steps, the first version, was awkward for the lattices). Rows: the states of the cycle
+  (orientation a's phase p at row s = a x nPhases + p, whatever `sim-order`); columns: the opposing pairs
+  (`OpposingPairs`: beams at opposite BFP positions with the same line, in the order of their first beams -- SIM2D and
+  SIM3D the side pair, the lattices the x pair then the y pair; a centre beam is in none); an entry is the first
+  beam's phase minus its opposite's in degrees, which moves that pair's fringe by the same (a centre beam's fringes
+  with the pair by half). Given, the pair's beams take the common part of the program, (step_j + step_l) / 2 x (phase
+  + `sim-phase0`) / nPhases turns (0 for the built-in symmetric pairs), +- half the difference; unpaired beams step
+  as before. The default is the program's difference, 360 (step_j - step_l) (phase + `sim-phase0`) / nPhases degrees
+  (SIM2D 0 240 480; LatticeSIM3D 110.77 x p and 166.15 x p), not reduced mod 360 (the half on each beam is what a
+  centre beam sees). Without a matrix the program's arithmetic is untouched (bit for bit); the program given as the
+  matrix agrees within rounding. Entries outside the program's states x pairs are left out, missing ones are the
+  program's; MM and the viewer take a typed matrix only in the program's shape, and another `sim-phases` /
+  `sim-angles`, a Pattern pick or an empty text goes back to the program. The kinetics stay on the cycle mean of the
+  components (the beams' incoherent sum), as for any phase setting: uneven phases leave a fringe in the frames' true
+  mean that the light history does not carry.
 - **Phase drift** (Expert): each beam's phase takes a random walk, sigma turns per sqrt s (counter-based pcg4d on
   seed ^ "SIMP", frame, beam: one path per seed on every consumer, as the sample drift), plus a linear drift of
   phaseStep_j x rate x t (the pattern slides along its stepping direction). The walk is a sum over the frames before
@@ -1395,7 +1412,70 @@ fiducial beads as on any specimen); its light is the engine's (`Simulation/Slide
 - **Not done:** time. A field that fits may still be slow: the default DNA-PAINT scene took ~4 min for 3 frames at
   2048 px, the WideField label over 10 min for one frame at 2048 px (stopped); BrightField 133 s at 4096 px. The
   core's queries over the whole field (every dye made, its schedule kept) are the cost; tiling them would bound the
-  memory, not the time.
+  memory, not the time (done 2026-11-20 for movies: strips, below).
+
+### Movies in strips (2026-11-20, docs/dev/LARGE_RECORDS.md part B)
+
+A movie that does not fit renders in **strips**: every frame of the sensor's rows 0 .. r-1, then every frame of the
+next r rows, ... (`RenderScopeMovieStrips`, ScopeMovie.h). Memory then follows a strip, not the field: the dyes, the
+per-frame images and the ground truth's dye list of one strip (its emitter rows are kept for the whole movie, ~200 B a
+row). Time stays that of the whole field plus the margins. Fresh-sample movies only (the cli, the viewer's Record):
+live frames and a measurement with a light history render whole.
+
+- **A strip is a window of the sensor** (`window-y0` / `window-rows`, internal spec options of the part "host"): the
+  window's rows render as a camera of their own, and everything defined over the field is the sensor's: the beam (its
+  span `fovSpanUm` and axis, so `illum-fwhm` stays a share of the whole field), the background's collected light
+  (`Excitation::ImagerMap` on the sensor's node grid, the window's rows taken from it), the beads' field and halo, the
+  regime counts (binned or mean-field blinks per um^2 of the field), the survey, the mean field's beam axis
+  (`ExcitePlaneFactor::offY`), the camera's per-pixel maps (`NoiseSetup` runs the sensor's whole draw sequence and keeps
+  the window's rows; the noise draws are counter-based on the sensor's pixel index, `pixelBase`) and the light history's
+  pose. With a window a side may be up to `kMaxStripFovPx` 16384 px (`kMaxFovPx` 4096 without).
+- **Margins:** each window renders m rows beyond its strip on both sides, cropped away: m = ceil((max(PSF kernel
+  half-width, `wf-kernel-um`) + 0.5 um + the drift's xy range) / pixel) + 2, so every light reaching a strip's rows comes
+  from inside its window (the 500 nm core box of the ground truth included).
+- **What is exact:** the core's events of a sub-rect are an in-order subsequence of the whole rect's (blocks visited
+  bx outer, by inner; a block's events sorted; cells, then microtubules, then blocks), so blinks, beads, the slide, SIM,
+  drift, PALM, dSTORM's dose and dark frames give every pixel of the whole movie (ctest `strips`). The FFT paths agree
+  within rounding: the mean field (WideField) ~0.1 % of the pixels one Poisson draw apart (a HILO beam's height bands
+  and a bleach basis are chosen per window: ~1e-4 of the signal), BrightField ~1e-4 of the signal (the multislice over
+  each window with its own margins and FFT size). Binned blink frames are decided per strip (the window's own density
+  of blinks, the emitter cap scaled to its area).
+- **Ground truth:** a blink, bead or dye belongs to the strip whose rows hold its centre (the first and last strips own
+  beyond the sensor's edges; `GroundTruth::Window`); its camera y is the sensor's; frames.csv once (the first strip's);
+  the emitters sorted by frame at the end (stable: within a frame, strip by strip, so the rows' order differs from a
+  whole movie's; the rows are the same). Known differences: a bead's `on_camera` counts the window's pixels; the
+  description's `imager_per_px_per_frame` is the first strip's mean.
+- **The strip height** (`ScopeStripRows`): the whole sensor when its window's estimate (`EstimateScopeMemory`) fits the
+  budget (`MemoryBudgetBytes`, in WebAssembly 2.5 GB of the module's 4 GB heap), else halved until it fits, at least
+  max(64, 4 m) rows. Strips are used when a side passes 4096 px or the whole field passes the budget
+  (`ScopeNeedsStrips`), or when asked (cli `--strip-rows n`). The estimate counts the movie's blinks too
+  (`movieEvents`, 2026-11-20): a movie holds all its blinks from its start, so its memory grows with its length (the
+  viewer's 1600 px DNA-PAINT field: ~1.4 MB per frame in a 308-row strip; a 1000-frame Record ran out of its heap). They
+  are counted in the dye count's sample windows over the movie's first 20 s at the uniform clock, in its z range, and
+  scaled to the window and the length, 300 bytes each (`kEstEventBytes`, on the high side); in one pass with the dye
+  count (a window's blinks while its dyes are cached), the densities kept for every height tried (a field counted in
+  sample windows is taken as uniform; the viewer's 1600 px plan ~100 -> ~20 s), the sample windows' dyes let go after.
+  The least height is a floor: a movie whose blinks do not fit there either is made in it all the same and may run out
+  (strips in time are not made).
+- **Memory between strips** (2026-11-20): the world's dye cache is emptied after each strip (`SampleSource::TrimDyeCache`:
+  a cap of 0 and a query of a point, then the cap again); it kept a strip's dyes while the next one's were made (the
+  viewer's heap 2.0 -> 2.8 -> 3.0 GB over the first strips at 1600 px; now 2.0 -> 2.1). A movie keeps one copy of its
+  blinks (the per-group lists; the merged list was a second, the query's rows a third, the core's list a fourth: the
+  host's buffer and the core's are let go after a query past 32 MB).
+- **Dyes within a strip** (2026-11-23, core ABI 21): one core query held every dye of its window until it ended (the
+  dye cache evicts only then, so that a query never drops a block it has not reached); a strip of a wide or dense field
+  is a large window (a 5000 px field's 308-row strip ~1.5e8 dyes, ~8 GB; the viewer ran out of its 4 GB heap in the
+  first strip, and at 1600 px over dense cells too, the least strip height being the floor). Strips now set a hard cap
+  (`isc_world_set_dye_cache_hard`, `SampleSource::SetDyeHardCap`): past it, after each cell's blocks are walked, the
+  blocks the query has finished with are let go down to the usual cap (each block is walked once a query, and the
+  earlier cells' blocks lie behind the current one's in the LRU), so a strip's dyes are walked through, not held. The
+  cap is 20 % of the budget at `kEstBlinkDyeBytes` a dye (`StripDyeHardCap`: ~9.8 M dyes in the viewer), and the strip
+  height counts the dyes up to it only. Every answer is the same, in the same order (world_checks `caches`); the cost
+  is that each query over a strip makes its dyes again. Live frames and whole movies have no hard cap.
+- **Writing:** the cli's TIFF writer lays every page out on the first strip (`TiffWriter::PageRows`: the page's first
+  rows, the rest a hole) and fills the later strips' rows in place (`Rows`): the file is byte for byte the one written
+  whole (ctest `tiff_writer`). The viewer writes each strip's rows at their place in the Record's frames file on the
+  browser's disk storage (`Module.onMovieRows`, `isc_movie_strips`).
 
 ## BFP light maps (2026-11-19)
 
@@ -1467,6 +1547,84 @@ through the pupil as the legacy beam at the line's setting; editing Expert, the 
   RingTIRF's regime reads TIRF when >= 95 % of the pupil's power is evanescent (`kMapTirfShare`).
 - **Limits:** CPU only (no GPU path); the slide under maps takes the cycle mean (no per-frame fringes); MM has no
   `bfp-map-px` row (a readout's).
+
+## The live events query: a window's block walk remembered (2026-11-27)
+
+A live frame asks the core for the blinks of its window (`isc_events_in_map`). The answer is made per 1 um dye block
+in parallel, but finding the window's blocks was not: per cell its assets, per block a midpoint test, a hash lookup and
+an LRU splice, then one fork/join per cell -- all on the calling thread, every frame, for the same window. At 1024 px
+DNA-PAINT (31229 blocks in 15 cells, 3317 blinks in the frame) that was ~11 of the query's 18 ms, so the query did not
+get faster with threads (and on a 96-thread server it was most of a 2048 px frame).
+
+- **`WalkMemo`** (`World::ForEachDyeBlock`): the last 4 walks' windows with their blocks in walk order, valid while no
+  dye block was evicted and no label changed (`evictions_`, `labelVersion_`), not under a prefetch deadline or past the
+  hard cap. A remembered walk preps its blocks in one parallel pass (chunks of 64 over all cells) and takes their
+  answers in the walk's order. A cache: the same blocks in the same order, so the same events (frames bit for bit:
+  `live_bench --hash` over 10 scenes, ctest `live_scope`, `world_checks`).
+- **The window's cells stay cached** (`assetFloor_`): the asset cache holds at least the cells of the last walk. A
+  window of more cells than its 48 (a 2048 px field at 100 nm: ~60) evicted its first cells' assets while walking its
+  last, and built them all again on the next walk.
+- **The finished background map** (`BgDoneMemo`, the engine): a shaped beam's background per pixel was blended from the
+  two focus-grid slices and summed again every frame, serially (~10 ms at 1024 px); the two maps finished last are
+  kept by the job's key and focus.
+- Phases: `fl.events-map-set`, `fl.events-core` (events, core calls), `fl.events-rows`, `fl.events-excite`,
+  `fl.events-core.walk` / `.cells` (assets made) / `.generate` / `.prep` / `.take` / `.rows`, `fl.bg-blend`,
+  `fl.setup.before-events` / `.after-events` / `.after-windows` (the stretches between the named phases).
+- Measured (12-thread laptop under other load, 1024 px DNA-PAINT, 2 / 6 / 12 threads): the query 23.8 / 18.0 / 33.9 ms
+  -> 8.4 / 5.9 / 4.3 ms; a quiet run: 4.7 of a 130 ms frame at 6 threads. A run-ahead thread was planned for the case
+  the query stayed dominant, and not built.
+- Not covered: a stage move (a new window every frame) walks per cell as before; the blocks' answers are still taken
+  one by one on the calling thread (~1.5 ms at 1024 px).
+
+## Dye positions at 0.1 nm (2026-11-27)
+
+The user's point: a dye's position needs no more than 0.1 nm, and the dyes are what a large field holds. Measured
+(`ISC_MEMORY world.*`, `World::MemoryOut`): in the dense modes the dye record is the whole per-dye memory -- DNA-PAINT
+at 512 px: 6.48 M dyes, 32.0 bytes each of records against 0.5 of blinks, 0.6 of clock state, 0.3 of block overhead;
+WideField the same; dSTORM has few dyes (records 32, clock state 25, blinks 5 bytes per dye).
+
+- **The record** (`World::DyeStore`, was `std::vector<PackedDye>` of three doubles + id + lattice address, 32 bytes):
+  16 bytes -- three int16 offsets in 0.1 nm steps from the block's first dye (+-3.27 um: a 1 um block with its
+  linkage), id, lattice address. A block that reaches further keeps int32 offsets (20 bytes).
+- **The dye's position is the lattice's**: step g = floor(v x 1e4 - phase + 0.5) per axis, position (g + phase) / 1e4
+  um, read the same by every consumer (`operator[]` gives a `PackedDye` as before); nothing downstream sees the
+  generator's value. At most 0.05 nm per axis from it (0.087 nm in all). Single IEEE operations only (no libm): the
+  same bits on every platform and thread count.
+- **The phase** (0.3819660112501051, 2 - the golden ratio): on a round lattice dyes lie exactly on the hosts' grid
+  edges (25 nm dye planes and cells, pixel edges, 0.25 um tiles), where a dye is in one cell or its neighbour by the
+  last bit of how the edge was computed: ctest `widefield` "dye tiles == one density query" lost 12 of 139898 dyes.
+  Off the round values a dye is never nearer than 0.038 nm to such an edge.
+- **What moves**: every dye by up to 0.05 nm per axis, so every image by rounding -- and by more where a threshold
+  is crossed (a dose-clock blink across a frame's edge or the dim-blink cut). live_bench 256 px, 8 frames, against the
+  build before: DNA-PAINT 0.03 % of the pixels differ (max 5 ADU), nanorulers 0.06 % (7), WideField 1.5 % (24 of
+  23298), SIM2D WideField 1.6 % (21), dSTORM 3.4 % (max 450 ADU, mean 0.5: blinks at a threshold), PALM none.
+  The goldens are unchanged (`spec/golden` freezes the generators' outputs, not the blocks' world positions), no cell
+  moves, `ISC_WORLD_VERSION` and the ABI stay.
+- **Memory**: dye records 198 -> 99 MB at 512 px DNA-PAINT (x4 at 1024 px, x16 at 2048 px: 3.2 -> 1.6 GB);
+  `kEstBlinkDyeBytes` 55 -> 39 (the memory check and the strips' dye cap). Speed unchanged or better (half the memory
+  walked).
+- `world_checks` `DyeDetails`: a dye with no linkage is within 0.09 nm of its site (was: on it).
+
+## Default field: the Round, smooth cell, occupancy 0.7, jitter 1, 256 px (2026-11-27)
+
+The user's choice. The core's compiled-in defaults (`core/src/params.h`), the engine's options, Micro-Manager's
+`CellField` rows, the viewer's rows and the webSMLM block's wrapper: `density` (occupancy) 0.33 -> 0.70, `jitter` 0.8
+-> 1, `cellDiamMin` / `Max` 25 / 35 -> 20 / 30, `cellElongMin` 0.5 -> 0.8, `cellBlob` 1.75 -> 0.6, `cellRough` 0.15 ->
+0.05, `cellFractalDim` 1.35 -> 1.2 (the viewer's "Round, smooth" shape with blobbiness 0.6, was 0.3; the old default
+shape is its "Blobby"); the engine's and the viewer's field of view `size` 128 -> 256 px (Micro-Manager's was 256).
+`ISC_WORLD_VERSION` 2026-11-27 (a server or a block cache of the old defaults is another world).
+
+- **Goldens:** every case of `tests/parity/make_cases.mjs` now writes the old field out (`FIELD0`), so the outputs
+  frozen from the JS stay bit for bit (38 of 38 equal after the re-freeze); new cases `d00`, `m08`, `p05` (parameter
+  set `defaults`: nothing set) freeze today's defaults from the C++.
+- **What looks at a place of the old field keeps that field**, by name: the engine's checks (`cli/test_field.h`:
+  history_check, blink_regimes, brightfield, cli_probes), `world_tests.cpp` `Cheap()` / `AbiParams`, the adapter's
+  Python tests (`tools/isc_mm.py` `OLD_FIELD`, `load_scope(old_field=True)`), the browser checks and the Home page's
+  3D loop (`index.html?defaults=2026-10`, added by `tests/web/browser.mjs` and `tools/build_hero.mjs`: the old field
+  and 128 px), the gallery (`gallery/manifest.json` `defaults`), the physics figures (`common.py` `OLD_FIELD`), the
+  overview (`build_overview.py`) and the benchmarks (`bench.py`: their history stays comparable). So the published
+  images still show the old cell until new spots are chosen; `adapter_pixel_hash` (the adapter's real defaults) moved
+  in every config and was rewritten.
 
 ## Known limitations / not yet done
 

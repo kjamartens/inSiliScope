@@ -1347,7 +1347,11 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
   `sim-phase-drift-turns-per-sec`, `sim-anchor` (Focus / Coverslip: where the beams are in phase, `ExcitationSpec::
   anchorFocus`, `CompilePattern` zRefUm; 2026-10-31; `BeamFrameSign`: a beam and its opposite carry the same lab
   field), `tube-length-mm`, `magnification` (instrument), `frame0` (measurement, internal),
-  the `beam.<j>.<column>` keys (instrument; `BeamKeyIndex`, `ScopeSpecSet`, `ScopeOptionPart`), `ScopeBeamSet`,
+  the `beam.<j>.<column>` keys (instrument; `BeamKeyIndex`, `ScopeSpecSet`, `ScopeOptionPart`), the phase matrix's
+  `sim-pair-phase.<s>.<k>` keys (settings; 2026-11-23: the opposing pairs' phase differences per state, degrees;
+  `PhaseKeyIndex`, `OpposingPairs`, `PairPhaseDeg`, `BeamSet::pairPhaseDeg`, `ParsePhaseMatrix` / `FormatPhaseMatrix`,
+  in the excitation key; MM `Lasers.PatternPhaseMatrix` Expert, the viewer's `simPhases`, setup JSON
+  `pattern.phase_pairs` / `phase_matrix`), `ScopeBeamSet`,
   `ScopeBeamMeanKey` (the chapter key's part), `ScopeExcitationSpec` resolving them (the strongest line at the sample
   as `lambdaRefNm`); `ScopeSetup::frame0`. `FluorescenceMovie::Impl`: `varies`, `period`, `StateOf(f)`, `ExciteFor`
   (an `Excitation` per state, memoized), `ExciteAtFrame`, `MeanExciteAt`, `PatternStates`, `NodeOf`, `BgMapFor`
@@ -1361,7 +1365,8 @@ C++ only. The model: spec/ALGORITHM.md "Structured illumination".
   / `DoseRate` summed; `MakeLightState`'s `lightKey` + `ScopeBeamMeanKey`. `LiveScope`: `FrameCounter` /
   `SetFrameCounter` (every frame counts; `frame0` per call; `Advance` counts; `Reset` 0), `LiveFrameInfo::frame`,
   `patternAngle`, `patternPhase`, `patternPeriod`. `Fiducials`: `FiducialMovie::frameScale`.
-- **cli.** `--sim-beams "<rows>"` (one argument, the matrix), `<out>.pattern.csv`; `--setup-json` and the viewer's
+- **cli.** `--sim-beams "<rows>"` (one argument, the matrix), `--sim-phase-matrix "<rows>"` (the phase matrix: a row
+  per state, the pairs' differences in degrees), `<out>.pattern.csv`; `--setup-json` and the viewer's
   setup JSON: `excitation.beams[]` and `excitation.pattern` (`ExcitationBeamsJson`), the probes' `pattern_xy`.
 - **Checks.** ctest `sim_pattern` (`cli/sim_pattern_check.cpp`, ~8 s: the fringe, the fields, the cycle, the orders,
   the program, the matrix, the drift, the movie's `frame0`, mean field vs per dye, Off bit for bit), `history_check`
@@ -1533,3 +1538,73 @@ goldens, `ISC_WORLD_VERSION` and the ABI unchanged; default outputs unchanged (`
   lattice image 40, SIM2D 17, the Bessel beam 22-32, the radial / azimuthal rings 72 / 56 (163 / 148 before the reach
   of 99.9 % of the power), the line focus image 59 (95), the underfilled scan 27; the heap up to 2.3 GB (it never
   shrinks). A full-pupil coherent spot: ~2 min natively.
+
+
+## 32. Large records: frames on disk, movies in strips, a larger field (2026-11-20)
+
+docs/dev/LARGE_RECORDS.md (the plan and the user's decisions). No core change: goldens, `ISC_WORLD_VERSION` and the ABI
+unchanged; every movie that is not rendered in strips is unchanged (ctest, `adapter_pixel_hash` the same as before the
+branch).
+
+- **A. The viewer's Record on disk:** "write frames to disk" (on by default) writes the frames into the browser's disk
+  storage (OPFS, `navigator.storage`; a sync access handle in the worker) as they are made, and the ground truth's
+  files beside them; Save downloads disk-backed Blobs (web/live/live.js `DISK`, `diskStore`; web/index.html
+  `diskOpen` / `diskWrite`); without the storage the frames stay in memory as before. "save to a file as recorded"
+  (where `showSaveFilePicker` exists: Chrome, Edge): the worker posts the frames ('movie-part', or a strip's rows
+  'movie-rows' with the job's `rowsOut`), the page writes each at its place in the chosen file (`FILE`, `fileOut`:
+  `createWritable`, positional writes), room kept in front for the tags (`tiffHeadBytes` for the frames asked, a
+  BigTIFF's, the description + 64 KB), written last by `tiffHead(..., dataAt)` for the frames it has, the file cut
+  after them; checks `tests/web/tiff_unit.mjs` (the layout, tifffile), `viewer_live_record.mjs` (whole frames, strips,
+  live chunks: the file's frames = the disk storage's Record's; the picker stood in for by an OPFS file).
+- **B. Strips:** spec/ALGORITHM.md "Movies in strips" (2026-11-20 follow-up: the strip height counts the movie's blinks,
+  `EstimateScopeMemory(..., movieEvents)`; the dye cache emptied between strips, `SampleSource::TrimDyeCache`; one copy
+  of a movie's blinks, the core's `EventRowsOut` and `SampleSource::ReleaseBuffersOver` let large query buffers go;
+  every output unchanged). 2026-11-23: **core ABI 21** `isc_world_set_dye_cache_hard(w, maxDyes)` (default 1e15 = none):
+  past it a query lets the blocks it has finished with go, down to the usual cap; strips set it (`StripDyeHardCap`,
+  20 % of the budget) so a strip's dyes are walked through (a 5000 px Record ran out of the viewer's heap in its first
+  strip). Answers unchanged, in order (world_checks `caches`); goldens and `ISC_WORLD_VERSION` unchanged; the viewer's
+  ABI check reads 21; the webSMLM block's `abiVersion` 21. Engine `ScopeSensorDims`, `ScopeWindowRows`, `window-y0` /
+  `window-rows`, `ScopeStripMarginPx`, `ScopeStripRows`, `ScopeNeedsStrips`, `RenderScopeMovieStrips`;
+  `Excitation::ImagerMap(..., rowY0, sensorH)`, `NoiseSetup` / the noise maps' `keepY0` / `keepRows`, `ApplyNoiseChain`'s
+  `pixelBase`, `GroundTruth::Window`. cli `--strip-rows n` (0: when needed; -1 never), `--estimate`'s `strip-rows=`
+  and `strips=`; `TiffWriter::PageRows` / `Rows`. Module `isc_movie_strips`, `isc_movie_plan`, `Module.onMovieRows`;
+  `isc_scope_gt_run` in strips when the movie needs them. Checks: ctest `strips` (~9 s), `tiff_writer` (strips = whole,
+  byte for byte), `tests/web/strips_unit.mjs` (the module, 6 s, CI `viewer-js`).
+- **C. A Record field of its own:** the Record box's field W x H px (empty = live), centred on the stage, up to 16384 px
+  (past 4096 px only with the frames on disk: strips); the beam scales with the field (`illum-fwhm` a share of the
+  field, the user's choice), which the box says before Start; the world view outlines the field while the box is open;
+  a Record in strips takes the CPU path (`movieInStrips`), `isc_wf_begin` refuses a field past 4096 px; a frame past
+  4096^2 px plays as its centre; the settings file keeps the field (`size` / `height`, `recordField`, `liveSize`).
+  Checks: `viewer_live_record.mjs`, `viewer_save.mjs`.
+
+## 33. The live events query's walk memo, dye positions at 0.1 nm (2026-11-27)
+
+spec/ALGORITHM.md "The live events query" and "Dye positions at 0.1 nm". No ABI change, goldens and
+`ISC_WORLD_VERSION` unchanged (no cell moves; the goldens hold the generators' outputs).
+
+- `World::ForEachDyeBlock`: `WalkMemo` (4 windows: the blocks in walk order; valid for unchanged `evictions_` and
+  `labelVersion_`, `!deadline_`, `dyeCount_ <= dyeHardCap_`; cleared by `DropCaches` and a label change), the remembered
+  walk one `ParallelFor` over chunks of 64 blocks (`used`, `needs`, `prep`), `fn` and `done` in order, the end-of-walk
+  eviction as before. `assetFloor_` = the last walk's cell count, the asset cache's least size. Bit for bit.
+- `World::DyeStore` (world.h) replaces the block's `std::vector<PackedDye>`: 16-byte records (int16 offsets in 0.1 nm
+  steps from the first dye, id, kn; int32 offsets when a block reaches past +-3.27 um), `push_back` returns the dye at
+  its lattice position (the generators take `zLo` / `zHi` from it), `operator[]` and the range-for give `PackedDye` by
+  value. Lattice: `Steps(v) = floor(v x 1e4 - kPhase + 0.5)`, `Um(g) = (g + kPhase) / 1e4`, `kPhase` 0.3819660112501051.
+  **Not bit for bit with before, on purpose**: every dye up to 0.05 nm per axis from the generator's position.
+- Diagnostics outside the ABI (declared by the host as `isc::SetWorldThreads` is): `isc::QueryTimesOut` (the calling
+  thread's last block walk: walk, cells, generate, prep, take, rows seconds; blocks, prepped, forks, cells, assets
+  made), `isc::WorldMemoryOut(IscWorld*, ...)` (blocks, dyes, bytes of records / scheduled blinks / persistent blinks /
+  clock-map state / block overhead).
+- Engine: `BgDoneMemo` (the finished background map, 2 kept), `SampleSource::LastQuery()` (core seconds, row seconds,
+  calls, events), `ScopeMemoryReport` rows `world.*` and `bg.finished`, `kEstBlinkDyeBytes` 39.
+- Checks: ctest (42), `live_bench --hash` before / after over 10 scenes for the memo steps (equal), `--dump` for the
+  lattice (the differences above).
+
+## 34. Default field and field of view (2026-11-27)
+
+spec/ALGORITHM.md "Default field". Defaults only: `core/src/params.h` (jitter 1, density 0.70, cellDiam 20-30,
+cellElongMin 0.8, cellBlob 0.6, cellRough 0.05, cellFractalDim 1.2), `ScopeMovie.cpp` options `occupancy` 0.70,
+`cell-diam-min-um` 20, `cell-diam-max-um` 30, `size` 256, `Registry/SceneState.cpp` `cellFieldDefaults`, the viewer's
+rows and its Cell shape list (`Round, smooth` blob 0.6 first, `Blobby` = the old default), `tools/make_cellfield_block.mjs`.
+`ISC_WORLD_VERSION` "2026-11-27". Goldens: old cases explicit on `FIELD0` (bit for bit), new `defaults` cases. No ABI
+change. Generated again: `web/live/mm_config.js`, `docs/micro-manager.md`, the viewer modules, `adapter_pixel_hash_ref.txt`.

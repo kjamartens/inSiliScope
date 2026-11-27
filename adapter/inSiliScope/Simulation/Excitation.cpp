@@ -1209,8 +1209,14 @@ double Excitation::ImagerColumnAt(double x, double y, double Hc, const std::vect
 }
 
 std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, double axisX, double axisY, double Hc,
-                                          const std::vector<ImagerSource>& imagers, double nodesPerScale) const
+                                          const std::vector<ImagerSource>& imagers, double nodesPerScale,
+                                          unsigned rowY0, unsigned sensorH) const
 {
+   // A window of a sensor (sensorH > 0): the grid over the sensor's rows, the window's rows taken from it (axisY is in
+   // the window's frame: a sensor row's node sits rowY0 rows above).
+   const bool window = sensorH > 0;
+   const unsigned HS = window ? sensorH : H, R0 = window ? rowY0 : 0;
+   const double shiftY = window ? R0 * um : 0.0;
    std::vector<double> out(static_cast<size_t>(W) * H, 0.0);
    if (clipped_ || !(Hc > 0.0) || imagers.empty())
       return out;
@@ -1245,7 +1251,7 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
       return static_cast<unsigned>(
          std::min(static_cast<double>(mapped_ ? kMapCollectNodes : kCollectNodes), std::max(2.0, std::ceil((n - 1) * um / g) + 1)));
    };
-   const unsigned nx = axis(W), ny = axis(H);
+   const unsigned nx = axis(W), ny = axis(HS);
    auto nodeAt = [&](unsigned k, unsigned nn, unsigned n) { return nn <= 1 ? 0.0 : (n - 1) * um * k / (nn - 1); };
    const std::vector<Interval> ivs = Intervals(Hc, imagers, kCollectRatio, kCollectTirfSteps);
    const double small = 0.125 * g;
@@ -1254,10 +1260,13 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
    std::vector<double> node(static_cast<size_t>(nx) * ny);
    ParallelFor(ny, [&](unsigned b) {
       for (unsigned a = 0; a < nx; a++)
+      {
+         const double yNode = window ? nodeAt(b, ny, HS) - shiftY - axisY : nodeAt(b, ny, H) - axisY;
          node[static_cast<size_t>(b) * nx + a] =
-            mapped_ ? MappedCollected(nodeAt(a, nx, W) - axisX, nodeAt(b, ny, H) - axisY, Hc, imagers, rings, ds,
+            mapped_ ? MappedCollected(nodeAt(a, nx, W) - axisX, yNode, Hc, imagers, rings, ds,
                                       kCollectRatio, kCollectTirfSteps, small)
-                    : CollectedAt(nodeAt(a, nx, W) - axisX, nodeAt(b, ny, H) - axisY, ivs, rings, ds, small);
+                    : CollectedAt(nodeAt(a, nx, W) - axisX, yNode, ivs, rings, ds, small);
+      }
    });
    // Pixel p of n on nn nodes: the node below it and the fraction towards the next.
    auto cellOf = [](unsigned p, unsigned n, unsigned nn, unsigned& k, double& fr) {
@@ -1275,7 +1284,7 @@ std::vector<double> Excitation::ImagerMap(unsigned W, unsigned H, double um, dou
    {
       unsigned b = 0;
       double fy = 0.0;
-      cellOf(j, H, ny, b, fy);
+      cellOf(j + R0, HS, ny, b, fy);
       const unsigned b1 = ny > 1 ? b + 1 : b;
       for (unsigned i = 0; i < W; i++)
       {

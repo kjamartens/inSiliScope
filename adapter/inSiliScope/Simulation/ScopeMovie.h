@@ -216,9 +216,19 @@ bool ScopeGeometryJson(const ScopeSpec& spec, double sizeUm, bool detail, std::s
 
 // The largest FOV side, pixels (the spec's size and height).
 constexpr double kMaxFovPx = 4096;
+// The largest sensor side of a movie rendered in strips (a window, window-rows > 0: docs/dev/LARGE_RECORDS.md).
+constexpr double kMaxStripFovPx = 16384;
 
-// Frame size and count of a spec (no rendering): w = size, h = height (0: = size), each 1..kMaxFovPx.
+// Frame size and count of a spec (no rendering): w = size, h = height (0: = size), each 1..kMaxFovPx; with a window
+// (window-rows > 0) h is the window's rows.
 void ScopeMovieDims(const ScopeSpec& spec, unsigned& w, unsigned& h, long& frames);
+// The whole sensor (2026-11-20): w = size, h = height (0: = size), each 1..kMaxFovPx (kMaxStripFovPx with a window).
+void ScopeSensorDims(const ScopeSpec& spec, unsigned& w, unsigned& h);
+// A window of the sensor (window-y0, window-rows; docs/dev/LARGE_RECORDS.md): its first row and rows, within the
+// sensor; none: 0 and the sensor's height. A window renders those rows as a camera of its own, with everything
+// defined over the field (the beam, the background's grid, the beads, the regime switches, the camera's maps) the
+// whole sensor's, so the windows of a sensor together give its movie.
+void ScopeWindowRows(const ScopeSpec& spec, unsigned& y0, unsigned& rows);
 
 // What a render of the spec would hold in memory at its peak, bytes (2026-11-18), estimated before it runs: the
 // labelled dyes in the field (counted in sample windows of the world, scaled to the field: the core generates every
@@ -230,10 +240,15 @@ struct ScopeMemoryEstimate
    unsigned w = 0, h = 0;
    double fieldUm2 = 0;    // the dyes' query rect (the FOV and its PSF margin)
    double dyes = 0;        // labelled dyes in it, all structures
-   double baseBytes = 0, kernelBytes = 0, dyeBytes = 0, imageBytes = 0, sceneBytes = 0;
-   double Total() const { return baseBytes + kernelBytes + dyeBytes + imageBytes + sceneBytes; }
+   double events = 0;      // the movie's blinks (movieEvents)
+   double baseBytes = 0, kernelBytes = 0, dyeBytes = 0, imageBytes = 0, sceneBytes = 0, eventBytes = 0;
+   double Total() const { return baseBytes + kernelBytes + dyeBytes + imageBytes + sceneBytes + eventBytes; }
 };
-bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryEstimate& out, std::string& err);
+// movieEvents (2026-11-20; the strip height, ScopeStripRows): also the blinks of the whole movie (spec frames), which a
+// movie holds from its start (a 1000-frame DNA-PAINT Record of a 1600 px field: ~1.4 GB); without it a live frame's
+// (the adapter's check, a frame at a time).
+bool EstimateScopeMemory(const ScopeSpec& spec, int framesInFlight, ScopeMemoryEstimate& out, std::string& err,
+                         bool movieEvents = false);
 
 // "" when the spec's estimate fits this machine's budget (MemoryBudget.h; or no budget is known), else a sentence for
 // the user: the estimate and its largest parts, the RAM, the largest square FOV that would fit. A spec the estimate
@@ -313,7 +328,8 @@ struct ExcitationSpec;
 ExcitationSpec ScopeExcitationSpec(const ScopeSpec& spec);
 // The beams of a spec (SimPattern.h; spec/ALGORITHM.md "Structured illumination"): sim-type's beams at illum-bfp,
 // polarized per sim-polarization, with the program (sim-phases, sim-angles, sim-order, sim-angle0-deg, sim-phase0, the
-// phase drift) and the matrix's rows (beam.<j>.<column>) over them; empty beams = the legacy single beam.
+// phase drift, the phase matrix sim-pair-phase.<s>.<k>) and the matrix's rows (beam.<j>.<column>) over them; empty beams =
+// the legacy single beam.
 struct BeamSet;
 BeamSet ScopeBeamSet(const ScopeSpec& spec);
 // The part of a beam set the kinetics' light depends on (the cycle mean: beams, polarization, angles), for a light
@@ -321,6 +337,10 @@ BeamSet ScopeBeamSet(const ScopeSpec& spec);
 std::string ScopeBeamMeanKey(const ExcitationSpec& e);
 // "beam.<j>.<column>" keys (SimPattern.h BeamColumnNames): j, and the column; -1 for another name.
 int BeamKeyIndex(const std::string& name, int* column);
+// "sim-pair-phase.<s>.<k>" keys (the phase matrix, Lasers.PatternPhaseMatrix: the phase difference in degrees between
+// opposing pair k's beams at state s = angle x phases + phase; SimPattern.h OpposingPairs): s, and k; -1 for another
+// name.
+int PhaseKeyIndex(const std::string& name, int* pair);
 // A host's view of a spec's excitation (the adapter's illumination history and readouts): the geometry and the line
 // shares of the first mounted label's main state (empty when no label emits); lightKinetics (optional): whether a
 // mounted label's kinetics follow the light (any mode but DNA-PAINT, whose binding needs none). False (err) when the
@@ -350,6 +370,14 @@ void SetLiveAsyncBasis(bool on);
 // per rect and every structure's windows, as before (ctest live_scope compares the two).
 void SetScopeShortcuts(bool on);
 bool ScopeShortcuts();
+// A process-wide GPU host for the blink splat + camera noise (SplatGpuHost, SplatGpu.h; the viewer's WebGPU,
+// cli/gpu_js_backend.cpp), made by make on its first use (nullptr, info = why: the CPU renders): a movie that applies its own noise splats its
+// blinks (the groups with a diffraction kernel, up to 4) and draws the noise there, the rest of each frame's light
+// drawn on the CPU as before. Frames within float32 rounding of the CPU's. Unset (the default): the CPU.
+class SplatGpuHost;
+void SetDefaultBlinkSplatGpu(std::function<std::unique_ptr<SplatGpuHost>(std::string& info)> make);
+SplatGpuHost* DefaultBlinkSplatGpu();
+std::string DefaultBlinkSplatGpuInfo();
 // Live dye counts: the dye index made ahead on a thread of its own (native builds); hosts that unload join it here.
 void DyeIndexPrefetchShutdown();
 class MemoryReport;
@@ -451,6 +479,29 @@ void ScopeLights(const ScopeSpec& spec, bool& epi, bool& trans);
 // lamp wavelength through one noise chain, none = dark frames.
 bool RenderScopeMovie(const ScopeSpec& spec, const std::function<bool(long, const std::vector<uint16_t>&)>& onFrame,
                       ScopeMovieInfo& info, std::string& err, const ScopeProgress* progress = nullptr);
+
+// ---- a movie in strips (2026-11-20, docs/dev/LARGE_RECORDS.md part B) ----
+// The sensor's rows in strips, every frame of strip 1, then of strip 2, ...: each strip a window of the sensor
+// (window-y0 / window-rows, ScopeWindowRows) with a margin of rows on each side that is rendered and cropped away
+// (ScopeStripMarginPx: the PSF's and the mean field's reach and the drift, so every light reaching a strip's rows is
+// in its window). onRows(f, y0, rows, px) gets frame f's sensor rows y0 .. y0 + rows - 1 (rows x width samples, in
+// order of the strips); false stops. The strips' frames are the whole movie's: blinks, beads, background and camera
+// noise to the last bits of rounding (positions in the window's frame), the FFT paths (mean field, BrightField)
+// within rounding, binned blink frames decided per strip (its own density). A ground truth (ActiveGroundTruth) keeps
+// what each strip owns (GroundTruth::Window), its frame rows once, the emitters sorted by frame at the end.
+using ScopeRows = std::function<bool(long f, unsigned y0, unsigned rows, const uint16_t* px)>;
+// The margin, rows (each side).
+unsigned ScopeStripMarginPx(const ScopeSpec& spec);
+// The strip height for a memory budget (bytes; 0: this machine's, MemoryBudgetBytes, or 2.5 GB in WebAssembly): the
+// whole sensor when it fits, else the largest power-of-two share whose window's estimate (EstimateScopeMemory) fits,
+// at least 4 margins. framesInFlight as EstimateScopeMemory's.
+unsigned ScopeStripRows(const ScopeSpec& spec, int framesInFlight, double budgetBytes = 0);
+// Whether a movie needs strips: a side past kMaxFovPx, or ScopeStripRows below the sensor's height.
+bool ScopeNeedsStrips(const ScopeSpec& spec, int framesInFlight, double budgetBytes = 0);
+// stripRows 0: ScopeStripRows. info: the first strip's, with the sensor's height. A spec with a window of its own is
+// refused.
+bool RenderScopeMovieStrips(const ScopeSpec& spec, unsigned stripRows, const ScopeRows& onRows, ScopeMovieInfo& info,
+                            std::string& err, const ScopeProgress* progress = nullptr);
 
 // BrightField (modality 1): the transmitted-light image at the spec's focus
 // (BrightfieldScene), times bf-photons-per-px-per-sec x exposure, then the

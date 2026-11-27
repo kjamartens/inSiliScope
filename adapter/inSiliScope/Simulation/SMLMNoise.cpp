@@ -64,37 +64,67 @@ double PoissonRng(std::mt19937_64& rng, double mean)
    return v < 0.0 ? 0.0 : v;
 }
 
-void PixelOffsetMap::Generate(unsigned w, unsigned h, double offsetMeanAdu, double offsetStdAdu,
-                               std::mt19937_64& rng)
+namespace {
+// A window's rows of a w x h map: [i0, i1) of the sensor's pixels kept (all: 0, w h). Pixels outside take their two
+// uniforms (GaussianRng's) without the transform: the sequence stays the sensor's.
+struct MapRows
 {
+   size_t i0 = 0, i1 = 0, n = 0;
+   MapRows(unsigned w, unsigned h, unsigned keepY0, unsigned keepRows)
+   {
+      const unsigned rows = keepRows ? std::min(keepRows, h - std::min(h, keepY0)) : h;
+      i0 = keepRows ? static_cast<size_t>(keepY0) * w : 0;
+      i1 = i0 + static_cast<size_t>(rows) * w;
+      n = static_cast<size_t>(w) * h;
+   }
+};
+void SkipGaussians(std::mt19937_64& rng, size_t k)
+{
+   std::uniform_real_distribution<double> unif(0.0, 1.0);
+   for (size_t i = 0; i < 2 * k; ++i)
+      (void)unif(rng);
+}
+} // namespace
+
+void PixelOffsetMap::Generate(unsigned w, unsigned h, double offsetMeanAdu, double offsetStdAdu,
+                               std::mt19937_64& rng, unsigned keepY0, unsigned keepRows)
+{
+   const MapRows R(w, h, keepY0, keepRows);
    width = w;
-   height = h;
-   offset.assign(static_cast<size_t>(w) * h, 0.0f);
+   height = static_cast<unsigned>((R.i1 - R.i0) / std::max(1u, w));
+   offset.assign(R.i1 - R.i0, 0.0f);
+   SkipGaussians(rng, R.i0);
    for (size_t i = 0; i < offset.size(); ++i)
    {
       offset[i] = static_cast<float>(offsetMeanAdu + offsetStdAdu * GaussianRng(rng, 0.0, 1.0));
    }
+   SkipGaussians(rng, R.n - R.i1);
 }
 
 void PixelReadNoiseMap::Generate(unsigned w, unsigned h, double nominalReadNoiseElectrons,
-                                  double stdFraction, std::mt19937_64& rng)
+                                  double stdFraction, std::mt19937_64& rng, unsigned keepY0, unsigned keepRows)
 {
+   const MapRows R(w, h, keepY0, keepRows);
    width = w;
-   height = h;
-   readNoiseElectrons.assign(static_cast<size_t>(w) * h, 0.0f);
+   height = static_cast<unsigned>((R.i1 - R.i0) / std::max(1u, w));
+   readNoiseElectrons.assign(R.i1 - R.i0, 0.0f);
+   SkipGaussians(rng, R.i0);
    for (size_t i = 0; i < readNoiseElectrons.size(); ++i)
    {
       double v = nominalReadNoiseElectrons * (1.0 + stdFraction * GaussianRng(rng, 0.0, 1.0));
       readNoiseElectrons[i] = static_cast<float>(v < 0.0 ? 0.0 : v);
    }
+   SkipGaussians(rng, R.n - R.i1);
 }
 
 void PixelGainMap::Generate(unsigned w, unsigned h, double nominalGainPhotonsPerAdu, double stdFraction,
-                             std::mt19937_64& rng)
+                             std::mt19937_64& rng, unsigned keepY0, unsigned keepRows)
 {
+   const MapRows R(w, h, keepY0, keepRows);
    width = w;
-   height = h;
-   gainPhotonsPerAdu.assign(static_cast<size_t>(w) * h, 0.0f);
+   height = static_cast<unsigned>((R.i1 - R.i0) / std::max(1u, w));
+   gainPhotonsPerAdu.assign(R.i1 - R.i0, 0.0f);
+   SkipGaussians(rng, R.i0);
    // A near-zero or negative pixel gain would blow up the division below;
    // floor it well away from zero rather than letting one unlucky draw
    // (possible at large stdFraction) produce a saturated/garbage pixel. The
@@ -106,6 +136,7 @@ void PixelGainMap::Generate(unsigned w, unsigned h, double nominalGainPhotonsPer
       double v = nominalGainPhotonsPerAdu * (1.0 + stdFraction * GaussianRng(rng, 0.0, 1.0));
       gainPhotonsPerAdu[i] = static_cast<float>(v < floor ? floor : v);
    }
+   SkipGaussians(rng, R.n - R.i1);
 }
 
 void ApplyNoiseChain(const std::vector<float>& photonImage,
@@ -115,7 +146,7 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
                       const PixelOffsetMap& offsetMap,
                       const PixelGainMap& gainMap,
                       const PixelReadNoiseMap& readNoiseMap,
-                      uint32_t noiseSeed, uint32_t frame, bool parallel)
+                      uint32_t noiseSeed, uint32_t frame, bool parallel, uint32_t pixelBase)
 {
    const size_t n = static_cast<size_t>(width) * height;
    outAdu.resize(n);
@@ -137,7 +168,7 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
          const double emGain = std::max(1.0, cam.emGain);
          for (size_t i = i0; i < i1; ++i)
          {
-            u.Pixel(static_cast<uint32_t>(i));
+            u.Pixel(static_cast<uint32_t>(i) + pixelBase);
             const double photons = std::max(0.0, static_cast<double>(photonImage[i]));
             // Integer electron count entering the gain register, which is then
             // Gamma(shape = electrons, scale = 1): variance 2x the mean, the
@@ -156,7 +187,7 @@ void ApplyNoiseChain(const std::vector<float>& photonImage,
 
       for (size_t i = i0; i < i1; ++i)
       {
-         u.Pixel(static_cast<uint32_t>(i));
+         u.Pixel(static_cast<uint32_t>(i) + pixelBase);
          const double photons = std::max(0.0, static_cast<double>(photonImage[i]));
          // Quantum efficiency converts incident photons to mean detected
          // photoelectrons; dark current is already in electron units (it

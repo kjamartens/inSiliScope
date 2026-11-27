@@ -47,7 +47,8 @@
  * ABI 19: isc_dye_details_in_window (each dye's binding site and mean emission
  * dipole, for the ground truth); outputs unchanged. ABI 20:
  * isc_continuous_in_map_masked (the map's windows of some structures only);
- * outputs unchanged.
+ * outputs unchanged. ABI 21: isc_world_set_dye_cache_hard (a bound on the dyes
+ * held while one query runs); outputs unchanged.
  *
  * Units: um; z is height above the coverslip. Windows are half-open
  * [x0,x1) x [y0,y1) x [zMin,zMax); pass -INFINITY/INFINITY for no z limit.
@@ -68,7 +69,7 @@
 extern "C" {
 #endif
 
-#define ISC_ABI_VERSION 20
+#define ISC_ABI_VERSION 21
 
 ISC_API int32_t isc_abi_version(void);
 
@@ -76,7 +77,7 @@ ISC_API int32_t isc_abi_version(void);
  * with every change that moves a cell (packing, RawCandidate): the packed
  * block caches (isc_world_set_cache_dir, the viewer's local storage) are
  * keyed on it, so stale poses are never taken for current ones. */
-#define ISC_WORLD_VERSION "2026-10-05"
+#define ISC_WORLD_VERSION "2026-11-27"
 ISC_API const char* isc_world_version(void);
 
 /* ---- RNG (bit-exact with the JS prototype) ---- */
@@ -130,6 +131,14 @@ ISC_API void isc_world_free(IscWorld* w);
  * (e.g. the rest of the z column, or where the window was before). Caches
  * only: no answer depends on it. Returns 0, or -1 on bad arguments. */
 ISC_API int32_t isc_world_set_dye_cache(IscWorld* w, double maxDyes);
+
+/* ABI 21. A bound on the dyes held while a query runs (default none, i.e.
+ * 1e15): once the cache holds more, the blocks the query has finished with are
+ * let go (down to the cap above) before it goes on, so a window of more dyes
+ * than fit in memory is walked through, not held whole. The next query over
+ * that window makes them again. Caches only: no answer depends on it. Returns
+ * 0, or -1 on bad arguments. */
+ISC_API int32_t isc_world_set_dye_cache_hard(IscWorld* w, double maxDyes);
 
 /* Cells whose footprint circle intersects the window, ISC_CELL_STRIDE doubles
  * each: cx, cy, x, y, packRot, rOuter, height, nucOffX, nucOffY, nucRot,

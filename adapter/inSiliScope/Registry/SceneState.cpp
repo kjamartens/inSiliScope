@@ -90,11 +90,11 @@ SceneState::SceneState()
    // The nuclear pores at the core's defaults (core/src/params.h: 8 per um^2 of envelope, 180 nm apart, Nup96 rings of
    // 53.5 nm radius 50 nm apart, 12 nm corner arcs); the lamina at the engine's (2000 per um^2, an estimate; unlabelled by
    // default) and the core's 40 nm pore exclusion.
-   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.33, 25.0, 35.0, 0.9, 0.0, 7.0,
+   const double cellFieldDefaults[CF_COUNT] = { 26.0, 0.70, 20.0, 30.0, 0.9, 0.0, 7.0,
       0.4, 0.9, 0.03, 0.2, 0.0, 0.3, 2.5, 0.1, 0.5, 0.2, 0.4, 1.6, 20.0, 1.5,
       8.0, 180.0, 53.5, 50.0, 12.0, 2000.0, 40.0,
       // the rest of the geometry: the core's defaults (core/src/params.h)
-      0.8, 0.5, 1.0, 1.75, 0.15, 1.35, 8.0, 12.0, 0.6, 1.0, 0.2, 0.3, 0.1, 0.5, 0.2, 0.5, 0.1, 0.5, 2.0, 3.5, 0.1, 0.3, 2.0, 4.0, 1.0, 60.0, 256.0, 1.0, 1.0, 80.0, 0.55, 0.8, 1.05, 0.05, 1.5, 0.15, 0.05, 5.0 };
+      1.0, 0.8, 1.0, 0.6, 0.05, 1.2, 8.0, 12.0, 0.6, 1.0, 0.2, 0.3, 0.1, 0.5, 0.2, 0.5, 0.1, 0.5, 2.0, 3.5, 0.1, 0.3, 2.0, 4.0, 1.0, 60.0, 256.0, 1.0, 1.0, 80.0, 0.55, 0.8, 1.05, 0.05, 1.5, 0.15, 0.05, 5.0 };
    for (int i = 0; i < CF_COUNT; ++i)
       cellField[i] = cellFieldDefaults[i];
    // Mean-field grid: 1 cell/pixel, 100 nm dye planes (the cli/viewer's wf-upscale / wf-plane-nm; 25 nm until

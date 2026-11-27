@@ -25,11 +25,14 @@
 #include "parallel.h"
 #include "params.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
 #include <functional>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -121,6 +124,19 @@ struct PersistentEvent {
    uint32_t dye, bin, j;
 };
 
+// Where the last dye-block query of this thread spent its time (seconds; a diagnostic, not part of the ABI: the
+// engine's fl.events-core.* phases). walk = the whole block walk; generate / prep = its parallel parts (wall time);
+// take = the serial per-block callbacks; rows = the C ABI's row copy. forks = ParallelFor calls with work.
+struct QueryTimes {
+   double walk = 0, cells = 0, generate = 0, prep = 0, take = 0, rows = 0;
+   long blocks = 0, prepped = 0, forks = 0, nCells = 0;
+   long cellsBuilt = 0;   // cell assets made in the walk (each frame: the window holds more cells than the cache)
+};
+QueryTimes& LastQueryTimes();
+// ... as numbers for a host outside the core's headers: walk, cells, generate, prep, take, rows, blocks, prepped,
+// forks, nCells, cellsBuilt (at most n).
+void QueryTimesOut(double* out, int n);
+
 struct WorldStats {
    long blocksPacked = 0, cellsBuilt = 0, framesBuilt = 0;
    long blocksInjected = 0;     // packed blocks taken from another world (SetPackedBlock)
@@ -138,11 +154,15 @@ class World {
 public:
    // Caches: cell assets (LRU, cells) and dye blocks (LRU, bounded by the
    // number of dyes they hold; a 12.8 um FOV beside a nucleus is ~400k dyes
-   // at the default 10% labelling, ~50 bytes each plus ~60 per blink). The
+   // at the default 10% labelling, 16 bytes each (DyeStore) plus ~60 per blink). The
    // dye cap is soft: blocks the current query uses are never evicted, so a
    // window with more dyes than the cap is not regenerated on every query.
    World(uint32_t seed, const Params& p, size_t assetCacheCells = 48, size_t dyeCacheDyes = 2000000);
    World(World&&) = default;
+   // What the dye-block cache holds (a diagnostic, not the ABI; bytes by capacity): out[0] blocks, [1] dyes, [2] the
+   // dyes' records, [3] cached blinks (dSTORM / PALM schedules, parked ones too), [4] persistent-site blinks
+   // (DNA-PAINT), [5] the clock map's per-dye state, [6] the blocks themselves (list node, index entry, walk memo).
+   void MemoryOut(double* out, int n) const;
    World& operator=(World&&) = default;
    ~World();   // flushes the block store
 
@@ -170,6 +190,8 @@ public:
    double SurfaceHeightAt(double x, double y);
    // Dye cache cap (dyes); a smaller one takes effect at the next query.
    void SetDyeCacheCap(size_t dyes) { dyeCap_ = dyes; }
+   // ABI 21: past this many dyes a query lets the blocks it has finished with go (EvictFinished).
+   void SetDyeCacheHardCap(size_t dyes) { dyeHardCap_ = dyes; }
    uint32_t Seed() const { return seed_; }
 
    // Cells (packed pose) whose footprint circle (rOuter) intersects the rect
@@ -335,17 +357,94 @@ private:
       const StructClock* dose;
    };
    ClockView ViewOf(int s) const { return { HistoryOf(s), histFp_[(size_t)s], nullptr }; }
-   // A dye in its block (issue 16: millions of dyes in a dense FOV, so the
-   // cell, microtubule and structure are the block's): world position, id,
-   // and the lattice address kn = k << 24 | n.
+   // A dye of a block as the queries read it (issue 16: millions of dyes in a dense FOV, so the cell, microtubule and
+   // structure are the block's): world position, id, and the lattice address kn = k << 24 | n.
    struct PackedDye {
       double x, y, z;
       uint32_t id, kn;
       int32_t K() const { return (int32_t)(kn >> 24); }
       int32_t N() const { return (int32_t)(kn & 0xFFFFFFu); }
    };
+   // A block's dyes as kept (2026-11-27, spec/ALGORITHM.md "Dye positions at 0.1 nm"): 16 bytes each, was 32 (three
+   // doubles) -- the dye record is the whole per-dye memory of a dense field (DNA-PAINT, WideField: 6.5 M dyes in a
+   // 55 um window). A position is on a 0.1 nm lattice, step g = floor(v x 1e4 - kPhase + 0.5) per axis, kept as an int16
+   // offset from the block's first dye (+-3.27 um: a 1 um block and its linkage; a block that reaches further keeps
+   // int32 offsets, 20 bytes); the dye's position IS (g + kPhase) / 1e4 um, the same for every
+   // reader: nothing downstream sees the generator's unrounded value. Only IEEE-rounded single operations (a product, sums,
+   // floor, an integer's conversion, a quotient; no libm): the same bits on every platform and thread count.
+   class DyeStore {
+   public:
+      static constexpr double kStepsPerUm = 10000.0;
+      // The lattice sits a fixed part of a step off the round values (2 - the golden ratio): a host's grids (25 nm
+      // dye planes and cells, pixel edges, 0.25 um tiles) have their edges on round numbers, and a dye exactly on an
+      // edge is in one cell or its neighbour by the last bit of how that edge was computed -- ctest widefield's
+      // "dye tiles == one density query" lost 12 of 139898 dyes on the round lattice. Off it, a dye is never nearer
+      // than 0.038 nm to such an edge.
+      static constexpr double kPhase = 0.3819660112501051;
+      static int64_t Steps(double um) { return (int64_t)std::floor(um * kStepsPerUm - kPhase + 0.5); }
+      static double Um(int64_t steps) { return ((double)steps + kPhase) / kStepsPerUm; }
+      size_t size() const { return wide_.empty() ? rec_.size() : wide_.size(); }
+      bool empty() const { return rec_.empty() && wide_.empty(); }
+      void clear()
+      {
+         rec_.clear();
+         wide_.clear();
+         based_ = false;
+      }
+      void reserve(size_t n) { rec_.reserve(n); }
+      size_t Bytes() const { return rec_.capacity() * sizeof(Rec) + wide_.capacity() * sizeof(Wide); }
+      // Adds d at its 0.1 nm position, which it returns (the dye as every reader will see it).
+      PackedDye push_back(const PackedDye& d)
+      {
+         const int64_t g[3] = { Steps(d.x), Steps(d.y), Steps(d.z) };
+         if (!based_) {
+            base_[0] = g[0]; base_[1] = g[1]; base_[2] = g[2];
+            based_ = true;
+         }
+         const int64_t o[3] = { g[0] - base_[0], g[1] - base_[1], g[2] - base_[2] };
+         auto fits = [](int64_t v) { return v >= INT16_MIN && v <= INT16_MAX; };
+         if (wide_.empty() && fits(o[0]) && fits(o[1]) && fits(o[2])) {
+            rec_.push_back({ (int16_t)o[0], (int16_t)o[1], (int16_t)o[2], 0, d.id, d.kn });
+         } else {
+            if (wide_.empty()) {
+               wide_.reserve(std::max(rec_.capacity(), rec_.size() + 1));
+               for (const Rec& r : rec_) wide_.push_back({ r.dx, r.dy, r.dz, r.id, r.kn });
+               std::vector<Rec>().swap(rec_);
+            }
+            wide_.push_back({ (int32_t)o[0], (int32_t)o[1], (int32_t)o[2], d.id, d.kn });
+         }
+         return { Um(g[0]), Um(g[1]), Um(g[2]), d.id, d.kn };
+      }
+      PackedDye operator[](size_t i) const
+      {
+         if (wide_.empty()) {
+            const Rec& r = rec_[i];
+            return { Um(base_[0] + r.dx), Um(base_[1] + r.dy), Um(base_[2] + r.dz), r.id, r.kn };
+         }
+         const Wide& r = wide_[i];
+         return { Um(base_[0] + r.dx), Um(base_[1] + r.dy), Um(base_[2] + r.dz), r.id, r.kn };
+      }
+      // (for (const PackedDye& d : dyes): each dye by value)
+      struct Iter {
+         const DyeStore* s;
+         size_t i;
+         PackedDye operator*() const { return (*s)[i]; }
+         Iter& operator++() { ++i; return *this; }
+         bool operator!=(const Iter& o) const { return i != o.i; }
+      };
+      Iter begin() const { return { this, 0 }; }
+      Iter end() const { return { this, size() }; }
+
+   private:
+      struct Rec { int16_t dx, dy, dz; uint16_t pad; uint32_t id, kn; };
+      struct Wide { int32_t dx, dy, dz; uint32_t id, kn; };
+      int64_t base_[3] = { 0, 0, 0 };
+      bool based_ = false;
+      std::vector<Rec> rec_;
+      std::vector<Wide> wide_;
+   };
    struct DyeBlock {
-      std::vector<PackedDye> dyes;          // world coordinates
+      DyeStore dyes;                        // world coordinates, on the 0.1 nm grid
       int32_t cx = 0, cy = 0, mtIndex = 0;  // mtIndex -1 on a pore or lamina block
       uint32_t h1 = 0;                      // DyeH1 of the microtubule (NpcH1 / LaminH1 of the cell's pores / lamina)
       int32_t structure = STRUCTURE_MT;
@@ -360,6 +459,7 @@ private:
       std::vector<PersistentEvent> pEvents;
       long pBin0 = 0, pBin1 = 0;
       uint64_t used = 0;                    // last query that touched the block
+      uint64_t done = 0;                    // last query that has finished with it (ForEachDyeBlock, ABI 21)
       uint32_t phase = 0;                   // per-block hash, staggers the extensions
       bool generated = false;               // dyes filled in (ForEachDyeBlock)
       // The kinetics history the schedule fields above (scheduled ... pBin1)
@@ -505,7 +605,12 @@ private:
    std::unique_ptr<OrigamiField> origami_;   // specimen 1
    std::unique_ptr<FiducialField> fiducials_;   // every specimen
    size_t assetCap_;
+   // The cells of the last dye-block walk's window: the asset cache holds at least these (2026-11-27). A window of
+   // more cells than assetCap_ (48: a 2048 px field at 100 nm is ~60) evicted its first cells' assets while it
+   // walked its last, and built them all again on the next walk.
+   size_t assetFloor_ = 0;
    size_t dyeCap_;
+   size_t dyeHardCap_ = std::numeric_limits<size_t>::max();   // (none; size_t is 32-bit in WebAssembly)
    std::map<std::pair<int32_t, int32_t>, std::vector<Cell>> blocks_;
    // LRU of cell assets, most recent first
    std::list<std::pair<std::pair<int32_t, int32_t>, std::unique_ptr<CellAssets>>> assets_;
@@ -515,6 +620,18 @@ private:
    size_t dyeCount_ = 0;
    uint64_t query_ = 0;                    // counts queries, for DyeBlock::used
    uint64_t evictions_ = 0, labelVersion_ = 0;
+   // The last walks of ForEachDyeBlock (2026-11-27): a window's blocks in walk order, kept while no block was evicted
+   // and no label changed. A live view asks for the same window every frame; finding its blocks again (the cells'
+   // assets, every block's midpoint test, a hash lookup and an LRU splice each) was ~11 of a 1024 px frame's 18 ms
+   // events query, all on the calling thread. A cache only: the blocks and their order are the walk's.
+   struct WalkMemo {
+      double x0 = 0, y0 = 0, x1 = 0, y1 = 0, zMin = 0, zMax = 0;
+      uint64_t evictions = 0, labelVersion = 0;
+      bool valid = false;
+      std::vector<DyeBlock*> blocks;
+   };
+   std::array<WalkMemo, 4> walkMemo_;
+   size_t walkMemoNext_ = 0;
    // Prefetch: its time limit while it runs (ForEachDyeBlock stops past it)
    // and the last region it completed.
    bool PastDeadline();

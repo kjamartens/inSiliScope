@@ -31,6 +31,9 @@ from matplotlib.figure import Figure  # noqa: E402
 
 # One spot of the cell field with a cell, nucleus and microtubules in a 128 px FOV (gallery/manifest.json "overview").
 SPOT = {"x": 6.58, "y": -5.61}
+# The cell field the spots here were chosen on: the defaults until 2026-11-27 (now the "Round, smooth" cell at
+# occupancy 0.7 and jitter 1). Pinned so the images stay what they were; choose new spots to show the new field.
+OLD_FIELD = {"occupancy": 0.33, "cell-diam-min-um": 25, "cell-diam-max-um": 35, "p.jitter": 0.8, "p.cellElongMin": 0.5, "p.cellElongMax": 1, "p.cellBlob": 1.75, "p.cellRough": 0.15, "p.cellFractalDim": 1.35}
 
 DPI = 150
 PLOT_W = 7.6          # inches: the content column at DPI is ~1140 px, shown at <= 760 css px
@@ -232,6 +235,8 @@ class Ctx:
         setup time that has to be cold: nothing memoized)."""
         opts = dict(opts or {})
         opts.setdefault("disk-cache", 2)
+        for k, v in OLD_FIELD.items():
+            opts.setdefault(k, v)
         # The cell field's nuclear pores (labelled by default since issue 15) only where a figure asks for them: the
         # figures show one label (the microtubules') unless they set an npc- option.
         if not any(k.startswith("npc-") for k in opts) and str(opts.get("specimen", "0")) in ("0", "CellField"):

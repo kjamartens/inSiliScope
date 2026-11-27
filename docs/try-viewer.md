@@ -132,8 +132,27 @@ through it step by step.
   it ([napari](ground-truth.md#open-it-in-napari)). Nothing is saved by itself. A recording is a fresh sample: a movie starting at
   that time, the same one `insiliscope_cli --spec` renders from the spec in the file's header; the live sample is left as it was. The file opens in ImageJ/Fiji as a time series with the pixel size
   and frame interval set, and its header holds every setting (the engine spec). Clicking ● Record again cancels it.
-  Live, Snap and ↺ wait while it records. A recording is held in the browser tab's memory, so its size is bounded
-  by that, not by a fixed cap. If the tab runs out, the recording stops and keeps the frames so far. A movie past
+  Live, Snap and ↺ wait while it records. With **write frames to disk** (in the box, on by default) the frames, and
+  later the ground truth's files, are written to the browser's own disk storage for this page as they are made, not
+  held in the tab's memory, so a recording is bounded by the disk space the browser gives the page (checked before it
+  starts); Save then makes the .tif or .zip from those files. The tab's last recording stays there until the next
+  Record, and recordings of closed tabs are deleted. A browser without that storage (some private windows) keeps the
+  frames in memory, as with the box unticked: then the tab's memory bounds the recording. If the storage or the
+  memory runs out, the recording stops and keeps the frames so far. The browser gives the site only a share of the
+  disk, not all the free space (Firefox 10 GiB, often a few GB elsewhere; small in a private window). A Record that
+  does not fit asks the browser at Start to let the site store data persistently: Firefox then asks you, and once
+  allowed the site may use up to half the disk (allowed later through the site's permissions by the address bar). In
+  Chrome and Edge (where that does not change the share), tick **save to a
+  file as recorded** and Start asks where to save the .tif; the frames go straight into that file as they are made,
+  with no limit but the disk. The player then reads the recording from that file, and Save has nothing left to do for
+  the movie alone (a .zip with its settings or ground truth takes the file as its movie). The box's **field** (W × H px, empty = the live
+  field) records a field of its own, centred on the stage, larger or smaller than the live one (up to 16384 px a side;
+  the world view outlines it while the box is open). The illumination **beam scales with the field**: its width stays
+  the set share of the field (Beam FWHM), so a larger field is lit by a wider beam than live; the box says so, with the
+  beam's width, before Start. A field past 4096 px, or one past what the tab's engine can hold, is rendered in
+  **strips** of rows (all frames of one strip, then the next) straight into the disk storage, so it needs **write
+  frames to disk**; the frames are those of the field rendered whole. A frame past 4096 × 4096 px plays as its centre
+  (2048 × 2048); Save writes all of it. Large fields stay slow: every dye of the field is made. A movie past
   4 GB is saved as a **BigTIFF**: open it in Fiji with Bio-Formats, in napari or with tifffile, as plain ImageJ
   cannot. For very large movies, `insiliscope_cli` or `tools/isc_render.py` on the saved settings write straight
   to disk ([Quickstart](quickstart.md)).
@@ -143,6 +162,43 @@ through it step by step.
   are rendered in batches, each one movie on the sample's clock, so the slow parts of a frame (above all the
   blink-event query) are done once per batch (about 2 to 5 times faster per frame than live at 128-256 px); the last
   frame of each batch is shown, and clicking ● Record again stops early and keeps the frames so far.
+  **On the GPU:** in a browser with WebGPU (Chrome, Edge; others as they add it), a fresh sample's Record (and the
+  movies) splats its dSTORM, PALM and DNA-PAINT blinks and draws the camera noise on the graphics card (WideField dye
+  planes' images were on it already). The frames
+  differ from the CPU's by float rounding (about 3 samples in 10000 a count apart); at 256 × 256 px a DNA-PAINT Record
+  is about 4x faster (measured in a 40-frame movie; the first one in a tab also compiles the shader, ~2.5 s, which
+  the page starts doing as it opens). Live frames, ground truth, BrightField and a
+  drifting sample's WideField images stay on the CPU. Add `?gpu=0` to the page's address to keep everything on the CPU
+  (the frames then equal `insiliscope_cli`'s byte for byte).
+  **Multi-D plan** (in the box, Advanced and Expert): Start then runs a plan instead of N frames, like Micro-Manager's
+  multi-dimensional acquisition. **Edit…** opens it: a list of **positions** (name, x, y, z; **+ current stage** adds
+  where the stage and focus are, **go to** moves there) and nested **for blocks**, run top to bottom: a for block runs
+  what is inside it once for each of its values, over **positions**, **Z heights** (a list `0, 0.5, 1` or a range
+  `-1:0.25:1` in µm; *relative*: offsets from the position's z) or **any setting**. A **recording** inside takes its
+  frames at its exposure, with settings of its own (`name=value`, one per line) on top of the for blocks' values; the
+  settings and values boxes grow with what is in them. ⧉ copies a block, with what is inside it, to just below it (its
+  recordings under the next free names) so you can change a value there. A setting goes by
+  the name its help shows (the Micro-Manager property at the end of it, e.g. `Lasers.Pattern`,
+  `Lasers.Laser561KWcm2`, `Lasers.PatternPhaseMatrix`); type part of a name, label or help and pick from the list
+  (↓ or Ctrl+Space shows all): each entry shows its label and group, the one under the pointer or the arrow keys its help, and a pick
+  fills in the setting's value now. Hovering a filled setting shows its help too. Values: a list, a range or, for a
+  choice, its names (a choice sets what it sets in Micro-Manager too: a mode its labelling and lasers). The matrices
+  (`Lasers.PatternPhaseMatrix`, `Lasers.Beams`, `Objective.ZernikeCoefficients`) and the BFP maps take their whole
+  value as in their box, a row per line (or rows separated by `;`); a for block over several puts each in quotes,
+  `"0; 240; 480; …", "0; 240; 470; …"`. A phase matrix must have the Pattern's rows and pairs, which the plan
+  checks before Start. For example: for z in 1, 2, 3 › for
+  position in P1, P2, P3 › (for laser power in 10, 20, 30 › record A, 100 frames at 10 ms), then (record B, 50 frames
+  at 20 ms with another laser on). Under the blocks the editor shows what is wrong, or the totals and the first blocks
+  in the order they will run. The run is one continuing live sample (bleaching, drift and the clock go on from block
+  to block, as on a microscope), at the live field; the stage, focus and settings you see stay as they were. A setting
+  that would change the image size or make a new sample (size, seeds, specimen, cell shape) cannot be in a plan.
+  **Save** then writes a `.zip` in the format you choose: **OME-TIFF** (default; one file, a series per position with
+  channels × z × frames; Fiji with Bio-Formats, napari, tifffile), an **ImageJ hyperstack per position**, or **one flat
+  stack** in the order taken. A channel is a recording with its for blocks' setting values (A at 10, A at 20, A at 30,
+  B: four channels); a channel with fewer frames than the longest gets blank frames. `index.csv` is always in it: a row
+  per page of every file with its position, x/y/z, z index, channel, frame, block, exposure, the sample's time,
+  whether it is blank, and the block's settings. The settings file (if ticked) keeps the plan, which a load puts
+  back in the box. No ground truth for a plan yet.
 - **Illumination** (in the controls column, under Acquisition): the light preset, each laser line as a
   slider with its power (kW/cm², three decimals; at the Basic level only the lines the labelled dyes use in their
   modes, with 405, 488 and 561 nm for PALM, and any line that is on), the BFP position and the pattern. The beam's
@@ -202,6 +258,14 @@ through it step by step.
   have taken (bleached and blinking as it was). A file from another release loads with a note that the image may
   differ, and what the viewer could not take is listed. Every value is stored (defaults too) by name, and
   `insiliscope_cli --settings <file>` renders the same frames on the command line.
+- **A remote server.** ☰ › **Remote server…** has a Linux machine you log in to with ssh (an analysis server, a
+  cluster) do the computing: live, Records, movies and ground truth (or Records, movies and ground truth only). The box
+  gives one `ssh` command to run in a terminal and leave open; the page connects by itself, the menu and the live
+  info line name the server, and frames are the same as the browser's, byte for byte (live frames come back at the
+  size the view shows them: a large field in means of n × n pixels, zoomed in only the part shown; the display range,
+  the level bar and the saturation warning from what is shown). When the server goes, the
+  viewer goes on in the browser, the live sample where it was. No admin rights or installing: see
+  [Run inSiliScope on a remote Linux server](remote.md).
 - **A Micro-Manager configuration.** **Micro-Manager .cfg…** in the same section of the ☰ menu saves `<name>.cfg`:
   the shipped Expert configuration with the viewer's seed and a Startup preset that sets every
   [Micro-Manager property](micro-manager.md) to the viewer's value (the sample, its labels and custom dyes, the cells'
@@ -255,7 +319,11 @@ through it step by step.
   the sample moves through them, or the coverslip), the phases and orientations per cycle, their order, the first
   orientation, a phase offset and the centre beam's amplitude; in Expert the phase drift and the **Beams** matrix: every beam of the
   illumination in every mode, one row per beam, `ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm`, pre-filled
-  with the type's beams, which typed rows replace; the column table and worked examples are on the physics page under
+  with the type's beams, which typed rows replace, and the **Phase matrix**: the phase difference in degrees between
+  opposing beams, one row per frame of the cycle and one value per pair of opposing beams (the lattices: the x pair,
+  then the y pair), pre-filled with the pattern's program (`0; 240; 480; …` for SIM2D), which typed values of the same
+  shape replace for uneven or per-orientation phases (changing the phases or orientations, a Pattern pick or emptying
+  the box goes back to the program); the column table and worked examples are on the physics page under
   [Structured illumination](physics/dyes-and-light-path.md#structured-illumination-sim)). The live sample counts its
   frames (the info line's tooltip shows the frame's place in the cycle, the performance box its angle and phase), a recording
   of a fresh sample starts at frame 0. The same select offers the **BFP light maps** ([BFP light maps](physics/dyes-and-light-path.md#bfp-light-maps)): **LightSheet** (an inclined light sheet; its thickness and width in Advanced) and **RingTIRF** (the TIRF spot turned once round per exposure), and **Maps**: in Expert the box under it holds the light's equations over the pupil (the type's own after a pick; an edit applies on leaving the box or with Ctrl+Enter and makes it Maps), with an **Examples** list (a spot, HILO, the light sheet, ring TIRF, a Bessel beam, radially and azimuthally polarized rings, a line scan, SIM2D, and six from images: lattices, three beams, a line focus, a TIRF annulus, half the pupil), **Map images…** (PNG or TIFF files the equations read with `img("name.png")`; a saved settings file carries them), the time slots and the frames per cycle. A coherent map's light takes from a fraction of a second to minutes to make (a beam focused over most of the pupil is the slow case); it is made once and kept.
@@ -360,4 +428,6 @@ through it step by step.
 - Cells are packed on fixed blocks exactly as in the Micro-Manager adapter, so the view shows what the adapter images
   at the same position. The packed cell positions are remembered in your browser (a few hundred KB of local storage,
   one entry per seed and cell settings), so a reload shows the same field without packing it again.
-- URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?wfgpu=any` (allow software WebGPU).
+- URL flags for testing: `?nw` (core on the main thread), `?2d` (force Canvas 2D), `?gpu=0` (movies and Records on the
+  CPU), `?wfgpu=0` (the WideField images on the CPU, the blink splat and noise still on the GPU), `?wfgpu=any` (allow
+  software WebGPU).

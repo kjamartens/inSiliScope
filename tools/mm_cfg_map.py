@@ -42,6 +42,7 @@ SPECIAL = {
     "psf-zernike-preset": "Objective.ZernikePreset",
     "zern.*": "Objective.ZernikeCoefficients",
     "beam.*": "Lasers.Beams",
+    "sim-pair-phase.*": "Lasers.PatternPhaseMatrix",
     "bfp-maps": "Lasers.BfpMaps",
     "pixel-nm": "Objective.Magnification x EmissionPath.EmissionMagnification / Camera.SensorPixelUm",
     "seed": "Hub.RandomSeed (pre-init)",

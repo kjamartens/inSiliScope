@@ -18,6 +18,19 @@
 
 namespace sim {
 
+namespace {
+// The dye cache's cap (dyes; the core keeps the blocks a query uses beyond it): ~16M natively (16 bytes a dye record
+// since 2026-11-27, 256 MB; with the blinks and clocks of a blink mode up to ~40 bytes a dye), the whole
+// z column of a 12.8 um FOV plus margin at 100% labelling is ~9M, so focusing through the cell and moving about a FOV
+// in xy come back from the cache, not regenerated. In the browser (where the movie world lives across movies) a 4M
+// soft cap: a 256 px WideField movie uses ~4M dyes, which the cap never evicts while they are in use.
+#if defined(__EMSCRIPTEN__)
+constexpr double kDyeCacheDyes = 4e6;
+#else
+constexpr double kDyeCacheDyes = 16e6;
+#endif
+} // namespace
+
 int SampleSettings::LabelMode(int s) const
 {
    if (s < 0 || static_cast<size_t>(s) >= labels.size() || labels[static_cast<size_t>(s)].size() <= ISC_LABEL_MODE)
@@ -101,17 +114,8 @@ bool SampleSource::Configure(const SampleSettings& s, std::string& err)
          err = "could not create the cell-field world";
          return false;
       }
-      // Keep ~16M dyes (~1.5-3 GB): the whole z column of a 12.8 um FOV plus
-      // margin at 100% labelling is ~9M, so focusing through the cell and
-      // moving about a FOV in xy come back from the cache, not regenerated.
-      // In the browser (where the movie world now lives across movies) a
-      // 4M soft cap: a 256 px WideField movie uses ~4M dyes, which the cap
-      // never evicts while they are in use.
-#if defined(__EMSCRIPTEN__)
-      isc_world_set_dye_cache(w, 4e6);
-#else
-      isc_world_set_dye_cache(w, 16e6);
-#endif
+      isc_world_set_dye_cache(w, kDyeCacheDyes);
+      isc_world_set_dye_cache_hard(w, dyeHardCap_);
       isc_world_free(world_);
       world_ = w;
       settings_ = s;
@@ -157,8 +161,11 @@ bool SampleSource::Configure(const SampleSettings& s, std::string& err)
 namespace {
 // The rows of a cap/total query (stride ISC_EVENT_STRIDE) as BlinkEvents in q's frame.
 template <class Query>
-bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std::vector<BlinkEvent>& out)
+bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std::vector<BlinkEvent>& out,
+               SampleSource::QueryTiming* timing = nullptr)
 {
+   const auto tCore = std::chrono::steady_clock::now();
+   int calls = 0;
    // The core's cap/total convention: grow and ask again (the second call is
    // served from its caches).
    int32_t cap = static_cast<int32_t>(buf.size() / ISC_EVENT_STRIDE);
@@ -166,6 +173,7 @@ bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std:
    for (;;)
    {
       n = query(buf.empty() ? nullptr : buf.data(), cap);
+      ++calls;
       if (n < 0)
          return false;
       if (n <= cap)
@@ -173,12 +181,20 @@ bool EventRows(const SampleQuery& q, std::vector<double>& buf, Query query, std:
       cap = n + n / 4;
       buf.resize(static_cast<size_t>(cap) * ISC_EVENT_STRIDE);
    }
+   const auto tRows = std::chrono::steady_clock::now();
    out.reserve(out.size() + static_cast<size_t>(n));
    for (int32_t i = 0; i < n; ++i)
    {
       BlinkEvent b;
       SampleSource::MapRow(q, &buf[static_cast<size_t>(i) * ISC_EVENT_STRIDE], b);
       out.push_back(b);
+   }
+   if (timing)
+   {
+      timing->coreSec = std::chrono::duration<double>(tRows - tCore).count();
+      timing->rowsSec = std::chrono::duration<double>(std::chrono::steady_clock::now() - tRows).count();
+      timing->calls = calls;
+      timing->events = n;
    }
    return true;
 }
@@ -220,6 +236,25 @@ bool SampleSource::ContinuousRows(double x0, double y0, double x1, double y1, do
    }
 }
 
+void SampleSource::SetDyeHardCap(double dyes)
+{
+   dyeHardCap_ = dyes;
+   if (world_)
+      isc_world_set_dye_cache_hard(world_, dyes);
+}
+
+void SampleSource::TrimDyeCache(double xUm, double yUm)
+{
+   if (!world_)
+      return;
+   // The core evicts down to its cap at the end of a dye query, all but that query's blocks: a cap of 0 and a query
+   // of a point, then the cap again.
+   float one = 0;
+   isc_world_set_dye_cache(world_, 0);
+   Density3d(xUm, yUm, xUm + 1e-3, yUm + 1e-3, -1e9, 1e9, 1, 1, 1, AllStructures(), &one);
+   isc_world_set_dye_cache(world_, kDyeCacheDyes);
+}
+
 bool SampleSource::Events(const SampleQuery& q, std::vector<BlinkEvent>& out)
 {
    if (!world_ || !(q.frameSec > 0))
@@ -230,7 +265,7 @@ bool SampleSource::Events(const SampleQuery& q, std::vector<BlinkEvent>& out)
    const double t1 = q.tSec + q.spanSec;
    return EventRows(q, buf_, [&](double* b, int32_t cap) {
       return isc_events_in_window(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, t1, b, cap);
-   }, out);
+   }, out, &lastQuery_);
 }
 
 bool SampleSource::Continuous(const SampleQuery& q, std::vector<BlinkEvent>& out)
@@ -334,7 +369,7 @@ bool SampleSource::EventsInMap(const SampleQuery& q, std::vector<BlinkEvent>& ou
    const double t1 = q.tSec + q.spanSec;
    return EventRows(q, buf_, [&](double* b, int32_t cap) {
       return isc_events_in_map(world_, q.x0Um, q.y0Um, q.x1Um, q.y1Um, zMin, zMax, q.tSec, t1, b, cap);
-   }, out);
+   }, out, &lastQuery_);
 }
 
 bool SampleSource::ContinuousInMap(const SampleQuery& q, std::vector<BlinkEvent>& out, std::vector<double>* clockRate,

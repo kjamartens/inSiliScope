@@ -88,6 +88,11 @@ const double INF = std::numeric_limits<double>::infinity();
 Params Cheap()
 {
    Params p;
+   // The field the checks were written on: the core's defaults until 2026-11-27 (now the "Round, smooth" cell at
+   // occupancy 0.7 and jitter 1, the user's choice; the golden "builtin" case pins those).
+   p.density = 0.33; p.jitter = 0.8;
+   p.cellDiamMin = 25; p.cellDiamMax = 35; p.cellElongMin = 0.5; p.cellElongMax = 1;
+   p.cellBlob = 1.75; p.cellRough = 0.15; p.cellFractalDim = 1.35;
    p.npcDensity = 0;
    p.relaxIters = 10;
    p.mtDensity = 0.15;
@@ -97,6 +102,10 @@ Params Cheap()
 IscParams* AbiParams(std::initializer_list<std::pair<const char*, double>> extra = {})
 {
    IscParams* p = isc_params_new();
+   for (const auto& e : std::initializer_list<std::pair<const char*, double>>{
+           { "density", 0.33 }, { "jitter", 0.8 }, { "cellDiamMin", 25 }, { "cellDiamMax", 35 }, { "cellElongMin", 0.5 },
+           { "cellElongMax", 1 }, { "cellBlob", 1.75 }, { "cellRough", 0.15 }, { "cellFractalDim", 1.35 } })
+      isc_params_set(p, e.first, e.second);   // (Cheap()'s field)
    isc_params_set(p, "npcDensity", 0);
    isc_params_set(p, "relaxIters", 10);
    isc_params_set(p, "mtDensity", 0.15);
@@ -779,6 +788,29 @@ void CacheUnderLoad(LabelMode mode, const char* name)
    for (int f = 1; f < 10; f++) { ev.clear(); w.EventsInWindow(x0, y0, x1, y1, -INF, INF, f * fd, (f + 1) * fd, ev); }
    Check(built > 0 && w.Stats().dyeBlocks == built, N + "window larger than the dye cache: blocks built once, not per query",
          Fmt("%ld blocks after the first frame, %ld after 10", built, w.Stats().dyeBlocks));
+   // ABI 21: with a hard cap below the window's dyes, a query lets the blocks it has finished with go as it walks;
+   // the events are the same, in the same order (frame by frame and over all ten frames at once), and the blocks
+   // are made again on every query.
+   {
+      World h = Labelled(seed, p, lab, 48, cap), r = Labelled(seed, p, lab, 48, cap);
+      h.SetDyeCacheHardCap(cap);
+      std::string diff;
+      std::vector<WorldEvent> eh, er;
+      for (int f = 0; f < 10 && diff.empty(); f++) {
+         eh.clear(); er.clear();
+         h.EventsInWindow(x0, y0, x1, y1, -INF, INF, f * fd, (f + 1) * fd, eh);
+         r.EventsInWindow(x0, y0, x1, y1, -INF, INF, f * fd, (f + 1) * fd, er);
+         diff = DiffOrdered(eh, er);
+         if (!diff.empty()) diff = Fmt("frame %d: ", f) + diff;
+      }
+      eh.clear(); er.clear();
+      h.EventsInWindow(x0, y0, x1, y1, -INF, INF, 0, 10 * fd, eh);
+      r.EventsInWindow(x0, y0, x1, y1, -INF, INF, 0, 10 * fd, er);
+      if (diff.empty()) diff = DiffOrdered(eh, er);
+      Same(diff, N + "hard dye cap below the window: the same events in the same order");
+      Check(!eh.empty() && h.Stats().dyeBlocks > 5 * r.Stats().dyeBlocks, N + "hard dye cap below the window: blocks let go and made again",
+            Fmt("%ld blocks built under the hard cap vs %ld without", h.Stats().dyeBlocks, r.Stats().dyeBlocks));
+   }
    // A shifted window (a focus move) builds only the blocks it did not have: eviction waits for the end of the query,
    // so the blocks the old and new windows share survive it.
    {
@@ -2942,7 +2974,9 @@ void DyeDetails(uint32_t seed, const Params& p, const Cell& c0)
             else {
                const double dx = r.dye.x - r.site.x, dy = r.dye.y - r.site.y, dz = r.dye.z - r.site.z;
                const double dist = std::sqrt(dx * dx + dy * dy + dz * dz);
-               if (linked ? !(dist <= reach) : dist != 0) d = Fmt("dye %zu: %.6g nm from its site", i, dist * 1000);
+               // (the dye sits on the 0.1 nm lattice, ABI-neutral since 2026-11-27: at most half a step per axis from
+               // where the generator put it, 0.087 nm in all)
+               if (linked ? !(dist <= reach + 0.09e-3) : !(dist <= 0.09e-3)) d = Fmt("dye %zu: %.6g nm from its site", i, dist * 1000);
             }
             const bool wantDir = pass == 2 || structs[si] != STRUCTURE_LAMIN;
             if (d.empty() && r.hasDir != wantDir) d = Fmt("dye %zu: dipole %s", i, r.hasDir ? "given for Free" : "missing");

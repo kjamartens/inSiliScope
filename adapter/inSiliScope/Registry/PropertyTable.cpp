@@ -263,6 +263,14 @@ void ThenText(PropDef& d, std::function<void(H&)> after)
    };
 }
 
+// The phase matrix's entries (sim-pair-phase.<s>.<k>) removed: the type's program again.
+void ClearPhaseMatrix(H& h)
+{
+   for (const auto& kv : h.State().Options())
+      if (sim::PhaseKeyIndex(kv.first, nullptr) >= 0)
+         h.State().ClearOption(kv.first);
+}
+
 // The pixel size follows the sensor pixel, the objective and the emission path.
 void NotifyPixel(H& h)
 {
@@ -919,6 +927,9 @@ std::vector<PropDef> BuildTable()
                h.Notify("bfp-maps");
             }
             h.Notify("beams");
+            // The phase matrix goes back to the new type's (its even steps), as Micro-Manager's viewer does.
+            ClearPhaseMatrix(h);
+            h.Notify("sim-phase-matrix");
          });
          add(d);
       }
@@ -935,13 +946,21 @@ std::vector<PropDef> BuildTable()
                    "either way."));
       {
          PropDef d = Opt(L, "PatternPhases", Tier::Advanced, "sim-phases", 0, 64,
-                         "Phase steps per orientation (0 = the type's: 3, 5, 9, 13).");
+                         "Phase steps per orientation (0 = the type's: 3, 5, 9, 13). A change sets "
+                         "PatternPhaseMatrix back to the program's.");
          d.kind = PropKind::Integer;
+         // (the phase matrix's rows are the cycle's frames: another cycle, the program's again)
+         const auto program = [](H& h) {
+            ClearPhaseMatrix(h);
+            h.Notify("sim-phase-matrix");
+         };
+         ThenNumber(d, program);
          add(d);
          d = Opt(L, "PatternAngles", Tier::Advanced, "sim-angles", 0, 12,
                  "Orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D and SIM3D, 1 for the "
-                 "lattices).");
+                 "lattices). A change sets PatternPhaseMatrix back to the program's.");
          d.kind = PropKind::Integer;
+         ThenNumber(d, program);
          add(d);
       }
       add(OptNames(L, "PatternOrder", Tier::Advanced, "sim-order", sim::SimOrderNames(), 0,
@@ -950,7 +969,52 @@ std::vector<PropDef> BuildTable()
       add(Opt(L, "PatternAngle0Deg", Tier::Advanced, "sim-angle0-deg", -180, 180,
               "The first orientation, degrees from the x axis."));
       add(Opt(L, "PatternPhase0", Tier::Advanced, "sim-phase0", -100, 100,
-              "Added to the phase index (fractional allowed): the pattern's starting phase."));
+              "Added to the phase index (fractional allowed): the pattern's starting phase. Included in "
+              "PatternPhaseMatrix's defaults; a typed matrix replaces it for the beam pairs."));
+      {
+         // The phase matrix (2026-11-23): per state of the cycle (row = angle x phases + phase) each opposing beam
+         // pair's phase difference in degrees (sim::OpposingPairs, sim-pair-phase.<s>.<k> engine keys, every entry);
+         // the program's unless typed over; a Pattern pick goes back to it; the shape must be the program's.
+         PropDef d = Row(L, "PatternPhaseMatrix", Tier::Expert, "sim-phase-matrix",
+                         "The pattern's phases as the phase difference between opposing beams: one row per frame of "
+                         "the cycle (orientation a's phase p at row a x PatternPhases + p, whatever PatternOrder), "
+                         "rows separated by ';', and in each row one value per pair of opposing beams (the Beams "
+                         "rows at opposite positions: SIM2D and SIM3D the side pair; the lattices the x pair, then "
+                         "the y pair), in degrees: the first beam's phase minus its opposite's, which moves that "
+                         "pair's fringe by the same (a beam between them, SIM3D's centre, sees half). The pair's "
+                         "beams take +- half of it. Shows the type's program (SIM2D: 0; 240; 480; ... -- the fringe "
+                         "steps 2 / 3 of a period); typed values replace it (a calibrated SLM, a step error); the "
+                         "matrix must have the program's rows and pairs (set PatternPhases and PatternAngles first); "
+                         "empty goes back to the program, as does a Pattern pick. Example, SIM2D with the first "
+                         "orientation's third step 10 degrees short: 0; 240; 470; 0; 240; 480; 0; 240; 480");
+         d.kind = PropKind::Text;
+         d.getText = [](H& h) {
+            const sim::ScopeSpec spec = BuildScopeSpec(h.State(), 0, 0, 0, 0, 1);
+            return sim::FormatPhaseMatrix(sim::ScopeBeamSet(spec));   // (empty without a pair of beams)
+         };
+         d.setText = [](H& h, const std::string& text) {
+            if (text.find_first_not_of(" \t;,\r\n") == std::string::npos)
+            {
+               ClearPhaseMatrix(h);   // empty: the program's
+               return true;
+            }
+            std::vector<std::vector<double>> rows;
+            std::string err;
+            if (!sim::ParsePhaseMatrix(text, rows, err))
+               return false;
+            const sim::ScopeSpec spec = BuildScopeSpec(h.State(), 0, 0, 0, 0, 1);
+            const sim::BeamSet set = sim::ScopeBeamSet(spec);
+            const size_t np = sim::OpposingPairs(set).size();
+            if (np == 0 || rows.size() != static_cast<size_t>(std::max(1, set.Period())) || rows[0].size() != np)
+               return false;   // (not the program's shape)
+            ClearPhaseMatrix(h);
+            for (size_t s = 0; s < rows.size(); ++s)
+               for (size_t k = 0; k < np; ++k)
+                  h.State().SetOption("sim-pair-phase." + std::to_string(s) + "." + std::to_string(k), rows[s][k]);
+            return true;
+         };
+         add(d);
+      }
       add(Opt(L, "PatternCentreAmp", Tier::Advanced, "sim-centre-amp", 0, 10,
               "The centre beam's field amplitude over the side beams' (SIM3D, LatticeSIM3D; 1, an estimate)."));
       add(Opt(L, "PatternPhaseDriftTurnsPerSqrtSec", Tier::Expert, "sim-phase-drift-turns-per-sqrt-sec", 0, 10,

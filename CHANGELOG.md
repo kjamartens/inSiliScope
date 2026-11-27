@@ -5,11 +5,52 @@ Versions follow semver; while 0.x, any release may change the output for a given
 
 ## Unreleased (changes since v0.1.0-rc23)
 
+- **Viewer Record: room for long recordings in Firefox.** The disk storage a browser gives a site is its limit for
+  that site, not the free disk (Firefox: 10 GiB), and the Record box now says so. A Record that does not fit asks the
+  browser at Start to let the site store data persistently: Firefox asks you, and once allowed a site may use up to
+  half the disk. Refused, the box names the site's permissions.
 - **Viewer: the Microscope view keeps up under BFP light maps.** Its panels waited on the movie worker behind a
   setup readout per settings step, each of which made the maps' light again (~10-15 s there): five steps of the BFP
   slider put the panels about a minute behind (the live image, on its own worker, kept up). Setup readouts now go
   one at a time and a queued one for settings that have since changed is dropped: the same drag 60 -> 33 s, and a
   longer drag no longer adds to it.
+- **Viewer: a remote Linux server does the computing** ([docs/remote.md](docs/remote.md)). ☰ › Remote server… gives
+  one `ssh` command; run in a terminal, it fetches the viewer's own version of the new `insiliscope_server` into the
+  home directory on the server (no admin rights; `tools/remote.sh`, fetched from the repository at the viewer's release tag) and tunnels it to the page, which
+  connects by itself. Live (by default), Records, movies and ground truth then run there, byte for byte the frames
+  the browser makes; when the server goes, the viewer goes on in the browser, the live sample where it was. Clusters:
+  "Run through" starts it in a scheduler's job (`srun ...`). Release asset `insiliscope-server-linux-x86_64.tar.gz`
+  (glibc 2.28+, x86-64). Fixed on the way: a Record started while a settings file's light history was replayed never
+  began. Live frames come back at the size the view shows them (a large frame in means of n × n pixels, zoomed in only
+  the part shown, the display range, level bar and saturation warning from that image); snaps and Records whole. The
+  Remote server window is a switch (on: the settings and the commands to run) with the server's CPU and memory in
+  use, inSiliScope's share in colour; ☰ shows the connection as a state light.
+- **Viewer: Records and movies splat their blinks and draw the camera noise on the GPU** (WebGPU: Chrome, Edge), with
+  a WGSL twin of the adapter's Direct3D 11 splat. Frames within float rounding of the CPU's (about 3 samples in 10000 a count apart); a
+  256 x 256 px, 40-frame DNA-PAINT movie 0.69 -> 0.16 s on an Intel Iris Xe. The engine's movie stays synchronous: the
+  GPU's frames come back through a canvas. `?gpu=0` keeps the CPU (the frames then equal `insiliscope_cli`'s byte for
+  byte), `?wfgpu=0` only the WideField images. Live frames, ground truth and BrightField stay on the CPU.
+
+Large recordings:
+
+- **Viewer Record, frames to disk:** "write frames to disk" (in the Record box, on by default) writes the frames and the
+  ground truth's files into the browser's own disk storage as they are made, so a recording is bounded by the disk
+  space the browser gives the page, not the tab's memory; Save makes the .tif or .zip from those files.
+- **Viewer Record, straight to a file (Chrome, Edge):** "save to a file as recorded" asks for a .tif at Start and writes
+  the frames into it as they are made, with no storage quota; the TIFF's tags are written in front of them at the end.
+- **Long Records in strips no longer run out of memory:** a strip's height now counts the movie's blinks (they grow with
+  its length), the cached dyes of one strip are let go before the next, and a movie keeps one copy of its blinks instead
+  of up to four (a 1600 px, 1000-frame DNA-PAINT Record stopped with "out of memory" about a quarter of the way through).
+  A strip no longer holds all its fluorophores at once either: they are made as the strip is walked and let go after
+  (a 1600 px Record over dense cells, or a 5000 px one, ran out of memory in its first strip). Core ABI 21
+  (`isc_world_set_dye_cache_hard`); the webSMLM block's ABI is 21 (sync it into webSMLM).
+- **Movies in strips:** a movie whose field does not fit in memory, or has a side past 4096 px (up to 16384), renders
+  in strips of rows (all frames of one strip, then the next). The frames are those of the field rendered whole (blinks,
+  beads and the camera noise to the last bit; WideField and BrightField within rounding). cli `--strip-rows n`
+  (0: when needed, -1: never); `--estimate` reports the strips. A whole movie is unchanged.
+- **Viewer Record, a field of its own:** the Record box's field (W x H px, empty = the live field), centred on the
+  stage; the world view outlines it while the box is open. The illumination beam scales with the field (Beam FWHM is a
+  share of the field), which the box says before Start. Its settings file reproduces it in the cli.
 
 ## v0.1.0-rc23 (changes since v0.1.0-rc22)
 

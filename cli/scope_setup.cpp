@@ -168,6 +168,28 @@ void ExcitationBeamsJson(Json& j, const sim::Excitation& ex, int simType)
    j.KNum("angles", patterned ? set.angles : 1);
    j.KStr("order", sim::SimOrderNames()[static_cast<size_t>(set.order)]);
    j.KNum("period", patterned ? set.Period() : 1);
+   // The phase matrix in use: per state of the cycle (angle x phases + phase), each opposing pair's phase difference
+   // in degrees (the program's where none is given); the pairs as beam indices.
+   const std::vector<std::pair<int, int>> pairs = patterned ? sim::OpposingPairs(set) : std::vector<std::pair<int, int>>();
+   j.Key("phase_pairs");
+   j.Open('[');
+   for (const auto& pr : pairs)
+   {
+      const int ab[2] = { pr.first, pr.second };
+      j.Array(ab, 2);
+   }
+   j.Close(']');
+   j.Key("phase_matrix");
+   j.Open('[');
+   for (int s = 0; !pairs.empty() && s < std::max(1, set.Period()); ++s)
+   {
+      std::vector<double> row;
+      for (size_t k = 0; k < pairs.size(); ++k)
+         row.push_back(sim::PairPhaseDeg(set, pairs, s, static_cast<int>(k)));
+      j.Array(row.data(), row.size());
+   }
+   j.Close(']');
+   j.KBool("phase_matrix_given", patterned && !set.pairPhaseDeg.empty());
    j.KNum("frame0", static_cast<double>(es.frame));
    j.KNum("angle", patterned ? ex.State().light.angle : 0);
    j.KNum("phase", patterned ? ex.State().light.phase : 0);

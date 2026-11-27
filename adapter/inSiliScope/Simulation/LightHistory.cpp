@@ -172,8 +172,7 @@ bool MakeLightState(const ScopeSpec& spec, bool lightOn, LightState& out, std::s
 LightPose LightPoseOf(const ScopeSpec& spec, const ExcitationSpec& g)
 {
    unsigned W = 0, H = 0;
-   long N = 0;
-   ScopeMovieDims(spec, W, H, N);
+   ScopeSensorDims(spec, W, H);   // (a window: the light is the sensor's)
    const double um = ScopeSpecGet(spec, "pixel-nm") / 1000.0;
    const double x = ScopeSpecGet(spec, "x"), y = ScopeSpecGet(spec, "y");
    LightPose p;

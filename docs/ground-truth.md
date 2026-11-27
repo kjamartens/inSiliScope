@@ -25,6 +25,9 @@ chose it then), so the Save box has it sooner. All photons are expected values, 
 | `gt/voxelize.html` | Dye list | makes a stack at any voxel size from `dyes.csv` |
 | `open_in_napari.py` | always | opens the recording in napari ([below](#open-it-in-napari)) |
 
+Dye and blink positions lie on a 0.1 nm lattice (the simulation keeps each dye's position to 0.1 nm, at most 0.05 nm
+per axis from where its structure puts it).
+
 ### frames.csv
 
 | Column | Meaning |
@@ -38,7 +41,9 @@ chose it then), so the Save box has it sooner. All photons are expected values, 
 
 ### localizations.csv
 
-One row per blink per frame. A blink is listed when at least 300 of its photons (the Save box sets the threshold, the
+One row per blink per frame (in frame order; a large field rendered in strips of rows lists a frame's blinks strip by
+strip, so their order within a frame differs from a field rendered whole, the rows are the same). A blink is listed
+when at least 300 of its photons (the Save box sets the threshold, the
 cli `--gt-min`) land in the 500 × 500 nm square around it, its **core**. Counting the core rather than all photons keeps
 out-of-focus blinks that spread their light too thin to see. The core is computed from the finely sampled PSF, so it
 does not depend on the pixel size.

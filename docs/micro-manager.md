@@ -203,11 +203,11 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `ChamberHeightUm` | Advanced | 100 | 0 .. 1000 | Depth of the imager solution over the coverslip (um): the DNA-PAINT free-imager background is its column of light (epi: all of it; HILO: about the sheet; TIRF: about the penetration depth). |
 | `PatternPolarization` | Advanced | S | `S`, `P`, `Circular`, `LinearX`, `Unpolarized` | Every beam's polarization: S (across its plane of incidence: full fringe contrast; the lattice's x and y pairs then do not interfere, LatticeSIM3D's centre beam is linear diagonal), P, Circular, LinearX (the pupil field along the lab x axis) or Unpolarized (the mean of the S and P patterns). A Pattern pick sets S. |
 | `PatternAnchor` | Advanced | Focus | `Focus`, `Coverslip` | The plane the beams are in phase at, which the pattern's axial structure is fixed to: Focus (a grating or SLM conjugate to the focal plane: the fringes move with the focus and the sample moves through them, by the stage or the objective alike) or Coverslip (the fringes fixed to the sample: an illumination that does not move with the focus). The evanescent decay is from the coverslip either way. |
-| `PatternPhases` | Advanced | 0 | 0 .. 64 | Phase steps per orientation (0 = the type's: 3, 5, 9, 13). |
-| `PatternAngles` | Advanced | 0 | 0 .. 12 | Orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D and SIM3D, 1 for the lattices). |
+| `PatternPhases` | Advanced | 0 | 0 .. 64 | Phase steps per orientation (0 = the type's: 3, 5, 9, 13). A change sets PatternPhaseMatrix back to the program's. |
+| `PatternAngles` | Advanced | 0 | 0 .. 12 | Orientations per cycle, 180 / n degrees apart (0 = the type's: 3 for SIM2D and SIM3D, 1 for the lattices). A change sets PatternPhaseMatrix back to the program's. |
 | `PatternOrder` | Advanced | AngleMajor | `AngleMajor`, `PhaseMajor` | The frame program's order: AngleMajor (every phase of an orientation, then the next orientation) or PhaseMajor. |
 | `PatternAngle0Deg` | Advanced | 0 | -180 .. 180 | The first orientation, degrees from the x axis. |
-| `PatternPhase0` | Advanced | 0 | -100 .. 100 | Added to the phase index (fractional allowed): the pattern's starting phase. |
+| `PatternPhase0` | Advanced | 0 | -100 .. 100 | Added to the phase index (fractional allowed): the pattern's starting phase. Included in PatternPhaseMatrix's defaults; a typed matrix replaces it for the beam pairs. |
 | `PatternCentreAmp` | Advanced | 1 | 0 .. 10 | The centre beam's field amplitude over the side beams' (SIM3D, LatticeSIM3D; 1, an estimate). |
 | `SheetThicknessUm` | Advanced | 3 | 0.1 .. 50 | Pattern LightSheet: the sheet's thickness, FWHM across the beam (um; 3, an estimate). |
 | `SheetWidthUm` | Advanced | 0 | 0 .. 500 | Pattern LightSheet: the sheet's width along y, FWHM (um; 0 = the beam's, IlluminationFwhmPct). |
@@ -216,6 +216,7 @@ Laser engine and its shutter: line powers, beam profile, geometry.
 | `PatternState` | Advanced (read-only) | no pattern |  | The frame program's state the next taken frame has: 'angle a phase p, frame f of N' (read-only). |
 | `PatternPeriodNm` | Advanced (read-only) | -1 |  | The lateral fringe period of the pattern at the first label's main line (nm; the largest of several; -1 without a pattern) (read-only). |
 | `SpotRadiusUm` | Advanced (read-only) | 19.22916107 |  | The beam's spot in the back focal plane: the Gaussian spot's 1/e^2 radius (um) that makes the envelope of IlluminationFwhmPct at the strongest line (a Fourier pair through the objective's focal length) (read-only). |
+| `PatternPhaseMatrix` | Expert |  |  | The pattern's phases as the phase difference between opposing beams: one row per frame of the cycle (orientation a's phase p at row a x PatternPhases + p, whatever PatternOrder), rows separated by ';', and in each row one value per pair of opposing beams (the Beams rows at opposite positions: SIM2D and SIM3D the side pair; the lattices the x pair, then the y pair), in degrees: the first beam's phase minus its opposite's, which moves that pair's fringe by the same (a beam between them, SIM3D's centre, sees half). The pair's beams take +- half of it. Shows the type's program (SIM2D: 0; 240; 480; ... -- the fringe steps 2 / 3 of a period); typed values replace it (a calibrated SLM, a step error); the matrix must have the program's rows and pairs (set PatternPhases and PatternAngles first); empty goes back to the program, as does a Pattern pick. Example, SIM2D with the first orientation's third step 10 degrees short: 0; 240; 470; 0; 240; 480; 0; 240; 480 |
 | `PatternPhaseDriftTurnsPerSqrtSec` | Expert | 0 | 0 .. 10 | Each beam's phase takes a random walk: its RMS after 1 s (turns; per seed and frame, as the sample drift). 0 = none. |
 | `PatternPhaseDriftTurnsPerSec` | Expert | 0 | -100 .. 100 | Each beam's phase drifts at its phase step x this (turns/s): the pattern slides along its stepping direction. 0 = none. |
 | `Beams` | Expert | 0.95 0 0 0 0 1 0 -999 0 0 0 |  | Every beam of the illumination, one row per beam, rows separated by ';', columns separated by spaces: ux uy spot tiltX tiltY amp phase pol ellip phaseStep nm -- the position in the back focal plane (u units: 1 = the critical angle, beyond it evanescent), the spot's 1/e^2 radius in the pupil (um; 0 = from IlluminationFwhmPct: a Gaussian spot of radius w makes an envelope of 1/e^2 radius lambda f / (pi w), f = TubeLengthMm / Magnification), the bundle's entry tilt (degrees, two axes: the envelope's centre moves by f tan tilt), the field amplitude, the phase (turns), the polarization angle (degrees; 0 s, 90 p; below -180 unpolarized), the ellipticity phase (turns; 0.25 circular), the phase step per phase index (1 / PatternPhases turns) and the laser line the beam carries (nm; 0 = every line). Off shows its one beam; a Pattern its beams; an edit replaces them (Custom: the matrix alone). Example, a 2D SIM pair at 0.95: 0.95 0 0 0 0 1 0 0 0 1 0; -0.95 0 0 0 0 1 0 0 0 -1 0 |
@@ -285,9 +286,9 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearLamina_BoundTimeSec` | Advanced | 0.05 | 0.001 .. 100 | DNA-PAINT: mean time an imager stays bound to a docking site, s (exponential; half-time = 0.693 x this). A property of the docking/imager sequence, so of the target, not of the dye. |
 | `NuclearLamina_KonPerMolarPerSec` | Advanced | 1000000 | 0 .. 1000000000 | DNA-PAINT: imager association rate k_on, per molar per second; binding events per site per second = k_on x the imager concentration. |
 | `NuclearLamina_Binder` | Advanced | IgG2-PAINT | `Legacy`, `IgG2-STORM`, `IgG1-STORM`, `IgG2-PAINT`, `IgG1-PAINT`, `Nanobody`, `Nanobody-PAINT`, `SNAP-Halo`, `FP` | How the nuclear lamina' dye is attached: the probe (antibodies, nanobody, SNAP/Halo tag, FP fusion; with or without a DNA-PAINT docking strand) sets the dye's distance from the structure. Legacy: the built-in numbers before the linkage model. |
-| `CellDiameterMinUm` | Advanced | 25 | 5 .. 100 | Smallest cell diameter, um. |
-| `CellDiameterMaxUm` | Advanced | 35 | 5 .. 100 | Largest cell diameter, um. |
-| `Occupancy` | Advanced | 0.33 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
+| `CellDiameterMinUm` | Advanced | 20 | 5 .. 100 | Smallest cell diameter, um. |
+| `CellDiameterMaxUm` | Advanced | 30 | 5 .. 100 | Largest cell diameter, um. |
+| `Occupancy` | Advanced | 0.7 | 0.05 .. 1 | Fraction of the coverslip covered by cells. |
 | `MicrotubuleDensityPerUm2` | Advanced | 0.9 | 0 .. 2 | Microtubule density, per um^2 of cell. |
 | `NuclearPoreDensityPerUm2` | Advanced | 8 | 0 .. 30 | Nuclear pore complexes per um^2 of nuclear envelope, over the whole envelope (8; measured 5-8.6 in HeLa and U2OS nuclei; 0 = no pores, the target is off). |
 | `NuclearLaminaDensityPerUm2` | Advanced | 2000 | 100 .. 10000 | Nuclear lamina points per um^2 of nuclear envelope, uniform by area (2000, an estimate: a random stand-in for the lamin network). Unlabelled by default: NuclearLamina_Label turns it on. |
@@ -328,12 +329,12 @@ Specimen: a field of cells with their labelled structures.
 | `NuclearPoreRingSepNm` | Expert | 50 | 0 .. 150 | Distance between a pore's cytoplasmic and nucleoplasmic ring, nm. |
 | `NuclearPoreCornerSpreadNm` | Expert | 12 | 0 .. 30 | Diameter of the arc of 4 Nup96 at each of a ring's 8 corners, nm. |
 | `NuclearLaminaPoreExclusionNm` | Expert | 40 | 0 .. 300 | Diameter of the lamina-free disc around each nuclear pore's centre, nm (40). |
-| `PositionJitter` | Expert | 0.8 | 0.1 .. 1 | How far a cell centre may move from its packing block's centre, as a fraction of the block (a jittered grid). |
-| `CellElongationMin` | Expert | 0.5 | 0.1 .. 1 | Short-to-long axis ratio of a cell's footprint, minimum (1 = round). |
+| `PositionJitter` | Expert | 1 | 0.1 .. 1 | How far a cell centre may move from its packing block's centre, as a fraction of the block (a jittered grid). |
+| `CellElongationMin` | Expert | 0.8 | 0.1 .. 1 | Short-to-long axis ratio of a cell's footprint, minimum (1 = round). |
 | `CellElongationMax` | Expert | 1 | 0.1 .. 1 | Short-to-long axis ratio of a cell's footprint, maximum (1 = round). |
-| `CellBlobbiness` | Expert | 1.75 | 0 .. 4 | Amplitude of the large lobes of a cell's outline (0 = a smooth ellipse). |
-| `CellRoughness` | Expert | 0.15 | 0 .. 1 | Fine fractal wiggle of a cell's outline (harmonics 6-64), x the blobbiness; 0 = smooth lobes only. |
-| `CellFractalDim` | Expert | 1.35 | 1 .. 2 | Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2. |
+| `CellBlobbiness` | Expert | 0.6 | 0 .. 4 | Amplitude of the large lobes of a cell's outline (0 = a smooth ellipse). |
+| `CellRoughness` | Expert | 0.05 | 0 .. 1 | Fine fractal wiggle of a cell's outline (harmonics 6-64), x the blobbiness; 0 = smooth lobes only. |
+| `CellFractalDim` | Expert | 1.2 | 1 .. 2 | Fractal (box-counting) dimension of the outline's fine wiggle, 1 (smooth) to 2. |
 | `NucLongAxisMinUm` | Expert | 8 | 2 .. 30 | Long axis of the nucleus, minimum (um). |
 | `NucLongAxisMaxUm` | Expert | 12 | 2 .. 30 | Long axis of the nucleus, maximum (um). |
 | `NucAxisRatioMin` | Expert | 0.6 | 0.2 .. 1 | Short-to-long axis ratio of the nucleus footprint, minimum. |

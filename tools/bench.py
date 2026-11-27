@@ -41,7 +41,8 @@ def main():
             ts = []
             for _ in range(a.repeats):
                 cmd = [a.cli, "--out", os.path.join(d, "b.tif"), "--seed", "42"]
-                for k, v in opts.items():
+                # (the cell field the earlier numbers were measured on: the defaults until 2026-11-27)
+                for k, v in {**{"occupancy": 0.33, "cell-diam-min-um": 25, "cell-diam-max-um": 35, "p.jitter": 0.8, "p.cellElongMin": 0.5, "p.cellElongMax": 1, "p.cellBlob": 1.75, "p.cellRough": 0.15, "p.cellFractalDim": 1.35}, **opts}.items():
                     cmd += ["--" + k, str(v)]
                 t0 = time.perf_counter()
                 subprocess.run(cmd, check=True, capture_output=True)

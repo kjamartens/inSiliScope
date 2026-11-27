@@ -5,11 +5,15 @@
 //                                                                           (e.g. size=256 sim-type=SIM2D ...)
 // --xstep um [--xevery k] [--xfrom f]: the stage (x) still for f frames, then moves by um every k frames (one way).
 // --zstep: the focus moves by um every k frames (default 1), up and back (a focus scrub).
+// --chunk n: n frames per call (LiveScope::Frames: one movie, one events query; --frames counts the calls), ms per
+// frame of each call.
 //
 // Prints ms per frame (each, then the mean over frames 1.. and over the last cycle-worth); --dump writes every frame's
 // uint16 pixels one after another (to compare two builds); --hash prints a per-frame FNV-1a of the pixels.
 // ISC_TIMING=1 / ISC_THREADS=1 apply as for the cli.
 #include "LiveScope.h"
+#include "MemoryReport.h"
+#include "Timing.h"
 #include "ScopeMovie.h"
 
 #include <chrono>
@@ -28,7 +32,7 @@ int main(int argc, char** argv)
    std::string dump, text;
    bool hash = false;
    double zstep = 0.0, z0 = 0.5, xstep = 0.0, x0 = 0.0;
-   long zevery = 1, xevery = 1, xfrom = 0;
+   long zevery = 1, xevery = 1, xfrom = 0, chunk = 1;
    double paceMs = 0, prefetchUm = 0;   // --pace ms: a frame period; --prefetch um: its idle time spent warming
    for (int i = 1; i < argc; ++i)
    {
@@ -53,6 +57,8 @@ int main(int argc, char** argv)
          x0 = std::atof(argv[++i]);
       else if (a == "--xfrom" && i + 1 < argc)
          xfrom = std::atol(argv[++i]);
+      else if (a == "--chunk" && i + 1 < argc)
+         chunk = std::max(1L, std::atol(argv[++i]));
       else if (a == "--zevery" && i + 1 < argc)
          zevery = std::max(1L, std::atol(argv[++i]));
       else
@@ -88,12 +94,12 @@ int main(int argc, char** argv)
             return 2;
       }
       const auto t0 = std::chrono::steady_clock::now();
-      if (!live.Frame(spec, true, adu, info, err))
+      if (!(chunk > 1 ? live.Frames(spec, chunk, true, adu, info, err) : live.Frame(spec, true, adu, info, err)))
       {
          std::fprintf(stderr, "frame %ld: %s\n", f, err.c_str());
          return 1;
       }
-      ms.push_back(1000.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count());
+      ms.push_back(1000.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() / chunk);
       if (out)
          std::fwrite(adu.data(), sizeof(uint16_t), adu.size(), out);
       uint64_t h = 1469598103934665603ull;
@@ -107,7 +113,8 @@ int main(int argc, char** argv)
          live.Prefetch(spec, prefetchUm, paceMs - ms.back() - 2);
          pfMs = 1000.0 * std::chrono::duration<double>(std::chrono::steady_clock::now() - tp).count();
       }
-      std::printf("frame %3ld  %8.1f ms  (prefetch %5.1f ms)", f, ms.back(), pfMs);
+      std::printf(chunk > 1 ? "call  %3ld  %8.1f ms/frame (prefetch %5.1f ms)" : "frame %3ld  %8.1f ms  (prefetch %5.1f ms)", f,
+                  ms.back(), pfMs);
       if (hash)
          std::printf("  %016llx", static_cast<unsigned long long>(h));
       std::printf("\n");
@@ -121,6 +128,12 @@ int main(int argc, char** argv)
    double s2 = 0;
    for (size_t i = half; i < ms.size(); ++i)
       s2 += ms[i];
+   if (TimingPrinting())   // what the caches hold after the frames (ISC_MEMORY lines)
+   {
+      MemoryReport mem;
+      ScopeMemoryReport(mem);
+      mem.Log();
+   }
    std::printf("mean frames 1..%zu: %.1f ms; second half: %.1f ms\n", ms.size() - 1,
                ms.size() > 1 ? s / (ms.size() - 1) : 0.0, ms.size() > half ? s2 / (ms.size() - half) : 0.0);
    return 0;

@@ -261,8 +261,11 @@ public:
    // nodes per beam scale (the Gaussian's sigma, the FlatTop's edge), at most one per pixel and kCollectNodes per axis;
    // bilinear between them is within ~1 / (8 nodesPerScale^2) of the peak (3: ~1.4 %, the background's; 12: ~0.1 %,
    // the fluorescent slide's, whose whole image this is).
+   // rowY0, sensorH (2026-11-20): a window of a sensor of sensorH rows from row rowY0 (0: none): the node grid is the
+   // sensor's, the rows the window's (the windows of a sensor make its map).
    std::vector<double> ImagerMap(unsigned W, unsigned H, double um, double axisX, double axisY, double Hc,
-                                 const std::vector<ImagerSource>& imagers, double nodesPerScale = 3.0) const;
+                                 const std::vector<ImagerSource>& imagers, double nodesPerScale = 3.0,
+                                 unsigned rowY0 = 0, unsigned sensorH = 0) const;
    // TIRF's 1/e depth at lambdaNm; HILO's sheet thickness on the axis; -1 otherwise (nm). The outermost beam's.
    double DepthNm(double lambdaNm = 640) const;
    // TIRF's decay length at lambdaNm, um (the outermost beam's).

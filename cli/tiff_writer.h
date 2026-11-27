@@ -8,6 +8,10 @@
 // classic file that would pass 4 GB anyway is refused with a message, never written with wrapped offsets. File
 // positions are 64-bit (Windows' long is 32-bit: ftell stopped at 2 GB). Every page is flushed and checked, so a full
 // disk is reported at the page it hit (error()).
+//
+// A movie in strips (2026-11-20, docs/dev/LARGE_RECORDS.md): every frame's first rows come before any frame's next
+// ones. PageRows writes a page with its first rows and leaves the rest of its data a hole (the file's zeros), Rows
+// fills a page's later rows in place: once every row is written the file is the one Page writes, byte for byte.
 #pragma once
 
 #include <cerrno>
@@ -59,6 +63,27 @@ public:
    bool Page(const std::vector<float>& px, uint32_t w, uint32_t h, const std::string& desc) {
       return Write(px.data(), 4, 3, w, h, desc);
    }
+   // A 16-bit page of which only rows 0 .. rows - 1 are given (rows x w samples); Rows writes the others.
+   bool PageRows(const uint16_t* px, uint32_t rows, uint32_t w, uint32_t h, const std::string& desc) {
+      return Write(px, 2, 1, w, h, desc, static_cast<uint64_t>(rows < h ? rows : h) * w * 2);
+   }
+   // Rows y0 .. y0 + rows - 1 of page `page` (0-based, written by PageRows or Page), rows x the page's width samples.
+   bool Rows(uint64_t page, uint32_t y0, uint32_t rows, const uint16_t* px) {
+      if (!ok()) return false;
+      if (page >= pages_ || static_cast<uint64_t>(y0) + rows > pageH_[page]) {
+         error_ = "cannot write " + path_ + ": rows " + std::to_string(y0) + ".." + std::to_string(y0 + rows) + " of page " +
+                  std::to_string(page + 1) + " are not in it";
+         return false;
+      }
+      const uint64_t keep = end_, row = static_cast<uint64_t>(pageW_[page]) * 2;
+      errno = 0;
+      if (Seek64(f_, static_cast<int64_t>(dataOff_[page] + y0 * row)) != 0) { Fail("seeking"); return false; }
+      Put(px, static_cast<size_t>(rows * row));
+      end_ = keep;
+      if (Seek64(f_, static_cast<int64_t>(end_)) != 0) { Fail("seeking"); return false; }
+      if (std::fflush(f_) != 0 || std::ferror(f_)) { Fail("writing"); return false; }
+      return error_.empty();
+   }
    // Closes the file; false when the last bytes could not be written.
    bool Close() {
       if (!f_) return error_.empty();
@@ -95,9 +120,12 @@ private:
    template <class T> void PutLE(T v) { Put(&v, sizeof v); }   // (x86 / ARM / WebAssembly: little-endian)
 
    // bytes per sample 2 (uint16) or 4 (float32); sampleFormat 1 = unsigned, 3 = IEEE float.
-   bool Write(const void* px, uint32_t bytes, uint16_t sampleFormat, uint32_t w, uint32_t h, const std::string& desc) {
+   // given: the bytes of px written (the page's first rows), the rest left a hole; ~0: the whole page.
+   bool Write(const void* px, uint32_t bytes, uint16_t sampleFormat, uint32_t w, uint32_t h, const std::string& desc,
+              uint64_t given = ~0ull) {
       if (!ok()) return false;
       const uint64_t pageBytes = static_cast<uint64_t>(w) * h * bytes;
+      if (given > pageBytes) given = pageBytes;
       const uint32_t descLen = desc.empty() ? 0 : static_cast<uint32_t>(desc.size()) + 1;
       if (!big_ && end_ + pageBytes + descLen + 2 + 2 + 11 * 12 + 4 > kClassicLimit) {
          error_ = "cannot write " + path_ + ": page " + std::to_string(pages_ + 1) + " would pass the 4 GB of a classic TIFF "
@@ -106,7 +134,14 @@ private:
       }
       const uint64_t dataOff = end_;
       errno = 0;
-      Put(px, static_cast<size_t>(pageBytes));
+      Put(px, static_cast<size_t>(given));
+      if (given < pageBytes) {
+         end_ += pageBytes - given;   // (a hole: Rows fills it)
+         if (error_.empty() && Seek64(f_, static_cast<int64_t>(end_)) != 0) { Fail("seeking"); return false; }
+      }
+      dataOff_.push_back(dataOff);
+      pageW_.push_back(w);
+      pageH_.push_back(h);
       uint64_t descOff = 0;
       if (descLen) { descOff = end_; Put(desc.c_str(), descLen); }
       if (end_ & 1) PutLE<uint8_t>(0);
@@ -159,4 +194,6 @@ private:
    std::string path_, error_;
    bool big_ = false;
    uint64_t prevIfdLink_ = 4, end_ = 0, pages_ = 0;
+   std::vector<uint64_t> dataOff_;   // each page's data (Rows)
+   std::vector<uint32_t> pageW_, pageH_;
 };

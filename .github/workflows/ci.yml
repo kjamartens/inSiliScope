@@ -44,7 +44,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - run: node tests/web/scene_core_check.mjs && node tests/web/scene_compute_check.mjs && node tests/web/anim_unit.mjs && node tests/web/encode_unit.mjs && node tests/web/mm_config_check.mjs && node tests/web/analytics_unit.mjs && node tests/web/settings_unit.mjs && node tests/web/mm_cfg_unit.mjs && node tests/web/gt_unit.mjs && node tests/web/zip_unit.mjs && node tests/web/tiff_unit.mjs && node tests/web/design_lint.mjs && node tests/web/bf_split_check.mjs
+      - run: node tests/web/scene_core_check.mjs && node tests/web/scene_compute_check.mjs && node tests/web/anim_unit.mjs && node tests/web/encode_unit.mjs && node tests/web/mm_config_check.mjs && node tests/web/analytics_unit.mjs && node tests/web/settings_unit.mjs && node tests/web/mm_cfg_unit.mjs && node tests/web/gt_unit.mjs && node tests/web/zip_unit.mjs && node tests/web/tiff_unit.mjs && node tests/web/mda_unit.mjs && node tests/web/strips_unit.mjs && node tests/web/design_lint.mjs && node tests/web/bf_split_check.mjs
 
   core-native:
     runs-on: windows-latest
@@ -105,3 +105,7 @@ jobs:
           cmake -S . -B build/native -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native
           ctest --test-dir build/native -j 8 --output-on-failure
+      - name: Remote server (its jobs = the viewer's module byte for byte; the launcher)
+        run: |
+          node tests/remote/server_check.mjs --server build/native/cli/insiliscope_server
+          python3 tests/remote/launcher_check.py --bin-dir build/native/cli

@@ -4,6 +4,7 @@
 //
 // LICENSE: BSD-3-Clause (see LICENSE at the repository root)
 
+#include "test_field.h"
 #include "BrightfieldRender.h"
 #include "Drift.h"
 #include "SampleSource.h"
@@ -92,7 +93,8 @@ SampleSettings World(double occupancy)
 {
    SampleSettings cf;
    cf.seed = 42u ^ 0x43454C4Cu;
-   cf.params = { { "density", occupancy } };
+   cf.params = testfield::Params();   // (the field the checks were written on)
+   cf.params.push_back({ "density", occupancy });
    return cf;
 }
 

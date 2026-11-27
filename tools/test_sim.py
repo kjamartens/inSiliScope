@@ -203,6 +203,44 @@ def main():
     assert 0.9 < np.median(ratio) < 1.1 and np.std(ratio) < 0.1, f"cycle mean: ratio {np.median(ratio):.3f} +- {np.std(ratio):.3f}"
     print(f"Cycle OK: the 9 SIM frames summed = 2 x 9 x the Off frames per block ({np.median(ratio):.3f} +- {np.std(ratio):.3f})")
 
+    # The phase matrix (Expert, 2026-11-23): per frame of the cycle each opposing beam pair's phase difference in
+    # degrees, the program's by default (SIM2D: 0 240 480); frame 2's difference set to 360 instead of 480 moves its
+    # fringe by 120 degrees and leaves the others; another shape is refused; another number of phases, an empty text and
+    # a Pattern pick go back to the program; the lattice's x and y pairs.
+    prog = "0; 240; 480; 0; 240; 480; 0; 240; 480"
+    assert core.getProperty("Lasers", "PatternPhaseMatrix") == prog, core.getProperty("Lasers", "PatternPhaseMatrix")
+    core.setProperty("Lasers", "PatternPhaseMatrix", "0; 240; 360; 0; 240; 480; 0; 240; 480")
+    assert core.getProperty("Lasers", "PatternPhaseMatrix") == "0; 240; 360; 0; 240; 480; 0; 240; 480"
+    m = sequence(core, 9)
+    moved = []
+    for k in range(9):
+        _, ph, _, _ = fringe(m[k] - 2 * off_frames[k] + dark, period_px, 60 * (k // 3))
+        moved.append(wrap(ph - phases[k]))
+    others = max(abs(moved[k]) for k in range(9) if k != 2)
+    assert abs(abs(moved[2]) - 2 * np.pi / 3) < 0.6 and others < 0.4, f"the phase matrix's moves {np.round(moved, 2)} (frame 2: 2.09)"
+    try:
+        core.setProperty("Lasers", "PatternPhaseMatrix", "0 1 2; 0 1 2; 0 1 2")
+        sys.exit("a phase matrix of another shape was accepted")
+    except Exception:
+        pass
+    assert core.getProperty("Lasers", "PatternPhaseMatrix").startswith("0; 240; 360;"), "a refused matrix keeps the last"
+    core.setProperty("Lasers", "PatternPhases", "4")
+    assert core.getProperty("Lasers", "PatternPhaseMatrix") == "; ".join(["0; 180; 360; 540"] * 3), core.getProperty("Lasers", "PatternPhaseMatrix")
+    core.setProperty("Lasers", "PatternPhases", "0")
+    core.setProperty("Lasers", "PatternPhaseMatrix", "0; 240; 360; 0; 240; 480; 0; 240; 480")
+    core.setProperty("Lasers", "PatternPhaseMatrix", "")
+    assert core.getProperty("Lasers", "PatternPhaseMatrix") == prog, "an empty text: the program"
+    core.setProperty("Lasers", "Pattern", "LatticeSIM3D")
+    rows = core.getProperty("Lasers", "PatternPhaseMatrix").split("; ")
+    assert len(rows) == 13 and rows[1] == "110.769 166.154", rows[:3]
+    rows[1] = "110.769 170"
+    core.setProperty("Lasers", "PatternPhaseMatrix", "; ".join(rows))
+    core.setProperty("Lasers", "Pattern", "SIM2D")
+    assert core.getProperty("Lasers", "PatternPhaseMatrix") == prog, "a Pattern pick goes back to the program"
+    print(f"Phase matrix OK: frame 2's pair difference 360 (480) moved its fringe {abs(moved[2]):.2f} rad (2.09), the "
+          f"others within {others:.2f}; another shape refused; Phases 4, empty and a Pattern pick give the program; "
+          "LatticeSIM3D 13 rows x 2 pairs")
+
     # The matrix overrides the radius: both beams at 0.3 (a wider fringe) change the frame.
     core.setProperty("Lasers", "Pattern", "SIM2D")
     core.setProperty("Lasers", "BfpPosition", "0.5")
